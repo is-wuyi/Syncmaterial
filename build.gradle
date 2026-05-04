@@ -1,0 +1,52 @@
+// Gradle settings for SyncMaterial
+plugins {
+    id 'fabric-loom' version '1.14.10'
+}
+
+version = "1.21.7-0.1.0-alpha.1"
+group = "com.syncmaterial"
+
+repositories {
+    // 核心：Fabric 官方仓库（必须放第一个）
+    maven { url "https://maven.fabricmc.net/" }
+    mavenCentral()
+    maven { url "https://maven.meteordev.org/releases" }
+    maven { url "https://maven.architectury.dev/" }
+    maven { url "https://www.cursemaven.com" }
+    maven { url "https://api.modrinth.com/maven" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.7"
+    mappings "net.fabricmc:yarn:1.21.7+build.1:v2"
+    modImplementation "net.fabricmc:fabric-loader:0.16.13"
+
+    // ✅ 修复：MC 1.21.7 官方正版 Fabric API
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.129.0+1.21.7"
+
+    // MaLiLib for GUI classes (compile-time only)
+    modCompileOnly "maven.modrinth:malilib:0.25.7"
+
+    // Litematica for Material List UI (client-side required)
+    modImplementation "maven.modrinth:litematica:0.23.6"
+
+    // SQLite 数据库驱动 - 包含在模组 jar 中
+    include "org.xerial:sqlite-jdbc:3.45.1.0"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}

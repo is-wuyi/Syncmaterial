@@ -1,0 +1,33 @@
+# Dependencies (don't commit)
+.关于本项目的依赖模组的源代码/
+lib/
+
+# Build output
+build/
+bin/
+.gradle/
+
+# IDE
+.vscode/
+.settings/
+.idea/
+.classpath
+.project
+.vscodeignore
+
+# Local dev data
+.kilo/
+.kilocode/
+.opencode/
+opencode.json
+AGENTS.md
+
+# Test runs
+run/
+
+# Temp files
+*.log
+material_list_2026-05-02_16.25.46.txt
+
+WantToDo.md
+HANDOVER_TO_OPENCODE.md

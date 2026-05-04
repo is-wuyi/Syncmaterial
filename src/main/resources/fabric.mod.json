@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "syncmaterial",
+  "version": "${version}",
+  "name": "SyncMaterial",
+  "description": "An enhancement mod for Litematica and Syncmatica to provide material list statistics.",
+  "authors": [
+    "Kilo"
+  ],
+  "contact": {
+    "homepage": "https://github.com/Kilo-Org/syncmaterial"
+  },
+  "license": "MIT",
+  "icon": "assets/syncmaterial/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "net.syncmaterial.syncmaterial.SyncMaterial"
+    ],
+    "client": [
+      "net.syncmaterial.syncmaterial.client.SyncMaterialClient"
+    ]
+  },
+  "mixins": [
+    "syncmaterial.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "~1.21.7",
+    "fabric-api": "*"
+  },
+  "recommends": {
+    "litematica": ">=0.23.5",
+    "syncmatica": ">=0.3.15"
+  }
+}
