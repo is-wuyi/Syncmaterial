@@ -17,7 +17,18 @@ public class PlacementsUtil
             return name;
         }
 
-        Path configDir = Path.of(System.getProperty("user.home"), ".minecraft", "config", "syncmatica");
+        // 尝试使用 Fabric Loader 获取配置目录
+        Path configDir;
+        try
+        {
+            configDir = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("syncmatica");
+        }
+        catch (Exception e)
+        {
+            // 如果 Fabric API 不可用，使用默认路径
+            configDir = Path.of(System.getProperty("user.home"), ".minecraft", "config", "syncmatica");
+        }
+
         Path placementsFile = configDir.resolve("placements.json");
 
         if (!Files.exists(placementsFile))

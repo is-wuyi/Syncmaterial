@@ -149,6 +149,23 @@ public class SchematicDatabase {
     }
 
     /**
+     * 执行查询并使用Consumer处理结果（自动管理资源）
+     */
+    public void executeQueryAndProcess(String sql, ResultSetConsumer consumer, Object... params) throws SQLException {
+        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+            setParameters(stmt, params);
+            try (ResultSet rs = stmt.executeQuery()) {
+                consumer.accept(rs);
+            }
+        }
+    }
+
+    @FunctionalInterface
+    public interface ResultSetConsumer {
+        void accept(ResultSet rs) throws SQLException;
+    }
+
+    /**
      * 设置PreparedStatement参数
      */
     private void setParameters(PreparedStatement stmt, Object... params) throws SQLException {
@@ -175,17 +192,15 @@ public class SchematicDatabase {
      * 获取数据库统计信息
      */
     public String getStats() {
+        final int[] counts = new int[2];
         try {
-            ResultSet rs = executeQuery("SELECT COUNT(*) as schematics FROM schematics");
-            int schematicCount = rs.getInt("schematics");
-            rs.close();
-
-            rs = executeQuery("SELECT COUNT(*) as entries FROM material_entries");
-            int entryCount = rs.getInt("entries");
-            rs.close();
-
-            return String.format("原理图: %d, 材料条目: %d", schematicCount, entryCount);
-
+            executeQueryAndProcess("SELECT COUNT(*) as schematics FROM schematics", rs -> {
+                if (rs.next()) counts[0] = rs.getInt("schematics");
+            });
+            executeQueryAndProcess("SELECT COUNT(*) as entries FROM material_entries", rs -> {
+                if (rs.next()) counts[1] = rs.getInt("entries");
+            });
+            return String.format("原理图: %d, 材料条目: %d", counts[0], counts[1]);
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("获取数据库统计信息失败", e);
             return "统计信息获取失败";

@@ -14,6 +14,8 @@
 
 一款 Minecraft Fabric 模组，用于激活 Syncmatica 菜单中的「材料清单」按钮，显示服务器共享原理图的材料需求。
 
+> **注意：** 本项目为 Vibe Coding 产物，主要通过 AI 辅助编程开发。使用时可能出现意想不到的 bug，本人深知这点并将持续监督代码质量，也欢迎大家提出问题与 PR。
+
 ## 依赖
 
 - Minecraft 1.21.7
@@ -42,7 +44,7 @@
 ./gradlew build
 ```
 
-输出：`build/libs/Syncmaterial-1-1.0.0.jar`
+输出：`build/libs/Syncmaterial-1-1.21.7-0.1.0-alpha.2.jar`
 
 ## 许可证
 

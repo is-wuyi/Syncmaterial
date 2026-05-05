@@ -14,6 +14,8 @@
 
 A Minecraft Fabric mod that activates the "Material List" button in Syncmatica menu to display material requirements for server-shared schematics.
 
+> **Note:** This project is a Vibe Coding product, developed primarily through AI-assisted programming. Unexpected bugs may occur during use. I am well aware of this and will continue to monitor code quality. Issues and PRs are welcome.
+
 ## Requirements
 
 - Minecraft 1.21.7
@@ -42,7 +44,7 @@ This mod requires **BOTH server and client** to have the mod installed.
 ./gradlew build
 ```
 
-Output: `build/libs/Syncmaterial-1-1.0.0.jar`
+Output: `build/libs/Syncmaterial-1-1.21.7-0.1.0-alpha.2.jar`
 
 ## License
 

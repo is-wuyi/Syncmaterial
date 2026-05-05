@@ -20,14 +20,13 @@ bin/
 .kilocode/
 .opencode/
 opencode.json
-AGENTS.md
 
 # Test runs
 run/
 
 # Temp files
 *.log
-material_list_2026-05-02_16.25.46.txt
-
+material_list_*.txt
+CODE_REVIEW.md
 WantToDo.md
 HANDOVER_TO_OPENCODE.md

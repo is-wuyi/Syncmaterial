@@ -177,15 +177,16 @@ public class SchematicFolderWatcher {
             
             for (String removedHash : removedHashes) {
                 // 根据 hash 查找对应的 schematic id
-                var results = database.executeQuery(
+                try (var results = database.executeQuery(
                     "SELECT id FROM schematics WHERE file_path LIKE ?",
                     "%" + removedHash + "%"
-                );
-                if (results.next()) {
-                    String schematicId = results.getString("id");
-                    database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
-                    database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
-                    SyncMaterial.LOGGER.info("已删除原理图材料记录: {} (hash: {})", schematicId, removedHash);
+                )) {
+                    if (results.next()) {
+                        String schematicId = results.getString("id");
+                        database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
+                        database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
+                        SyncMaterial.LOGGER.info("已删除原理图材料记录: {} (hash: {})", schematicId, removedHash);
+                    }
                 }
                 processedHashes.remove(removedHash);
             }
@@ -196,8 +197,7 @@ public class SchematicFolderWatcher {
     }
 
     private Path findLitematicFile(String hash) {
-        try {
-            var dir = Files.list(syncmaticsRootFolder);
+        try (var dir = Files.list(syncmaticsRootFolder)) {
             for (Path file : dir.toList()) {
                 String name = file.getFileName().toString();
                 if (name.startsWith(hash) && name.endsWith(".litematic")) {

@@ -31,27 +31,29 @@ public class DatabaseQueryService {
                 schematicId
             );
 
-            while (rs.next()) {
-                String itemId = rs.getString("item_id");
-                int count = rs.getInt("count");
+            try {
+                while (rs.next()) {
+                    String itemId = rs.getString("item_id");
+                    int count = rs.getInt("count");
 
-                if (itemId == null || itemId.isEmpty()) {
-                    continue;
-                }
+                    if (itemId == null || itemId.isEmpty()) {
+                        continue;
+                    }
 
-                var itemRegistry = net.minecraft.registry.Registries.ITEM;
-                var id = net.minecraft.util.Identifier.of(itemId);
-                var item = itemRegistry.get(id);
-                
-                if (item != null && item != net.minecraft.item.Items.AIR) {
-                    var stack = new net.minecraft.item.ItemStack(item, count);
-                    materials.add(new MaterialEntry(stack, count));
-                } else {
-                    SyncMaterial.LOGGER.warn("未找到物品: {}", itemId);
+                    var itemRegistry = net.minecraft.registry.Registries.ITEM;
+                    var id = net.minecraft.util.Identifier.of(itemId);
+                    var item = itemRegistry.get(id);
+                    
+                    if (item != null && item != net.minecraft.item.Items.AIR) {
+                        var stack = new net.minecraft.item.ItemStack(item, count);
+                        materials.add(new MaterialEntry(stack, count));
+                    } else {
+                        SyncMaterial.LOGGER.warn("未找到物品: {}", itemId);
+                    }
                 }
+            } finally {
+                rs.close(); // 关闭 ResultSet，Statement 会随连接关闭
             }
-
-            rs.close();
 
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("查询材料统计失败: {}", schematicId, e);
@@ -65,16 +67,11 @@ public class DatabaseQueryService {
      * 检查原理图是否存在于数据库中
      */
     public boolean schematicExists(String schematicId) {
-        try {
-            ResultSet rs = database.executeQuery(
+        try (ResultSet rs = database.executeQuery(
                 "SELECT COUNT(*) as count FROM schematics WHERE id = ?",
                 schematicId
-            );
-
-            boolean exists = rs.getInt("count") > 0;
-            rs.close();
-            return exists;
-
+        )) {
+            return rs.next() && rs.getInt("count") > 0;
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("检查原理图存在性失败: {}", schematicId, e);
             return false;
@@ -85,25 +82,18 @@ public class DatabaseQueryService {
      * 获取原理图的基本信息
      */
     public SchematicInfo getSchematicInfo(String schematicId) {
-        try {
-            ResultSet rs = database.executeQuery(
+        try (ResultSet rs = database.executeQuery(
                 "SELECT name, file_path, uploaded_by, created_at FROM schematics WHERE id = ?",
                 schematicId
-            );
-
+        )) {
             if (rs.next()) {
                 String name = rs.getString("name");
                 String filePath = rs.getString("file_path");
                 String uploadedBy = rs.getString("uploaded_by");
                 long createdAt = rs.getLong("created_at");
-
-                rs.close();
                 return new SchematicInfo(schematicId, name, filePath, uploadedBy, createdAt);
             }
-
-            rs.close();
             return null;
-
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("获取原理图信息失败: {}", schematicId, e);
             return null;
@@ -116,15 +106,10 @@ public class DatabaseQueryService {
     public List<String> getAllSchematicIds() {
         List<String> ids = new ArrayList<>();
 
-        try {
-            ResultSet rs = database.executeQuery("SELECT id FROM schematics ORDER BY created_at DESC");
-
+        try (ResultSet rs = database.executeQuery("SELECT id FROM schematics ORDER BY created_at DESC")) {
             while (rs.next()) {
                 ids.add(rs.getString("id"));
             }
-
-            rs.close();
-
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("获取所有原理图ID失败", e);
             return List.of();

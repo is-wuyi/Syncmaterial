@@ -3,8 +3,8 @@ plugins {
     id 'fabric-loom' version '1.14.10'
 }
 
-version = "1.21.7-0.1.0-alpha.1"
-group = "com.syncmaterial"
+version = "1.21.7-0.1.0-alpha.2"
+group = "net.syncmaterial"
 
 repositories {
     // 核心：Fabric 官方仓库（必须放第一个）

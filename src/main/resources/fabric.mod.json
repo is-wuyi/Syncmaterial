@@ -10,7 +10,7 @@
   "contact": {
     "homepage": "https://github.com/Kilo-Org/syncmaterial"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "icon": "assets/syncmaterial/icon.png",
   "environment": "*",
   "entrypoints": {
