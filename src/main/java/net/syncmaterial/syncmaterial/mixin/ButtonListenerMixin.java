@@ -26,7 +26,7 @@ public class ButtonListenerMixin {
     )
     private void handleMaterialButtonClick(fi.dy.masa.malilib.gui.button.ButtonBase button, int arg1, CallbackInfo ci) {
         try {
-            java.lang.reflect.Field typeField = this.getClass().getDeclaredField("type");
+            java.lang.reflect.Field typeField = ((Object) this).getClass().getDeclaredField("type");
             typeField.setAccessible(true);
             Object type = typeField.get(this);
 
@@ -34,7 +34,7 @@ public class ButtonListenerMixin {
                 MinecraftClient client = MinecraftClient.getInstance();
                 if (client.player != null) {
                     try {
-                        java.lang.reflect.Field placementField = this.getClass().getDeclaredField("placement");
+                        java.lang.reflect.Field placementField = ((Object) this).getClass().getDeclaredField("placement");
                         placementField.setAccessible(true);
                         Object widget = placementField.get(this);
 
