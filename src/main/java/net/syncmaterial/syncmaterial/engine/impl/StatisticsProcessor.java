@@ -115,12 +115,7 @@ public class StatisticsProcessor {
                 if (teNbt.contains("Items")) {
                     NbtElement itemsElement = teNbt.get("Items");
                     if (itemsElement instanceof NbtList itemsList) {
-                        for (int i = 0; i < itemsList.size(); i++) {
-                            NbtElement itemElement = itemsList.get(i);
-                            if (itemElement instanceof NbtCompound itemNbt) {
-                                // TODO: 容器物品处理
-                            }
-                        }
+                        // 容器内物品不做统计
                     }
                 }
             }

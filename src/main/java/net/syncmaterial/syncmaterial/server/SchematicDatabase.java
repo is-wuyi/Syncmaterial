@@ -51,7 +51,6 @@ public class SchematicDatabase {
      * 获取数据库文件路径
      */
     private String getDatabasePath() {
-        // TODO: 从配置读取数据库路径，默认为服务端目录下的syncmaterial.db
         File serverDir = new File(".");
         return new File(serverDir, DB_FILE).getAbsolutePath();
     }

@@ -177,13 +177,4 @@ public class SchematicUploadListener implements Consumer<Object> {
         }
     }
 
-    /**
-     * 注册到Syncmatica的事件系统
-     * TODO: 实现具体的Syncmatica事件监听
-     */
-    public void registerEventListeners() {
-        // 这里需要监听Syncmatica的原理图上传事件
-        // 暂时作为占位符，等待实现具体的Mixin或事件监听
-        SyncMaterial.LOGGER.info("原理图上传监听器已注册");
-    }
 }
