@@ -22,6 +22,9 @@ public class LitematicaMaterialListAdapter
 
         updateCountMissing(materialList.getMaterialsAll());
 
+        // 重新计算汇总值，更新底部状态栏的缺失/完成百分比
+        materialList.updateCounts();
+
         return materialList;
     }
 
