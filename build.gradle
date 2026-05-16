@@ -3,7 +3,7 @@ plugins {
     id 'fabric-loom' version '1.14.10'
 }
 
-version = "1.21.7-0.1.0-alpha.4"
+version = "1.21.7-0.2.0-alpha.1"
 group = "net.syncmaterial"
 
 repositories {
@@ -27,8 +27,8 @@ dependencies {
     // MaLiLib for GUI classes (compile-time only)
     modCompileOnly "maven.modrinth:malilib:0.25.7"
 
-    // Litematica for Material List UI (client-side required)
-    modImplementation "maven.modrinth:litematica:0.23.6"
+    // Litematica for reference (compile-time only, not required at runtime)
+    modCompileOnly "maven.modrinth:litematica:0.23.6"
 
     // SQLite 数据库驱动 - 包含在模组 jar 中
     include "org.xerial:sqlite-jdbc:3.45.1.0"
