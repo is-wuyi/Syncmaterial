@@ -61,8 +61,4 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
         return new WidgetMaterialListEntry(x, y, this.browserEntryWidth, this.browserEntryHeight, isOdd,
                 this.gui.getMaterialList(), entry, listIndex, this);
     }
-
-    public void refreshEntries() {
-        this.refreshEntries();
-    }
 }
