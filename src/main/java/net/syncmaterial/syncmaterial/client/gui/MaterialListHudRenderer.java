@@ -91,7 +91,8 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             MaterialListEntry entry = list.get(i);
             maxTextLength = Math.max(maxTextLength, font.getWidth(entry.getStack().getName().getString()));
             int count = entry.getCountMissing() - entry.getCountAvailable();
-            String strCount = GuiBase.TXT_RED + (count > 0 ? String.valueOf(count) : "0") + GuiBase.TXT_RST;
+            if (count < 0) count = 0;
+            String strCount = GuiBase.TXT_RED + this.getFormattedCountString(count, entry.getStack().getMaxCount()) + GuiBase.TXT_RST;
             maxCountLength = Math.max(maxCountLength, font.getWidth(strCount));
         }
 
@@ -136,7 +137,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             String text = entry.getStack().getName().getString();
             int count = entry.getCountMissing() - entry.getCountAvailable();
             if (count < 0) count = 0;
-            String strCount = GuiBase.TXT_RED + String.valueOf(count) + GuiBase.TXT_RST;
+            String strCount = this.getFormattedCountString(count, entry.getStack().getMaxCount());
             int cntLen = font.getWidth(strCount);
             int cntPosX = posX + maxLineLength - cntLen - 2;
 
@@ -146,5 +147,23 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         return contentHeight;
+    }
+
+    protected String getFormattedCountString(int count, int maxStackSize) {
+        int stacks = count / maxStackSize;
+        int remainder = count % maxStackSize;
+        double boxCount = (double) count / (27D * maxStackSize);
+
+        if (count > maxStackSize) {
+            if (boxCount >= 1.0) {
+                return String.format("%d (%.2f %s)", count, boxCount, StringUtils.translate("litematica.gui.label.material_list.abbr.shulker_box"));
+            } else if (remainder > 0) {
+                return String.format("%d (%d x %d + %d)", count, stacks, maxStackSize, remainder);
+            } else {
+                return String.format("%d (%d x %d)", count, stacks, maxStackSize);
+            }
+        } else {
+            return String.format("%d", count);
+        }
     }
 }
