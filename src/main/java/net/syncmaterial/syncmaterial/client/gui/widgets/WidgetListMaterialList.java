@@ -13,9 +13,7 @@ import net.minecraft.util.Identifier;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListSorter;
-import fi.dy.masa.malilib.gui.LeftRight;
 import fi.dy.masa.malilib.gui.widgets.WidgetListBase;
-import fi.dy.masa.malilib.gui.widgets.WidgetSearchBar;
 
 public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, WidgetMaterialListEntry>
 {
@@ -31,8 +29,6 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
 
         this.browserEntryHeight = 22;
         this.gui = parent;
-        this.widgetSearchBar = new WidgetSearchBar(x + 2, y + 8, width - 16, 14, 0, null, LeftRight.RIGHT);
-        this.widgetSearchBar.setZLevel(1);
         this.sorter = new MaterialListSorter(parent.getMaterialList());
         this.shouldSortList = true;
     }
