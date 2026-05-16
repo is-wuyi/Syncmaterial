@@ -4,7 +4,7 @@
 
 **项目名称**: SyncMaterial  
 **目标环境**: Minecraft 1.21.7, Fabric Loader  
-**核心功能**: 增强 Litematica 和 Syncmatica，提供服务器共享原理图的材料统计功能。玩家可以从服务端获取任意共享原理图的材料清单，并在客户端查看需要的材料数量。
+**核心功能**: 增强 Litematica 和 Syncmatica，提供服务器共享原理图的材料统计功能，以及团队协作收集材料。
 
 ## 技术栈
 
@@ -19,9 +19,9 @@
 |------|------|------|
 | Minecraft | 1.21.7 | 游戏本体 |
 | Fabric Loader | 0.16.13 | 模组加载器 |
-| Litematica | 0.23.6 | 材料清单 UI |
 | MaLiLib | 0.25.7 | GUI 组件库 |
 | SQLite JDBC | 3.45.1.0 | 数据库驱动 |
+| Litematica | 0.23.6 | 运行时必需（modCompileOnly） |
 
 ## 项目结构
 
@@ -29,35 +29,44 @@
 src/main/java/net/syncmaterial/syncmaterial/
 ├── SyncMaterial.java                    # 模组入口类
 ├── api/
-│   ├── MaterialEntry.java               # 材料条目数据结构
-│   └── MaterialStatisticsEngine.java    # 材料统计引擎接口
+│   └── MaterialEntry.java               # 材料条目数据结构
 ├── client/
 │   ├── SyncMaterialClient.java           # 客户端入口
-│   └── gui/
-│       └── LitematicaMaterialListAdapter.java  # Litematica UI 适配器
+│   ├── gui/                              # 独立 UI（不依赖 Litematica 运行时）
+│   │   ├── GuiMaterialList.java          # 材料清单 GUI 主类
+│   │   ├── SyncMaterialList.java         # 数据适配（MaterialEntry → MaterialListEntry）
+│   │   ├── MaterialListBase.java         # 材料列表基类
+│   │   ├── MaterialListEntry.java        # 列表条目数据类
+│   │   ├── MaterialListSorter.java       # 排序器
+│   │   ├── MaterialListUtils.java        # 工具类（背包检测、数据转换）
+│   │   ├── MaterialListHudRenderer.java  # HUD 渲染器
+│   │   └── widgets/
+│   │       ├── WidgetListMaterialList.java   # 材料列表 widget
+│   │       └── WidgetMaterialListEntry.java  # 材料条目 widget
+│   └── infohud/
+│       ├── IInfoHudRenderer.java         # HUD 渲染接口
+│       └── RenderPhase.java              # 渲染阶段枚举
 ├── server/
 │   ├── SchematicDatabase.java            # SQLite 数据库
 │   ├── DatabaseQueryService.java         # 数据库查询服务
 │   ├── SchematicFolderWatcher.java       # 原理图文件夹监控
 │   ├── SchematicUploadListener.java      # 原理图上传监听
-│   ├── PlacementsUtil.java               # placements.json 工具
-│   └── ...
+│   └── PlacementsUtil.java               # placements.json 工具
 ├── network/
 │   ├── ModNetworkHandler.java            # 服务端网络处理
 │   ├── ModNetworkHandlerClient.java      # 客户端网络处理
 │   ├── MaterialStatsRequestC2SPacket.java   # 请求包
 │   ├── MaterialStatsResponseS2CPacket.java  # 响应包
-│   └── ...
+│   └── ModPackets.java                   # 包 ID 常量
 ├── engine/
-│   ├── DefaultMaterialStatisticsEngine.java  # 统计引擎实现
 │   ├── LitematicaParser.java             # Litematica 文件解析器
 │   ├── AbstractLitematicaParser.java     # 解析器基类
 │   └── impl/
-│       ├── StatisticsProcessor.java      # 统计处理器
-│       ├── DefaultLitematicaParser.java  # 默认解析器
-│       └── ...
+│       ├── DefaultMaterialStatisticsEngine.java
+│       ├── StatisticsProcessor.java
+│       └── DefaultLitematicaParser.java
 ├── mixin/
-│   ├── WidgetSyncmaticaServerPlacementEntryMixin.java  # 按钮注入
+│   ├── WidgetSyncmaticaServerPlacementEntryMixin.java
 │   └── SyncmaticaIntegrationMixin.java
 └── config/
     └── ModConfig.java
@@ -69,62 +78,65 @@ src/main/java/net/syncmaterial/syncmaterial/
 
 1. `SchematicFolderWatcher` 监控 `syncmatica/placements.json` 文件变化
 2. 检测到新的原理图时，调用 `LitematicaParser` 解析 `.litematic` 文件
-3. 统计所有方块需求，存入 SQLite 数据库
+3. 统计所有方块需求，存入 SQLite 数据库（`schematics` + `material_entries` 表）
 
 ### 2. 客户端请求材料清单
 
-1. 玩家点击 Litematica/Syncmatica 的材料清单按钮
+1. 玩家点击 Syncmatica 材料清单按钮
 2. Mixin 拦截点击事件，发送 `MaterialStatsRequestC2SPacket`（含 schematicId）
 3. 服务端 `ModNetworkHandler` 接收请求，从数据库查询统计结果
 
 ### 3. 服务端响应
 
-1. 服务端返回 `MaterialStatsResponseS2CPacket`（含 schematicName + List<MaterialEntry>）
+1. 返回 `MaterialStatsResponseS2CPacket`（含 schematicName + List<MaterialEntry>）
 2. schematicName 从 placements.json 的 display_name 字段获取
 
 ### 4. 客户端显示
 
-1. 客户端接收响应，调用 `LitematicaMaterialListAdapter` 转换为 Litematica 格式
-2. 创建 `MaterialListBase` 子类，复用 Litematica 的 `GuiMaterialList` UI
-3. 自动检测玩家背包，更新 countAvailable
-4. GUI 显示：总计、缺失、已有数量
+1. 客户端接收响应，创建 `GuiMaterialList`（独立 UI，不依赖 Litematica 运行时）
+2. `SyncMaterialList.setMaterialEntries()` 转换数据格式
+3. 自动检测玩家背包，更新 countAvailable / countMissing
+4. HUD 可通过按钮切换，作为全局叠加层持续显示
 
 ## 关键文件说明
 
 ### 核心数据类
 
-**MaterialEntry.java** - 材料条目
-```java
-// 字段：stack, countTotal, countMissing, countMismatched, countAvailable
-// 用于网络传输和服务端存储
+**MaterialEntry.java** (api/) — 网络传输用
+```
+字段：stack, countTotal, countMissing, countMismatched, countAvailable
+```
+
+**MaterialListEntry.java** (gui/) — UI 显示用（复制自 Litematica）
+```
+字段：stack, countTotal, countMissing(可变), countMismatched, countAvailable(可变)
 ```
 
 ### 服务端核心
 
-**SchematicDatabase.java** - SQLite 数据库操作
-- 创建表: schematics, material_entries
+**SchematicDatabase.java** — SQLite 数据库操作
+- 表: schematics, material_entries, team_assignments（预留）
 - 提供增删改查接口
 
-**SchematicFolderWatcher.java** - 原理图监控
+**SchematicFolderWatcher.java** — 原理图监控
 - 监控 placements.json 变化
 - 维护 placementNames Map（id → display_name）
 - 触发原理图解析和数据库存储
 
-**DatabaseQueryService.java** - 数据库查询
-- getMaterials(schematicId): 查询指定原理图的材料列表
-
-**ModNetworkHandler.java** - 网络处理
+**ModNetworkHandler.java** — 网络处理
 - 接收客户端请求，查询数据库，返回响应
 
 ### 客户端核心
 
-**LitematicaMaterialListAdapter.java** - UI 适配器
-- 将 MaterialEntry 转换为 MaterialListEntry
-- 调用 updateAvailableCounts() 检测背包
-- 创建 SyncMaterialMaterialList 继承 MaterialListBase
+**GuiMaterialList.java** — 材料清单 GUI 主类
+- 继承 MaLiLib 的 GuiListBase
+- 按钮：刷新列表、HUD 开关、关闭
+- 表头列：物品、总计、缺失、已有（点击排序）
 
-**ModNetworkHandlerClient.java** - 客户端网络
-- 接收服务端响应，调用 GUI 显示
+**MaterialListHudRenderer.java** — HUD 渲染器
+- 每 2 秒自动刷新背包检测
+- 显示图标 + 物品名 + 缺失数量（含组数计算，如 262 (4 x 64 + 6)）
+- 通过 HudRenderCallback 全局叠加渲染
 
 ### Mixin
 
@@ -139,7 +151,7 @@ src/main/java/net/syncmaterial/syncmaterial/
 ./gradlew build
 
 # 输出文件
-# build/libs/Syncmaterial-1-1.0.0.jar
+# build/libs/Syncmaterial-1-<version>.jar
 ```
 
 ## 开发注意事项
@@ -148,20 +160,14 @@ src/main/java/net/syncmaterial/syncmaterial/
 
 服务端代码不应依赖 Litematica/MaLiLib，因为服务端需要能在没有这些 mod 的情况下启动。客户端 GUI 逻辑全部在 client 包下。
 
-### 2. countMissing 逻辑
+### 2. UI 独立化
 
-Litematica 的 countMissing 设计：
-- 初始 = 总需求 - 已放置方块（从世界检测）
-- HUD 显示 = countMissing - countAvailable
+从 0.2.0 开始，UI 代码直接从 Litematica 复制并改包名为己用，不再运行时依赖 Litematica 的 GUI 类。`build.gradle` 中 Litematica 声明为 `modCompileOnly`（编译时需要，运行时用户自行安装）。
 
-由于服务端没有世界数据，countMissing = countTotal，HUD 会多减一次 countAvailable。这是 Litematica 的设计，不是 bug。
+### 3. countMissing 逻辑
 
-### 3. Litematica 复用
-
-直接复用 Litematica 的 GUI：
-- 使用 modImplementation 依赖 litematica
-- 创建 MaterialListBase 子类
-- 让 Litematica 处理背包检测、排序、过滤等全部 UI 逻辑
+`MaterialListUtils.updateAvailableCounts()` 会将 countMissing 更新为 `max(0, countTotal - countAvailable)`。
+因此 HUD 和 GUI 直接使用 `countMissing` 即可，不需要再减 `countAvailable`。
 
 ### 4. 数据分离
 
@@ -180,14 +186,38 @@ Litematica 的 countMissing 设计：
 - 提交记录使用**中文**
 - 修改代码时自动更新 `build.gradle` 中的版本号
 - `README.md` / `README_ZH.md` 中的版本号**不需要同步更新**（只是说明输出目录）
+- 只提交代码和配置修改，AGENTS.md 不提交（skip-worktree）
 
-### 7. 效率规范（减少 token 消耗）
+### 7. 发布规范
 
-- **批量调用工具**：多个独立操作合并成一次工具调用（如同时 Read 多个文件）
-- **探索性任务用 sub-agent**：sub-agent 有独立上下文，不污染主对话
-- **搜索优先**：先 Grep 定位再精确 Read，避免全文件读取
-- **回复简洁**：直接给结论，减少不必要的总结和解释
-- **减少确认轮次**：一次性说清楚需求，避免来回确认
+**必须按以下步骤操作，缺一不可：**
+
+#### 7.1 编写发布说明
+在 `build.gradle` 更新版本号后、打 tag 前，编辑 `.github/release-notes/latest.md` 文件，写入本次发布的更新说明。
+
+格式示例：
+```markdown
+## SyncMaterial v1.21.7-0.2.0-alpha.1
+
+### 新功能
+- 功能 A：简要描述
+
+### 修复
+- 修复 B：简要描述
+
+### 技术变更
+- 版本号更新、依赖调整等
+```
+
+> 描述要通俗易懂，用中文，让玩家能看明白。
+
+#### 7.2 发布流程
+1. 更新 `build.gradle` 版本号 → 提交
+2. 编写 `.github/release-notes/latest.md` → 提交
+3. 打 tag：`git tag v<版本号>`（如 `v1.21.7-0.2.0-alpha.1`）
+4. 推送 tag：`git push origin v<版本号>`
+5. GitHub Actions 自动构建并发布
+6. 发布完成后，删除 `.github/release-notes/latest.md` → 提交
 
 ## 参考资源
 
