@@ -42,8 +42,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # 获取上个标签到现在的提交记录
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"- %s" --no-merges)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s" --no-merges)
+          fi
+
+          # 生成发布说明
+          cat > release_body.md << EOF
+          ## 更新内容
+          $CHANGELOG
+
+          ---
+          **完整变更记录**: https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}
+          EOF
+
           gh release create "${{ github.ref_name }}" \
             --title "SyncMaterial ${{ github.ref_name }}" \
-            --generate-notes \
+            --notes-file release_body.md \
             $( [[ "${{ steps.prerelease.outputs.pre_release }}" == "true" ]] && echo "--prerelease" ) \
             build/libs/*.jar
