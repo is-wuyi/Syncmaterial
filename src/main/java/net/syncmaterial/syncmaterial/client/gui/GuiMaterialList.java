@@ -5,17 +5,13 @@ import java.util.List;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
 import fi.dy.masa.malilib.gui.button.ButtonOnOff;
-import net.syncmaterial.syncmaterial.api.MaterialEntry;
-import net.syncmaterial.syncmaterial.client.gui.MaterialListBase.SortCriteria;
-import net.syncmaterial.syncmaterial.client.gui.MaterialListUtils;
-import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
 
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
     private final SyncMaterialList materialList;
 
-    public GuiMaterialList(String schematicName, List<MaterialEntry> entries) {
+    public GuiMaterialList(String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries) {
         super(10, 44);
 
         this.materialList = new SyncMaterialList(schematicName);
@@ -50,38 +46,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public void initGui() {
         super.initGui();
 
-        int x = 10;
-        int y = 26;
-
-        x += this.createButtonSortBy(x, y, SortCriteria.COUNT_TOTAL);
-        x += this.createButtonSortBy(x, y, SortCriteria.COUNT_MISSING);
-        x += this.createButtonSortBy(x, y, SortCriteria.NAME);
-
-        x = this.getScreenWidth() - 170;
-        this.createButtonToggleHud(x, y);
-        x += 60;
-        this.createButtonClose(x, y);
-    }
-
-    private int createButtonSortBy(int x, int y, SortCriteria criteria) {
-        String label = switch (criteria) {
-            case COUNT_TOTAL -> "总计";
-            case COUNT_MISSING -> "缺失";
-            case NAME -> "名称";
-            default -> "???";
-        };
-
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
-        this.addButton(button, (btn, mouseButton) -> {
-            if (this.materialList.getSortCriteria() == criteria) {
-                this.materialList.setSortInReverse(!this.materialList.getSortInReverse());
-            } else {
-                this.materialList.setSortCriteria(criteria);
-                this.materialList.setSortInReverse(false);
-            }
-            this.getListWidget().refreshEntries();
-        });
-        return button.getWidth() + 2;
+        this.createButtonToggleHud(this.getScreenWidth() - 170, 26);
+        this.createButtonClose(this.getScreenWidth() - 80, 26);
     }
 
     private void createButtonToggleHud(int x, int y) {

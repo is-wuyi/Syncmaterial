@@ -205,10 +205,34 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         {
             if (this.listWidget.getSearchBarWidget() == null || this.listWidget.getSearchBarWidget().isSearchOpen() == false)
             {
+                MaterialListBase.SortCriteria currentSort = this.materialList.getSortCriteria();
+                boolean reverse = this.materialList.getSortInReverse();
+                String indicator = reverse ? "▲" : "▼";
+                int grayColor = 0xFFAAAAAA;
+
                 this.drawString(drawContext, x1, y, color, this.header1);
+                if (currentSort == MaterialListBase.SortCriteria.NAME) {
+                    int indicatorX = x1 + this.getStringWidth(this.header1) + 2;
+                    this.drawString(drawContext, indicatorX, y, grayColor, indicator);
+                }
+
                 this.drawString(drawContext, x2, y, color, this.header2);
+                if (currentSort == MaterialListBase.SortCriteria.COUNT_TOTAL) {
+                    int indicatorX = x2 + this.getStringWidth(this.header2) + 2;
+                    this.drawString(drawContext, indicatorX, y, grayColor, indicator);
+                }
+
                 this.drawString(drawContext, x3, y, color, this.header3);
+                if (currentSort == MaterialListBase.SortCriteria.COUNT_MISSING) {
+                    int indicatorX = x3 + this.getStringWidth(this.header3) + 2;
+                    this.drawString(drawContext, indicatorX, y, grayColor, indicator);
+                }
+
                 this.drawString(drawContext, x4, y, color, this.header4);
+                if (currentSort == MaterialListBase.SortCriteria.COUNT_AVAILABLE) {
+                    int indicatorX = x4 + this.getStringWidth(this.header4) + 2;
+                    this.drawString(drawContext, indicatorX, y, grayColor, indicator);
+                }
             }
         }
         else if (this.entry != null)
