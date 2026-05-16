@@ -1,20 +1,44 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 
 import fi.dy.masa.malilib.config.HudAlignment;
+import fi.dy.masa.malilib.gui.GuiBase;
+import fi.dy.masa.malilib.render.RenderUtils;
+import fi.dy.masa.malilib.util.GuiUtils;
 import fi.dy.masa.malilib.util.StringUtils;
+import net.syncmaterial.syncmaterial.client.infohud.IInfoHudRenderer;
+import net.syncmaterial.syncmaterial.client.infohud.RenderPhase;
 
-public class MaterialListHudRenderer {
+public class MaterialListHudRenderer implements IInfoHudRenderer {
     protected final MaterialListBase materialList;
+    protected final MaterialListSorter sorter;
     protected boolean shouldRender;
+    protected long lastUpdateTime;
 
     public MaterialListHudRenderer(MaterialListBase materialList) {
         this.materialList = materialList;
+        this.sorter = new MaterialListSorter(materialList);
+    }
+
+    @Override
+    public boolean getShouldRenderText(RenderPhase phase) {
+        return false;
+    }
+
+    @Override
+    public boolean getShouldRenderCustom() {
+        return this.shouldRender;
+    }
+
+    @Override
+    public boolean shouldRenderInGuis() {
+        return true;
     }
 
     public void toggleShouldRender() {
@@ -25,56 +49,102 @@ public class MaterialListHudRenderer {
         return this.shouldRender;
     }
 
+    @Override
+    public List<String> getText(RenderPhase phase) {
+        return Collections.emptyList();
+    }
+
+    @Override
     public int render(DrawContext drawContext, int xOffset, int yOffset, HudAlignment alignment) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || !shouldRender) {
+        long currentTime = System.currentTimeMillis();
+
+        List<MaterialListEntry> list;
+
+        if (currentTime - this.lastUpdateTime > 2000) {
+            MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), mc.player);
+            list = this.materialList.getMaterialsMissingOnly(true);
+            Collections.sort(list, this.sorter);
+            this.lastUpdateTime = currentTime;
+        } else {
+            list = this.materialList.getMaterialsMissingOnly(false);
+        }
+
+        if (list.size() == 0) {
             return 0;
         }
 
-        List<String> lines = new ArrayList<>();
-        lines.add("§e" + this.materialList.getTitle());
+        TextRenderer font = mc.textRenderer;
+        int maxLines = 20;
+        int lineHeight = 16;
+        int contentHeight = (Math.min(list.size(), maxLines) * lineHeight) + 14;
+        int maxTextLength = 0;
+        int maxCountLength = 0;
+        int posX = xOffset + 2;
+        int posY = yOffset + 2;
+        int bgColor = 0xA0000000;
+        int textColor = 0xFFFFFFFF;
 
-        for (MaterialListEntry entry : this.materialList.getMaterialsFiltered(true)) {
-            if (entry.getCountMissing() > 0) {
-                int total = entry.getCountTotal();
-                int available = entry.getCountAvailable();
-                int missing = entry.getCountMissing();
-                String name = entry.getStack().getName().getString();
-                lines.add(String.format("§c- %s: %d/%d (%d)", name, available, total, missing));
-            }
+        final int size = Math.min(list.size(), maxLines);
+
+        for (int i = 0; i < size; ++i) {
+            MaterialListEntry entry = list.get(i);
+            maxTextLength = Math.max(maxTextLength, font.getWidth(entry.getStack().getName().getString()));
+            int count = entry.getCountMissing() - entry.getCountAvailable();
+            String strCount = GuiBase.TXT_RED + (count > 0 ? String.valueOf(count) : "0") + GuiBase.TXT_RST;
+            maxCountLength = Math.max(maxCountLength, font.getWidth(strCount));
         }
 
-        if (lines.size() <= 1) {
-            return 0;
+        final int maxLineLength = maxTextLength + maxCountLength + 30;
+
+        switch (alignment) {
+            case TOP_RIGHT:
+            case BOTTOM_RIGHT:
+                posX = (int) ((GuiUtils.getScaledWindowWidth()) - maxLineLength - xOffset - 2);
+                break;
+            case CENTER:
+                posX = (int) ((GuiUtils.getScaledWindowWidth() / 2) - (maxLineLength / 2) - xOffset);
+                break;
+            default:
         }
 
-        int x = xOffset;
-        int y = yOffset;
-        int lineHeight = 12;
+        posY = RenderUtils.getHudPosY(posY, yOffset, contentHeight, 1.0, alignment);
+        posY += RenderUtils.getHudOffsetForPotions(alignment, 1.0, mc.player);
 
-        if (alignment == HudAlignment.TOP_RIGHT || alignment == HudAlignment.BOTTOM_RIGHT) {
-            int maxWidth = 0;
-            for (String line : lines) {
-                maxWidth = Math.max(maxWidth, mc.textRenderer.getWidth(line));
-            }
-            x = mc.getWindow().getScaledWidth() - maxWidth - 10;
+        int x1 = posX - 2;
+        int y1 = posY - 2;
+        int x2 = x1 + maxLineLength + 4;
+        int y2 = y1 + contentHeight + 2;
+        drawContext.fill(x1, y1, x2, y2, bgColor);
+
+        int x = posX;
+        int y = posY + 12;
+
+        for (int i = 0; i < size; ++i) {
+            drawContext.drawItem(list.get(i).getStack(), x, y);
+            y += lineHeight;
         }
 
-        if (alignment == HudAlignment.BOTTOM_LEFT || alignment == HudAlignment.BOTTOM_RIGHT) {
-            y = mc.getWindow().getScaledHeight() - (lines.size() * lineHeight) - 10;
+        String title = GuiBase.TXT_BOLD + "材料清单" + GuiBase.TXT_RST;
+        drawContext.drawText(font, title, posX + 2, posY + 2, textColor, false);
+
+        x = posX + 18;
+        y = posY + 16;
+
+        for (int i = 0; i < size; ++i) {
+            MaterialListEntry entry = list.get(i);
+            String text = entry.getStack().getName().getString();
+            int count = entry.getCountMissing() - entry.getCountAvailable();
+            if (count < 0) count = 0;
+            String strCount = GuiBase.TXT_RED + String.valueOf(count) + GuiBase.TXT_RST;
+            int cntLen = font.getWidth(strCount);
+            int cntPosX = posX + maxLineLength - cntLen - 2;
+
+            drawContext.drawText(font, text, x, y, textColor, false);
+            drawContext.drawText(font, strCount, cntPosX, y, textColor, false);
+            y += lineHeight;
         }
 
-        int bgWidth = 0;
-        for (String line : lines) {
-            bgWidth = Math.max(bgWidth, mc.textRenderer.getWidth(line));
-        }
-
-        drawContext.fill(x - 2, y - 2, x + bgWidth + 2, y + lines.size() * lineHeight + 2, 0xC0000000);
-
-        for (int i = 0; i < lines.size(); i++) {
-            drawContext.drawTextWithShadow(mc.textRenderer, lines.get(i), x, y + i * lineHeight, 0xFFFFFFFF);
-        }
-
-        return lines.size() * lineHeight;
+        return contentHeight;
     }
 }
