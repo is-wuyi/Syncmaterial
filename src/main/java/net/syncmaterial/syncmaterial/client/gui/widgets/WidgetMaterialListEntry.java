@@ -203,7 +203,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
         if (this.header1 != null)
         {
-            if (this.listWidget.getSearchBarWidget().isSearchOpen() == false)
+            if (this.listWidget.getSearchBarWidget() == null || this.listWidget.getSearchBarWidget().isSearchOpen() == false)
             {
                 this.drawString(drawContext, x1, y, color, this.header1);
                 this.drawString(drawContext, x2, y, color, this.header2);
