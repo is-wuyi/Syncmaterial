@@ -1,15 +1,22 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import com.google.common.collect.ImmutableList;
+import fi.dy.masa.malilib.interfaces.ICompletionListener;
+import net.minecraft.util.math.MathHelper;
 
-public abstract class MaterialListBase {
+public abstract class MaterialListBase
+{
     protected final MaterialListHudRenderer hudRenderer = new MaterialListHudRenderer(this);
+    protected final Set<MaterialListEntry> ignored = new HashSet<>();
     protected final List<MaterialListEntry> materialListPreFiltered = new ArrayList<>();
     protected final List<MaterialListEntry> materialListFiltered = new ArrayList<>();
     protected ImmutableList<MaterialListEntry> materialListAll = ImmutableList.of();
-    protected MaterialListSorter.SortCriteria sortCriteria = MaterialListSorter.SortCriteria.COUNT_TOTAL;
+    protected ICompletionListener completionListener;
+    protected SortCriteria sortCriteria = SortCriteria.COUNT_TOTAL;
     protected boolean reverse = false;
     protected boolean hideAvailable;
     protected int multiplier = 1;
@@ -21,88 +28,209 @@ public abstract class MaterialListBase {
 
     public abstract String getTitle();
 
-    public abstract void reCreateMaterialList();
+    public boolean supportsRenderLayers()
+    {
+        return false;
+    }
 
-    public MaterialListHudRenderer getHudRenderer() {
+    public MaterialListHudRenderer getHudRenderer()
+    {
         return this.hudRenderer;
     }
 
-    public ImmutableList<MaterialListEntry> getMaterialsAll() {
+    public ImmutableList<MaterialListEntry> getMaterialsAll()
+    {
         return this.materialListAll;
     }
 
-    public List<MaterialListEntry> getMaterialsFiltered(boolean refresh) {
-        if (this.hideAvailable) {
+    public List<MaterialListEntry> getMaterialsFiltered(boolean refresh)
+    {
+        if (this.hideAvailable)
+        {
             return this.getMaterialsMissingOnly(refresh);
         }
+
         return this.materialListPreFiltered;
     }
 
-    public List<MaterialListEntry> getMaterialsMissingOnly(boolean refresh) {
-        if (refresh) {
+    public List<MaterialListEntry> getMaterialsMissingOnly(boolean refresh)
+    {
+        if (refresh)
+        {
             this.recreateFilteredList();
         }
+
         return this.materialListFiltered;
     }
 
-    public void recreateFilteredList() {
+    public void setCompletionListener(ICompletionListener listener)
+    {
+        this.completionListener = listener;
+    }
+
+    public void recreateFilteredList()
+    {
         this.materialListFiltered.clear();
-        for (int i = 0; i < this.materialListPreFiltered.size(); i++) {
+
+        for (int i = 0; i < this.materialListPreFiltered.size(); ++i)
+        {
             MaterialListEntry entry = this.materialListPreFiltered.get(i);
-            if (entry.getCountMissing() > 0) {
+            int countMissing = this.multiplier == 1 ? entry.getCountMissing() : this.multiplier * entry.getCountTotal();
+
+            if (entry.getCountAvailable() < countMissing)
+            {
                 this.materialListFiltered.add(entry);
+            }
+            // Remove entries that have been seen as available at least at one point
+            // (for example when gathering resources to a staging area)
+            else if (this.hideAvailable)
+            {
+                this.materialListPreFiltered.remove(i);
+                --i;
             }
         }
     }
 
-    public MaterialListSorter.SortCriteria getSortCriteria() {
-        return this.sortCriteria;
+    public void ignoreEntry(MaterialListEntry entry)
+    {
+        this.ignored.add(entry);
+        this.materialListPreFiltered.remove(entry);
+        this.recreateFilteredList();
     }
 
-    public boolean getSortInReverse() {
-        return this.reverse;
+    public void clearIgnored()
+    {
+        this.ignored.clear();
+        this.refreshPreFilteredList();
+        this.recreateFilteredList();
     }
 
-    public int getMultiplier() {
-        return this.multiplier;
-    }
+    /**
+     * Re-creates the all-materials list from the schematic or placement or area
+     * by starting a new task, if applicable.
+     */
+    public abstract void reCreateMaterialList();
 
-    public long getCountTotal() {
-        return this.countTotal;
-    }
+    public void setMaterialListEntries(List<MaterialListEntry> list)
+    {
+        this.materialListAll = ImmutableList.copyOf(list);
+        this.refreshPreFilteredList();
+        this.updateCounts();
 
-    public long getCountMissing() {
-        return this.countMissing;
-    }
-
-    public long getCountMismatched() {
-        return this.countMismatched;
-    }
-
-    public void updateCounts() {
-        this.countTotal = 0;
-        this.countMissing = 0;
-        this.countMismatched = 0;
-        for (MaterialListEntry entry : this.materialListAll) {
-            this.countTotal += entry.getCountTotal();
-            this.countMissing += entry.getCountMissing();
-            this.countMismatched += entry.getCountMismatched();
+        if (this.completionListener != null)
+        {
+            this.completionListener.onTaskCompleted();
         }
     }
 
-    public void setSortCriteria(MaterialListSorter.SortCriteria criteria) {
-        this.sortCriteria = criteria;
+
+    /**
+     * Resets the pre-filtered materials list to the all materials list
+     */
+    public void refreshPreFilteredList()
+    {
+        this.materialListPreFiltered.clear();
+        this.materialListPreFiltered.addAll(this.materialListAll);
+        this.materialListPreFiltered.removeAll(this.ignored);
+    }
+
+    public SortCriteria getSortCriteria()
+    {
+        return this.sortCriteria;
+    }
+
+    public boolean getSortInReverse()
+    {
+        return this.reverse;
+    }
+
+    public boolean getHideAvailable()
+    {
+        return this.hideAvailable;
+    }
+
+    public int getMultiplier()
+    {
+        return this.multiplier;
+    }
+
+    public void setSortCriteria(SortCriteria criteria)
+    {
+        if (this.sortCriteria == criteria)
+        {
+            this.reverse = ! this.reverse;
+        }
+        else
+        {
+            this.sortCriteria = criteria;
+            this.reverse = false;
+        }
     }
 
     public void setSortInReverse(boolean reverse) {
         this.reverse = reverse;
     }
 
-    public void setHideAvailable(boolean hideAvailable) {
+    public void setHideAvailable(boolean hideAvailable)
+    {
         this.hideAvailable = hideAvailable;
     }
 
-    public boolean getHideAvailable() {
-        return this.hideAvailable;
+    public void setMultiplier(int multiplier)
+    {
+        this.multiplier = MathHelper.clamp(multiplier, 1, Integer.MAX_VALUE);
+    }
+
+    public void updateCounts()
+    {
+        this.countTotal = 0;
+        this.countMissing = 0;
+        this.countMismatched = 0;
+
+        for (MaterialListEntry entry : this.materialListAll)
+        {
+            this.countTotal += entry.getCountTotal();
+            this.countMissing += entry.getCountMissing();
+            this.countMismatched += entry.getCountMismatched();
+        }
+    }
+
+    public long getCountTotal()
+    {
+        return this.countTotal;
+    }
+
+    public long getCountMissing()
+    {
+        return this.countMissing;
+    }
+
+    public long getCountMismatched()
+    {
+        return this.countMismatched;
+    }
+
+
+
+
+    public enum SortCriteria
+    {
+        NAME,
+        COUNT_TOTAL,
+        COUNT_MISSING,
+        COUNT_AVAILABLE;
+
+        public static SortCriteria fromStringStatic(String name)
+        {
+            for (SortCriteria mode : SortCriteria.values())
+            {
+                if (mode.name().equalsIgnoreCase(name))
+                {
+                    return mode;
+                }
+            }
+
+            return SortCriteria.COUNT_TOTAL;
+        }
     }
 }

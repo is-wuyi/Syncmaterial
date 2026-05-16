@@ -1,38 +1,33 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
-import com.google.common.collect.ImmutableList;
-import fi.dy.masa.malilib.gui.GuiBase;
-import fi.dy.masa.malilib.gui.GuiListBase;
-import fi.dy.masa.malilib.gui.button.ButtonBase;
-import fi.dy.masa.malilib.gui.button.ButtonGeneric;
-import fi.dy.masa.malilib.gui.button.ButtonOnOff;
-import fi.dy.masa.malilib.gui.button.IButtonActionListener;
-import fi.dy.masa.malilib.render.RenderUtils;
-import fi.dy.masa.malilib.util.StringUtils;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.Text;
-import net.syncmaterial.syncmaterial.api.MaterialEntry;
-
 import java.util.List;
 
+import fi.dy.masa.malilib.gui.GuiListBase;
+import fi.dy.masa.malilib.gui.button.ButtonGeneric;
+import fi.dy.masa.malilib.gui.button.ButtonOnOff;
+import net.syncmaterial.syncmaterial.api.MaterialEntry;
+import net.syncmaterial.syncmaterial.client.gui.MaterialListBase.SortCriteria;
+import net.syncmaterial.syncmaterial.client.gui.MaterialListUtils;
+import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
+import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
+import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
+
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
-    private final MaterialListBase materialList;
+    private final SyncMaterialList materialList;
 
     public GuiMaterialList(String schematicName, List<MaterialEntry> entries) {
         super(10, 44);
 
-        SyncMaterialList materialList = new SyncMaterialList(schematicName);
-        List<MaterialListEntry> convertedEntries = MaterialListUtils.convertFromMaterialEntries(entries);
-        materialList.setMaterialEntries(convertedEntries);
-        this.materialList = materialList;
-        this.title = schematicName;
+        this.materialList = new SyncMaterialList(schematicName);
+        this.materialList.setMaterialEntries(entries);
+        this.title = this.materialList.getTitle();
         this.useTitleHierarchy = false;
 
         MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
-        WidgetMaterialListEntry.setMaxNameLength(materialList.getMaterialsAll(), materialList.getMultiplier());
+        WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
     }
 
-    public MaterialListBase getMaterialList() {
+    public SyncMaterialList getMaterialList() {
         return this.materialList;
     }
 
@@ -58,12 +53,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int x = 10;
         int y = 26;
 
-        this.createButtonSortBy(x, y, MaterialListSorter.SortCriteria.COUNT_TOTAL);
-        x += 50;
-        this.createButtonSortBy(x, y, MaterialListSorter.SortCriteria.COUNT_MISSING);
-        x += 50;
-        this.createButtonSortBy(x, y, MaterialListSorter.SortCriteria.NAME);
-        x += 50;
+        x += this.createButtonSortBy(x, y, SortCriteria.COUNT_TOTAL);
+        x += this.createButtonSortBy(x, y, SortCriteria.COUNT_MISSING);
+        x += this.createButtonSortBy(x, y, SortCriteria.NAME);
 
         x = this.getScreenWidth() - 170;
         this.createButtonToggleHud(x, y);
@@ -71,7 +63,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.createButtonClose(x, y);
     }
 
-    private void createButtonSortBy(int x, int y, MaterialListSorter.SortCriteria criteria) {
+    private int createButtonSortBy(int x, int y, SortCriteria criteria) {
         String label = switch (criteria) {
             case COUNT_TOTAL -> "总计";
             case COUNT_MISSING -> "缺失";
@@ -81,7 +73,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
         this.addButton(button, (btn, mouseButton) -> {
-            MaterialListSorter sorter = new MaterialListSorter();
             if (this.materialList.getSortCriteria() == criteria) {
                 this.materialList.setSortInReverse(!this.materialList.getSortInReverse());
             } else {
@@ -90,6 +81,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             }
             this.getListWidget().refreshEntries();
         });
+        return button.getWidth() + 2;
     }
 
     private void createButtonToggleHud(int x, int y) {
@@ -106,62 +98,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     @Override
-    public void render(DrawContext drawContext, int mouseX, int mouseY, float partialTicks) {
-        super.render(drawContext, mouseX, mouseY, partialTicks);
-
-        int x = 10;
-        int y = this.getScreenHeight() - 30;
-
-        String total = "总计: " + this.materialList.getCountTotal();
-        String missing = "缺失: " + this.materialList.getCountMissing();
-        String mismatched = "不匹配: " + this.materialList.getCountMismatched();
-
-        drawContext.drawTextWithShadow(this.textRenderer, total, x, y, 0xFFFFFFFF);
-        x += this.textRenderer.getWidth(total) + 10;
-        drawContext.drawTextWithShadow(this.textRenderer, missing, x, y, 0xFFFF5555);
-        x += this.textRenderer.getWidth(missing) + 10;
-        drawContext.drawTextWithShadow(this.textRenderer, mismatched, x, y, 0xFF5555FF);
-
-        if (this.materialList.getCountTotal() > 0) {
-            long countTotal = this.materialList.getCountTotal();
-            long countMissing = this.materialList.getCountMissing();
-            int progress = (int) ((countTotal - countMissing) * 100 / countTotal);
-            String progressText = String.format("完成: %d%%", progress);
-            drawContext.drawTextWithShadow(this.textRenderer, progressText, this.getScreenWidth() - 100, y, 0xFF55FF55);
-        }
-    }
-
-    @Override
     public boolean shouldPause() {
         return false;
-    }
-
-    public static class SyncMaterialList extends MaterialListBase {
-        private final String title;
-
-        public SyncMaterialList(String title) {
-            this.title = title;
-        }
-
-        @Override
-        public String getName() {
-            return this.title;
-        }
-
-        @Override
-        public String getTitle() {
-            return this.title;
-        }
-
-        @Override
-        public void reCreateMaterialList() {
-        }
-
-        public void setMaterialEntries(List<MaterialListEntry> entries) {
-            this.materialListAll = ImmutableList.copyOf(entries);
-            this.materialListPreFiltered.clear();
-            this.materialListPreFiltered.addAll(entries);
-            this.updateCounts();
-        }
     }
 }
