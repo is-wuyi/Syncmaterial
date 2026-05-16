@@ -5,6 +5,7 @@ import java.util.List;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
 import fi.dy.masa.malilib.gui.button.ButtonOnOff;
+import fi.dy.masa.malilib.util.StringUtils;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
 
@@ -46,21 +47,39 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public void initGui() {
         super.initGui();
 
-        this.createButtonToggleHud(this.getScreenWidth() - 170, 26);
-        this.createButtonClose(this.getScreenWidth() - 80, 26);
+        int x = 12;
+        int y = 24;
+        int gap = 2;
+
+        x += this.createButtonRefresh(x, y) + gap;
+        x += this.createButtonToggleHud(x, y) + gap;
+        x += this.createButtonClose(x, y);
     }
 
-    private void createButtonToggleHud(int x, int y) {
-        ButtonOnOff button = new ButtonOnOff(x, y, -1, true, "HUD", this.materialList.getHudRenderer().getShouldRender());
+    private int createButtonRefresh(int x, int y) {
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "刷新列表");
+        this.addButton(button, (btn, mouseButton) -> {
+            MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
+            this.getListWidget().refreshEntries();
+        });
+        return button.getWidth();
+    }
+
+    private int createButtonToggleHud(int x, int y) {
+        ButtonOnOff button = new ButtonOnOff(x, y, -1, true,
+                "HUD信息显示",
+                this.materialList.getHudRenderer().getShouldRender());
         this.addButton(button, (btn, mouseButton) -> {
             this.materialList.getHudRenderer().toggleShouldRender();
             button.updateDisplayString(this.materialList.getHudRenderer().getShouldRender());
         });
+        return button.getWidth();
     }
 
-    private void createButtonClose(int x, int y) {
+    private int createButtonClose(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "关闭");
         this.addButton(button, (btn, mouseButton) -> this.close());
+        return button.getWidth();
     }
 
     @Override

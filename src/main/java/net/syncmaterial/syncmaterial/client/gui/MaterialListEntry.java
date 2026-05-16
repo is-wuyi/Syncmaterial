@@ -7,7 +7,7 @@ public class MaterialListEntry
 {
     private final ItemType item;
     private final int countTotal;
-    private final int countMissing;
+    private int countMissing;
     private final int countMismatched;
     private int countAvailable;
 
@@ -42,6 +42,10 @@ public class MaterialListEntry
     public int getCountMissing()
     {
         return this.countMissing;
+    }
+
+    public void setCountMissing(int countMissing) {
+        this.countMissing = countMissing;
     }
 
     public int getCountMismatched()

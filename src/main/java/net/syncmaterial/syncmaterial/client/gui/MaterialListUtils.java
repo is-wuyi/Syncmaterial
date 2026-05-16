@@ -20,6 +20,7 @@ public class MaterialListUtils {
                 }
             }
             entry.setCountAvailable(available);
+            entry.setCountMissing(Math.max(0, entry.getCountTotal() - available));
         }
     }
 
