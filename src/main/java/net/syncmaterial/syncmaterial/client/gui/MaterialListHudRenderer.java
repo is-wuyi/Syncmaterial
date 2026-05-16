@@ -90,7 +90,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         for (int i = 0; i < size; ++i) {
             MaterialListEntry entry = list.get(i);
             maxTextLength = Math.max(maxTextLength, font.getWidth(entry.getStack().getName().getString()));
-            int count = entry.getCountMissing() - entry.getCountAvailable();
+            int count = entry.getCountMissing();
             if (count < 0) count = 0;
             String strCount = GuiBase.TXT_RED + this.getFormattedCountString(count, entry.getStack().getMaxCount()) + GuiBase.TXT_RST;
             maxCountLength = Math.max(maxCountLength, font.getWidth(strCount));
@@ -135,7 +135,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         for (int i = 0; i < size; ++i) {
             MaterialListEntry entry = list.get(i);
             String text = entry.getStack().getName().getString();
-            int count = entry.getCountMissing() - entry.getCountAvailable();
+            int count = entry.getCountMissing();
             if (count < 0) count = 0;
             String strCount = this.getFormattedCountString(count, entry.getStack().getMaxCount());
             int cntLen = font.getWidth(strCount);

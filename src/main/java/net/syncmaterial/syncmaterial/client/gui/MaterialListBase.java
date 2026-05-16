@@ -77,7 +77,7 @@ public abstract class MaterialListBase
             MaterialListEntry entry = this.materialListPreFiltered.get(i);
             int countMissing = this.multiplier == 1 ? entry.getCountMissing() : this.multiplier * entry.getCountTotal();
 
-            if (entry.getCountAvailable() < countMissing)
+            if (entry.getCountMissing() > 0)
             {
                 this.materialListFiltered.add(entry);
             }
