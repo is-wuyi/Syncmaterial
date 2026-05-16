@@ -47,13 +47,12 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public void initGui() {
         super.initGui();
 
-        int x = 12;
-        int y = 24;
         int gap = 2;
 
-        x += this.createButtonRefresh(x, y) + gap;
-        x += this.createButtonToggleHud(x, y) + gap;
-        x += this.createButtonClose(x, y);
+        int x = this.getScreenWidth() - 20;
+        x -= this.createButtonClose(x, 24) + gap;
+        x -= this.createButtonToggleHud(x, 24) + gap;
+        x -= this.createButtonRefresh(x, 24);
     }
 
     private int createButtonRefresh(int x, int y) {
