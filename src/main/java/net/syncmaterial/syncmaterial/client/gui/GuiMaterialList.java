@@ -2,8 +2,11 @@ package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.List;
 
+import net.minecraft.client.gui.DrawContext;
+import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
+import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.button.ButtonOnOff;
 import fi.dy.masa.malilib.util.StringUtils;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
@@ -65,12 +68,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     private int createButtonToggleHud(int x, int y) {
-        ButtonOnOff button = new ButtonOnOff(x, y, -1, true,
-                "HUD信息显示",
-                this.materialList.getHudRenderer().getShouldRender());
+        String label = "HUD信息显示：" + (this.materialList.getHudRenderer().getShouldRender() ? "开启" : "关闭");
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
         this.addButton(button, (btn, mouseButton) -> {
             this.materialList.getHudRenderer().toggleShouldRender();
-            button.updateDisplayString(this.materialList.getHudRenderer().getShouldRender());
+            btn.setDisplayString("HUD信息显示：" + (this.materialList.getHudRenderer().getShouldRender() ? "开启" : "关闭"));
         });
         return button.getWidth();
     }
@@ -84,5 +86,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     @Override
     public boolean shouldPause() {
         return false;
+    }
+
+    @Override
+    public void render(DrawContext drawContext, int mouseX, int mouseY, float partialTicks) {
+        super.render(drawContext, mouseX, mouseY, partialTicks);
+
+        if (this.materialList.getHudRenderer().getShouldRender()) {
+            this.materialList.getHudRenderer().render(drawContext, 10, 44, HudAlignment.TOP_LEFT);
+        }
     }
 }
