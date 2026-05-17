@@ -86,7 +86,7 @@ public class ModNetworkHandler {
                     for (var status : statusMap.values()) {
                         entries.add(new MaterialStatusS2CPacket.MaterialStatusEntry(
                             status.materialId,
-                            status.itemId,
+                            status.itemId != null ? status.itemId : "",
                             status.totalCount,
                             status.claimedCount,
                             status.claimer != null ? status.claimer : ""
