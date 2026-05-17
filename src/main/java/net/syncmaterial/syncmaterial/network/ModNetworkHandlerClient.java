@@ -4,24 +4,31 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 
-/**
- * 网络注册与监听器 (客户端)。
- */
 public class ModNetworkHandlerClient {
 
-    /**
-     * 在客户端初始化网络协议和监听器。
-     */
     public static void register() {
-        // 1. 注册 Payload 类型 (Fabric API)
         PayloadTypeRegistry.playC2S().register(MaterialStatsRequestC2SPacket.ID, MaterialStatsRequestC2SPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(ClaimMaterialC2SPacket.ID, ClaimMaterialC2SPacket.CODEC);
+        PayloadTypeRegistry.playS2C().register(ClaimResultS2CPacket.ID, ClaimResultS2CPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
+        PayloadTypeRegistry.playS2C().register(MaterialStatusS2CPacket.ID, MaterialStatusS2CPacket.CODEC);
 
-        // 2. 注册 S2C 包监听器 (客户端处理响应)
         ClientPlayNetworking.registerGlobalReceiver(MaterialStatsResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                // 解析完成后，打开 UI 展示材料清单
                 SyncMaterialClient.openMaterialListScreen(payload.schematicName(), payload.materials());
+            });
+        });
+
+        ClientPlayNetworking.registerGlobalReceiver(ClaimResultS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                SyncMaterialClient.onClaimResult(payload.success(), payload.message(), payload.materialId());
+            });
+        });
+
+        ClientPlayNetworking.registerGlobalReceiver(MaterialStatusS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                SyncMaterialClient.onMaterialStatus(payload.statuses());
             });
         });
     }

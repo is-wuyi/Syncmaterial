@@ -66,6 +66,7 @@ public class SchematicDatabase {
                 name TEXT NOT NULL,
                 file_path TEXT NOT NULL,
                 uploaded_by TEXT,
+                allow_self_claim INTEGER DEFAULT 1,
                 created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
             );
             """);
@@ -81,19 +82,70 @@ public class SchematicDatabase {
             );
             """);
 
-        // 团队协作预留表
+        // 认领记录表
         executeUpdate("""
-            CREATE TABLE IF NOT EXISTS team_assignments (
+            CREATE TABLE IF NOT EXISTS claims (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 schematic_id TEXT NOT NULL,
-                material_entry_id INTEGER NOT NULL,
-                assigned_player TEXT NOT NULL,
-                collected_count INTEGER DEFAULT 0,
-                status TEXT DEFAULT 'pending',
-                assigned_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                material_id INTEGER NOT NULL,
+                player_name TEXT NOT NULL,
+                claimed_count INTEGER NOT NULL,
+                status TEXT DEFAULT 'active',
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
-                FOREIGN KEY (material_entry_id) REFERENCES material_entries(id) ON DELETE CASCADE
+                FOREIGN KEY (material_id) REFERENCES material_entries(id) ON DELETE CASCADE
+            );
+            """);
+
+        // 分配记录表
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schematic_id TEXT NOT NULL,
+                material_id INTEGER NOT NULL,
+                assignee_name TEXT NOT NULL,
+                assigned_by_name TEXT NOT NULL,
+                assigned_count INTEGER NOT NULL,
+                status TEXT DEFAULT 'pending',
+                reject_reason TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
+                FOREIGN KEY (material_id) REFERENCES material_entries(id) ON DELETE CASCADE
+            );
+            """);
+
+        // 分配权限白名单表
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS assignment_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schematic_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                granted_by_name TEXT NOT NULL,
+                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE
+            );
+            """);
+
+        // 备货区配置表（Phase 3 使用）
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS staging_areas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schematic_id TEXT NOT NULL,
+                world TEXT NOT NULL,
+                x1 INTEGER, y1 INTEGER, z1 INTEGER,
+                x2 INTEGER, y2 INTEGER, z2 INTEGER,
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE
+            );
+            """);
+
+        // 备货区内容物缓存表（Phase 3 使用）
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS staging_area_inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                staging_area_id INTEGER NOT NULL,
+                item_id TEXT NOT NULL,
+                count INTEGER NOT NULL,
+                FOREIGN KEY (staging_area_id) REFERENCES staging_areas(id) ON DELETE CASCADE
             );
             """);
 
@@ -106,8 +158,12 @@ public class SchematicDatabase {
      */
     private void createIndexes() throws SQLException {
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_material_entries_schematic ON material_entries(schematic_id);");
-        executeUpdate("CREATE INDEX IF NOT EXISTS idx_team_assignments_schematic ON team_assignments(schematic_id);");
-        executeUpdate("CREATE INDEX IF NOT EXISTS idx_team_assignments_player ON team_assignments(assigned_player);");
+        executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_active_claim ON claims(material_id, status) WHERE status = 'active';");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_schematic ON claims(schematic_id, status);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_player ON claims(player_name, status);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_assignments_schematic ON assignments(schematic_id, status);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_assignments_assignee ON assignments(assignee_name, status);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_assignment_permissions_schematic ON assignment_permissions(schematic_id);");
     }
 
     /**
