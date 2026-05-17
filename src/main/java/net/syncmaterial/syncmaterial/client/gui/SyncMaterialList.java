@@ -1,7 +1,12 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
+import net.minecraft.client.MinecraftClient;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
+import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
+import net.syncmaterial.syncmaterial.client.gui.GuiClaimDialog;
+import net.syncmaterial.syncmaterial.network.ClaimMaterialC2SPacket;
 import net.syncmaterial.syncmaterial.network.MaterialStatusS2CPacket;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 import java.util.HashMap;
 import java.util.List;
@@ -51,9 +56,28 @@ public class SyncMaterialList extends MaterialListBase {
             MaterialListEntry entry = entries.get(i);
             MaterialStatusS2CPacket.MaterialStatusEntry status = materialStatusMap.get(i + 1);
             if (status != null) {
-                entry.setCountMissing(Math.max(0, status.totalCount() - status.claimedCount()));
+                String claimer = status.claimer().isEmpty() ? null : status.claimer();
+                if (claimer != null) {
+                    String playerName = MinecraftClient.getInstance().player.getGameProfile().getName();
+                    this.setClaimStatus(entry, claimer.equals(playerName) ? "我" : claimer);
+                } else {
+                    this.setClaimStatus(entry, "未认领");
+                }
             }
         }
         this.updateCounts();
+    }
+
+    @Override
+    public void claimEntry(MaterialListEntry entry) {
+        int totalNeeded = entry.getCountMissing();
+        if (totalNeeded <= 0) return;
+
+        GuiClaimDialog dialog = new GuiClaimDialog(
+            MinecraftClient.getInstance().currentScreen,
+            entry.getStack().getName().getString(),
+            totalNeeded
+        );
+        MinecraftClient.getInstance().setScreen(dialog);
     }
 }

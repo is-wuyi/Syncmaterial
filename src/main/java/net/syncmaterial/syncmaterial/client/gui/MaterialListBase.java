@@ -1,8 +1,10 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import com.google.common.collect.ImmutableList;
 import fi.dy.masa.malilib.interfaces.ICompletionListener;
@@ -15,6 +17,7 @@ public abstract class MaterialListBase
     protected final List<MaterialListEntry> materialListPreFiltered = new ArrayList<>();
     protected final List<MaterialListEntry> materialListFiltered = new ArrayList<>();
     protected ImmutableList<MaterialListEntry> materialListAll = ImmutableList.of();
+    protected final Map<MaterialListEntry, String> claimStatusMap = new HashMap<>();
     protected ICompletionListener completionListener;
     protected SortCriteria sortCriteria = SortCriteria.COUNT_TOTAL;
     protected boolean reverse = false;
@@ -208,6 +211,20 @@ public abstract class MaterialListBase
     public long getCountMismatched()
     {
         return this.countMismatched;
+    }
+
+    public String getClaimStatus(MaterialListEntry entry)
+    {
+        return this.claimStatusMap.getOrDefault(entry, "未认领");
+    }
+
+    public void setClaimStatus(MaterialListEntry entry, String status)
+    {
+        this.claimStatusMap.put(entry, status);
+    }
+
+    public void claimEntry(MaterialListEntry entry)
+    {
     }
 
 

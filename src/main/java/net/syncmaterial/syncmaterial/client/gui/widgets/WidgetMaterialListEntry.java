@@ -23,11 +23,13 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             "litematica.gui.label.material_list.title.item",
             "litematica.gui.label.material_list.title.total",
             "litematica.gui.label.material_list.title.missing",
-            "litematica.gui.label.material_list.title.available" };
+            "litematica.gui.label.material_list.title.available",
+            "syncmaterial.gui.label.material_list.title.claim" };
     private static int maxNameLength;
     private static int maxCountLength1;
     private static int maxCountLength2;
     private static int maxCountLength3;
+    private static int maxClaimLength;
 
     private final MaterialListBase materialList;
     private final WidgetListMaterialList listWidget;
@@ -36,6 +38,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private final String header2;
     private final String header3;
     private final String header4;
+    private final String header5;
     private final String shulkerBoxAbbr;
     private final boolean isOdd;
 
@@ -44,7 +47,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     {
         super(x, y, width, height, entry, listIndex);
 
-        this.columnCount = 4;
+        this.columnCount = 5;
         this.entry = entry;
         this.isOdd = isOdd;
         this.listWidget = listWidget;
@@ -57,6 +60,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.header2 = null;
             this.header3 = null;
             this.header4 = null;
+            this.header5 = null;
         }
         else
         {
@@ -64,13 +68,13 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.header2 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[1]) + GuiBase.TXT_RST;
             this.header3 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[2]) + GuiBase.TXT_RST;
             this.header4 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[3]) + GuiBase.TXT_RST;
+            this.header5 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[4]) + GuiBase.TXT_RST;
         }
 
         int posX = x + width;
         int posY = y + 1;
 
-        // Note: These are placed from right to left
-
+        posX = this.createButtonGeneric(posX, posY, ButtonListener.ButtonType.CLAIM);
         posX = this.createButtonGeneric(posX, posY, ButtonListener.ButtonType.IGNORE);
     }
 
@@ -87,6 +91,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         maxCountLength1 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[1]) + GuiBase.TXT_RST);
         maxCountLength2 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[2]) + GuiBase.TXT_RST);
         maxCountLength3 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[3]) + GuiBase.TXT_RST);
+        maxClaimLength  = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[4]) + GuiBase.TXT_RST);
 
         for (MaterialListEntry entry : materials)
         {
@@ -97,6 +102,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             maxCountLength1 = Math.max(maxCountLength1, StringUtils.getStringWidth(String.valueOf(countTotal)));
             maxCountLength2 = Math.max(maxCountLength2, StringUtils.getStringWidth(String.valueOf(countMissing)));
             maxCountLength3 = Math.max(maxCountLength3, StringUtils.getStringWidth(String.valueOf(entry.getCountAvailable())));
+            maxClaimLength  = Math.max(maxClaimLength, StringUtils.getStringWidth("未认领"));
         }
     }
 
@@ -125,6 +131,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         int x2 = x1 + maxNameLength + 40; // item icon plus offset
         int x3 = x2 + maxCountLength1 + 20;
         int x4 = x3 + maxCountLength2 + 20;
+        int x5 = x4 + maxCountLength3 + 20;
 
         return switch (column)
         {
@@ -132,7 +139,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             case 1 -> x2;
             case 2 -> x3;
             case 3 -> x4;
-            case 4 -> x4 + maxCountLength3 + 20;
+            case 4 -> x5;
+            case 5 -> x5 + maxClaimLength + 20;
             default -> x1;
         };
     }
@@ -254,6 +262,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             pre = countAvailable >= countMissing ? green : red;
             this.drawString(drawContext, x4, y, color, pre + String.valueOf(countAvailable));
+
+            int x5 = this.getColumnPosX(4);
+            String claimStatus = this.materialList.getClaimStatus(this.entry);
+            int claimColor = claimStatus.equals("未认领") ? 0x888888 : (claimStatus.equals("我") ? 0x00AA00 : 0x0000AA);
+            this.drawString(drawContext, x5, y, claimColor, claimStatus);
 
 //            drawContext.getMatrices().push();
             //TODO: RenderSystem.disableLighting();
@@ -398,11 +411,16 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                 this.materialList.ignoreEntry(this.entry);
                 this.listWidget.refreshEntries();
             }
+            else if (this.type == ButtonType.CLAIM)
+            {
+                this.materialList.claimEntry(this.entry);
+            }
         }
 
         public enum ButtonType
         {
-            IGNORE  ("litematica.gui.button.material_list.ignore");
+            IGNORE  ("litematica.gui.button.material_list.ignore"),
+            CLAIM   ("syncmaterial.gui.button.material_list.claim");
 
             private final String translationKey;
 

@@ -1,0 +1,13 @@
+{
+  "syncmaterial.gui.label.material_list.title.claim": "认领状态",
+  "syncmaterial.gui.button.material_list.claim": "认领",
+  "syncmaterial.gui.button.material_list.abandon": "放弃",
+  "syncmaterial.gui.label.claim.unclaimed": "未认领",
+  "syncmaterial.gui.label.claim.my_claim": "我",
+  "syncmaterial.gui.dialog.claim.title": "认领材料",
+  "syncmaterial.gui.dialog.claim.material": "材料",
+  "syncmaterial.gui.dialog.claim.total_needed": "需要总量",
+  "syncmaterial.gui.dialog.claim.claim_amount": "认领数量",
+  "syncmaterial.gui.dialog.claim.confirm": "确认",
+  "syncmaterial.gui.dialog.claim.cancel": "取消"
+}

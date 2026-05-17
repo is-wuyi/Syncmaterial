@@ -9,8 +9,11 @@ import fi.dy.masa.malilib.gui.button.ButtonGeneric;
 import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.button.ButtonOnOff;
 import fi.dy.masa.malilib.util.StringUtils;
+import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
+import net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
     private final SyncMaterialList materialList;
@@ -25,6 +28,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
         MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
         WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
+
+        ClientPlayNetworking.send(new QueryMaterialStatusC2SPacket(schematicName));
     }
 
     public SyncMaterialList getMaterialList() {
