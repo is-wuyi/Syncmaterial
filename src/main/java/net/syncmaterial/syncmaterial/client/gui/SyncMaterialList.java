@@ -70,8 +70,13 @@ public class SyncMaterialList extends MaterialListBase {
 
     @Override
     public void claimEntry(MaterialListEntry entry) {
+        if (entry == null) return;
         int totalNeeded = entry.getCountMissing();
-        if (totalNeeded <= 0) return;
+        if (totalNeeded <= 0) {
+            net.minecraft.client.MinecraftClient.getInstance().inGameHud.getChatHud().addMessage(
+                net.minecraft.text.Text.literal("§c该材料不需要认领"));
+            return;
+        }
 
         GuiClaimDialog dialog = new GuiClaimDialog(
             MinecraftClient.getInstance().currentScreen,

@@ -406,6 +406,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         @Override
         public void actionPerformedWithButton(ButtonBase button, int mouseButton)
         {
+            if (this.entry == null) return;
+
             if (this.type == ButtonType.IGNORE)
             {
                 this.materialList.ignoreEntry(this.entry);
