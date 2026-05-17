@@ -9,25 +9,29 @@ import java.util.Objects;
 
 public class MaterialEntry
 {
+    private final int databaseId;
     private final ItemStack stack;
     private final long countTotal;
     private long countMissing;
     private long countMismatched;
     private long countAvailable;
 
-    public MaterialEntry(ItemStack stack, long countTotal)
+    public MaterialEntry(int databaseId, ItemStack stack, long countTotal)
     {
-        this(stack, countTotal, countTotal, 0, 0);
+        this(databaseId, stack, countTotal, countTotal, 0, 0);
     }
 
-    public MaterialEntry(ItemStack stack, long countTotal, long countMissing, long countMismatched, long countAvailable)
+    public MaterialEntry(int databaseId, ItemStack stack, long countTotal, long countMissing, long countMismatched, long countAvailable)
     {
+        this.databaseId = databaseId;
         this.stack = Objects.requireNonNull(stack, "ItemStack cannot be null");
         this.countTotal = countTotal;
         this.countMissing = countMissing;
         this.countMismatched = countMismatched;
         this.countAvailable = countAvailable;
     }
+
+    public int getDatabaseId() { return databaseId; }
 
     public ItemStack getStack()
     {
@@ -75,6 +79,7 @@ public class MaterialEntry
     }
 
     public static final PacketCodec<RegistryByteBuf, MaterialEntry> PACKET_CODEC = PacketCodec.tuple(
+            PacketCodecs.VAR_INT, MaterialEntry::getDatabaseId,
             ItemStack.PACKET_CODEC, MaterialEntry::getStack,
             PacketCodecs.VAR_LONG, MaterialEntry::getCountTotal,
             PacketCodecs.VAR_LONG, MaterialEntry::getCountMissing,

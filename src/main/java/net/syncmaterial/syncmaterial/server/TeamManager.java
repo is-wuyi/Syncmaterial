@@ -12,23 +12,68 @@ public class TeamManager {
         this.database = database;
     }
 
-    public boolean claimMaterial(String schematicId, int materialId, String playerName, int count) {
+    public int claimMaterial(String schematicId, int materialId, String playerName, int count) {
         try {
-            database.executeUpdate(
-                "INSERT OR IGNORE INTO claims (schematic_id, material_id, player_name, claimed_count, status) VALUES (?, ?, ?, ?, 'active')",
-                schematicId, materialId, playerName, count
-            );
-            try (var rs = database.executeQuery("SELECT changes()")) {
-                if (rs.next() && rs.getInt(1) > 0) {
-                    SyncMaterial.LOGGER.info("玩家 {} 认领了材料 {} (数量: {})", playerName, materialId, count);
-                    return true;
+            int totalCount = 0;
+            try (var rs = database.executeQuery(
+                "SELECT count FROM material_entries WHERE id = ? AND schematic_id = ?",
+                materialId, schematicId
+            )) {
+                if (rs.next()) {
+                    totalCount = rs.getInt("count");
                 }
             }
-            SyncMaterial.LOGGER.warn("材料 {} 已被认领，玩家 {} 认领失败", materialId, playerName);
-            return false;
+
+            if (totalCount == 0) {
+                SyncMaterial.LOGGER.warn("材料 {} 不存在", materialId);
+                return -1;
+            }
+
+            int existingClaimed = 0;
+            try (var rs = database.executeQuery(
+                "SELECT id, claimed_count FROM claims WHERE schematic_id = ? AND material_id = ? AND player_name = ? AND status = 'active'",
+                schematicId, materialId, playerName
+            )) {
+                if (rs.next()) {
+                    existingClaimed = rs.getInt("claimed_count");
+                }
+            }
+
+            if (existingClaimed + count > totalCount) {
+                SyncMaterial.LOGGER.warn("玩家 {} 认领材料 {} 失败：已认领 {} + 新增 {} > 总量 {}",
+                    playerName, materialId, existingClaimed, count, totalCount);
+                return -2;
+            }
+
+            int newClaimed;
+            if (existingClaimed > 0) {
+                newClaimed = existingClaimed + count;
+                try (var rs = database.executeQuery(
+                    "SELECT id FROM claims WHERE schematic_id = ? AND material_id = ? AND player_name = ? AND status = 'active'",
+                    schematicId, materialId, playerName
+                )) {
+                    if (rs.next()) {
+                        int claimId = rs.getInt("id");
+                        database.executeUpdate(
+                            "UPDATE claims SET claimed_count = ? WHERE id = ?",
+                            newClaimed, claimId
+                        );
+                    }
+                }
+                SyncMaterial.LOGGER.info("玩家 {} 累加认领材料 {} (原: {}, 新增: {}, 总计: {})", playerName, materialId, existingClaimed, count, newClaimed);
+            } else {
+                newClaimed = count;
+                database.executeUpdate(
+                    "INSERT INTO claims (schematic_id, material_id, player_name, claimed_count, status) VALUES (?, ?, ?, ?, 'active')",
+                    schematicId, materialId, playerName, count
+                );
+                SyncMaterial.LOGGER.info("玩家 {} 认领了材料 {} (数量: {})", playerName, materialId, count);
+            }
+
+            return newClaimed;
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("认领材料失败", e);
-            return false;
+            return -1;
         }
     }
 

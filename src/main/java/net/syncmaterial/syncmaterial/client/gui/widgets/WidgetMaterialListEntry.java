@@ -241,6 +241,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                     int indicatorX = x4 + this.getStringWidth(this.header4) + 2;
                     this.drawString(drawContext, indicatorX, y, grayColor, indicator);
                 }
+
+                int x5 = this.getColumnPosX(4);
+                this.drawString(drawContext, x5, y, color, this.header5);
             }
         }
         else if (this.entry != null)
@@ -265,7 +268,14 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             int x5 = this.getColumnPosX(4);
             String claimStatus = this.materialList.getClaimStatus(this.entry);
-            int claimColor = claimStatus.equals("未认领") ? 0x888888 : (claimStatus.equals("我") ? 0x00AA00 : 0x0000AA);
+            int claimColor;
+            if (claimStatus.equals("未认领")) {
+                claimColor = 0xFF888888;
+            } else if (claimStatus.contains("我")) {
+                claimColor = 0xFF00AA00;
+            } else {
+                claimColor = 0xFF0000AA;
+            }
             this.drawString(drawContext, x5, y, claimColor, claimStatus);
 
 //            drawContext.getMatrices().push();

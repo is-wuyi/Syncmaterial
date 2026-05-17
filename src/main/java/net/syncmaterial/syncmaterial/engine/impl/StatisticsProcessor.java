@@ -126,17 +126,17 @@ public class StatisticsProcessor {
         List<MaterialEntry> entries = new ArrayList<>();
 
         if (waterBucketCount > 0) {
-            entries.add(new MaterialEntry(new ItemStack(Items.WATER_BUCKET), waterBucketCount));
+            entries.add(new MaterialEntry(0, new ItemStack(Items.WATER_BUCKET), waterBucketCount));
         }
         if (lavaBucketCount > 0) {
-            entries.add(new MaterialEntry(new ItemStack(Items.LAVA_BUCKET), lavaBucketCount));
+            entries.add(new MaterialEntry(0, new ItemStack(Items.LAVA_BUCKET), lavaBucketCount));
         }
         for (Map.Entry<Item, Long> entry : itemCountMap.entrySet()) {
-            entries.add(new MaterialEntry(new ItemStack(entry.getKey()), entry.getValue()));
+            entries.add(new MaterialEntry(0, new ItemStack(entry.getKey()), entry.getValue()));
         }
 
         for (Map.Entry<Block, Long> entry : blockCountMap.entrySet()) {
-            entries.add(new MaterialEntry(new ItemStack(entry.getKey().asItem()), entry.getValue()));
+            entries.add(new MaterialEntry(0, new ItemStack(entry.getKey().asItem()), entry.getValue()));
         }
 
         entries.sort(Comparator.comparing(MaterialEntry::getDisplayName));

@@ -10,6 +10,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 public class GuiClaimDialog extends Screen {
     private final Screen parent;
+    private final int databaseId;
     private final String itemName;
     private final int totalNeeded;
     private String claimInput;
@@ -19,9 +20,10 @@ public class GuiClaimDialog extends Screen {
     private int confirmX, confirmY, cancelX, cancelY;
     private boolean inputFocused = false;
 
-    public GuiClaimDialog(Screen parent, String itemName, int totalNeeded) {
+    public GuiClaimDialog(Screen parent, int databaseId, String itemName, int totalNeeded) {
         super(Text.literal("认领材料"));
         this.parent = parent;
+        this.databaseId = databaseId;
         this.itemName = itemName;
         this.totalNeeded = totalNeeded;
         this.claimInput = String.valueOf(totalNeeded);
@@ -31,20 +33,20 @@ public class GuiClaimDialog extends Screen {
     protected void init() {
         super.init();
 
-        dialogWidth = 200;
-        dialogHeight = 100;
+        dialogWidth = 220;
+        dialogHeight = 110;
         dialogX = (this.width - dialogWidth) / 2;
         dialogY = (this.height - dialogHeight) / 2;
 
-        inputX = dialogX + 60;
-        inputY = dialogY + 40;
-        inputWidth = 80;
-        inputHeight = 20;
+        inputX = dialogX + 70;
+        inputY = dialogY + 45;
+        inputWidth = 90;
+        inputHeight = 18;
 
-        int btnY = dialogY + 70;
-        confirmX = dialogX + 30;
+        int btnY = dialogY + 75;
+        confirmX = dialogX + 40;
         confirmY = btnY;
-        cancelX = dialogX + dialogWidth - 80;
+        cancelX = dialogX + dialogWidth - 90;
         cancelY = btnY;
     }
 
@@ -57,23 +59,28 @@ public class GuiClaimDialog extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         this.renderBackground(context, mouseX, mouseY, delta);
 
-        context.fill(dialogX, dialogY, dialogX + dialogWidth, dialogY + dialogHeight, 0xFF303030);
+        if (this.textRenderer == null) {
+            return;
+        }
+
+        context.fill(dialogX, dialogY, dialogX + dialogWidth, dialogY + dialogHeight, 0xFF202020);
         context.drawBorder(dialogX, dialogY, dialogWidth, dialogHeight, 0xFFFFFFFF);
 
-        context.drawTextWithShadow(this.textRenderer, "认领材料", dialogX + 10, dialogY + 8, 0xFFFFFF);
-        context.drawTextWithShadow(this.textRenderer, "材料: " + itemName, dialogX + 10, dialogY + 22, 0xAAAAAA);
-        context.drawTextWithShadow(this.textRenderer, "总量: " + totalNeeded, dialogX + 10, dialogY + 32, 0xAAAAAA);
-        context.drawTextWithShadow(this.textRenderer, "数量:", dialogX + 10, inputY + 6, 0xFFFFFF);
+        int textColor = 0xFFFFFFFF;
+        int labelColor = 0xFFAAAAAA;
 
-        int borderColor = inputFocused ? 0xFFFFFF : 0x888888;
+        context.drawTextWithShadow(this.textRenderer, "认领材料", dialogX + 10, dialogY + 10, textColor);
+        context.drawTextWithShadow(this.textRenderer, "材料: " + itemName, dialogX + 10, dialogY + 26, labelColor);
+        context.drawTextWithShadow(this.textRenderer, "总量: " + totalNeeded, dialogX + 10, dialogY + 38, labelColor);
+        context.drawTextWithShadow(this.textRenderer, "数量:", dialogX + 10, inputY + 3, textColor);
+
+        int borderColor = inputFocused ? 0xFFFFFFFF : 0xFF888888;
         context.fill(inputX, inputY, inputX + inputWidth, inputY + inputHeight, 0xFF000000);
         context.drawBorder(inputX, inputY, inputWidth, inputHeight, borderColor);
-        context.drawTextWithShadow(this.textRenderer, claimInput, inputX + 5, inputY + 6, 0xFFFFFF);
+        context.drawTextWithShadow(this.textRenderer, claimInput, inputX + 5, inputY + 3, textColor);
 
         drawButton(context, confirmX, confirmY, 50, 18, "确认", mouseX, mouseY);
         drawButton(context, cancelX, cancelY, 50, 18, "取消", mouseX, mouseY);
-
-        super.render(context, mouseX, mouseY, delta);
     }
 
     private void drawButton(DrawContext context, int x, int y, int w, int h, String text, int mouseX, int mouseY) {
@@ -83,7 +90,7 @@ public class GuiClaimDialog extends Screen {
         context.drawBorder(x, y, w, h, 0xFFFFFFFF);
         int textX = x + (w - this.textRenderer.getWidth(text)) / 2;
         int textY = y + (h - 8) / 2;
-        context.drawTextWithShadow(this.textRenderer, text, textX, textY, 0xFFFFFF);
+        context.drawTextWithShadow(this.textRenderer, text, textX, textY, 0xFFFFFFFF);
     }
 
     @Override
@@ -117,8 +124,10 @@ public class GuiClaimDialog extends Screen {
                 claimInput = claimInput.substring(0, claimInput.length() - 1);
                 return true;
             }
-            if (keyCode >= 256 && keyCode <= 265) {
-                claimInput += (char) ('0' + (keyCode - 256));
+            // Main keyboard 0-9: keyCode 48-57, Numpad 0-9: keyCode 320-329
+            if ((keyCode >= 48 && keyCode <= 57) || (keyCode >= 320 && keyCode <= 329)) {
+                int digit = (keyCode >= 320) ? (keyCode - 320) : (keyCode - 48);
+                claimInput += digit;
                 return true;
             }
             if (keyCode == 257) {
@@ -138,8 +147,8 @@ public class GuiClaimDialog extends Screen {
             int amount = Integer.parseInt(claimInput);
             if (amount > 0 && amount <= totalNeeded) {
                 ClientPlayNetworking.send(new ClaimMaterialC2SPacket(
-                    SyncMaterialClient.getActiveMaterialList().getTitle(),
-                    0, amount));
+                    SyncMaterialClient.getActiveMaterialList().getSchematicId(),
+                    databaseId, amount));
             }
         } catch (NumberFormatException e) {
         }

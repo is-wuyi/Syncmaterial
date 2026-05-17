@@ -18,10 +18,10 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
     private final SyncMaterialList materialList;
 
-    public GuiMaterialList(String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries) {
+    public GuiMaterialList(String schematicId, String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries) {
         super(10, 44);
 
-        this.materialList = new SyncMaterialList(schematicName);
+        this.materialList = new SyncMaterialList(schematicId, schematicName);
         this.materialList.setMaterialEntries(entries);
         this.title = this.materialList.getTitle();
         this.useTitleHierarchy = false;
@@ -29,7 +29,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
         WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
 
-        ClientPlayNetworking.send(new QueryMaterialStatusC2SPacket(schematicName));
+        ClientPlayNetworking.send(new QueryMaterialStatusC2SPacket(schematicId));
     }
 
     public SyncMaterialList getMaterialList() {

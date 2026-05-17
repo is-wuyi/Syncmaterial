@@ -27,12 +27,13 @@ public class DatabaseQueryService {
 
         try {
             ResultSet rs = database.executeQuery(
-                "SELECT item_id, count FROM material_entries WHERE schematic_id = ?",
+                "SELECT id, item_id, count FROM material_entries WHERE schematic_id = ?",
                 schematicId
             );
 
             try {
                 while (rs.next()) {
+                    int dbId = rs.getInt("id");
                     String itemId = rs.getString("item_id");
                     int count = rs.getInt("count");
 
@@ -41,12 +42,12 @@ public class DatabaseQueryService {
                     }
 
                     var itemRegistry = net.minecraft.registry.Registries.ITEM;
-                    var id = net.minecraft.util.Identifier.of(itemId);
-                    var item = itemRegistry.get(id);
+                    var identifier = net.minecraft.util.Identifier.of(itemId);
+                    var item = itemRegistry.get(identifier);
                     
                     if (item != null && item != net.minecraft.item.Items.AIR) {
                         var stack = new net.minecraft.item.ItemStack(item, count);
-                        materials.add(new MaterialEntry(stack, count));
+                        materials.add(new MaterialEntry(dbId, stack, count));
                     } else {
                         SyncMaterial.LOGGER.warn("未找到物品: {}", itemId);
                     }

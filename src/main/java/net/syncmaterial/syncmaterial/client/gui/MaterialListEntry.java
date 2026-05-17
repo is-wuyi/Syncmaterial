@@ -5,20 +5,24 @@ import net.minecraft.item.ItemStack;
 
 public class MaterialListEntry
 {
+    private final int databaseId;
     private final ItemType item;
     private final int countTotal;
     private int countMissing;
     private final int countMismatched;
     private int countAvailable;
 
-    public MaterialListEntry(ItemStack stack, int countTotal, int countMissing, int countMismatched, int countAvailable)
+    public MaterialListEntry(int databaseId, ItemStack stack, int countTotal, int countMissing, int countMismatched, int countAvailable)
     {
+        this.databaseId = databaseId;
         this.item = new ItemType(stack, true, false);
         this.countTotal = countTotal;
         this.countMissing = countMissing;
         this.countMismatched = countMismatched;
         this.countAvailable = countAvailable;
     }
+
+    public int getDatabaseId() { return databaseId; }
 
     public ItemStack getStack()
     {

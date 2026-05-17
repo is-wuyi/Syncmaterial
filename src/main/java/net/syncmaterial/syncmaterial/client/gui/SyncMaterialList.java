@@ -13,10 +13,12 @@ import java.util.List;
 import java.util.Map;
 
 public class SyncMaterialList extends MaterialListBase {
+    private final String schematicId;
     private final String title;
     private final Map<Integer, MaterialStatusS2CPacket.MaterialStatusEntry> materialStatusMap = new HashMap<>();
 
-    public SyncMaterialList(String title) {
+    public SyncMaterialList(String schematicId, String title) {
+        this.schematicId = schematicId;
         this.title = title;
     }
 
@@ -28,6 +30,10 @@ public class SyncMaterialList extends MaterialListBase {
     @Override
     public String getTitle() {
         return this.title;
+    }
+
+    public String getSchematicId() {
+        return this.schematicId;
     }
 
     @Override
@@ -52,9 +58,8 @@ public class SyncMaterialList extends MaterialListBase {
 
     private void updateEntriesWithStatus() {
         List<MaterialListEntry> entries = this.getMaterialsAll();
-        for (int i = 0; i < entries.size(); i++) {
-            MaterialListEntry entry = entries.get(i);
-            MaterialStatusS2CPacket.MaterialStatusEntry status = materialStatusMap.get(i + 1);
+        for (MaterialListEntry entry : entries) {
+            MaterialStatusS2CPacket.MaterialStatusEntry status = materialStatusMap.get(entry.getDatabaseId());
             if (status != null) {
                 String claimer = status.claimer().isEmpty() ? null : status.claimer();
                 if (claimer != null) {
@@ -63,9 +68,22 @@ public class SyncMaterialList extends MaterialListBase {
                 } else {
                     this.setClaimStatus(entry, "未认领");
                 }
+            } else {
+                this.setClaimStatus(entry, "未认领");
             }
         }
         this.updateCounts();
+    }
+
+    public void onClaimSuccess(int databaseId, String playerName, int claimedCount) {
+        List<MaterialListEntry> entries = this.getMaterialsAll();
+        for (MaterialListEntry entry : entries) {
+            if (entry.getDatabaseId() == databaseId) {
+                String status = playerName.equals(MinecraftClient.getInstance().player.getGameProfile().getName()) ? "我" : playerName;
+                this.setClaimStatus(entry, status + " (" + claimedCount + ")");
+                break;
+            }
+        }
     }
 
     @Override
@@ -80,6 +98,7 @@ public class SyncMaterialList extends MaterialListBase {
 
         GuiClaimDialog dialog = new GuiClaimDialog(
             MinecraftClient.getInstance().currentScreen,
+            entry.getDatabaseId(),
             entry.getStack().getName().getString(),
             totalNeeded
         );

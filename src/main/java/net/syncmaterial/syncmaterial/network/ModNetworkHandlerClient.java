@@ -16,13 +16,13 @@ public class ModNetworkHandlerClient {
 
         ClientPlayNetworking.registerGlobalReceiver(MaterialStatsResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                SyncMaterialClient.openMaterialListScreen(payload.schematicName(), payload.materials());
+                SyncMaterialClient.openMaterialListScreen(payload.schematicId(), payload.schematicName(), payload.materials());
             });
         });
 
         ClientPlayNetworking.registerGlobalReceiver(ClaimResultS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                SyncMaterialClient.onClaimResult(payload.success(), payload.message(), payload.materialId());
+                SyncMaterialClient.onClaimResult(payload.success(), payload.message(), payload.materialId(), payload.newClaimedCount());
             });
         });
 

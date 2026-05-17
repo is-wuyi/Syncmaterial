@@ -32,18 +32,22 @@ public class SyncMaterialClient implements ClientModInitializer {
         });
     }
 
-    public static void openMaterialListScreen(String schematicName, List<MaterialEntry> materials) {
+    public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials) {
         LOGGER.info("收到材料清单响应，准备打开 UI。共 {} 项。", materials.size());
-        GuiMaterialList gui = new GuiMaterialList(schematicName, materials);
+        GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials);
         activeMaterialList = gui.getMaterialList();
         MinecraftClient.getInstance().setScreen(gui);
     }
 
-    public static void onClaimResult(boolean success, String message, int materialId) {
-        LOGGER.info("认领结果: {} (材料: {})", message, materialId);
+    public static void onClaimResult(boolean success, String message, int materialId, int newClaimedCount) {
+        LOGGER.info("认领结果: {} (材料: {}, 认领数: {})", message, materialId, newClaimedCount);
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.inGameHud != null) {
             client.inGameHud.getChatHud().addMessage(net.minecraft.text.Text.literal(success ? "§a[认领] §r" + message : "§c[认领] §r" + message));
+        }
+        if (success && newClaimedCount > 0 && activeMaterialList != null) {
+            String playerName = client.player != null ? client.player.getGameProfile().getName() : "未知玩家";
+            activeMaterialList.onClaimSuccess(materialId, playerName, newClaimedCount);
         }
     }
 

@@ -12,11 +12,12 @@ import java.util.List;
 /**
  * 服务端响应材料统计请求的数据包
  */
-public record MaterialStatsResponseS2CPacket(String schematicName, List<MaterialEntry> materials) implements CustomPayload {
+public record MaterialStatsResponseS2CPacket(String schematicId, String schematicName, List<MaterialEntry> materials) implements CustomPayload {
 
     public static final CustomPayload.Id<MaterialStatsResponseS2CPacket> ID = new CustomPayload.Id<>(ModPackets.MATERIAL_LIST_RESPONSE);
 
     public static final PacketCodec<RegistryByteBuf, MaterialStatsResponseS2CPacket> CODEC = PacketCodec.tuple(
+            PacketCodecs.STRING, MaterialStatsResponseS2CPacket::schematicId,
             PacketCodecs.STRING, MaterialStatsResponseS2CPacket::schematicName,
             MaterialEntry.PACKET_CODEC.collect(PacketCodecs.toList()), MaterialStatsResponseS2CPacket::materials,
             MaterialStatsResponseS2CPacket::new

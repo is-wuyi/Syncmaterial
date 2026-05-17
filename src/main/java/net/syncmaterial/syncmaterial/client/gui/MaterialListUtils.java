@@ -28,6 +28,7 @@ public class MaterialListUtils {
         List<MaterialListEntry> result = new ArrayList<>();
         for (net.syncmaterial.syncmaterial.api.MaterialEntry entry : entries) {
             result.add(new MaterialListEntry(
+                    entry.getDatabaseId(),
                     entry.getStack(),
                     (int) entry.getCountTotal(),
                     (int) entry.getCountMissing(),

@@ -46,12 +46,11 @@ public class ModNetworkHandler {
                     SyncMaterial.LOGGER.info("数据库查询结果: schematic={}, 材料数量={}", schematicId, materials.size());
 
                     String schematicName = PlacementsUtil.getDisplayName(schematicId);
-                    ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicName, materials));
-                    SyncMaterial.LOGGER.debug("发送统计结果: {} 项材料", materials.size());
+                    ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials));
 
                 } catch (Exception e) {
                     SyncMaterial.LOGGER.error("处理材料统计请求失败", e);
-                    ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, java.util.List.of()));
+                    ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, "", java.util.List.of()));
                 }
             });
         });
@@ -64,13 +63,14 @@ public class ModNetworkHandler {
             String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
-                try {
-                    boolean success = teamManager.claimMaterial(schematicId, materialId, playerName, count);
-                    String message = success ? "认领成功" : "认领失败：该材料已被认领";
-                    ServerPlayNetworking.send(player, new ClaimResultS2CPacket(success, message, materialId));
-                } catch (Exception e) {
-                    SyncMaterial.LOGGER.error("处理认领请求失败", e);
-                    ServerPlayNetworking.send(player, new ClaimResultS2CPacket(false, "认领失败：系统错误", materialId));
+                int newClaimed = teamManager.claimMaterial(schematicId, materialId, playerName, count);
+                if (newClaimed >= 0) {
+                    String message = "认领成功 (" + newClaimed + ")";
+                    ServerPlayNetworking.send(player, new ClaimResultS2CPacket(true, message, materialId, newClaimed));
+                } else if (newClaimed == -2) {
+                    ServerPlayNetworking.send(player, new ClaimResultS2CPacket(false, "认领失败：超出材料总量", materialId, 0));
+                } else {
+                    ServerPlayNetworking.send(player, new ClaimResultS2CPacket(false, "认领失败：系统错误", materialId, 0));
                 }
             });
         });

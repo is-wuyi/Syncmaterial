@@ -158,7 +158,8 @@ public class SchematicDatabase {
      */
     private void createIndexes() throws SQLException {
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_material_entries_schematic ON material_entries(schematic_id);");
-        executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_active_claim ON claims(material_id, status) WHERE status = 'active';");
+        executeUpdate("DROP INDEX IF EXISTS idx_active_claim;");
+        executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_active_claim ON claims(schematic_id, material_id, player_name) WHERE status = 'active';");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_schematic ON claims(schematic_id, status);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_player ON claims(player_name, status);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_assignments_schematic ON assignments(schematic_id, status);");
