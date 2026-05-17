@@ -12,7 +12,9 @@ public class GuiClaimDialog extends Screen {
     private final Screen parent;
     private final int databaseId;
     private final String itemName;
-    private final int totalNeeded;
+    private final int totalCount;
+    private final int claimedCount;
+    private final int remaining;
     private String claimInput;
 
     private int dialogX, dialogY, dialogWidth, dialogHeight;
@@ -20,13 +22,15 @@ public class GuiClaimDialog extends Screen {
     private int confirmX, confirmY, cancelX, cancelY;
     private boolean inputFocused = false;
 
-    public GuiClaimDialog(Screen parent, int databaseId, String itemName, int totalNeeded) {
+    public GuiClaimDialog(Screen parent, int databaseId, String itemName, int totalCount, int claimedCount) {
         super(Text.literal("认领材料"));
         this.parent = parent;
         this.databaseId = databaseId;
         this.itemName = itemName;
-        this.totalNeeded = totalNeeded;
-        this.claimInput = String.valueOf(totalNeeded);
+        this.totalCount = totalCount;
+        this.claimedCount = claimedCount;
+        this.remaining = totalCount - claimedCount;
+        this.claimInput = String.valueOf(this.remaining);
     }
 
     @Override
@@ -71,7 +75,7 @@ public class GuiClaimDialog extends Screen {
 
         context.drawTextWithShadow(this.textRenderer, "认领材料", dialogX + 10, dialogY + 10, textColor);
         context.drawTextWithShadow(this.textRenderer, "材料: " + itemName, dialogX + 10, dialogY + 26, labelColor);
-        context.drawTextWithShadow(this.textRenderer, "总量: " + totalNeeded, dialogX + 10, dialogY + 38, labelColor);
+        context.drawTextWithShadow(this.textRenderer, "剩余: " + remaining, dialogX + 10, dialogY + 38, labelColor);
         context.drawTextWithShadow(this.textRenderer, "数量:", dialogX + 10, inputY + 3, textColor);
 
         int borderColor = inputFocused ? 0xFFFFFFFF : 0xFF888888;
@@ -124,7 +128,6 @@ public class GuiClaimDialog extends Screen {
                 claimInput = claimInput.substring(0, claimInput.length() - 1);
                 return true;
             }
-            // Main keyboard 0-9: keyCode 48-57, Numpad 0-9: keyCode 320-329
             if ((keyCode >= 48 && keyCode <= 57) || (keyCode >= 320 && keyCode <= 329)) {
                 int digit = (keyCode >= 320) ? (keyCode - 320) : (keyCode - 48);
                 claimInput += digit;
@@ -145,7 +148,7 @@ public class GuiClaimDialog extends Screen {
     private void tryClaim() {
         try {
             int amount = Integer.parseInt(claimInput);
-            if (amount > 0 && amount <= totalNeeded) {
+            if (amount > 0 && amount <= remaining) {
                 ClientPlayNetworking.send(new ClaimMaterialC2SPacket(
                     SyncMaterialClient.getActiveMaterialList().getSchematicId(),
                     databaseId, amount));

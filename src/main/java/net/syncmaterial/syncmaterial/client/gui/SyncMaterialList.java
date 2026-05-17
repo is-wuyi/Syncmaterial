@@ -89,10 +89,20 @@ public class SyncMaterialList extends MaterialListBase {
     @Override
     public void claimEntry(MaterialListEntry entry) {
         if (entry == null) return;
-        int totalNeeded = entry.getCountMissing();
-        if (totalNeeded <= 0) {
-            net.minecraft.client.MinecraftClient.getInstance().inGameHud.getChatHud().addMessage(
-                net.minecraft.text.Text.literal("§c该材料不需要认领"));
+
+        int totalCount = (int) entry.getCountTotal();
+        int claimedCount = 0;
+        String playerName = MinecraftClient.getInstance().player.getGameProfile().getName();
+
+        MaterialStatusS2CPacket.MaterialStatusEntry status = materialStatusMap.get(entry.getDatabaseId());
+        if (status != null && playerName.equals(status.claimer())) {
+            claimedCount = status.claimedCount();
+        }
+
+        int remaining = totalCount - claimedCount;
+        if (remaining <= 0) {
+            MinecraftClient.getInstance().inGameHud.getChatHud().addMessage(
+                net.minecraft.text.Text.literal("§c该材料已全部认领"));
             return;
         }
 
@@ -100,7 +110,8 @@ public class SyncMaterialList extends MaterialListBase {
             MinecraftClient.getInstance().currentScreen,
             entry.getDatabaseId(),
             entry.getStack().getName().getString(),
-            totalNeeded
+            totalCount,
+            claimedCount
         );
         MinecraftClient.getInstance().setScreen(dialog);
     }
