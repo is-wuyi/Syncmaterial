@@ -76,6 +76,12 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     public void onClaimSuccess(int databaseId, String playerName, int claimedCount) {
+        MaterialStatusS2CPacket.MaterialStatusEntry existing = materialStatusMap.get(databaseId);
+        if (existing != null) {
+            materialStatusMap.put(databaseId, new MaterialStatusS2CPacket.MaterialStatusEntry(
+                databaseId, existing.itemId(), existing.totalCount(), claimedCount, playerName));
+        }
+
         List<MaterialListEntry> entries = this.getMaterialsAll();
         for (MaterialListEntry entry : entries) {
             if (entry.getDatabaseId() == databaseId) {
