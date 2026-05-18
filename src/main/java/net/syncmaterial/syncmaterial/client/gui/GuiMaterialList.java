@@ -28,8 +28,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
         MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
         WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
-
-        ClientPlayNetworking.send(new QueryMaterialStatusC2SPacket(schematicId));
     }
 
     public SyncMaterialList getMaterialList() {

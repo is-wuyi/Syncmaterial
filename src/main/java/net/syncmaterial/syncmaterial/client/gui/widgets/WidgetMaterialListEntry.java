@@ -16,6 +16,7 @@ import fi.dy.masa.malilib.util.StringUtils;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase.SortCriteria;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
+import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
 
 public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialListEntry>
 {
@@ -81,6 +82,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private int createButtonGeneric(int xRight, int y, ButtonListener.ButtonType type)
     {
         String label = type.getDisplayName();
+        if (type == ButtonListener.ButtonType.CLAIM && this.entry != null && this.materialList instanceof SyncMaterialList) {
+            label = ((SyncMaterialList) this.materialList).isCollaborating(this.entry) ? "退出协作" : "加入协作";
+        }
         ButtonListener listener = new ButtonListener(type, this.materialList, this.entry, this.listWidget);
         return this.addButton(new ButtonGeneric(xRight, y, -1, true, label), listener).getX();
     }

@@ -3,9 +3,9 @@ package net.syncmaterial.syncmaterial.client.gui;
 import net.minecraft.client.MinecraftClient;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
-import net.syncmaterial.syncmaterial.client.gui.GuiClaimDialog;
-import net.syncmaterial.syncmaterial.network.ClaimMaterialC2SPacket;
-import net.syncmaterial.syncmaterial.network.MaterialStatusS2CPacket;
+import net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket;
+import net.syncmaterial.syncmaterial.network.JoinCollaborationC2SPacket;
+import net.syncmaterial.syncmaterial.network.LeaveCollaborationC2SPacket;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 import java.util.HashMap;
@@ -15,7 +15,7 @@ import java.util.Map;
 public class SyncMaterialList extends MaterialListBase {
     private final String schematicId;
     private final String title;
-    private final Map<Integer, MaterialStatusS2CPacket.MaterialStatusEntry> materialStatusMap = new HashMap<>();
+    private final Map<Integer, CollaborationStatusS2CPacket> collaborationStatusMap = new HashMap<>();
 
     public SyncMaterialList(String schematicId, String title) {
         this.schematicId = schematicId;
@@ -42,32 +42,31 @@ public class SyncMaterialList extends MaterialListBase {
 
     public void setMaterialEntries(List<MaterialEntry> entries) {
         this.setMaterialListEntries(MaterialListUtils.convertFromMaterialEntries(entries));
-    }
-
-    public void updateMaterialStatus(List<MaterialStatusS2CPacket.MaterialStatusEntry> statuses) {
-        materialStatusMap.clear();
-        for (var status : statuses) {
-            materialStatusMap.put(status.materialId(), status);
+        
+        Map<String, Integer> itemIdToMaterialId = new HashMap<>();
+        for (MaterialEntry entry : entries) {
+            String itemId = entry.getStack().getItem().getRegistryEntry().getKey().map(k -> k.getValue().toString()).orElse("");
+            itemIdToMaterialId.put(itemId, entry.getDatabaseId());
         }
-        updateEntriesWithStatus();
+        net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(schematicId, itemIdToMaterialId);
     }
 
-    public Map<Integer, MaterialStatusS2CPacket.MaterialStatusEntry> getMaterialStatusMap() {
-        return materialStatusMap;
+    public void onCollaborationStatus(CollaborationStatusS2CPacket status) {
+        collaborationStatusMap.put(status.materialId(), status);
+        updateEntriesWithCollaborationStatus();
     }
 
-    private void updateEntriesWithStatus() {
+    private void updateEntriesWithCollaborationStatus() {
         List<MaterialListEntry> entries = this.getMaterialsAll();
         for (MaterialListEntry entry : entries) {
-            MaterialStatusS2CPacket.MaterialStatusEntry status = materialStatusMap.get(entry.getDatabaseId());
+            CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
             if (status != null) {
-                String claimer = status.claimer().isEmpty() ? null : status.claimer();
-                if (claimer != null) {
-                    String playerName = MinecraftClient.getInstance().player.getGameProfile().getName();
-                    this.setClaimStatus(entry, claimer.equals(playerName) ? "我" : claimer);
-                } else {
-                    this.setClaimStatus(entry, "未认领");
+                int collected = status.stagingCount();
+                for (var p : status.participants()) {
+                    collected += p.count();
                 }
+                int remaining = Math.max(0, status.totalCount() - collected);
+                this.setClaimStatus(entry, "剩余: " + remaining);
             } else {
                 this.setClaimStatus(entry, "未认领");
             }
@@ -75,50 +74,20 @@ public class SyncMaterialList extends MaterialListBase {
         this.updateCounts();
     }
 
-    public void onClaimSuccess(int databaseId, String playerName, int claimedCount) {
-        MaterialStatusS2CPacket.MaterialStatusEntry existing = materialStatusMap.get(databaseId);
-        if (existing != null) {
-            materialStatusMap.put(databaseId, new MaterialStatusS2CPacket.MaterialStatusEntry(
-                databaseId, existing.itemId(), existing.totalCount(), claimedCount, playerName));
-        }
-
-        List<MaterialListEntry> entries = this.getMaterialsAll();
-        for (MaterialListEntry entry : entries) {
-            if (entry.getDatabaseId() == databaseId) {
-                String status = playerName.equals(MinecraftClient.getInstance().player.getGameProfile().getName()) ? "我" : playerName;
-                this.setClaimStatus(entry, status + " (" + claimedCount + ")");
-                break;
-            }
-        }
-    }
-
     @Override
     public void claimEntry(MaterialListEntry entry) {
         if (entry == null) return;
 
-        int totalCount = (int) entry.getCountTotal();
-        int claimedCount = 0;
-        String playerName = MinecraftClient.getInstance().player.getGameProfile().getName();
-
-        MaterialStatusS2CPacket.MaterialStatusEntry status = materialStatusMap.get(entry.getDatabaseId());
-        if (status != null && playerName.equals(status.claimer())) {
-            claimedCount = status.claimedCount();
+        CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
+        if (status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(MinecraftClient.getInstance().player.getGameProfile().getName()))) {
+            ClientPlayNetworking.send(new LeaveCollaborationC2SPacket(schematicId, entry.getDatabaseId()));
+        } else {
+            ClientPlayNetworking.send(new JoinCollaborationC2SPacket(schematicId, entry.getDatabaseId()));
         }
+    }
 
-        int remaining = totalCount - claimedCount;
-        if (remaining <= 0) {
-            MinecraftClient.getInstance().inGameHud.getChatHud().addMessage(
-                net.minecraft.text.Text.literal("§c该材料已全部认领"));
-            return;
-        }
-
-        GuiClaimDialog dialog = new GuiClaimDialog(
-            MinecraftClient.getInstance().currentScreen,
-            entry.getDatabaseId(),
-            entry.getStack().getName().getString(),
-            totalCount,
-            claimedCount
-        );
-        MinecraftClient.getInstance().setScreen(dialog);
+    public boolean isCollaborating(MaterialListEntry entry) {
+        CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
+        return status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(MinecraftClient.getInstance().player.getGameProfile().getName()));
     }
 }

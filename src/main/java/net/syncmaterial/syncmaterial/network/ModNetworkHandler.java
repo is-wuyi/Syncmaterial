@@ -3,20 +3,20 @@ package net.syncmaterial.syncmaterial.network;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.syncmaterial.syncmaterial.SyncMaterial;
+import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.PlacementsUtil;
-import net.syncmaterial.syncmaterial.server.TeamManager;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class ModNetworkHandler {
     private static DatabaseQueryService queryService;
-    private static TeamManager teamManager;
+    private static CollaborationManager collaborationManager;
 
-    public static void initializeServices(DatabaseQueryService queryService, TeamManager teamManager) {
+    public static void initializeServices(DatabaseQueryService queryService, CollaborationManager collaborationManager) {
         ModNetworkHandler.queryService = queryService;
-        ModNetworkHandler.teamManager = teamManager;
+        ModNetworkHandler.collaborationManager = collaborationManager;
         SyncMaterial.LOGGER.info("服务端网络服务初始化完成");
     }
 
@@ -28,10 +28,11 @@ public class ModNetworkHandler {
 
         PayloadTypeRegistry.playC2S().register(MaterialStatsRequestC2SPacket.ID, MaterialStatsRequestC2SPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(ClaimMaterialC2SPacket.ID, ClaimMaterialC2SPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(ClaimResultS2CPacket.ID, ClaimResultS2CPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(MaterialStatusS2CPacket.ID, MaterialStatusS2CPacket.CODEC);
+        
+        PayloadTypeRegistry.playC2S().register(JoinCollaborationC2SPacket.ID, JoinCollaborationC2SPacket.CODEC);
+        PayloadTypeRegistry.playS2C().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(InventoryUpdateC2SPacket.ID, InventoryUpdateC2SPacket.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(MaterialStatsRequestC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
@@ -55,49 +56,46 @@ public class ModNetworkHandler {
             });
         });
 
-        ServerPlayNetworking.registerGlobalReceiver(ClaimMaterialC2SPacket.ID, (payload, context) -> {
+        ServerPlayNetworking.registerGlobalReceiver(JoinCollaborationC2SPacket.ID, (payload, context) -> {
+            String schematicId = payload.schematicId();
+            int materialId = payload.materialId();
+            String playerName = context.player().getGameProfile().getName();
+
+            context.server().execute(() -> {
+                if (collaborationManager.joinCollaboration(schematicId, materialId, playerName)) {
+                    broadcastStatus(schematicId, materialId);
+                }
+            });
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(LeaveCollaborationC2SPacket.ID, (payload, context) -> {
+            String schematicId = payload.schematicId();
+            int materialId = payload.materialId();
+            String playerName = context.player().getGameProfile().getName();
+
+            context.server().execute(() -> {
+                if (collaborationManager.leaveCollaboration(schematicId, materialId, playerName)) {
+                    broadcastStatus(schematicId, materialId);
+                }
+            });
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(InventoryUpdateC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
             int count = payload.count();
-            var player = context.player();
-            String playerName = player.getGameProfile().getName();
+            String playerName = context.player().getGameProfile().getName();
 
             context.server().execute(() -> {
-                int newClaimed = teamManager.claimMaterial(schematicId, materialId, playerName, count);
-                if (newClaimed >= 0) {
-                    String message = "认领成功 (" + newClaimed + ")";
-                    ServerPlayNetworking.send(player, new ClaimResultS2CPacket(true, message, materialId, newClaimed));
-                } else if (newClaimed == -2) {
-                    ServerPlayNetworking.send(player, new ClaimResultS2CPacket(false, "认领失败：超出材料总量", materialId, 0));
-                } else {
-                    ServerPlayNetworking.send(player, new ClaimResultS2CPacket(false, "认领失败：系统错误", materialId, 0));
-                }
+                collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
+                broadcastStatus(schematicId, materialId);
             });
         });
+    }
 
-        ServerPlayNetworking.registerGlobalReceiver(QueryMaterialStatusC2SPacket.ID, (payload, context) -> {
-            String schematicId = payload.schematicId();
-            var player = context.player();
-
-            context.server().execute(() -> {
-                try {
-                    var statusMap = teamManager.getMaterialStatus(schematicId);
-                    List<MaterialStatusS2CPacket.MaterialStatusEntry> entries = new ArrayList<>();
-                    for (var status : statusMap.values()) {
-                        entries.add(new MaterialStatusS2CPacket.MaterialStatusEntry(
-                            status.materialId,
-                            status.itemId != null ? status.itemId : "",
-                            status.totalCount,
-                            status.claimedCount,
-                            status.claimer != null ? status.claimer : ""
-                        ));
-                    }
-                    ServerPlayNetworking.send(player, new MaterialStatusS2CPacket(entries));
-                } catch (Exception e) {
-                    SyncMaterial.LOGGER.error("查询材料状态失败", e);
-                    ServerPlayNetworking.send(player, new MaterialStatusS2CPacket(List.of()));
-                }
-            });
-        });
+    private static void broadcastStatus(String schematicId, int materialId) {
+        var status = collaborationManager.getCollaborationStatus(schematicId, materialId);
+        if (status != null) {
+        }
     }
 }

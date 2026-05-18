@@ -11,10 +11,10 @@ import net.syncmaterial.syncmaterial.engine.LitematicaParser;
 import net.syncmaterial.syncmaterial.engine.impl.DefaultLitematicaParser;
 import net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool;
 import net.syncmaterial.syncmaterial.network.ModNetworkHandler;
+import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 import net.syncmaterial.syncmaterial.server.SchematicFolderWatcher;
-import net.syncmaterial.syncmaterial.server.TeamManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,7 +26,7 @@ public class SyncMaterial implements ModInitializer {
     private static SchematicDatabase sharedDatabase;
     private static DatabaseQueryService sharedQueryService;
     private static LitematicaParser sharedParser;
-    private static TeamManager sharedTeamManager;
+    private static CollaborationManager sharedCollaborationManager;
 
     @Override
     public void onInitialize() {
@@ -47,9 +47,9 @@ public class SyncMaterial implements ModInitializer {
 
                 sharedQueryService = new DatabaseQueryService(sharedDatabase);
                 sharedParser = new DefaultLitematicaParser(new ParsingThreadPool());
-                sharedTeamManager = new TeamManager(sharedDatabase);
+                sharedCollaborationManager = new CollaborationManager(sharedDatabase);
 
-                ModNetworkHandler.initializeServices(sharedQueryService, sharedTeamManager);
+                ModNetworkHandler.initializeServices(sharedQueryService, sharedCollaborationManager);
                 ModNetworkHandler.register();
 
                 LOGGER.info("SyncMaterial 服务端组件初始化完成！");

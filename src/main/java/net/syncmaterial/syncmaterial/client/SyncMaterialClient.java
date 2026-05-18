@@ -10,7 +10,7 @@ import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListHudRenderer;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
-import net.syncmaterial.syncmaterial.network.MaterialStatusS2CPacket;
+import net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket;
 import org.slf4j.Logger;
 
 import java.util.List;
@@ -23,6 +23,7 @@ public class SyncMaterialClient implements ClientModInitializer {
     public void onInitializeClient() {
         LOGGER.info("SyncMaterial Client initialized!");
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
+        InventoryWatcher.register();
 
         HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
             if (activeMaterialList != null && activeMaterialList.getHudRenderer().getShouldRender()) {
@@ -39,26 +40,10 @@ public class SyncMaterialClient implements ClientModInitializer {
         MinecraftClient.getInstance().setScreen(gui);
     }
 
-    public static void onClaimResult(boolean success, String message, int materialId, int newClaimedCount) {
-        LOGGER.info("认领结果: {} (材料: {}, 认领数: {})", message, materialId, newClaimedCount);
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.inGameHud != null) {
-            client.inGameHud.getChatHud().addMessage(net.minecraft.text.Text.literal(success ? "§a[认领] §r" + message : "§c[认领] §r" + message));
-        }
-        if (success && newClaimedCount > 0 && activeMaterialList != null) {
-            String playerName = client.player != null ? client.player.getGameProfile().getName() : "未知玩家";
-            activeMaterialList.onClaimSuccess(materialId, playerName, newClaimedCount);
-        }
-    }
-
-    public static void onMaterialStatus(List<MaterialStatusS2CPacket.MaterialStatusEntry> statuses) {
-        LOGGER.info("收到材料状态更新，共 {} 项。", statuses.size());
+    public static void onCollaborationStatus(CollaborationStatusS2CPacket status) {
+        LOGGER.info("收到协作状态更新: 材料 {} (总量: {}, 备货区: {})", status.materialId(), status.totalCount(), status.stagingCount());
         if (activeMaterialList != null) {
-            activeMaterialList.updateMaterialStatus(statuses);
+            activeMaterialList.onCollaborationStatus(status);
         }
-    }
-
-    public static SyncMaterialList getActiveMaterialList() {
-        return activeMaterialList;
     }
 }
