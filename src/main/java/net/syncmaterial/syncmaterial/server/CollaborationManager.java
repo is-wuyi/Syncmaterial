@@ -114,6 +114,37 @@ public class CollaborationManager {
         }
     }
 
+    public List<Integer> getAllMaterialIds(String schematicId) {
+        List<Integer> materialIds = new ArrayList<>();
+        try {
+            try (var rs = database.executeQuery(
+                "SELECT id FROM material_entries WHERE schematic_id = ?",
+                schematicId
+            )) {
+                while (rs.next()) {
+                    materialIds.add(rs.getInt("id"));
+                }
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("获取原理图 {} 的所有材料ID失败", schematicId, e);
+        }
+        return materialIds;
+    }
+
+    public boolean isCollaborating(String schematicId, int materialId, String playerName) {
+        try {
+            try (var rs = database.executeQuery(
+                "SELECT id FROM claims WHERE schematic_id = ? AND material_id = ? AND player_name = ? AND status = 'active'",
+                schematicId, materialId, playerName
+            )) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("检查协作状态失败", e);
+            return false;
+        }
+    }
+
     public void onPlayerDisconnect(String playerName) {
     }
 }

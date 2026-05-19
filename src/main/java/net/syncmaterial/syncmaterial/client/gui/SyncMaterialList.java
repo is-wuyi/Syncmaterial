@@ -6,6 +6,7 @@ import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket;
 import net.syncmaterial.syncmaterial.network.JoinCollaborationC2SPacket;
 import net.syncmaterial.syncmaterial.network.LeaveCollaborationC2SPacket;
+import net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 import java.util.HashMap;
@@ -16,10 +17,15 @@ public class SyncMaterialList extends MaterialListBase {
     private final String schematicId;
     private final String title;
     private final Map<Integer, CollaborationStatusS2CPacket> collaborationStatusMap = new HashMap<>();
+    private Runnable onStatusUpdate;
 
     public SyncMaterialList(String schematicId, String title) {
         this.schematicId = schematicId;
         this.title = title;
+    }
+
+    public void setOnStatusUpdate(Runnable callback) {
+        this.onStatusUpdate = callback;
     }
 
     @Override
@@ -42,6 +48,7 @@ public class SyncMaterialList extends MaterialListBase {
 
     public void setMaterialEntries(List<MaterialEntry> entries) {
         this.setMaterialListEntries(MaterialListUtils.convertFromMaterialEntries(entries));
+        this.collaborationStatusMap.clear();
         
         Map<String, Integer> itemIdToMaterialId = new HashMap<>();
         for (MaterialEntry entry : entries) {
@@ -51,16 +58,23 @@ public class SyncMaterialList extends MaterialListBase {
         net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(schematicId, itemIdToMaterialId);
     }
 
+    public void requestCollaborationStatus() {
+        ClientPlayNetworking.send(new QueryMaterialStatusC2SPacket(schematicId));
+    }
+
     public void onCollaborationStatus(CollaborationStatusS2CPacket status) {
         collaborationStatusMap.put(status.materialId(), status);
         updateEntriesWithCollaborationStatus();
+        if (onStatusUpdate != null) {
+            onStatusUpdate.run();
+        }
     }
 
     private void updateEntriesWithCollaborationStatus() {
         List<MaterialListEntry> entries = this.getMaterialsAll();
         for (MaterialListEntry entry : entries) {
             CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
-            if (status != null) {
+            if (status != null && !status.participants().isEmpty()) {
                 int collected = status.stagingCount();
                 for (var p : status.participants()) {
                     collected += p.count();

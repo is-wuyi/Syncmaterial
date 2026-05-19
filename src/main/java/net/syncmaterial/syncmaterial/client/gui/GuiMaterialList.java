@@ -22,6 +22,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         super(10, 44);
 
         this.materialList = new SyncMaterialList(schematicId, schematicName);
+        this.materialList.setOnStatusUpdate(() -> this.getListWidget().refreshEntries());
         this.materialList.setMaterialEntries(entries);
         this.title = this.materialList.getTitle();
         this.useTitleHierarchy = false;
@@ -59,6 +60,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         x -= this.createButtonClose(x, 24) + gap;
         x -= this.createButtonToggleHud(x, 24) + gap;
         x -= this.createButtonRefresh(x, 24);
+
+        this.materialList.requestCollaborationStatus();
     }
 
     private int createButtonRefresh(int x, int y) {
@@ -84,6 +87,12 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "关闭");
         this.addButton(button, (btn, mouseButton) -> this.close());
         return button.getWidth();
+    }
+
+    @Override
+    public void close() {
+        net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
+        super.close();
     }
 
     @Override

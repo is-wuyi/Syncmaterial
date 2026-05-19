@@ -33,6 +33,7 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playS2C().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(InventoryUpdateC2SPacket.ID, InventoryUpdateC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(MaterialStatsRequestC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
@@ -59,11 +60,12 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(JoinCollaborationC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
-            String playerName = context.player().getGameProfile().getName();
+            var player = context.player();
+            String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
                 if (collaborationManager.joinCollaboration(schematicId, materialId, playerName)) {
-                    broadcastStatus(schematicId, materialId);
+                    sendStatusToPlayer(player, schematicId, materialId);
                 }
             });
         });
@@ -71,11 +73,12 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(LeaveCollaborationC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
-            String playerName = context.player().getGameProfile().getName();
+            var player = context.player();
+            String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
                 if (collaborationManager.leaveCollaboration(schematicId, materialId, playerName)) {
-                    broadcastStatus(schematicId, materialId);
+                    sendStatusToPlayer(player, schematicId, materialId);
                 }
             });
         });
@@ -84,18 +87,35 @@ public class ModNetworkHandler {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
             int count = payload.count();
-            String playerName = context.player().getGameProfile().getName();
+            var player = context.player();
+            String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
-                collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
-                broadcastStatus(schematicId, materialId);
+                if (collaborationManager.isCollaborating(schematicId, materialId, playerName)) {
+                    collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
+                    sendStatusToPlayer(player, schematicId, materialId);
+                }
+            });
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(QueryMaterialStatusC2SPacket.ID, (payload, context) -> {
+            String schematicId = payload.schematicId();
+            var player = context.player();
+
+            context.server().execute(() -> {
+                SyncMaterial.LOGGER.info("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getGameProfile().getName(), schematicId);
+                List<Integer> materialIds = collaborationManager.getAllMaterialIds(schematicId);
+                for (int materialId : materialIds) {
+                    sendStatusToPlayer(player, schematicId, materialId);
+                }
             });
         });
     }
 
-    private static void broadcastStatus(String schematicId, int materialId) {
+    private static void sendStatusToPlayer(net.minecraft.server.network.ServerPlayerEntity player, String schematicId, int materialId) {
         var status = collaborationManager.getCollaborationStatus(schematicId, materialId);
         if (status != null) {
+            ServerPlayNetworking.send(player, status);
         }
     }
 }

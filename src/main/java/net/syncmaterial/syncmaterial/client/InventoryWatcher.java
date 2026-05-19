@@ -65,6 +65,16 @@ public class InventoryWatcher {
             }
         }
 
-        lastKnownCounts.keySet().removeIf(k -> !currentCounts.containsKey(k));
+        List<Integer> removedMaterials = new ArrayList<>();
+        lastKnownCounts.keySet().removeIf(k -> {
+            if (!currentCounts.containsKey(k)) {
+                removedMaterials.add(k);
+                return true;
+            }
+            return false;
+        });
+        for (int materialId : removedMaterials) {
+            ClientPlayNetworking.send(new InventoryUpdateC2SPacket(currentSchematicId, materialId, 0));
+        }
     }
 }
