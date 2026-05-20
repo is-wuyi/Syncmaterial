@@ -48,6 +48,24 @@ public class InventoryWatcher {
         checkInventoryChanges(MinecraftClient.getInstance().player.getInventory());
     }
 
+    public static Map<Integer, Integer> getCurrentCounts() {
+        if (MinecraftClient.getInstance().player == null) return Map.of();
+        Map<Integer, Integer> currentCounts = new HashMap<>();
+        PlayerInventory inventory = MinecraftClient.getInstance().player.getInventory();
+
+        for (int i = 0; i < inventory.size(); i++) {
+            ItemStack stack = inventory.getStack(i);
+            if (stack.isEmpty()) continue;
+
+            String itemId = Registries.ITEM.getId(stack.getItem()).toString();
+            Integer materialId = itemIdToMaterialId.get(itemId);
+            if (materialId != null) {
+                currentCounts.merge(materialId, stack.getCount(), Integer::sum);
+            }
+        }
+        return currentCounts;
+    }
+
     private static void checkInventoryChanges(PlayerInventory inventory) {
         Map<Integer, Integer> currentCounts = new HashMap<>();
 

@@ -9,6 +9,7 @@ import net.syncmaterial.syncmaterial.server.PlacementsUtil;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class ModNetworkHandler {
     private static DatabaseQueryService queryService;
@@ -60,11 +61,15 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(JoinCollaborationC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
+            Map<Integer, Integer> inventoryCounts = payload.inventoryCounts();
             var player = context.player();
             String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
                 if (collaborationManager.joinCollaboration(schematicId, materialId, playerName)) {
+                    for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
+                        collaborationManager.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
+                    }
                     sendStatusToPlayer(player, schematicId, materialId);
                 }
             });
