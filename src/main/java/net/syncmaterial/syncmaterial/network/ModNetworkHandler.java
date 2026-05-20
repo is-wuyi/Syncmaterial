@@ -2,6 +2,7 @@ package net.syncmaterial.syncmaterial.network;
 
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.server.MinecraftServer;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
@@ -70,7 +71,7 @@ public class ModNetworkHandler {
                     for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
                         collaborationManager.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
                     }
-                    sendStatusToPlayer(player, schematicId, materialId);
+                    broadcastStatus(context.server(), schematicId, materialId);
                 }
             });
         });
@@ -83,7 +84,7 @@ public class ModNetworkHandler {
 
             context.server().execute(() -> {
                 if (collaborationManager.leaveCollaboration(schematicId, materialId, playerName)) {
-                    sendStatusToPlayer(player, schematicId, materialId);
+                    broadcastStatus(context.server(), schematicId, materialId);
                 }
             });
         });
@@ -99,7 +100,7 @@ public class ModNetworkHandler {
                 SyncMaterial.LOGGER.info("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
                 if (collaborationManager.isCollaborating(schematicId, materialId, playerName)) {
                     collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
-                    sendStatusToPlayer(player, schematicId, materialId);
+                    broadcastStatus(context.server(), schematicId, materialId);
                 } else {
                     SyncMaterial.LOGGER.warn("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
                 }
@@ -118,6 +119,20 @@ public class ModNetworkHandler {
                 }
             });
         });
+    }
+
+    private static void broadcastStatus(MinecraftServer server, String schematicId, int materialId) {
+        var status = collaborationManager.getCollaborationStatus(schematicId, materialId);
+        if (status == null) return;
+
+        List<String> participants = collaborationManager.getParticipants(schematicId, materialId);
+        SyncMaterial.LOGGER.info("广播材料 {} 的状态给 {} 位参与者", materialId, participants.size());
+        for (String name : participants) {
+            var player = server.getPlayerManager().getPlayer(name);
+            if (player != null) {
+                ServerPlayNetworking.send(player, status);
+            }
+        }
     }
 
     private static void sendStatusToPlayer(net.minecraft.server.network.ServerPlayerEntity player, String schematicId, int materialId) {

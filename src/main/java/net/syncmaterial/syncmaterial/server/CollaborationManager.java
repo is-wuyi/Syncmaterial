@@ -153,6 +153,21 @@ public class CollaborationManager {
         }
     }
 
+    public List<String> getParticipants(String schematicId, int materialId) {
+        List<String> participants = new ArrayList<>();
+        try (var rs = database.executeQuery(
+            "SELECT player_name FROM claims WHERE schematic_id = ? AND material_id = ? AND status = 'active'",
+            schematicId, materialId
+        )) {
+            while (rs.next()) {
+                participants.add(rs.getString("player_name"));
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("获取参与者列表失败", e);
+        }
+        return participants;
+    }
+
     public void onPlayerDisconnect(String playerName) {
     }
 }
