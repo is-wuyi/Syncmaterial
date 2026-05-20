@@ -110,6 +110,7 @@ public class SyncMaterialList extends MaterialListBase {
             ClientPlayNetworking.send(new LeaveCollaborationC2SPacket(schematicId, entry.getDatabaseId()));
         } else {
             ClientPlayNetworking.send(new JoinCollaborationC2SPacket(schematicId, entry.getDatabaseId()));
+            net.syncmaterial.syncmaterial.client.InventoryWatcher.forceUpdate();
         }
     }
 

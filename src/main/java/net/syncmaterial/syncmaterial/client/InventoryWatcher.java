@@ -43,6 +43,11 @@ public class InventoryWatcher {
         lastKnownCounts.clear();
     }
 
+    public static void forceUpdate() {
+        if (currentSchematicId == null || MinecraftClient.getInstance().player == null) return;
+        checkInventoryChanges(MinecraftClient.getInstance().player.getInventory());
+    }
+
     private static void checkInventoryChanges(PlayerInventory inventory) {
         Map<Integer, Integer> currentCounts = new HashMap<>();
 
