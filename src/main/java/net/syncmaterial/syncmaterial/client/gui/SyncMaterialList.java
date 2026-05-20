@@ -1,6 +1,7 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
 import net.minecraft.client.MinecraftClient;
+import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket;
@@ -64,6 +65,10 @@ public class SyncMaterialList extends MaterialListBase {
 
     public void onCollaborationStatus(CollaborationStatusS2CPacket status) {
         collaborationStatusMap.put(status.materialId(), status);
+        SyncMaterial.LOGGER.info("收到协作状态包: 材料 {} 协作组有 {} 人参与", status.materialId(), status.participants().size());
+        for (var p : status.participants()) {
+            SyncMaterial.LOGGER.info("  参与者 {} 持有 {} 个", p.playerName(), p.count());
+        }
         updateEntriesWithCollaborationStatus();
         if (onStatusUpdate != null) {
             onStatusUpdate.run();
@@ -80,8 +85,16 @@ public class SyncMaterialList extends MaterialListBase {
                     collected += p.count();
                 }
                 int remaining = Math.max(0, status.totalCount() - collected);
+                SyncMaterial.LOGGER.info("更新材料 {} (dbId={}) 状态: total={}, staging={}, participants={}, collected={}, remaining={}",
+                    entry.getStack().getName().getString(), entry.getDatabaseId(),
+                    status.totalCount(), status.stagingCount(), status.participants().size(),
+                    collected, remaining);
                 this.setClaimStatus(entry, "剩余: " + remaining);
             } else {
+                if (status != null && status.participants().isEmpty()) {
+                    SyncMaterial.LOGGER.debug("材料 {} (dbId={}): participants 为空，显示'未认领'",
+                        entry.getStack().getName().getString(), entry.getDatabaseId());
+                }
                 this.setClaimStatus(entry, "未认领");
             }
         }

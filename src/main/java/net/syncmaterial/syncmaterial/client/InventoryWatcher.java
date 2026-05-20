@@ -9,8 +9,11 @@ import net.minecraft.registry.Registries;
 import net.syncmaterial.syncmaterial.network.InventoryUpdateC2SPacket;
 
 import java.util.*;
+import org.slf4j.Logger;
+import net.syncmaterial.syncmaterial.SyncMaterial;
 
 public class InventoryWatcher {
+    private static final Logger LOGGER = SyncMaterial.LOGGER;
     private static String currentSchematicId;
     private static final Map<String, Integer> itemIdToMaterialId = new HashMap<>();
     private static final Map<Integer, Integer> lastKnownCounts = new HashMap<>();
@@ -74,7 +77,11 @@ public class InventoryWatcher {
             return false;
         });
         for (int materialId : removedMaterials) {
+            LOGGER.info("检测到材料 {} 已从背包消失，发送 count=0 到服务器", materialId);
             ClientPlayNetworking.send(new InventoryUpdateC2SPacket(currentSchematicId, materialId, 0));
+        }
+        if (!removedMaterials.isEmpty()) {
+            LOGGER.info("本次共 {} 种材料从背包消失", removedMaterials.size());
         }
     }
 }

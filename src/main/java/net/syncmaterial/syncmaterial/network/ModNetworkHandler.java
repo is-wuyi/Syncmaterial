@@ -91,9 +91,12 @@ public class ModNetworkHandler {
             String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
+                SyncMaterial.LOGGER.info("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
                 if (collaborationManager.isCollaborating(schematicId, materialId, playerName)) {
                     collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
                     sendStatusToPlayer(player, schematicId, materialId);
+                } else {
+                    SyncMaterial.LOGGER.warn("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
                 }
             });
         });

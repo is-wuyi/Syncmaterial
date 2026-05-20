@@ -103,8 +103,16 @@ public class CollaborationManager {
                         count = inv.getOrDefault(materialId, 0);
                     }
                     participants.add(new CollaborationStatusS2CPacket.ParticipantInfo(playerName, count));
+                    SyncMaterial.LOGGER.debug("  participant: {} count={} (from playerInventories)", playerName, count);
                 }
             }
+
+            int collected = stagingCount;
+            for (var p : participants) {
+                collected += p.count();
+            }
+            SyncMaterial.LOGGER.info("getCollaborationStatus: material={}, total={}, staging={}, participants={}, collected={}",
+                materialId, totalCount, stagingCount, participants.size(), collected);
 
             return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingCount, participants);
 
