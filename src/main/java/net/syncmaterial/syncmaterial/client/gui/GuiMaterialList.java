@@ -59,7 +59,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int x = this.getScreenWidth() - 20;
         x -= this.createButtonClose(x, 24) + gap;
         x -= this.createButtonToggleHud(x, 24) + gap;
-        x -= this.createButtonRefresh(x, 24);
+        x -= this.createButtonRefresh(x, 24) + gap;
+        x -= this.createButtonStagingArea(x, 24);
 
         this.materialList.requestCollaborationStatus();
     }
@@ -69,6 +70,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.addButton(button, (btn, mouseButton) -> {
             MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
             this.getListWidget().refreshEntries();
+        });
+        return button.getWidth();
+    }
+
+    private int createButtonStagingArea(int x, int y) {
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "备货区配置");
+        this.addButton(button, (btn, mouseButton) -> {
+            this.mc.setScreen(new GuiStagingAreaEditor(this.materialList.getSchematicId()));
         });
         return button.getWidth();
     }
