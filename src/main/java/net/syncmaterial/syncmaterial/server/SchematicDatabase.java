@@ -4,6 +4,7 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 
 import java.io.File;
 import java.sql.*;
+import java.util.Map;
 
 /**
  * SQLite数据库管理器
@@ -137,7 +138,7 @@ public class SchematicDatabase {
             );
             """);
 
-        // 备货区配置表 (Phase 3: 备货区容器配置)
+        // 备货区区域定义表 (Phase 2: 备货区集成)
         executeUpdate("""
             CREATE TABLE IF NOT EXISTS staging_areas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,7 +151,26 @@ public class SchematicDatabase {
             );
             """);
 
-        // 备货区内容物缓存表 (Phase 3: 备货区容器配置)
+        // 安全迁移：给 staging_areas 表添加 name 列（如果不存在）
+        try {
+            boolean hasName = false;
+            try (var rs = executeQuery("PRAGMA table_info(staging_areas)")) {
+                while (rs.next()) {
+                    if ("name".equals(rs.getString("name"))) {
+                        hasName = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasName) {
+                executeUpdate("ALTER TABLE staging_areas ADD COLUMN name TEXT NOT NULL DEFAULT '未命名'");
+                SyncMaterial.LOGGER.info("数据库迁移：staging_areas 表已添加 name 列");
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.warn("数据库迁移：检查 staging_areas.name 列时出错", e);
+        }
+
+        // 备货区内容物实时统计表 (Phase 2: 备货区集成)
         executeUpdate("""
             CREATE TABLE IF NOT EXISTS staging_area_inventory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,6 +178,20 @@ public class SchematicDatabase {
                 item_id TEXT NOT NULL,
                 count INTEGER NOT NULL,
                 FOREIGN KEY (staging_area_id) REFERENCES staging_areas(id) ON DELETE CASCADE
+            );
+            """);
+
+        // 玩家背包缓存表 (Phase 2: 背包数据持久化)
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS player_inventories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schematic_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                material_id INTEGER NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
+                UNIQUE(schematic_id, player_name, material_id)
             );
             """);
 
@@ -246,6 +280,36 @@ public class SchematicDatabase {
         for (int i = 0; i < params.length; i++) {
             stmt.setObject(i + 1, params[i]);
         }
+    }
+
+    /**
+     * 加载指定原理图的所有玩家背包数据
+     */
+    public Map<String, Map<Integer, Integer>> loadPlayerInventories(String schematicId) throws SQLException {
+        Map<String, Map<Integer, Integer>> result = new java.util.HashMap<>();
+        try (var rs = executeQuery(
+            "SELECT player_name, material_id, count FROM player_inventories WHERE schematic_id = ?",
+            schematicId
+        )) {
+            while (rs.next()) {
+                String playerName = rs.getString("player_name");
+                int materialId = rs.getInt("material_id");
+                int count = rs.getInt("count");
+                result.computeIfAbsent(playerName, k -> new java.util.HashMap<>()).put(materialId, count);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 插入或更新玩家背包数据
+     */
+    public void upsertPlayerInventory(String schematicId, String playerName, int materialId, int count) throws SQLException {
+        executeUpdate(
+            "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) VALUES (?, ?, ?, ?) " +
+            "ON CONFLICT(schematic_id, player_name, material_id) DO UPDATE SET count = ?, updated_at = (strftime('%s', 'now') * 1000)",
+            schematicId, playerName, materialId, count, count
+        );
     }
 
     /**
