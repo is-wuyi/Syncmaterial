@@ -2,6 +2,7 @@
   "required": true,
   "package": "net.syncmaterial.syncmaterial.mixin",
   "mixins": [
+    "BlockEntityMixin"
   ],
   "client": [
     "SyncmaticaIntegrationMixin",
