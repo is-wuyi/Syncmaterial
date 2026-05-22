@@ -16,4 +16,8 @@ public class ModPackets {
     public static final Identifier LEAVE_COLLABORATION = Identifier.of("syncmaterial", "leave_collaboration");
     public static final Identifier INVENTORY_UPDATE = Identifier.of("syncmaterial", "inventory_update");
     public static final Identifier COLLABORATION_STATUS = Identifier.of("syncmaterial", "collaboration_status");
+
+    // Staging area packets (Phase 2)
+    public static final Identifier STAGING_AREA_CONFIG = Identifier.of("syncmaterial", "staging_area_config");
+    public static final Identifier STAGING_AREA_CONFIG_RESPONSE = Identifier.of("syncmaterial", "staging_area_config_response");
 }
