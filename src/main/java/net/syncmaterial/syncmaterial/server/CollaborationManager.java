@@ -9,11 +9,16 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class CollaborationManager {
     private final SchematicDatabase database;
+    private StagingAreaManager stagingAreaManager;
     
     private final Map<String, Map<Integer, Integer>> playerInventories = new ConcurrentHashMap<>();
 
     public CollaborationManager(SchematicDatabase database) {
         this.database = database;
+    }
+
+    public void setStagingAreaManager(StagingAreaManager stagingAreaManager) {
+        this.stagingAreaManager = stagingAreaManager;
     }
 
     public boolean joinCollaboration(String schematicId, int materialId, String playerName) {
@@ -64,6 +69,11 @@ public class CollaborationManager {
     public void updatePlayerInventory(String playerName, String schematicId, int materialId, int count) {
         playerInventories.computeIfAbsent(playerName, k -> new ConcurrentHashMap<>())
                          .put(materialId, count);
+        try {
+            database.upsertPlayerInventory(schematicId, playerName, materialId, count);
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("Failed to persist player inventory", e);
+        }
     }
 
     public CollaborationStatusS2CPacket getCollaborationStatus(String schematicId, int materialId) {
@@ -81,12 +91,16 @@ public class CollaborationManager {
             }
 
             int stagingCount = 0;
-            try (var rs = database.executeQuery(
-                "SELECT count FROM staging_area WHERE schematic_id = ? AND material_id = ?",
-                schematicId, materialId
-            )) {
-                if (rs.next()) {
-                    stagingCount = rs.getInt("count");
+            if (stagingAreaManager != null) {
+                stagingCount = stagingAreaManager.getStagingCountForMaterial(schematicId, itemId);
+            } else {
+                try (var rs = database.executeQuery(
+                    "SELECT count FROM staging_area WHERE schematic_id = ? AND material_id = ?",
+                    schematicId, materialId
+                )) {
+                    if (rs.next()) {
+                        stagingCount = rs.getInt("count");
+                    }
                 }
             }
 
@@ -169,5 +183,9 @@ public class CollaborationManager {
     }
 
     public void onPlayerDisconnect(String playerName) {
+        // Design: Offline player data is preserved in memory and database.
+        // The last-reported inventory data remains valid since players cannot
+        // change inventory while offline. Data is persisted via player_inventories table.
+        // No cleanup needed - this is intentional behavior.
     }
 }

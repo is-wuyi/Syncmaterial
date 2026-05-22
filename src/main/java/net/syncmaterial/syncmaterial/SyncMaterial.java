@@ -4,6 +4,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.syncmaterial.syncmaterial.api.MaterialStatisticsEngine;
 import net.syncmaterial.syncmaterial.engine.DefaultMaterialStatisticsEngine;
@@ -15,6 +16,7 @@ import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 import net.syncmaterial.syncmaterial.server.SchematicFolderWatcher;
+import net.syncmaterial.syncmaterial.server.StagingAreaManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +29,7 @@ public class SyncMaterial implements ModInitializer {
     private static DatabaseQueryService sharedQueryService;
     private static LitematicaParser sharedParser;
     private static CollaborationManager sharedCollaborationManager;
+    private static StagingAreaManager sharedStagingAreaManager;
 
     @Override
     public void onInitialize() {
@@ -48,9 +51,23 @@ public class SyncMaterial implements ModInitializer {
                 sharedQueryService = new DatabaseQueryService(sharedDatabase);
                 sharedParser = new DefaultLitematicaParser(new ParsingThreadPool());
                 sharedCollaborationManager = new CollaborationManager(sharedDatabase);
+                sharedStagingAreaManager = new StagingAreaManager(sharedDatabase);
+                sharedStagingAreaManager.setServer(server);
+                sharedCollaborationManager.setStagingAreaManager(sharedStagingAreaManager);
 
                 ModNetworkHandler.initializeServices(sharedQueryService, sharedCollaborationManager);
                 ModNetworkHandler.register();
+
+                final int[] tickCounter = {0};
+                ServerTickEvents.END_SERVER_TICK.register(s -> {
+                    tickCounter[0]++;
+                    if (tickCounter[0] >= 4) {
+                        tickCounter[0] = 0;
+                        if (sharedStagingAreaManager != null) {
+                            sharedStagingAreaManager.processDirtyContainers();
+                        }
+                    }
+                });
 
                 LOGGER.info("SyncMaterial 服务端组件初始化完成！");
             } catch (Exception e) {
@@ -93,5 +110,9 @@ public class SyncMaterial implements ModInitializer {
      */
     public static MaterialStatisticsEngine getStatisticsEngine() {
         return statisticsEngine;
+    }
+
+    public static StagingAreaManager getServerStagingAreaManager() {
+        return sharedStagingAreaManager;
     }
 }
