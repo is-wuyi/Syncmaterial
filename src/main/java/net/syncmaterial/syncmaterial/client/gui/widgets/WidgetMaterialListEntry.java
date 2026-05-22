@@ -277,6 +277,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                 claimColor = 0xFF888888;
             } else if (claimStatus.contains("我")) {
                 claimColor = 0xFF00AA00;
+            } else if (claimStatus.contains("剩余: 0") || claimStatus.contains("剩余:0")) {
+                claimStatus = "已完成 ✓";
+                claimColor = 0xFF00CC00;
             } else {
                 claimColor = 0xFF0000AA;
             }
@@ -290,8 +293,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             y = this.y + 3;
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
             drawContext.drawItem(this.entry.getStack(), x1, y);
-            //mc.getRenderItem().renderItemOverlayIntoGUI(mc.fontRenderer, this.entry.getStack(), x1, y, null);
-            //mc.getRenderItem().zLevel += 110;
+
+            this.renderProgressBar(drawContext, x1, this.y + 22, this.width - 8);
 
 //            RenderUtils.disableDiffuseLighting();
 //            drawContext.getMatrices().pop();
@@ -300,14 +303,90 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         }
     }
 
+    private void renderProgressBar(DrawContext drawContext, int x, int y, int totalWidth) {
+        int countTotal = this.entry.getCountTotal();
+        int stagingCount = this.entry.getStagingCount();
+        var participants = this.entry.getParticipants();
+
+        if (countTotal <= 0) return;
+
+        int collected = stagingCount;
+        for (var p : participants) collected += p.count();
+        int remaining = Math.max(0, countTotal - collected);
+        boolean isComplete = collected >= countTotal;
+        boolean isUnclaimed = collected == 0 && participants.isEmpty() && stagingCount == 0;
+
+        int barHeight = 4;
+        int barY = y;
+
+        if (isComplete) {
+            RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF006600);
+            this.drawString(drawContext, x, barY + barHeight + 1, 0xFF00CC00, "已完成 ✓");
+            return;
+        }
+
+        RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF333333);
+
+        if (isUnclaimed) {
+            this.drawString(drawContext, x, barY + barHeight + 1, 0xFF888888, "未认领");
+            return;
+        }
+
+        int barX = x;
+        if (stagingCount > 0) {
+            int w = Math.max(1, (int)((double)stagingCount / countTotal * totalWidth));
+            RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFFFFAA00);
+            barX += w;
+        }
+
+        int[] playerColors = {0xFF00AA00, 0xFF0000AA, 0xFFAA00AA, 0xFF00AAAA, 0xFFAA5500};
+        int otherCount = 0;
+        for (int i = 0; i < participants.size(); i++) {
+            var p = participants.get(i);
+            if (i < 5) {
+                int w = Math.max(1, (int)((double)p.count() / countTotal * totalWidth));
+                RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, playerColors[i]);
+                barX += w;
+            } else {
+                otherCount += p.count();
+            }
+        }
+        if (otherCount > 0) {
+            int w = Math.max(1, (int)((double)otherCount / countTotal * totalWidth));
+            RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFF666666);
+            barX += w;
+        }
+
+        if (remaining > 0 && barX < x + totalWidth) {
+            int w = x + totalWidth - barX;
+            RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFF444444);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (stagingCount > 0) sb.append("备货区: ").append(stagingCount);
+        for (int i = 0; i < Math.min(participants.size(), 5); i++) {
+            if (sb.length() > 0) sb.append(" | ");
+            sb.append(participants.get(i).playerName()).append(": ").append(participants.get(i).count());
+        }
+        if (participants.size() > 5) {
+            if (sb.length() > 0) sb.append(" | ");
+            sb.append("其他: ").append(otherCount);
+        }
+        if (remaining > 0) {
+            if (sb.length() > 0) sb.append(" | ");
+            sb.append("剩余: ").append(remaining);
+        }
+
+        this.drawString(drawContext, x, barY + barHeight + 1, 0xFFAAAAAA, sb.toString());
+    }
+
     @Override
     public void postRenderHovered(DrawContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         if (this.entry != null)
         {
             Matrix3x2fStack matrixStack = drawContext.getMatrices();
-//            matrixStack.push();
-            matrixStack.translate(0, 0);    // , 200
+            matrixStack.translate(0, 0);
 
             String header1 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[0]);
             String header2 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[1]);
@@ -321,9 +400,17 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             String strCountTotal = this.getFormattedCountString(total, stack.getMaxCount());
             String strCountMissing = this.getFormattedCountString(missing, stack.getMaxCount());
 
-            int w1 = Math.max(this.getStringWidth(header1)       , Math.max(this.getStringWidth(header2)      , this.getStringWidth(header3)));
+            var participants = this.entry.getParticipants();
+            int stagingCount = this.entry.getStagingCount();
+            int extraLines = 0;
+            if (stagingCount > 0 || !participants.isEmpty()) {
+                extraLines = 1 + Math.min(participants.size(), 6);
+            }
+
+            int w1 = Math.max(this.getStringWidth(header1), Math.max(this.getStringWidth(header2), this.getStringWidth(header3)));
             int w2 = Math.max(this.getStringWidth(stackName) + 20, Math.max(this.getStringWidth(strCountTotal), this.getStringWidth(strCountMissing)));
             int totalWidth = w1 + w2 + 60;
+            int boxHeight = 60 + extraLines * 14;
 
             int x = mouseX + 10;
             int y = mouseY - 10;
@@ -336,14 +423,13 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int x1 = x + 10;
             int x2 = x1 + w1 + 20;
 
-            // Draw a Background Mask to hide Button Widgets behind it (Hack-around)
-            fi.dy.masa.litematica.render.RenderUtils.renderBackgroundMask(drawContext, x + 1, y + 1, totalWidth - 2, 58);
-            RenderUtils.drawOutlinedBox(drawContext, x, y, totalWidth, 60, 0xFF000000, GuiBase.COLOR_HORIZONTAL_BAR);
+            fi.dy.masa.litematica.render.RenderUtils.renderBackgroundMask(drawContext, x + 1, y + 1, totalWidth - 2, boxHeight - 2);
+            RenderUtils.drawOutlinedBox(drawContext, x, y, totalWidth, boxHeight, 0xFF000000, GuiBase.COLOR_HORIZONTAL_BAR);
             y += 6;
             int y1 = y;
             y += 4;
 
-            this.drawString(drawContext, x1     , y, 0xFFFFFFFF, header1);
+            this.drawString(drawContext, x1, y, 0xFFFFFFFF, header1);
             this.drawString(drawContext, x2 + 20, y, 0xFFFFFFFF, stackName);
             y += 16;
 
@@ -354,18 +440,25 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.drawString(drawContext, x1, y, 0xFFFFFFFF, header3);
             this.drawString(drawContext, x2, y, 0xFFFFFFFF, strCountMissing);
 
-            RenderUtils.drawRect(drawContext, x2, y1, 16, 16, 0x20FFFFFF); // light background for the item
-
-            //TODO: RenderSystem.disableLighting();
-//            RenderUtils.enableDiffuseLightingGui3D();
-
-            //mc.getRenderItem().zLevel += 100;
+            RenderUtils.drawRect(drawContext, x2, y1, 16, 16, 0x20FFFFFF);
             drawContext.drawItem(stack, x2, y1);
-            //mc.getRenderItem().renderItemOverlayIntoGUI(mc.fontRenderer, stack, x1, y, null);
-            //mc.getRenderItem().zLevel -= 100;
 
-//            RenderUtils.disableDiffuseLighting();
-//            matrixStack.pop();
+            y += 18;
+            if (stagingCount > 0 || !participants.isEmpty()) {
+                this.drawString(drawContext, x1, y, 0xFFAAAAAA, GuiBase.TXT_BOLD + "备货区: " + stagingCount);
+                y += 14;
+                for (int i = 0; i < Math.min(participants.size(), 5); i++) {
+                    var p = participants.get(i);
+                    this.drawString(drawContext, x1, y, 0xFFAAAAAA, p.playerName() + ": " + p.count());
+                    y += 14;
+                }
+                if (participants.size() > 5) {
+                    int otherCount = 0;
+                    for (int i = 5; i < participants.size(); i++) otherCount += participants.get(i).count();
+                    this.drawString(drawContext, x1, y, 0xFFAAAAAA, "其他: " + otherCount);
+                    y += 14;
+                }
+            }
         }
     }
 

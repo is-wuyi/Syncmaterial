@@ -1,5 +1,9 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import fi.dy.masa.malilib.util.ItemType;
 import net.minecraft.item.ItemStack;
 
@@ -11,6 +15,10 @@ public class MaterialListEntry
     private int countMissing;
     private final int countMismatched;
     private int countAvailable;
+    private int stagingCount;
+    private List<ParticipantData> participants = new ArrayList<>();
+
+    public record ParticipantData(String playerName, int count) {}
 
     public MaterialListEntry(int databaseId, ItemStack stack, int countTotal, int countMissing, int countMismatched, int countAvailable)
     {
@@ -29,20 +37,11 @@ public class MaterialListEntry
         return this.item.getStack();
     }
 
-    /**
-     * Returns the total number of required items of this type in the counted area.
-     * @return
-     */
     public int getCountTotal()
     {
         return this.countTotal;
     }
 
-    /**
-     * Returns the number of items still missing (or having the wrong block state)
-     * in the counted area for this item type.
-     * @return
-     */
     public int getCountMissing()
     {
         return this.countMissing;
@@ -66,6 +65,12 @@ public class MaterialListEntry
     {
         this.countAvailable = countAvailable;
     }
+
+    public int getStagingCount() { return stagingCount; }
+    public void setStagingCount(int stagingCount) { this.stagingCount = stagingCount; }
+
+    public List<ParticipantData> getParticipants() { return Collections.unmodifiableList(participants); }
+    public void setParticipants(List<ParticipantData> participants) { this.participants = new ArrayList<>(participants); }
 
     @Override
     public int hashCode()

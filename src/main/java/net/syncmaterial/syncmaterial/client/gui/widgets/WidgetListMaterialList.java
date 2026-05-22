@@ -27,7 +27,7 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     {
         super(x, y, width, height, null);
 
-        this.browserEntryHeight = 22;
+        this.browserEntryHeight = 34;
         this.gui = parent;
         this.sorter = new MaterialListSorter(parent.getMaterialList());
         this.shouldSortList = true;

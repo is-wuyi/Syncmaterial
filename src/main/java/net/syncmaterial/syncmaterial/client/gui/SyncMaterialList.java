@@ -85,12 +85,14 @@ public class SyncMaterialList extends MaterialListBase {
                     collected += p.count();
                 }
                 int remaining = Math.max(0, status.totalCount() - collected);
-                SyncMaterial.LOGGER.info("更新材料 {} (dbId={}) 状态: total={}, staging={}, participants={}, collected={}, remaining={}",
-                    entry.getStack().getName().getString(), entry.getDatabaseId(),
-                    status.totalCount(), status.stagingCount(), status.participants().size(),
-                    collected, remaining);
+                entry.setStagingCount(status.stagingCount());
+                entry.setParticipants(status.participants().stream()
+                    .map(p -> new MaterialListEntry.ParticipantData(p.playerName(), p.count()))
+                    .toList());
                 this.setClaimStatus(entry, "剩余: " + remaining);
             } else {
+                entry.setStagingCount(0);
+                entry.setParticipants(java.util.Collections.emptyList());
                 if (status != null && status.participants().isEmpty()) {
                     SyncMaterial.LOGGER.debug("材料 {} (dbId={}): participants 为空，显示'未认领'",
                         entry.getStack().getName().getString(), entry.getDatabaseId());
