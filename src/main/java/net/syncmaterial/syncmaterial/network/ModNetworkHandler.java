@@ -7,6 +7,7 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.PlacementsUtil;
+import net.syncmaterial.syncmaterial.server.StagingAreaManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +37,9 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playC2S().register(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(InventoryUpdateC2SPacket.ID, InventoryUpdateC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
+
+        PayloadTypeRegistry.playC2S().register(StagingAreaConfigC2SPacket.ID, StagingAreaConfigC2SPacket.CODEC);
+        PayloadTypeRegistry.playS2C().register(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(MaterialStatsRequestC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
@@ -119,6 +123,62 @@ public class ModNetworkHandler {
                 }
             });
         });
+
+        ServerPlayNetworking.registerGlobalReceiver(StagingAreaConfigC2SPacket.ID, (payload, context) -> {
+            context.server().execute(() -> {
+                handleStagingAreaConfig(payload, context.player(), context.server());
+            });
+        });
+    }
+
+    private static void handleStagingAreaConfig(StagingAreaConfigC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
+        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+        if (manager == null) {
+            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "备货区服务未初始化", List.of()));
+            return;
+        }
+
+        String schematicId = payload.schematicId();
+        String action = payload.action();
+
+        try {
+            switch (action) {
+                case "LIST" -> {
+                    var areas = manager.getStagingAreas(schematicId);
+                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
+                    )).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "", areaInfos));
+                }
+                case "ADD" -> {
+                    var ad = payload.areaData();
+                    if (ad == null) {
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "缺少区域数据", List.of()));
+                        return;
+                    }
+                    manager.addStagingArea(schematicId, player.getWorld().getRegistryKey().getValue().toString(), ad.name(), ad.x1(), ad.y1(), ad.z1(), ad.x2(), ad.y2(), ad.z2());
+                    var areas = manager.getStagingAreas(schematicId);
+                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
+                    )).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已添加", areaInfos));
+                }
+                case "DELETE" -> {
+                    manager.removeStagingArea(payload.areaId(), schematicId);
+                    var areas = manager.getStagingAreas(schematicId);
+                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
+                    )).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已删除", areaInfos));
+                }
+                default -> {
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "未知操作: " + action, List.of()));
+                }
+            }
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("处理备货区配置失败", e);
+            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "操作失败: " + e.getMessage(), List.of()));
+        }
     }
 
     private static void broadcastStatus(MinecraftServer server, String schematicId, int materialId) {
