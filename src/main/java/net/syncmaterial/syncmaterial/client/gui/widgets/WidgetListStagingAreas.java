@@ -4,18 +4,18 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
-import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditor;
+import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
 import fi.dy.masa.malilib.gui.widgets.WidgetListBase;
 import fi.dy.masa.malilib.util.AlphaNumComparator.AlphaNumStringComparator;
 
 public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, WidgetStagingAreaEntry>
 {
-    private final GuiStagingAreaEditor gui;
+    private final StagingAreaEditorGui gui;
     private final List<StagingAreaEntry> areas;
 
     public WidgetListStagingAreas(int x, int y, int width, int height,
-            List<StagingAreaEntry> areas, GuiStagingAreaEditor gui)
+            List<StagingAreaEntry> areas, StagingAreaEditorGui gui)
     {
         super(x, y, width, height, gui);
 
@@ -25,7 +25,7 @@ public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, Wid
         this.shouldSortList = true;
     }
 
-    public GuiStagingAreaEditor getEditorGui()
+    public StagingAreaEditorGui getEditorGui()
     {
         return this.gui;
     }

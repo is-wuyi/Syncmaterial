@@ -5,7 +5,8 @@ import java.util.List;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.util.math.BlockPos;
 
-import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditor;
+import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSubRegion;
+import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
@@ -43,6 +44,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         int posY = y + 1;
 
         posX = this.createButton(posX, posY, ButtonListener.ButtonType.REMOVE);
+        posX = this.createButton(posX, posY, ButtonListener.ButtonType.CONFIGURE);
         posX = this.createButton(posX, posY, ButtonListener.ButtonType.RENAME);
 
         this.buttonsStartX = posX;
@@ -132,7 +134,12 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                 String title = "重命名备货区";
                 String name = this.widget.entryData.name();
                 AreaRenamer renamer = new AreaRenamer(this.widget.entryData, this.widget.parent.getEditorGui());
-                GuiBase.openGui(new GuiTextInputFeedback(160, title, name, this.widget.parent.getEditorGui(), renamer));
+                GuiBase.openGui(new GuiTextInputFeedback(160, title, name, (net.minecraft.client.gui.screen.Screen) this.widget.parent.getEditorGui(), renamer));
+            }
+            else if (this.type == ButtonType.CONFIGURE)
+            {
+                GuiBase.openGui(new GuiStagingAreaEditorSubRegion(
+                        this.widget.parent.getEditorGui().getSchematicId(), this.widget.entryData));
             }
             else if (this.type == ButtonType.REMOVE)
             {
@@ -143,6 +150,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         public enum ButtonType
         {
             RENAME          ("重命名"),
+            CONFIGURE       ("配置"),
             REMOVE          (GuiBase.TXT_RED + "-");
 
             private final String labelKey;
@@ -162,9 +170,9 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     private static class AreaRenamer implements IStringConsumerFeedback
     {
         private final StagingAreaEntry entry;
-        private final GuiStagingAreaEditor gui;
+        private final StagingAreaEditorGui gui;
 
-        public AreaRenamer(StagingAreaEntry entry, GuiStagingAreaEditor gui)
+        public AreaRenamer(StagingAreaEntry entry, StagingAreaEditorGui gui)
         {
             this.entry = entry;
             this.gui = gui;
@@ -182,7 +190,8 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                     this.gui.getSchematicId(), "RENAME", this.entry.areaId(),
                     Optional.of(new AreaData(newName.trim(),
                             this.entry.x1(), this.entry.y1(), this.entry.z1(),
-                            this.entry.x2(), this.entry.y2(), this.entry.z2()))));
+                            this.entry.x2(), this.entry.y2(), this.entry.z2(),
+                            Optional.ofNullable(this.entry.world())))));
             return true;
         }
     }

@@ -58,6 +58,19 @@ public class StagingAreaManager {
         }
     }
 
+    public void updateStagingArea(int areaId, String schematicId, String name, int x1, int y1, int z1, int x2, int y2, int z2) {
+        try {
+            database.executeUpdate(
+                "UPDATE staging_areas SET name = ?, x1 = ?, y1 = ?, z1 = ?, x2 = ?, y2 = ?, z2 = ? WHERE id = ?",
+                name, x1, y1, z1, x2, y2, z2, areaId
+            );
+            refreshCache(schematicId);
+            SyncMaterial.LOGGER.info("Updated staging area {} coordinates to [{},{},{}]~[{},{},{}]", areaId, x1, y1, z1, x2, y2, z2);
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("Failed to update staging area", e);
+        }
+    }
+
     public void removeStagingArea(int areaId, String schematicId) {
         try {
             database.executeUpdate("DELETE FROM staging_areas WHERE id = ?", areaId);

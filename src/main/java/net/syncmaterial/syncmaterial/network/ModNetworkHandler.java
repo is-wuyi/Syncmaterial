@@ -147,7 +147,7 @@ public class ModNetworkHandler {
                 case "LIST" -> {
                     var areas = manager.getStagingAreas(schematicId);
                     var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
                     )).toList();
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "", areaInfos));
                 }
@@ -158,10 +158,11 @@ public class ModNetworkHandler {
                         return;
                     }
                     AreaData data = ad.get();
-                    manager.addStagingArea(schematicId, player.getWorld().getRegistryKey().getValue().toString(), data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    String world = data.world().orElse(player.getWorld().getRegistryKey().getValue().toString());
+                    manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     var areas = manager.getStagingAreas(schematicId);
                     var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
                     )).toList();
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已添加", areaInfos));
                 }
@@ -174,7 +175,7 @@ public class ModNetworkHandler {
                     manager.renameStagingArea(payload.areaId(), schematicId, ad.get().name());
                     var areas = manager.getStagingAreas(schematicId);
                     var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
                     )).toList();
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已重命名", areaInfos));
                 }
@@ -182,9 +183,23 @@ public class ModNetworkHandler {
                     manager.removeStagingArea(payload.areaId(), schematicId);
                     var areas = manager.getStagingAreas(schematicId);
                     var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
                     )).toList();
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已删除", areaInfos));
+                }
+                case "UPDATE" -> {
+                    var ad = payload.areaData();
+                    if (ad.isEmpty()) {
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "缺少区域数据", List.of()));
+                        return;
+                    }
+                    AreaData data = ad.get();
+                    manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    var areas = manager.getStagingAreas(schematicId);
+                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
+                    )).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已更新", areaInfos));
                 }
                 default -> {
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "未知操作: " + action, List.of()));

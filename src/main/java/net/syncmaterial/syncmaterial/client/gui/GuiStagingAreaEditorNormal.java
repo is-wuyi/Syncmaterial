@@ -3,6 +3,7 @@ package net.syncmaterial.syncmaterial.client.gui;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.GuiTextInput;
@@ -21,18 +22,18 @@ import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
-public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetStagingAreaEntry, WidgetListStagingAreas>
+public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, WidgetStagingAreaEntry, WidgetListStagingAreas>
         implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui
 {
     private final String schematicId;
     private final List<StagingAreaEntry> areas = new ArrayList<>();
 
-    public GuiStagingAreaEditor(String schematicId)
+    public GuiStagingAreaEditorNormal(String schematicId)
     {
         super(8, 116);
 
         this.schematicId = schematicId;
-        this.title = "备货区配置";
+        this.title = "备货区配置（标准模式）";
         this.useTitleHierarchy = false;
     }
 
@@ -63,7 +64,6 @@ public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetSt
         int buttonWidth = this.getStringWidth(label) + 10;
         x = this.getScreenWidth() - buttonWidth - 10;
         this.addButton(new ButtonGeneric(x, y, buttonWidth, 20, label), new ButtonListener(ButtonListener.Type.CLOSE, this));
-
     }
 
     @Override
@@ -152,9 +152,9 @@ public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetSt
     private static class ButtonListener implements IButtonActionListener
     {
         private final Type type;
-        private final GuiStagingAreaEditor gui;
+        private final GuiStagingAreaEditorNormal gui;
 
-        public ButtonListener(Type type, GuiStagingAreaEditor gui)
+        public ButtonListener(Type type, GuiStagingAreaEditorNormal gui)
         {
             this.type = type;
             this.gui = gui;
@@ -195,7 +195,7 @@ public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetSt
 
         public enum Type
         {
-            ADD_AREA    ("新建备货区"),
+            ADD_AREA    ("新建子区域"),
             REFRESH     ("刷新列表"),
             CLOSE       (GuiBase.TXT_RED + "关闭");
 

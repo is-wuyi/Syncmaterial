@@ -24,6 +24,7 @@ public record StagingAreaConfigC2SPacket(
             PacketCodecs.INTEGER, AreaData::x2,
             PacketCodecs.INTEGER, AreaData::y2,
             PacketCodecs.INTEGER, AreaData::z2,
+            PacketCodecs.optional(PacketCodecs.STRING), AreaData::world,
             AreaData::new
     );
 
@@ -40,5 +41,5 @@ public record StagingAreaConfigC2SPacket(
         return ID;
     }
 
-    public record AreaData(String name, int x1, int y1, int z1, int x2, int y2, int z2) {}
+    public record AreaData(String name, int x1, int y1, int z1, int x2, int y2, int z2, Optional<String> world) {}
 }

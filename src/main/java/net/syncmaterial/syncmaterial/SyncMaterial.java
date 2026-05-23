@@ -54,6 +54,7 @@ public class SyncMaterial implements ModInitializer {
                 sharedStagingAreaManager = new StagingAreaManager(sharedDatabase);
                 sharedStagingAreaManager.setServer(server);
                 sharedCollaborationManager.setStagingAreaManager(sharedStagingAreaManager);
+                sharedCollaborationManager.loadAllInventories();
 
                 ModNetworkHandler.initializeServices(sharedQueryService, sharedCollaborationManager);
                 ModNetworkHandler.register();

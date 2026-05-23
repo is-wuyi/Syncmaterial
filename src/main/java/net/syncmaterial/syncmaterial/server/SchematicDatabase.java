@@ -97,19 +97,6 @@ public class SchematicDatabase {
             );
             """);
 
-        // 备货区库存汇总表 (Phase 1: 协作式)
-        executeUpdate("""
-            CREATE TABLE IF NOT EXISTS staging_area (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schematic_id TEXT NOT NULL,
-                material_id INTEGER NOT NULL,
-                item_id TEXT NOT NULL,
-                count INTEGER DEFAULT 0,
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
-                FOREIGN KEY (material_id) REFERENCES material_entries(id) ON DELETE CASCADE
-            );
-            """);
-
         // 分配记录表 (Phase 2: 权限与分配)
         executeUpdate("""
             CREATE TABLE IF NOT EXISTS assignments (
@@ -209,9 +196,6 @@ public class SchematicDatabase {
         executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_claim_unique ON claims(schematic_id, material_id, player_name);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_schematic ON claims(schematic_id);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_player ON claims(player_name);");
-        
-        // Staging area indexes
-        executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_staging_material ON staging_area(schematic_id, material_id);");
         
         // Assignment indexes (Phase 2)
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_assignments_schematic ON assignments(schematic_id);");

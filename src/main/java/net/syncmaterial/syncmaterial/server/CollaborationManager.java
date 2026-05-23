@@ -21,6 +21,35 @@ public class CollaborationManager {
         this.stagingAreaManager = stagingAreaManager;
     }
 
+    /**
+     * 服务端启动时，从数据库加载所有已知原理图的玩家背包缓存。
+     * 确保离线玩家的进度数据在重启后不会丢失。
+     */
+    public void loadAllInventories() {
+        try {
+            Map<String, Map<Integer, Integer>> allInventories = new java.util.HashMap<>();
+            List<String> schematicIds = new java.util.ArrayList<>();
+            try (var rs = database.executeQuery("SELECT DISTINCT schematic_id FROM schematics")) {
+                while (rs.next()) {
+                    schematicIds.add(rs.getString("schematic_id"));
+                }
+            }
+            for (String sid : schematicIds) {
+                Map<String, Map<Integer, Integer>> invs = database.loadPlayerInventories(sid);
+                for (java.util.Map.Entry<String, Map<Integer, Integer>> entry : invs.entrySet()) {
+                    allInventories.merge(entry.getKey(), entry.getValue(), (oldVal, newVal) -> {
+                        oldVal.putAll(newVal);
+                        return oldVal;
+                    });
+                }
+            }
+            playerInventories.putAll(allInventories);
+            SyncMaterial.LOGGER.info("已从数据库加载 {} 位玩家的背包缓存", allInventories.size());
+        } catch (java.sql.SQLException e) {
+            SyncMaterial.LOGGER.error("加载背包缓存失败", e);
+        }
+    }
+
     public boolean joinCollaboration(String schematicId, int materialId, String playerName) {
         try {
             try (var rs = database.executeQuery(
@@ -90,19 +119,7 @@ public class CollaborationManager {
                 }
             }
 
-            int stagingCount = 0;
-            if (stagingAreaManager != null) {
-                stagingCount = stagingAreaManager.getStagingCountForMaterial(schematicId, itemId);
-            } else {
-                try (var rs = database.executeQuery(
-                    "SELECT count FROM staging_area WHERE schematic_id = ? AND material_id = ?",
-                    schematicId, materialId
-                )) {
-                    if (rs.next()) {
-                        stagingCount = rs.getInt("count");
-                    }
-                }
-            }
+            int stagingCount = stagingAreaManager.getStagingCountForMaterial(schematicId, itemId);
 
             List<CollaborationStatusS2CPacket.ParticipantInfo> participants = new ArrayList<>();
             try (var rs = database.executeQuery(
@@ -182,10 +199,14 @@ public class CollaborationManager {
         return participants;
     }
 
+    /**
+     * 玩家离线处理。
+     * 
+     * 离线玩家的背包数据已在 updatePlayerInventory() 中实时持久化到 
+     * player_inventories 表，因此这里不需要额外操作。
+     * 服务端重启后，loadAllInventories() 会自动从数据库恢复所有缓存。
+     * 玩家重新上线后，客户端会重新上报背包数据，自动覆盖旧缓存。
+     */
     public void onPlayerDisconnect(String playerName) {
-        // Design: Offline player data is preserved in memory and database.
-        // The last-reported inventory data remains valid since players cannot
-        // change inventory while offline. Data is persisted via player_inventories table.
-        // No cleanup needed - this is intentional behavior.
     }
 }
