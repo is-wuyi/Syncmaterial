@@ -43,18 +43,22 @@ public abstract class BlockEntityMixin {
     }
 
     @Inject(method = "markRemoved", at = @At("HEAD"))
-    private void onMarkRemoved(net.minecraft.world.World world, CallbackInfo ci) {
+    private void onMarkRemoved(CallbackInfo ci) {
         BlockEntity self = (BlockEntity) (Object) this;
 
         if (!(self instanceof Inventory)) {
             return;
         }
 
-        if (world.isClient()) {
+        if (self.getWorld() == null) {
             return;
         }
 
-        ServerWorld serverWorld = (ServerWorld) world;
+        if (self.getWorld().isClient()) {
+            return;
+        }
+
+        ServerWorld serverWorld = (ServerWorld) self.getWorld();
         BlockPos pos = self.getPos();
 
         StagingAreaManager manager = net.syncmaterial.syncmaterial.SyncMaterial.getServerStagingAreaManager();
