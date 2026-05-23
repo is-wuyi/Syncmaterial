@@ -77,7 +77,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private int createButtonStagingArea(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "备货区配置");
         this.addButton(button, (btn, mouseButton) -> {
-            this.mc.setScreen(new GuiStagingAreaEditor(this.materialList.getSchematicId()));
+            this.mc.setScreen(new GuiStagingAreaEditorNormal(this.materialList.getSchematicId()));
         });
         return button.getWidth();
     }
