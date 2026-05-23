@@ -1,40 +1,68 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
+import javax.annotation.Nullable;
 
-import fi.dy.masa.malilib.gui.GuiBase;
-import fi.dy.masa.malilib.gui.GuiListBase;
-import fi.dy.masa.malilib.gui.GuiTextInput;
+import net.minecraft.util.math.BlockPos;
+
+import fi.dy.masa.malilib.gui.*;
 import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.gui.button.ButtonBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
+import fi.dy.masa.malilib.gui.button.ButtonOnOff;
 import fi.dy.masa.malilib.gui.button.IButtonActionListener;
 import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
+import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
+import fi.dy.masa.malilib.gui.widgets.WidgetCheckBox;
 import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
 import fi.dy.masa.malilib.util.StringUtils;
+import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListStagingAreas;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetStagingAreaEntry;
-import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
-import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
-import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.syncmaterial.syncmaterial.selection.AreaSelection;
+import net.syncmaterial.syncmaterial.selection.Box;
+import net.syncmaterial.syncmaterial.selection.SelectionMode;
+import fi.dy.masa.litematica.gui.Icons;
+import fi.dy.masa.litematica.util.PositionUtils;
+import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
 public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, WidgetStagingAreaEntry, WidgetListStagingAreas>
-        implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui
+                                          implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui
 {
-    private final String schematicId;
-    private final List<StagingAreaEntry> areas = new ArrayList<>();
+    protected final AreaSelection selection;
+    protected final String schematicId;
+    protected GuiTextFieldGeneric textFieldSelectionName;
+    protected WidgetCheckBox checkBoxOrigin;
+    protected WidgetCheckBox checkBoxCorner1;
+    protected WidgetCheckBox checkBoxCorner2;
+    protected int xNext;
+    protected int yNext;
+    protected int xOrigin;
+    protected int xSet;
+    @Nullable protected String selectionId;
 
-    public GuiStagingAreaEditorNormal(String schematicId)
+    public GuiStagingAreaEditorNormal(AreaSelection selection, @Nullable String selectionId)
+    {
+        this(selection, selectionId, "");
+    }
+
+    public GuiStagingAreaEditorNormal(AreaSelection selection, @Nullable String selectionId, String schematicId)
     {
         super(8, 116);
 
+        this.selection = selection;
+        this.selectionId = selectionId;
         this.schematicId = schematicId;
-        this.title = "备货区配置（标准模式）";
         this.useTitleHierarchy = false;
+        this.title = StringUtils.translate("litematica.gui.title.area_editor_normal");
+    }
+
+    public void setSelectionId(@Nullable String selectionId)
+    {
+        this.selectionId = selectionId;
     }
 
     @Override
@@ -44,63 +72,304 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     }
 
     @Override
-    public void initGui()
-    {
-        super.initGui();
-
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", -1, Optional.empty()));
-
-        // Create the bottom buttons
-        int x = 12;
-        int y = this.getScreenHeight() - 26;
-
-        this.createButton(x, y, -1, ButtonListener.Type.ADD_AREA);
-
-        x += this.getStringWidth(ButtonListener.Type.ADD_AREA.getDisplayName()) + 14;
-        this.createButton(x, y, -1, ButtonListener.Type.REFRESH);
-
-        // Close button on the right side
-        String label = ButtonListener.Type.CLOSE.getDisplayName();
-        int buttonWidth = this.getStringWidth(label) + 10;
-        x = this.getScreenWidth() - buttonWidth - 10;
-        this.addButton(new ButtonGeneric(x, y, buttonWidth, 20, label), new ButtonListener(ButtonListener.Type.CLOSE, this));
-    }
-
-    @Override
     public void deleteArea(int areaId)
     {
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "DELETE", areaId, Optional.empty()));
+        this.selection.removeSubRegionBox(this.selection.getAllSubRegionNames().stream()
+                .skip(areaId).findFirst().orElse(""));
+        this.initGui();
     }
 
     @Override
     public void refreshAreas()
     {
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", -1, Optional.empty()));
+        this.initGui();
     }
 
-    public void onServerResponse(StagingAreaConfigResponseS2CPacket packet)
+    @Override
+    public void initGui()
     {
-        if (packet.success() == false)
+        super.initGui();
+
+        if (this.selection != null)
         {
-            this.addMessage(MessageType.ERROR, 3000, packet.message());
-            return;
+            this.createSelectionEditFields();
+            this.addSubRegionFields(this.xOrigin, this.yNext);
+            this.updateCheckBoxes();
+        }
+        else
+        {
+            this.addLabel(20, 30, 120, 12, 0xFFFFAA00, StringUtils.translate("litematica.error.area_editor.no_selection"));
+        }
+    }
+
+    protected void createSelectionEditFields()
+    {
+        int xLeft = 12;
+        int x = xLeft - 2;
+        int y = 24;
+
+        x += this.createButton(x, y, -1, ButtonListener.Type.CHANGE_SELECTION_MODE) + 4;
+        this.xOrigin = x;
+
+        x = xLeft;
+        y += 20;
+
+        this.addLabel(x, y, -1, 16, 0xFFFFFFFF, StringUtils.translate("litematica.gui.label.area_editor.selection_name"));
+        y += 13;
+
+        int width = 202;
+        this.textFieldSelectionName = new GuiTextFieldGeneric(x, y + 2, width, 16, this.textRenderer);
+        this.textFieldSelectionName.setTextWrapper(this.selection.getName());
+        this.addTextField(this.textFieldSelectionName, new TextFieldListenerDummy());
+        x += width + 4;
+        x += this.createButton(x, y, -1, ButtonListener.Type.SET_SELECTION_NAME) + 10;
+        y += 20;
+
+        this.xSet = x;
+        this.yNext = y;
+    }
+
+    protected int addSubRegionFields(int x, int y)
+    {
+        int width = 68;
+        int xSave = 10;
+        int ySave = y + 4;
+
+        xSave += this.createButton(xSave, ySave, -1, ButtonListener.Type.CREATE_SUB_REGION) + 4;
+
+        boolean currentlyOn = this.selection.getExplicitOrigin() != null;
+        xSave += this.createButtonOnOff(xSave, ySave, -1, currentlyOn, ButtonListener.Type.TOGGLE_ORIGIN_ENABLED) + 4;
+
+        if (this.selection.getExplicitOrigin() != null)
+        {
+            if ((this.xSet - xSave) > 5)
+            {
+                xSave = this.xSet + 5;
+            }
+
+            x = Math.max(xSave, this.xOrigin);
+            this.createCoordinateInputs(x, 5, width, Corner.NONE);
         }
 
-        this.areas.clear();
-        for (StagingAreaConfigResponseS2CPacket.AreaInfo info : packet.areas())
+        x = 12;
+        y = this.getListY() - 12;
+        String str = String.valueOf(this.selection.getAllSubRegionNames().size());
+        this.addLabel(x, y, -1, 16, 0xFFFFFFFF, GuiBase.TXT_BOLD + StringUtils.translate("litematica.gui.label.area_editor.sub_regions", str));
+
+        y = this.getScreenHeight() - 26;
+
+        String label = GuiBase.TXT_RED + StringUtils.translate("gui.close");
+        int buttonWidth = this.getStringWidth(label) + 10;
+        x = this.getScreenWidth() - buttonWidth - 10;
+        this.addButton(new ButtonGeneric(x, y, buttonWidth, 20, label), new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
+
+        return y;
+    }
+
+    protected void renameSubRegion()
+    {
+    }
+
+    protected void createOrigin()
+    {
+        BlockPos origin = fi.dy.masa.malilib.util.position.PositionUtils.getEntityBlockPos(this.mc.player);
+        this.selection.setExplicitOrigin(origin);
+    }
+
+    protected int createCoordinateInputs(int x, int y, int width, Corner corner)
+    {
+        String label = "";
+        WidgetCheckBox widget = null;
+
+        switch (corner)
         {
-            this.areas.add(new StagingAreaEntry(info.areaId(), info.name(),
-                    info.x1(), info.y1(), info.z1(),
-                    info.x2(), info.y2(), info.z2(), info.world()));
+            case CORNER_1:
+                label = StringUtils.translate("litematica.gui.label.area_editor.corner_1");
+                widget = new WidgetCheckBox(x, y + 3, Icons.CHECKBOX_UNSELECTED, Icons.CHECKBOX_SELECTED, label);
+                this.checkBoxCorner1 = widget;
+                break;
+            case CORNER_2:
+                label = StringUtils.translate("litematica.gui.label.area_editor.corner_2");
+                widget = new WidgetCheckBox(x, y + 3, Icons.CHECKBOX_UNSELECTED, Icons.CHECKBOX_SELECTED, label);
+                this.checkBoxCorner2 = widget;
+                break;
+            case NONE:
+                label = StringUtils.translate("litematica.gui.label.area_editor.origin");
+                widget = new WidgetCheckBox(x, y + 3, Icons.CHECKBOX_UNSELECTED, Icons.CHECKBOX_SELECTED, label);
+                this.checkBoxOrigin = widget;
+                break;
         }
 
-        if (this.getListWidget() != null)
+        if (widget != null)
         {
-            this.getListWidget().refreshEntries();
+            widget.setListener(new CheckBoxListener(corner, this));
+            this.addWidget(widget);
+        }
+        y += 14;
+
+        this.createCoordinateInput(x, y, width, CoordinateType.X, corner);
+        y += 20;
+
+        this.createCoordinateInput(x, y, width, CoordinateType.Y, corner);
+        y += 20;
+
+        this.createCoordinateInput(x, y, width, CoordinateType.Z, corner);
+        y += 22;
+
+        this.createButton(x + 10, y, -1, corner, ButtonListener.Type.MOVE_TO_PLAYER);
+        y += 22;
+
+        return y;
+    }
+
+    protected void createCoordinateInput(int x, int y, int width, CoordinateType coordType, Corner corner)
+    {
+        String label = coordType.name() + ":";
+        this.addLabel(x, y, 20, 20, 0xFFFFFFFF, label);
+        int offset = 12;
+
+        y += 2;
+        BlockPos pos = corner == Corner.NONE ? this.selection.getEffectiveOrigin() : this.getBox().getPosition(corner);
+        String text = "";
+        ButtonListener.Type type = null;
+
+        switch (coordType)
+        {
+            case X:
+                text = String.valueOf(pos.getX());
+                type = ButtonListener.Type.NUDGE_COORD_X;
+                break;
+            case Y:
+                text = String.valueOf(pos.getY());
+                type = ButtonListener.Type.NUDGE_COORD_Y;
+                break;
+            case Z:
+                text = String.valueOf(pos.getZ());
+                type = ButtonListener.Type.NUDGE_COORD_Z;
+                break;
         }
 
-        this.addMessage(MessageType.SUCCESS, 2000,
-                "已更新备货区列表 (" + this.areas.size() + " 个区域)");
+        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.textRenderer);
+        TextFieldListener listener = new TextFieldListener(coordType, corner, this);
+        textField.setTextWrapper(text);
+        this.addTextField(textField, listener);
+
+        this.createCoordinateButton(x + offset + width + 4, y, corner, coordType, type);
+    }
+
+    protected int createButtonOnOff(int x, int y, int width, boolean isCurrentlyOn, ButtonListener.Type type)
+    {
+        ButtonOnOff button = new ButtonOnOff(x, y, width, false, type.getTranslationKey(), isCurrentlyOn);
+        this.addButton(button, new ButtonListener(type, null, null, this));
+        return button.getWidth();
+    }
+
+    protected int createButton(int x, int y, int width, ButtonListener.Type type)
+    {
+        return this.createButton(x, y, width, null, type);
+    }
+
+    protected int createButton(int x, int y, int width, @Nullable Corner corner, ButtonListener.Type type)
+    {
+        String label;
+
+        if (type == ButtonListener.Type.CHANGE_SELECTION_MODE)
+        {
+            label = type.getDisplayName(this.getSelectionModeName());
+        }
+        else
+        {
+            label = type.getDisplayName();
+        }
+
+        if (width == -1)
+        {
+            width = this.getStringWidth(label) + 10;
+        }
+
+        ButtonGeneric button = new ButtonGeneric(x, y, width, 20, label);
+        ButtonListener listener = new ButtonListener(type, corner, null, this);
+        this.addButton(button, listener);
+
+        return width;
+    }
+
+    protected String getSelectionModeName()
+    {
+        return SelectionMode.NORMAL.getDisplayName();
+    }
+
+    protected void createCoordinateButton(int x, int y, Corner corner, CoordinateType coordType, ButtonListener.Type type)
+    {
+        String hover = StringUtils.translate("litematica.gui.button.hover.plus_minus_tip_ctrl_alt_shift");
+        ButtonGeneric button = new ButtonGeneric(x, y, Icons.BUTTON_PLUS_MINUS_16, hover);
+        ButtonListener listener = new ButtonListener(type, corner, coordType, this);
+        this.addButton(button, listener);
+    }
+
+    protected void updateCheckBoxes()
+    {
+        if (this.checkBoxOrigin != null)
+        {
+            this.checkBoxOrigin.setChecked(this.selection.isOriginSelected(), false);
+        }
+
+        if (this.checkBoxCorner1 != null)
+        {
+            boolean checked = this.selection.getSelectedSubRegionBox() != null && this.selection.getSelectedSubRegionBox().getSelectedCorner() == Corner.CORNER_1;
+            this.checkBoxCorner1.setChecked(checked, false);
+        }
+
+        if (this.checkBoxCorner2 != null)
+        {
+            boolean checked = this.selection.getSelectedSubRegionBox() != null && this.selection.getSelectedSubRegionBox().getSelectedCorner() == Corner.CORNER_2;
+            this.checkBoxCorner2.setChecked(checked, false);
+        }
+    }
+
+    @Nullable
+    protected Box getBox()
+    {
+        return null;
+    }
+
+    protected void updatePosition(String numberString, Corner corner, CoordinateType type)
+    {
+        try
+        {
+            int value = Integer.parseInt(numberString);
+            this.selection.setCoordinate(this.getBox(), corner, type, value);
+        }
+        catch (NumberFormatException e)
+        {
+        }
+    }
+
+    protected void moveCoordinate(int amount, Corner corner, CoordinateType type)
+    {
+        int oldValue = 0;
+
+        if (corner == Corner.NONE)
+        {
+            oldValue = PositionUtils.getCoordinate(this.selection.getEffectiveOrigin(), type);
+        }
+        else if (this.getBox() != null)
+        {
+            oldValue = this.getBox().getCoordinate(corner, type);
+        }
+
+        this.selection.setCoordinate(this.getBox(), corner, type, oldValue + amount);
+    }
+
+    protected void renameSelection()
+    {
+        String newName = this.textFieldSelectionName.getTextWrapper();
+        this.renameSelection(newName);
+    }
+
+    protected void renameSelection(String newName)
+    {
+        this.selection.setName(newName);
     }
 
     @Override
@@ -108,7 +377,29 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     {
         return new WidgetListStagingAreas(listX, listY,
                 this.getBrowserWidth(), this.getBrowserHeight(),
-                this.areas, this);
+                this.getStagingAreaEntries(), null);
+    }
+
+    protected List<StagingAreaEntry> getStagingAreaEntries()
+    {
+        List<StagingAreaEntry> entries = new ArrayList<>();
+        int id = 0;
+
+        for (String name : this.selection.getAllSubRegionNames())
+        {
+            Box box = this.selection.getSubRegionBox(name);
+
+            if (box != null)
+            {
+                BlockPos pos1 = box.getPos1();
+                BlockPos pos2 = box.getPos2();
+                entries.add(new StagingAreaEntry(id++, name,
+                        pos1.getX(), pos1.getY(), pos1.getZ(),
+                        pos2.getX(), pos2.getY(), pos2.getZ(), ""));
+            }
+        }
+
+        return entries;
     }
 
     @Override
@@ -130,86 +421,241 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     }
 
     @Override
-    public void onSelectionChange(StagingAreaEntry entry)
+    public void onSelectionChange(@Nullable StagingAreaEntry entry)
     {
-        // Selection handling is not needed for now
-    }
-
-    private int createButton(int x, int y, int width, ButtonListener.Type type)
-    {
-        String label = type.getDisplayName();
-
-        if (width == -1)
+        if (entry != null)
         {
-            width = this.getStringWidth(label) + 10;
+            this.selection.setSelectedSubRegionBox(entry.name());
         }
-
-        ButtonGeneric button = new ButtonGeneric(x, y, width, 20, label);
-        this.addButton(button, new ButtonListener(type, this));
-        return button.getWidth();
     }
 
-    private static class ButtonListener implements IButtonActionListener
+    protected static class ButtonListener implements IButtonActionListener
     {
+        private final GuiStagingAreaEditorNormal parent;
         private final Type type;
-        private final GuiStagingAreaEditorNormal gui;
+        @Nullable private final Corner corner;
+        @Nullable private final CoordinateType coordinateType;
 
-        public ButtonListener(Type type, GuiStagingAreaEditorNormal gui)
+        public ButtonListener(Type type, @Nullable Corner corner, @Nullable CoordinateType coordinateType, GuiStagingAreaEditorNormal parent)
         {
             this.type = type;
-            this.gui = gui;
+            this.corner = corner;
+            this.coordinateType = coordinateType;
+            this.parent = parent;
         }
 
         @Override
         public void actionPerformedWithButton(ButtonBase button, int mouseButton)
         {
+            int amount = mouseButton == 1 ? -1 : 1;
+            if (GuiBase.isCtrlDown()) { amount *= 100; }
+            if (GuiBase.isShiftDown()) { amount *= 10; }
+            if (GuiBase.isAltDown()) { amount *= 5; }
+
+            this.parent.setNextMessageType(MessageType.ERROR);
+
             switch (this.type)
             {
-                case ADD_AREA:
+                case NUDGE_COORD_X:
+                    this.parent.moveCoordinate(amount, this.corner, this.coordinateType);
+                    break;
+
+                case NUDGE_COORD_Y:
+                    this.parent.moveCoordinate(amount, this.corner, this.coordinateType);
+                    break;
+
+                case NUDGE_COORD_Z:
+                    this.parent.moveCoordinate(amount, this.corner, this.coordinateType);
+                    break;
+
+                case CHANGE_SELECTION_MODE:
+                    break;
+
+                case CREATE_SUB_REGION:
                 {
-                    String defaultName = "area_" + (this.gui.areas.size() + 1);
-                    IStringConsumerFeedback consumer = string ->
-                    {
-                        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                                this.gui.schematicId, "ADD", -1,
-                                Optional.of(new AreaData(string.trim(), 0, 0, 0, 0, 0, 0, Optional.empty()))));
-                        return true;
-                    };
-                    GuiBase.openGui(new GuiTextInput(512, "新建备货区", defaultName, this.gui, consumer));
+                    GuiTextInput gui = new GuiTextInput(512, "litematica.gui.title.area_editor.sub_region_name", "", null, new SubRegionCreator(this.parent));
+                    gui.setParent(this.parent);
+                    GuiBase.openGui(gui);
                     break;
                 }
 
-                case REFRESH:
+                case SET_SELECTION_NAME:
                 {
-                    this.gui.refreshAreas();
+                    this.parent.renameSelection();
                     break;
                 }
+
+                case SET_BOX_NAME:
+                {
+                    this.parent.renameSubRegion();
+                    break;
+                }
+
+                case MOVE_TO_PLAYER:
+                    if (this.parent.mc.player != null)
+                    {
+                        BlockPos pos = fi.dy.masa.malilib.util.position.PositionUtils.getEntityBlockPos(this.parent.mc.player);
+
+                        if (this.corner == Corner.NONE)
+                        {
+                            this.parent.selection.setExplicitOrigin(pos);
+                        }
+                        else
+                        {
+                            this.parent.selection.setSelectedSubRegionCornerPos(pos, this.corner);
+                        }
+                    }
+                    break;
+
+                case TOGGLE_ORIGIN_ENABLED:
+                    BlockPos origin = this.parent.selection.getExplicitOrigin();
+
+                    if (origin == null)
+                    {
+                        this.parent.createOrigin();
+                    }
+                    else
+                    {
+                        this.parent.selection.setExplicitOrigin(null);
+                    }
+                    break;
 
                 case CLOSE:
-                {
-                    GuiBase.openGui(this.gui.getParent());
-                    break;
-                }
+                    GuiBase.openGui(this.parent.getParent());
+                    return;
             }
+
+            this.parent.initGui();
         }
 
         public enum Type
         {
-            ADD_AREA    ("新建子区域"),
-            REFRESH     ("刷新列表"),
-            CLOSE       (GuiBase.TXT_RED + "关闭");
+            SET_SELECTION_NAME      ("litematica.gui.button.area_editor.set_selection_name"),
+            SET_BOX_NAME            ("litematica.gui.button.area_editor.set_box_name"),
+            TOGGLE_ORIGIN_ENABLED   ("litematica.gui.button.area_editor.origin_enabled"),
+            CREATE_SUB_REGION       ("litematica.gui.button.area_editor.create_sub_region"),
+            CHANGE_SELECTION_MODE   ("litematica.gui.button.area_editor.change_selection_mode"),
+            MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),
+            CLOSE                   ("gui.close"),
+            NUDGE_COORD_X           (""),
+            NUDGE_COORD_Y           (""),
+            NUDGE_COORD_Z           ("");
 
-            private final String displayName;
+            private final String translationKey;
+            @Nullable private final String hoverText;
 
-            Type(String displayName)
+            private Type(String translationKey)
             {
-                this.displayName = displayName;
+                this(translationKey, null);
             }
 
-            public String getDisplayName()
+            private Type(String translationKey, @Nullable String hoverText)
             {
-                return this.displayName;
+                this.translationKey = translationKey;
+                this.hoverText = hoverText;
             }
+
+            public String getTranslationKey()
+            {
+                return this.translationKey;
+            }
+
+            public String getDisplayName(Object... args)
+            {
+                return StringUtils.translate(this.translationKey, args);
+            }
+        }
+    }
+
+    protected static class TextFieldListener implements ITextFieldListener<GuiTextFieldGeneric>
+    {
+        private final GuiStagingAreaEditorNormal parent;
+        private final CoordinateType type;
+        private final Corner corner;
+
+        public TextFieldListener(CoordinateType type, Corner corner, GuiStagingAreaEditorNormal parent)
+        {
+            this.type = type;
+            this.corner = corner;
+            this.parent = parent;
+        }
+
+        @Override
+        public boolean onTextChange(GuiTextFieldGeneric textField)
+        {
+            this.parent.updatePosition(textField.getTextWrapper(), this.corner, this.type);
+            return false;
+        }
+    }
+
+    public static class TextFieldListenerDummy implements ITextFieldListener<GuiTextFieldGeneric>
+    {
+        @Override
+        public boolean onTextChange(GuiTextFieldGeneric textField)
+        {
+            return false;
+        }
+    }
+
+    protected static class SubRegionCreator implements IStringConsumerFeedback
+    {
+        private final GuiStagingAreaEditorNormal gui;
+
+        private SubRegionCreator(GuiStagingAreaEditorNormal gui)
+        {
+            this.gui = gui;
+        }
+
+        @Override
+        public boolean setString(String string)
+        {
+            BlockPos pos = fi.dy.masa.malilib.util.position.PositionUtils.getEntityBlockPos(this.gui.mc.player);
+            this.gui.selection.createNewSubRegionBox(pos, string);
+            this.gui.initGui();
+            return true;
+        }
+    }
+
+    protected static class CheckBoxListener implements ISelectionListener<WidgetCheckBox>
+    {
+        private final GuiStagingAreaEditorNormal gui;
+        private final Corner corner;
+
+        public CheckBoxListener(Corner corner, GuiStagingAreaEditorNormal gui)
+        {
+            this.gui = gui;
+            this.corner = corner;
+        }
+
+        @Override
+        public void onSelectionChange(WidgetCheckBox entry)
+        {
+            if (entry.isChecked())
+            {
+                if (this.corner == Corner.NONE)
+                {
+                    this.gui.selection.setOriginSelected(true);
+                    this.gui.selection.clearCurrentSelectedCorner();
+                }
+                else
+                {
+                    this.gui.selection.setOriginSelected(false);
+                    this.gui.selection.setCurrentSelectedCorner(this.corner);
+                }
+            }
+            else
+            {
+                if (this.corner == Corner.NONE)
+                {
+                    this.gui.selection.setOriginSelected(false);
+                }
+                else
+                {
+                    this.gui.selection.clearCurrentSelectedCorner();
+                }
+            }
+
+            this.gui.updateCheckBoxes();
         }
     }
 }

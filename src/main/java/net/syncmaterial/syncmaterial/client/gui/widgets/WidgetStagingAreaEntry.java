@@ -10,6 +10,8 @@ import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
+import net.syncmaterial.syncmaterial.selection.AreaSelection;
+import net.syncmaterial.syncmaterial.selection.Box;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiTextInputFeedback;
 import fi.dy.masa.malilib.gui.button.ButtonBase;
@@ -138,8 +140,15 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
             }
             else if (this.type == ButtonType.CONFIGURE)
             {
+                AreaSelection selection = new AreaSelection();
+                Box box = new Box(
+                        new BlockPos(this.widget.entryData.x1(), this.widget.entryData.y1(), this.widget.entryData.z1()),
+                        new BlockPos(this.widget.entryData.x2(), this.widget.entryData.y2(), this.widget.entryData.z2()),
+                        this.widget.entryData.name());
+                selection.addSubRegionBox(box, true);
+                selection.setSelectedSubRegionBox(box.getName());
                 GuiBase.openGui(new GuiStagingAreaEditorSubRegion(
-                        this.widget.parent.getEditorGui().getSchematicId(), this.widget.entryData));
+                        selection, box, this.widget.parent.getEditorGui().getSchematicId()));
             }
             else if (this.type == ButtonType.REMOVE)
             {

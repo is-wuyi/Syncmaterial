@@ -13,6 +13,7 @@ import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
 import net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket;
+import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
@@ -77,7 +78,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private int createButtonStagingArea(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "备货区配置");
         this.addButton(button, (btn, mouseButton) -> {
-            this.mc.setScreen(new GuiStagingAreaEditorNormal(this.materialList.getSchematicId()));
+            AreaSelection selection = new AreaSelection();
+            this.mc.setScreen(new GuiStagingAreaEditorNormal(selection, null, this.materialList.getSchematicId()));
         });
         return button.getWidth();
     }

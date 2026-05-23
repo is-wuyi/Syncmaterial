@@ -2,7 +2,6 @@ package net.syncmaterial.syncmaterial.network;
 
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.MinecraftClient;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSimple;
@@ -37,14 +36,6 @@ public class ModNetworkHandlerClient {
 
         ClientPlayNetworking.registerGlobalReceiver(StagingAreaConfigResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                var screen = MinecraftClient.getInstance().currentScreen;
-                if (screen instanceof GuiStagingAreaEditorNormal editor) {
-                    editor.onServerResponse(payload);
-                } else if (screen instanceof GuiStagingAreaEditorSimple editor) {
-                    editor.onServerResponse(payload);
-                } else if (screen instanceof GuiStagingAreaEditorSubRegion editor) {
-                    editor.onServerResponse(payload);
-                }
             });
         });
     }
