@@ -3,6 +3,7 @@ package net.syncmaterial.syncmaterial.client.gui;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import javax.annotation.Nullable;
 
 import net.minecraft.util.math.BlockPos;
@@ -20,8 +21,13 @@ import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListStagingAreas;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetStagingAreaEntry;
+import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
+import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
+import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.syncmaterial.syncmaterial.selection.Box;
 import net.syncmaterial.syncmaterial.selection.SelectionMode;
@@ -43,6 +49,8 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected int xOrigin;
     protected int xSet;
     @Nullable protected String selectionId;
+    protected boolean needsServerLoad = false;
+    protected boolean loadingFromServer = false;
 
     public GuiStagingAreaEditorNormal(AreaSelection selection, @Nullable String selectionId)
     {
@@ -56,6 +64,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         this.selection = selection;
         this.selectionId = selectionId;
         this.schematicId = schematicId;
+        this.needsServerLoad = schematicId != null && !schematicId.isEmpty();
         this.useTitleHierarchy = false;
         this.title = StringUtils.translate("litematica.gui.title.area_editor_normal");
     }
@@ -85,6 +94,31 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         this.initGui();
     }
 
+    public void onServerResponse(StagingAreaConfigResponseS2CPacket packet)
+    {
+        if (!packet.success())
+        {
+            return;
+        }
+
+        if (this.loadingFromServer)
+        {
+            this.loadingFromServer = false;
+
+            this.selection.removeAllSubRegionBoxes();
+
+            for (var area : packet.areas())
+            {
+                BlockPos pos1 = new BlockPos(area.x1(), area.y1(), area.z1());
+                BlockPos pos2 = new BlockPos(area.x2(), area.y2(), area.z2());
+                Box box = new Box(pos1, pos2, area.name());
+                this.selection.addSubRegionBox(box, true);
+            }
+
+            this.initGui();
+        }
+    }
+
     @Override
     public void initGui()
     {
@@ -99,6 +133,15 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         else
         {
             this.addLabel(20, 30, 120, 12, 0xFFFFAA00, StringUtils.translate("litematica.error.area_editor.no_selection"));
+        }
+
+        // 首次打开时从服务端加载备货区数据
+        if (this.needsServerLoad && this.schematicId != null && !this.schematicId.isEmpty())
+        {
+            this.needsServerLoad = false;
+            this.loadingFromServer = true;
+            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                    this.schematicId, "LIST", -1, Optional.empty()));
         }
     }
 
@@ -158,10 +201,16 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         y = this.getScreenHeight() - 26;
 
+        String saveLabel = "保存备货区";
+        int saveWidth = this.getStringWidth(saveLabel) + 10;
+
         String label = GuiBase.TXT_RED + StringUtils.translate("gui.close");
         int buttonWidth = this.getStringWidth(label) + 10;
         x = this.getScreenWidth() - buttonWidth - 10;
         this.addButton(new ButtonGeneric(x, y, buttonWidth, 20, label), new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
+
+        x -= saveWidth + 4;
+        this.addButton(new ButtonGeneric(x, y, saveWidth, 20, saveLabel), new ButtonListener(ButtonListener.Type.SAVE, null, null, this));
 
         return y;
     }
@@ -520,6 +569,33 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                     }
                     break;
 
+                case SAVE:
+                {
+                    ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                            this.parent.schematicId, "CLEAR", -1, Optional.empty()));
+
+                    for (String name : this.parent.selection.getAllSubRegionNames())
+                    {
+                        Box box = this.parent.selection.getSubRegionBox(name);
+
+                        if (box != null)
+                        {
+                            BlockPos pos1 = box.getPos1();
+                            BlockPos pos2 = box.getPos2();
+                            int x1 = Math.min(pos1.getX(), pos2.getX());
+                            int y1 = Math.min(pos1.getY(), pos2.getY());
+                            int z1 = Math.min(pos1.getZ(), pos2.getZ());
+                            int x2 = Math.max(pos1.getX(), pos2.getX());
+                            int y2 = Math.max(pos1.getY(), pos2.getY());
+                            int z2 = Math.max(pos1.getZ(), pos2.getZ());
+                            AreaData areaData = new AreaData(box.getName(), x1, y1, z1, x2, y2, z2, Optional.empty());
+                            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                                    this.parent.schematicId, "ADD", -1, Optional.of(areaData)));
+                        }
+                    }
+                    break;
+                }
+
                 case CLOSE:
                     GuiBase.openGui(this.parent.getParent());
                     return;
@@ -537,6 +613,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             CHANGE_SELECTION_MODE   ("litematica.gui.button.area_editor.change_selection_mode"),
             MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),
             CLOSE                   ("gui.close"),
+            SAVE                    ("syncmaterial.gui.button.save"),
             NUDGE_COORD_X           (""),
             NUDGE_COORD_Y           (""),
             NUDGE_COORD_Z           ("");

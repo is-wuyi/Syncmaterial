@@ -201,6 +201,13 @@ public class ModNetworkHandler {
                     )).toList();
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已更新", areaInfos));
                 }
+                case "CLEAR" -> {
+                    var areas = manager.getStagingAreas(schematicId);
+                    for (var area : areas) {
+                        manager.removeStagingArea(area.id(), schematicId);
+                    }
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "已清除所有备货区", List.of()));
+                }
                 default -> {
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "未知操作: " + action, List.of()));
                 }
