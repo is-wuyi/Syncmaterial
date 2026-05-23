@@ -30,6 +30,9 @@ dependencies {
     // Litematica for reference (compile-time only, not required at runtime)
     modCompileOnly "maven.modrinth:litematica:0.23.6"
 
+    // JSR 305 (javax.annotation.Nullable 等)
+    compileOnly "com.google.code.findbugs:jsr305:3.0.2"
+
     // SQLite 数据库驱动 - 包含在模组 jar 中
     include "org.xerial:sqlite-jdbc:3.45.1.0"
 }
