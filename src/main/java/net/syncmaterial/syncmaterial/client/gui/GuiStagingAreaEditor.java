@@ -12,6 +12,7 @@ import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListStagingAreas;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetStagingAreaEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
+import java.util.Optional;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
@@ -63,13 +64,13 @@ public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetSt
         x -= this.createButtonAddFromSelection(x, 24) + gap;
         x -= this.createButtonRefresh(x, 24);
 
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, null));
+        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, Optional.empty()));
     }
 
     private int createButtonRefresh(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "刷新列表");
         this.addButton(button, (btn, mouseButton) -> {
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, null));
+            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, Optional.empty()));
         });
         return button.getWidth();
     }
@@ -92,9 +93,9 @@ public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetSt
             for (LitematicaSelectionReader.StagingAreaRegion region : regions) {
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                     this.schematicId, "ADD", 0,
-                    new AreaData(region.name(),
+                    Optional.of(new AreaData(region.name(),
                         region.pos1().getX(), region.pos1().getY(), region.pos1().getZ(),
-                        region.pos2().getX(), region.pos2().getY(), region.pos2().getZ())
+                        region.pos2().getX(), region.pos2().getY(), region.pos2().getZ()))
                 ));
             }
             this.statusMessage = "已添加 " + regions.size() + " 个备货区";
@@ -105,7 +106,7 @@ public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetSt
     private int createButtonSave(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "保存到服务器");
         this.addButton(button, (btn, mouseButton) -> {
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, null));
+            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, Optional.empty()));
             this.statusMessage = "配置已同步到服务器";
         });
         return button.getWidth();
@@ -129,7 +130,7 @@ public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetSt
     }
 
     public void deleteArea(int areaId) {
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "DELETE", areaId, null));
+        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "DELETE", areaId, Optional.empty()));
     }
 
     @Override

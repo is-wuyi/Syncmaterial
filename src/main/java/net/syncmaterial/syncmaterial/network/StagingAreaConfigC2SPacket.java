@@ -5,11 +5,13 @@ import net.minecraft.network.codec.PacketCodec;
 import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.network.packet.CustomPayload;
 
+import java.util.Optional;
+
 public record StagingAreaConfigC2SPacket(
     String schematicId,
     String action,
     int areaId,
-    AreaData areaData
+    Optional<AreaData> areaData
 ) implements CustomPayload {
 
     public static final CustomPayload.Id<StagingAreaConfigC2SPacket> ID = new CustomPayload.Id<>(ModPackets.STAGING_AREA_CONFIG);
@@ -29,7 +31,7 @@ public record StagingAreaConfigC2SPacket(
             PacketCodecs.STRING, StagingAreaConfigC2SPacket::schematicId,
             PacketCodecs.STRING, StagingAreaConfigC2SPacket::action,
             PacketCodecs.INTEGER, StagingAreaConfigC2SPacket::areaId,
-            AREA_DATA_CODEC, StagingAreaConfigC2SPacket::areaData,
+            PacketCodecs.optional(AREA_DATA_CODEC), StagingAreaConfigC2SPacket::areaData,
             StagingAreaConfigC2SPacket::new
     );
 

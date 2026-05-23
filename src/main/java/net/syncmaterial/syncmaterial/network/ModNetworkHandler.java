@@ -8,6 +8,7 @@ import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.PlacementsUtil;
 import net.syncmaterial.syncmaterial.server.StagingAreaManager;
+import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -152,11 +153,12 @@ public class ModNetworkHandler {
                 }
                 case "ADD" -> {
                     var ad = payload.areaData();
-                    if (ad == null) {
+                    if (ad.isEmpty()) {
                         ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "缺少区域数据", List.of()));
                         return;
                     }
-                    manager.addStagingArea(schematicId, player.getWorld().getRegistryKey().getValue().toString(), ad.name(), ad.x1(), ad.y1(), ad.z1(), ad.x2(), ad.y2(), ad.z2());
+                    AreaData data = ad.get();
+                    manager.addStagingArea(schematicId, player.getWorld().getRegistryKey().getValue().toString(), data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     var areas = manager.getStagingAreas(schematicId);
                     var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
                         a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
