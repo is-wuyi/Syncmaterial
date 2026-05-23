@@ -165,6 +165,19 @@ public class ModNetworkHandler {
                     )).toList();
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已添加", areaInfos));
                 }
+                case "RENAME" -> {
+                    var ad = payload.areaData();
+                    if (ad.isEmpty()) {
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "缺少区域数据", List.of()));
+                        return;
+                    }
+                    manager.renameStagingArea(payload.areaId(), schematicId, ad.get().name());
+                    var areas = manager.getStagingAreas(schematicId);
+                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2()
+                    )).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已重命名", areaInfos));
+                }
                 case "DELETE" -> {
                     manager.removeStagingArea(payload.areaId(), schematicId);
                     var areas = manager.getStagingAreas(schematicId);

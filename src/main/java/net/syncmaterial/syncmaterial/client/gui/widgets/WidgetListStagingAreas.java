@@ -1,34 +1,57 @@
 package net.syncmaterial.syncmaterial.client.gui.widgets;
 
-import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 
-import net.minecraft.client.gui.DrawContext;
-import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditor;
+import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
 import fi.dy.masa.malilib.gui.widgets.WidgetListBase;
+import fi.dy.masa.malilib.util.AlphaNumComparator.AlphaNumStringComparator;
 
-public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, WidgetStagingAreaEntry> {
+public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, WidgetStagingAreaEntry>
+{
     private final GuiStagingAreaEditor gui;
+    private final List<StagingAreaEntry> areas;
 
-    public WidgetListStagingAreas(int x, int y, int width, int height, GuiStagingAreaEditor parent) {
-        super(x, y, width, height, null);
+    public WidgetListStagingAreas(int x, int y, int width, int height,
+            List<StagingAreaEntry> areas, GuiStagingAreaEditor gui)
+    {
+        super(x, y, width, height, gui);
+
+        this.gui = gui;
+        this.areas = areas;
         this.browserEntryHeight = 22;
-        this.gui = parent;
+        this.shouldSortList = true;
+    }
+
+    public GuiStagingAreaEditor getEditorGui()
+    {
+        return this.gui;
     }
 
     @Override
-    public void drawContents(DrawContext drawContext, int mouseX, int mouseY, float partialTicks) {
-        super.drawContents(drawContext, mouseX, mouseY, partialTicks);
+    protected Collection<StagingAreaEntry> getAllEntries()
+    {
+        return this.areas;
     }
 
     @Override
-    protected List<StagingAreaEntry> getAllEntries() {
-        return new ArrayList<>(this.gui.getAreas());
+    protected Comparator<StagingAreaEntry> getComparator()
+    {
+        return Comparator.comparing(StagingAreaEntry::name, new AlphaNumStringComparator());
     }
 
     @Override
-    protected WidgetStagingAreaEntry createListEntryWidget(int x, int y, int width, boolean selected, StagingAreaEntry entry) {
-        return new WidgetStagingAreaEntry(x, y, width, 20, entry, this.gui);
+    protected List<String> getEntryStringsForFilter(StagingAreaEntry entry)
+    {
+        return List.of(entry.name().toLowerCase());
+    }
+
+    @Override
+    protected WidgetStagingAreaEntry createListEntryWidget(int x, int y, int listIndex, boolean isOdd, StagingAreaEntry entry)
+    {
+        return new WidgetStagingAreaEntry(x, y, this.browserEntryWidth, this.browserEntryHeight,
+                isOdd, entry, listIndex, this.areas, this);
     }
 }

@@ -1,46 +1,189 @@
 package net.syncmaterial.syncmaterial.client.gui.widgets;
 
+import java.util.List;
+
 import net.minecraft.client.gui.DrawContext;
-import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
+import net.minecraft.util.math.BlockPos;
+
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditor;
-import fi.dy.masa.malilib.gui.widgets.WidgetListEntryBase;
+import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
+import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
+import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
+import fi.dy.masa.malilib.gui.GuiBase;
+import fi.dy.masa.malilib.gui.GuiTextInputFeedback;
+import fi.dy.masa.malilib.gui.button.ButtonBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
+import fi.dy.masa.malilib.gui.button.IButtonActionListener;
+import fi.dy.masa.malilib.gui.widgets.WidgetListEntryBase;
+import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
+import fi.dy.masa.malilib.render.RenderUtils;
+import fi.dy.masa.malilib.util.GuiUtils;
+import fi.dy.masa.malilib.util.StringUtils;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
-public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry> {
-    private final StagingAreaEntry entry;
-    private final GuiStagingAreaEditor gui;
-    private ButtonGeneric deleteButton;
+import java.util.Optional;
 
-    public WidgetStagingAreaEntry(int x, int y, int width, int height, StagingAreaEntry entry, GuiStagingAreaEditor gui) {
-        super(x, y, width, height, entry, 0);
-        this.entry = entry;
-        this.gui = gui;
+public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry>
+{
+    private final WidgetListStagingAreas parent;
+    private final StagingAreaEntry entryData;
+    private final boolean isOdd;
+    private final int buttonsStartX;
 
-        int btnX = x + width - 50;
-        int btnY = y + 2;
-        this.deleteButton = new ButtonGeneric(btnX, btnY, 46, 18, "删除");
+    public WidgetStagingAreaEntry(int x, int y, int width, int height, boolean isOdd,
+            StagingAreaEntry entry, int listIndex, List<StagingAreaEntry> areas, WidgetListStagingAreas parent)
+    {
+        super(x, y, width, height, entry, listIndex);
+
+        this.entryData = entry;
+        this.isOdd = isOdd;
+        this.parent = parent;
+
+        int posX = x + width - 2;
+        int posY = y + 1;
+
+        posX = this.createButton(posX, posY, ButtonListener.ButtonType.REMOVE);
+        posX = this.createButton(posX, posY, ButtonListener.ButtonType.RENAME);
+
+        this.buttonsStartX = posX;
+    }
+
+    private int createButton(int x, int y, ButtonListener.ButtonType type)
+    {
+        return this.addButton(new ButtonGeneric(x, y, -1, true, type.getDisplayName()), new ButtonListener(type, this)).getX() - 1;
     }
 
     @Override
-    public void render(DrawContext drawContext, int mouseX, int mouseY, boolean selected) {
+    public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
+    {
+        return mouseX < this.buttonsStartX && super.canSelectAt(mouseX, mouseY, mouseButton);
+    }
+
+    @Override
+    public void render(DrawContext drawContext, int mouseX, int mouseY, boolean selected)
+    {
+        // Draw a lighter background for the hovered and the selected entry
+        if (selected || this.isMouseOver(mouseX, mouseY))
+        {
+            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0707070);
+        }
+        else if (this.isOdd)
+        {
+            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0101010);
+        }
+        else
+        {
+            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0303030);
+        }
+
+        if (selected)
+        {
+            RenderUtils.drawOutline(drawContext, this.x, this.y, this.width, this.height, 0xFFE0E0E0);
+        }
+
+        // Display: "备货区名称  [x1,y1,z1]~[x2,y2,z2]"
+        String display = String.format("%s  [%d,%d,%d]~[%d,%d,%d]",
+                this.entryData.name(),
+                this.entryData.x1(), this.entryData.y1(), this.entryData.z1(),
+                this.entryData.x2(), this.entryData.y2(), this.entryData.z2());
+        this.drawString(drawContext, this.x + 2, this.y + 7, 0xFFFFFFFF, display);
+
         super.render(drawContext, mouseX, mouseY, selected);
-
-        String text = String.format("%s  [%d,%d,%d]~[%d,%d,%d]",
-            this.entry.name(),
-            this.entry.x1(), this.entry.y1(), this.entry.z1(),
-            this.entry.x2(), this.entry.y2(), this.entry.z2());
-
-        this.drawStringWithShadow(drawContext, this.x + 4, this.y + 7, 0xFFFFFF, text);
-
-        this.deleteButton.render(drawContext, mouseX, mouseY, false);
     }
 
     @Override
-    public boolean onMouseClicked(int mouseX, int mouseY, int button) {
-        if (this.deleteButton != null && this.deleteButton.isMouseOver()) {
-            this.gui.deleteArea(this.entry.areaId());
+    public void postRenderHovered(DrawContext drawContext, int mouseX, int mouseY, boolean selected)
+    {
+        List<String> text = new java.util.ArrayList<>();
+
+        text.add(String.format("§l%s", this.entryData.name()));
+        text.add(String.format("§7[%d,%d,%d] ~ [%d,%d,%d]",
+                this.entryData.x1(), this.entryData.y1(), this.entryData.z1(),
+                this.entryData.x2(), this.entryData.y2(), this.entryData.z2()));
+
+        int sizeX = Math.abs(this.entryData.x2() - this.entryData.x1()) + 1;
+        int sizeY = Math.abs(this.entryData.y2() - this.entryData.y1()) + 1;
+        int sizeZ = Math.abs(this.entryData.z2() - this.entryData.z1()) + 1;
+        text.add(String.format("§7尺寸: %d x %d x %d", sizeX, sizeY, sizeZ));
+
+        int offset = 12;
+        if (GuiBase.isMouseOver(mouseX, mouseY, this.x, this.y, this.buttonsStartX - offset, this.height))
+        {
+            RenderUtils.drawHoverText(drawContext, mouseX, mouseY, text);
+        }
+    }
+
+    private static class ButtonListener implements IButtonActionListener
+    {
+        private final WidgetStagingAreaEntry widget;
+        private final ButtonType type;
+
+        public ButtonListener(ButtonType type, WidgetStagingAreaEntry widget)
+        {
+            this.type = type;
+            this.widget = widget;
+        }
+
+        @Override
+        public void actionPerformedWithButton(ButtonBase button, int mouseButton)
+        {
+            if (this.type == ButtonType.RENAME)
+            {
+                String title = "重命名备货区";
+                String name = this.widget.entryData.name();
+                AreaRenamer renamer = new AreaRenamer(this.widget.entryData, this.widget.parent.getEditorGui());
+                GuiBase.openGui(new GuiTextInputFeedback(160, title, name, this.widget.parent.getEditorGui(), renamer));
+            }
+            else if (this.type == ButtonType.REMOVE)
+            {
+                this.widget.parent.getEditorGui().deleteArea(this.widget.entryData.areaId());
+            }
+        }
+
+        public enum ButtonType
+        {
+            RENAME          ("重命名"),
+            REMOVE          (GuiBase.TXT_RED + "-");
+
+            private final String labelKey;
+
+            ButtonType(String labelKey)
+            {
+                this.labelKey = labelKey;
+            }
+
+            public String getDisplayName()
+            {
+                return this.labelKey;
+            }
+        }
+    }
+
+    private static class AreaRenamer implements IStringConsumerFeedback
+    {
+        private final StagingAreaEntry entry;
+        private final GuiStagingAreaEditor gui;
+
+        public AreaRenamer(StagingAreaEntry entry, GuiStagingAreaEditor gui)
+        {
+            this.entry = entry;
+            this.gui = gui;
+        }
+
+        @Override
+        public boolean setString(String newName)
+        {
+            if (newName == null || newName.trim().isEmpty())
+            {
+                return false;
+            }
+
+            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                    this.gui.getSchematicId(), "RENAME", this.entry.areaId(),
+                    Optional.of(new AreaData(newName.trim(),
+                            this.entry.x1(), this.entry.y1(), this.entry.z1(),
+                            this.entry.x2(), this.entry.y2(), this.entry.z2()))));
             return true;
         }
-        return super.onMouseClicked(mouseX, mouseY, button);
     }
 }

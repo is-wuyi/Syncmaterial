@@ -48,6 +48,16 @@ public class StagingAreaManager {
         return -1;
     }
 
+    public void renameStagingArea(int areaId, String schematicId, String newName) {
+        try {
+            database.executeUpdate("UPDATE staging_areas SET name = ? WHERE id = ?", newName, areaId);
+            refreshCache(schematicId);
+            SyncMaterial.LOGGER.info("Renamed staging area {} to {}", areaId, newName);
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("Failed to rename staging area", e);
+        }
+    }
+
     public void removeStagingArea(int areaId, String schematicId) {
         try {
             database.executeUpdate("DELETE FROM staging_areas WHERE id = ?", areaId);

@@ -2,148 +2,211 @@ package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import net.minecraft.client.gui.DrawContext;
+import java.util.Optional;
+import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiListBase;
+import fi.dy.masa.malilib.gui.GuiTextInput;
+import fi.dy.masa.malilib.gui.Message.MessageType;
+import fi.dy.masa.malilib.gui.button.ButtonBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
-import net.syncmaterial.syncmaterial.client.LitematicaSelectionReader;
-import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
+import fi.dy.masa.malilib.gui.button.IButtonActionListener;
+import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
+import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
+import fi.dy.masa.malilib.util.StringUtils;
+
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListStagingAreas;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetStagingAreaEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
-import java.util.Optional;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
-public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetStagingAreaEntry, WidgetListStagingAreas> {
+public class GuiStagingAreaEditor extends GuiListBase<StagingAreaEntry, WidgetStagingAreaEntry, WidgetListStagingAreas>
+        implements ISelectionListener<StagingAreaEntry>
+{
     private final String schematicId;
     private final List<StagingAreaEntry> areas = new ArrayList<>();
-    private String statusMessage = "";
-    private boolean litematicaAvailable;
 
-    public GuiStagingAreaEditor(String schematicId) {
-        super(10, 44);
+    public GuiStagingAreaEditor(String schematicId)
+    {
+        super(8, 116);
+
         this.schematicId = schematicId;
-        this.title = "备货区配置 - " + schematicId;
+        this.title = "备货区配置";
         this.useTitleHierarchy = false;
-        this.litematicaAvailable = LitematicaSelectionReader.isAvailable();
+    }
+
+    public String getSchematicId()
+    {
+        return this.schematicId;
     }
 
     @Override
-    protected int getBrowserWidth() {
+    public void initGui()
+    {
+        super.initGui();
+
+        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", -1, Optional.empty()));
+
+        // Create the bottom buttons
+        int x = 12;
+        int y = this.getScreenHeight() - 26;
+
+        this.createButton(x, y, -1, ButtonListener.Type.ADD_AREA);
+
+        x += this.getStringWidth(ButtonListener.Type.ADD_AREA.getDisplayName()) + 14;
+        this.createButton(x, y, -1, ButtonListener.Type.REFRESH);
+
+        // Close button on the right side
+        String label = ButtonListener.Type.CLOSE.getDisplayName();
+        int buttonWidth = this.getStringWidth(label) + 10;
+        x = this.getScreenWidth() - buttonWidth - 10;
+        this.addButton(new ButtonGeneric(x, y, buttonWidth, 20, label), new ButtonListener(ButtonListener.Type.CLOSE, this));
+
+    }
+
+    public void deleteArea(int areaId)
+    {
+        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "DELETE", areaId, Optional.empty()));
+    }
+
+    public void refreshAreas()
+    {
+        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", -1, Optional.empty()));
+    }
+
+    public void onServerResponse(StagingAreaConfigResponseS2CPacket packet)
+    {
+        if (packet.success() == false)
+        {
+            this.addMessage(MessageType.ERROR, 3000, packet.message());
+            return;
+        }
+
+        this.areas.clear();
+        for (StagingAreaConfigResponseS2CPacket.AreaInfo info : packet.areas())
+        {
+            this.areas.add(new StagingAreaEntry(info.areaId(), info.name(),
+                    info.x1(), info.y1(), info.z1(),
+                    info.x2(), info.y2(), info.z2()));
+        }
+
+        if (this.getListWidget() != null)
+        {
+            this.getListWidget().refreshEntries();
+        }
+
+        this.addMessage(MessageType.SUCCESS, 2000,
+                "已更新备货区列表 (" + this.areas.size() + " 个区域)");
+    }
+
+    @Override
+    protected WidgetListStagingAreas createListWidget(int listX, int listY)
+    {
+        return new WidgetListStagingAreas(listX, listY,
+                this.getBrowserWidth(), this.getBrowserHeight(),
+                this.areas, this);
+    }
+
+    @Override
+    protected int getBrowserWidth()
+    {
         return this.getScreenWidth() - 20;
     }
 
     @Override
-    protected int getBrowserHeight() {
-        return this.getScreenHeight() - 88;
+    protected int getBrowserHeight()
+    {
+        return this.getScreenHeight() - 146;
     }
 
     @Override
-    protected WidgetListStagingAreas createListWidget(int listX, int listY) {
-        return new WidgetListStagingAreas(listX, listY, this.getBrowserWidth(), this.getBrowserHeight(), this);
-    }
-
-    public List<StagingAreaEntry> getAreas() {
-        return this.areas;
-    }
-
-    public void setStatusMessage(String message) {
-        this.statusMessage = message;
+    protected ISelectionListener<StagingAreaEntry> getSelectionListener()
+    {
+        return this;
     }
 
     @Override
-    public void initGui() {
-        super.initGui();
-
-        int gap = 2;
-        int x = this.getScreenWidth() - 20;
-        x -= this.createButtonClose(x, 24) + gap;
-        x -= this.createButtonSave(x, 24) + gap;
-        x -= this.createButtonAddFromSelection(x, 24) + gap;
-        x -= this.createButtonRefresh(x, 24);
-
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, Optional.empty()));
+    public void onSelectionChange(StagingAreaEntry entry)
+    {
+        // Selection handling is not needed for now
     }
 
-    private int createButtonRefresh(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "刷新列表");
-        this.addButton(button, (btn, mouseButton) -> {
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, Optional.empty()));
-        });
+    private int createButton(int x, int y, int width, ButtonListener.Type type)
+    {
+        String label = type.getDisplayName();
+
+        if (width == -1)
+        {
+            width = this.getStringWidth(label) + 10;
+        }
+
+        ButtonGeneric button = new ButtonGeneric(x, y, width, 20, label);
+        this.addButton(button, new ButtonListener(type, this));
         return button.getWidth();
     }
 
-    private int createButtonAddFromSelection(int x, int y) {
-        String label = this.litematicaAvailable ? "从选区添加" : "请安装Litematica";
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
-        this.addButton(button, (btn, mouseButton) -> {
-            if (!this.litematicaAvailable) {
-                this.statusMessage = "请安装 Litematica 以使用选区功能";
-                return;
+    private static class ButtonListener implements IButtonActionListener
+    {
+        private final Type type;
+        private final GuiStagingAreaEditor gui;
+
+        public ButtonListener(Type type, GuiStagingAreaEditor gui)
+        {
+            this.type = type;
+            this.gui = gui;
+        }
+
+        @Override
+        public void actionPerformedWithButton(ButtonBase button, int mouseButton)
+        {
+            switch (this.type)
+            {
+                case ADD_AREA:
+                {
+                    String defaultName = "area_" + (this.gui.areas.size() + 1);
+                    IStringConsumerFeedback consumer = string ->
+                    {
+                        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                                this.gui.schematicId, "ADD", -1,
+                                Optional.of(new AreaData(string.trim(), 0, 0, 0, 0, 0, 0))));
+                        return true;
+                    };
+                    GuiBase.openGui(new GuiTextInput(512, "新建备货区", defaultName, this.gui, consumer));
+                    break;
+                }
+
+                case REFRESH:
+                {
+                    this.gui.refreshAreas();
+                    break;
+                }
+
+                case CLOSE:
+                {
+                    GuiBase.openGui(this.gui.getParent());
+                    break;
+                }
+            }
+        }
+
+        public enum Type
+        {
+            ADD_AREA    ("新建备货区"),
+            REFRESH     ("刷新列表"),
+            CLOSE       (GuiBase.TXT_RED + "关闭");
+
+            private final String displayName;
+
+            Type(String displayName)
+            {
+                this.displayName = displayName;
             }
 
-            List<LitematicaSelectionReader.StagingAreaRegion> regions = LitematicaSelectionReader.read();
-            if (regions.isEmpty()) {
-                this.statusMessage = "当前无选区，请用小木棍框选";
-                return;
+            public String getDisplayName()
+            {
+                return this.displayName;
             }
-
-            for (LitematicaSelectionReader.StagingAreaRegion region : regions) {
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                    this.schematicId, "ADD", 0,
-                    Optional.of(new AreaData(region.name(),
-                        region.pos1().getX(), region.pos1().getY(), region.pos1().getZ(),
-                        region.pos2().getX(), region.pos2().getY(), region.pos2().getZ()))
-                ));
-            }
-            this.statusMessage = "已添加 " + regions.size() + " 个备货区";
-        });
-        return button.getWidth();
-    }
-
-    private int createButtonSave(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "保存到服务器");
-        this.addButton(button, (btn, mouseButton) -> {
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "LIST", 0, Optional.empty()));
-            this.statusMessage = "配置已同步到服务器";
-        });
-        return button.getWidth();
-    }
-
-    private int createButtonClose(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "关闭");
-        this.addButton(button, (btn, mouseButton) -> this.close());
-        return button.getWidth();
-    }
-
-    public void onServerResponse(StagingAreaConfigResponseS2CPacket response) {
-        this.areas.clear();
-        for (StagingAreaConfigResponseS2CPacket.AreaInfo info : response.areas()) {
-            this.areas.add(new StagingAreaEntry(info.areaId(), info.name(), info.x1(), info.y1(), info.z1(), info.x2(), info.y2(), info.z2()));
         }
-        if (!response.success()) {
-            this.statusMessage = response.message();
-        }
-        this.getListWidget().refreshEntries();
-    }
-
-    public void deleteArea(int areaId) {
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(this.schematicId, "DELETE", areaId, Optional.empty()));
-    }
-
-    @Override
-    public void render(DrawContext drawContext, int mouseX, int mouseY, float partialTicks) {
-        super.render(drawContext, mouseX, mouseY, partialTicks);
-
-        if (!this.statusMessage.isEmpty()) {
-            this.drawStringWithShadow(drawContext, this.statusMessage, 10, this.getScreenHeight() - 14, 0xFFFFFF);
-        }
-    }
-
-    @Override
-    public boolean shouldPause() {
-        return false;
     }
 }
