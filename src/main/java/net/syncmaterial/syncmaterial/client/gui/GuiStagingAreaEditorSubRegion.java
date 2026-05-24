@@ -137,10 +137,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
         @Override
         public void actionPerformedWithButton(fi.dy.masa.malilib.gui.button.ButtonBase button, int mouseButton)
         {
-            GuiStagingAreaEditorNormal editor = new GuiStagingAreaEditorNormal(
-                    this.gui.selection, null, this.gui.schematicId);
-            editor.setNeedsServerLoad();
-            GuiBase.openGui(editor);
+            this.gui.mc.setScreen(null);
         }
     }
 }
