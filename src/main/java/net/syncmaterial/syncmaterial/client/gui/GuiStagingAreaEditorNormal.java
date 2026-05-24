@@ -51,6 +51,11 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
 
+    public void setNeedsServerLoad()
+    {
+        this.needsServerLoad = true;
+    }
+
     public GuiStagingAreaEditorNormal(AreaSelection selection, @Nullable String selectionId)
     {
         this(selection, selectionId, "");

@@ -6,6 +6,7 @@ import javax.annotation.Nullable;
 
 import net.minecraft.util.math.BlockPos;
 
+import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiTextFieldGeneric;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
 import fi.dy.masa.malilib.util.StringUtils;
@@ -65,7 +66,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
         int backWidth = this.getStringWidth(backLabel) + 10;
         x = 12;
         this.addButton(new ButtonGeneric(x, y, backWidth, 20, backLabel),
-                new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
+                new BackButtonListener(this));
 
         return y;
     }
@@ -122,5 +123,24 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
     @Override
     protected void reCreateListWidget()
     {
+    }
+
+    private static class BackButtonListener implements fi.dy.masa.malilib.gui.button.IButtonActionListener
+    {
+        private final GuiStagingAreaEditorSubRegion gui;
+
+        BackButtonListener(GuiStagingAreaEditorSubRegion gui)
+        {
+            this.gui = gui;
+        }
+
+        @Override
+        public void actionPerformedWithButton(fi.dy.masa.malilib.gui.button.ButtonBase button, int mouseButton)
+        {
+            GuiStagingAreaEditorNormal editor = new GuiStagingAreaEditorNormal(
+                    this.gui.selection, null, this.gui.schematicId);
+            editor.setNeedsServerLoad();
+            GuiBase.openGui(editor);
+        }
     }
 }
