@@ -54,6 +54,11 @@ public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, Wid
             {
                 BlockPos pos1 = box.getPos1();
                 BlockPos pos2 = box.getPos2();
+                net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.info(
+                        "[StagingArea] getAllEntries: box='{}' boxUUID={} pos1={},{},{} pos2={},{},{}",
+                        name, System.identityHashCode(box),
+                        pos1.getX(), pos1.getY(), pos1.getZ(),
+                        pos2.getX(), pos2.getY(), pos2.getZ());
                 entries.add(new StagingAreaEntry(id++, name,
                         pos1.getX(), pos1.getY(), pos1.getZ(),
                         pos2.getX(), pos2.getY(), pos2.getZ(), ""));

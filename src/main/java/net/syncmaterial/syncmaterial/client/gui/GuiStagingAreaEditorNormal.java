@@ -478,17 +478,15 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         BlockPos pos1 = box.getPos1();
         BlockPos pos2 = box.getPos2();
-        int x1 = Math.min(pos1.getX(), pos2.getX());
-        int y1 = Math.min(pos1.getY(), pos2.getY());
-        int z1 = Math.min(pos1.getZ(), pos2.getZ());
-        int x2 = Math.max(pos1.getX(), pos2.getX());
-        int y2 = Math.max(pos1.getY(), pos2.getY());
-        int z2 = Math.max(pos1.getZ(), pos2.getZ());
 
-        SyncMaterial.LOGGER.info("[StagingArea] sendCoordinateUpdate: box='{}' serverId={} coords=[{},{},{}]~[{},{},{}]",
-                box.getName(), serverId, x1, y1, z1, x2, y2, z2);
+        SyncMaterial.LOGGER.info("[StagingArea] sendCoordinateUpdate: box='{}' serverId={} pos1=[{},{},{}] pos2=[{},{},{}]",
+                box.getName(), serverId,
+                pos1.getX(), pos1.getY(), pos1.getZ(),
+                pos2.getX(), pos2.getY(), pos2.getZ());
 
-        AreaData areaData = new AreaData(box.getName(), x1, y1, z1, x2, y2, z2, Optional.empty());
+        AreaData areaData = new AreaData(box.getName(),
+                pos1.getX(), pos1.getY(), pos1.getZ(),
+                pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
         ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                 this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
     }
@@ -754,13 +752,9 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             {
                 BlockPos p1 = box.getPos1();
                 BlockPos p2 = box.getPos2();
-                int x1 = Math.min(p1.getX(), p2.getX());
-                int y1 = Math.min(p1.getY(), p2.getY());
-                int z1 = Math.min(p1.getZ(), p2.getZ());
-                int x2 = Math.max(p1.getX(), p2.getX());
-                int y2 = Math.max(p1.getY(), p2.getY());
-                int z2 = Math.max(p1.getZ(), p2.getZ());
-                AreaData areaData = new AreaData(string, x1, y1, z1, x2, y2, z2, Optional.empty());
+                AreaData areaData = new AreaData(string,
+                        p1.getX(), p1.getY(), p1.getZ(),
+                        p2.getX(), p2.getY(), p2.getZ(), Optional.empty());
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                         this.gui.schematicId, "ADD", -1, Optional.of(areaData)));
             }

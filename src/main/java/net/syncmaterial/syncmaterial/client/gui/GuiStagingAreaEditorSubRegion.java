@@ -99,13 +99,9 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
             {
                 BlockPos pos1 = this.box.getPos1();
                 BlockPos pos2 = this.box.getPos2();
-                int x1 = Math.min(pos1.getX(), pos2.getX());
-                int y1 = Math.min(pos1.getY(), pos2.getY());
-                int z1 = Math.min(pos1.getZ(), pos2.getZ());
-                int x2 = Math.max(pos1.getX(), pos2.getX());
-                int y2 = Math.max(pos1.getY(), pos2.getY());
-                int z2 = Math.max(pos1.getZ(), pos2.getZ());
-                AreaData areaData = new AreaData(newName, x1, y1, z1, x2, y2, z2, Optional.empty());
+                AreaData areaData = new AreaData(newName,
+                        pos1.getX(), pos1.getY(), pos1.getZ(),
+                        pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                         this.schematicId, "RENAME", serverId, Optional.of(areaData)));
 
