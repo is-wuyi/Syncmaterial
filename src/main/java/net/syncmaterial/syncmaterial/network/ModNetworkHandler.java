@@ -194,8 +194,16 @@ public class ModNetworkHandler {
                         return;
                     }
                     AreaData data = ad.get();
+                    SyncMaterial.LOGGER.info("[StagingArea] SERVER UPDATE: areaId={} schematicId='{}' name='{}' coords=[{},{},{}]~[{},{},{}]",
+                            payload.areaId(), schematicId, data.name(),
+                            data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     var areas = manager.getStagingAreas(schematicId);
+                    SyncMaterial.LOGGER.info("[StagingArea] SERVER getStagingAreas after UPDATE: count={}", areas.size());
+                    for (var a : areas) {
+                        SyncMaterial.LOGGER.info("[StagingArea] SERVER   area id={} name='{}' coords=[{},{},{}]~[{},{},{}]",
+                                a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2());
+                    }
                     var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
                         a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
                     )).toList();
