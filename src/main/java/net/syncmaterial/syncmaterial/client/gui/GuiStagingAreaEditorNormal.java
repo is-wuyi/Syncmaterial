@@ -2,7 +2,9 @@ package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -51,6 +53,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     @Nullable protected String selectionId;
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
+    private final Map<String, Integer> nameToIdMap = new HashMap<>();
 
     public GuiStagingAreaEditorNormal(AreaSelection selection, @Nullable String selectionId)
     {
@@ -80,11 +83,29 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         return this.schematicId;
     }
 
+    public Map<String, Integer> getNameToIdMap()
+    {
+        return this.nameToIdMap;
+    }
+
     @Override
     public void deleteArea(int areaId)
     {
-        this.selection.removeSubRegionBox(this.selection.getAllSubRegionNames().stream()
-                .skip(areaId).findFirst().orElse(""));
+        List<String> names = new ArrayList<>(this.selection.getAllSubRegionNames());
+        if (areaId >= 0 && areaId < names.size())
+        {
+            String name = names.get(areaId);
+            Integer serverId = this.nameToIdMap.get(name);
+
+            this.selection.removeSubRegionBox(name);
+            this.nameToIdMap.remove(name);
+
+            if (serverId != null && this.schematicId != null)
+            {
+                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                        this.schematicId, "DELETE", serverId, Optional.empty()));
+            }
+        }
         this.initGui();
     }
 
@@ -106,6 +127,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             this.loadingFromServer = false;
 
             this.selection.removeAllSubRegionBoxes();
+            this.nameToIdMap.clear();
 
             for (var area : packet.areas())
             {
@@ -113,6 +135,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 BlockPos pos2 = new BlockPos(area.x2(), area.y2(), area.z2());
                 Box box = new Box(pos1, pos2, area.name());
                 this.selection.addSubRegionBox(box, true);
+                this.nameToIdMap.put(area.name(), area.areaId());
             }
 
             this.initGui();
@@ -201,16 +224,10 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         y = this.getScreenHeight() - 26;
 
-        String saveLabel = "保存备货区";
-        int saveWidth = this.getStringWidth(saveLabel) + 10;
-
         String label = GuiBase.TXT_RED + StringUtils.translate("gui.close");
         int buttonWidth = this.getStringWidth(label) + 10;
         x = this.getScreenWidth() - buttonWidth - 10;
         this.addButton(new ButtonGeneric(x, y, buttonWidth, 20, label), new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
-
-        x -= saveWidth + 4;
-        this.addButton(new ButtonGeneric(x, y, saveWidth, 20, saveLabel), new ButtonListener(ButtonListener.Type.SAVE, null, null, this));
 
         return y;
     }
@@ -410,6 +427,45 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         this.selection.setCoordinate(this.getBox(), corner, type, oldValue + amount);
     }
 
+    protected void sendCoordinateUpdate(Corner corner)
+    {
+        if (corner == Corner.NONE || this.schematicId == null)
+        {
+            return;
+        }
+
+        Box box = this.getBox();
+
+        if (box == null)
+        {
+            box = this.selection.getSelectedSubRegionBox();
+        }
+
+        if (box == null)
+        {
+            return;
+        }
+
+        Integer serverId = this.nameToIdMap.get(box.getName());
+
+        if (serverId == null)
+        {
+            return;
+        }
+
+        BlockPos pos1 = box.getPos1();
+        BlockPos pos2 = box.getPos2();
+        int x1 = Math.min(pos1.getX(), pos2.getX());
+        int y1 = Math.min(pos1.getY(), pos2.getY());
+        int z1 = Math.min(pos1.getZ(), pos2.getZ());
+        int x2 = Math.max(pos1.getX(), pos2.getX());
+        int y2 = Math.max(pos1.getY(), pos2.getY());
+        int z2 = Math.max(pos1.getZ(), pos2.getZ());
+        AreaData areaData = new AreaData(box.getName(), x1, y1, z1, x2, y2, z2, Optional.empty());
+        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+    }
+
     protected void renameSelection()
     {
         String newName = this.textFieldSelectionName.getTextWrapper();
@@ -507,14 +563,17 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             {
                 case NUDGE_COORD_X:
                     this.parent.moveCoordinate(amount, this.corner, this.coordinateType);
+                    this.parent.sendCoordinateUpdate(this.corner);
                     break;
 
                 case NUDGE_COORD_Y:
                     this.parent.moveCoordinate(amount, this.corner, this.coordinateType);
+                    this.parent.sendCoordinateUpdate(this.corner);
                     break;
 
                 case NUDGE_COORD_Z:
                     this.parent.moveCoordinate(amount, this.corner, this.coordinateType);
+                    this.parent.sendCoordinateUpdate(this.corner);
                     break;
 
                 case CHANGE_SELECTION_MODE:
@@ -552,6 +611,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                         else
                         {
                             this.parent.selection.setSelectedSubRegionCornerPos(pos, this.corner);
+                            this.parent.sendCoordinateUpdate(this.corner);
                         }
                     }
                     break;
@@ -568,33 +628,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                         this.parent.selection.setExplicitOrigin(null);
                     }
                     break;
-
-                case SAVE:
-                {
-                    ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                            this.parent.schematicId, "CLEAR", -1, Optional.empty()));
-
-                    for (String name : this.parent.selection.getAllSubRegionNames())
-                    {
-                        Box box = this.parent.selection.getSubRegionBox(name);
-
-                        if (box != null)
-                        {
-                            BlockPos pos1 = box.getPos1();
-                            BlockPos pos2 = box.getPos2();
-                            int x1 = Math.min(pos1.getX(), pos2.getX());
-                            int y1 = Math.min(pos1.getY(), pos2.getY());
-                            int z1 = Math.min(pos1.getZ(), pos2.getZ());
-                            int x2 = Math.max(pos1.getX(), pos2.getX());
-                            int y2 = Math.max(pos1.getY(), pos2.getY());
-                            int z2 = Math.max(pos1.getZ(), pos2.getZ());
-                            AreaData areaData = new AreaData(box.getName(), x1, y1, z1, x2, y2, z2, Optional.empty());
-                            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                                    this.parent.schematicId, "ADD", -1, Optional.of(areaData)));
-                        }
-                    }
-                    break;
-                }
 
                 case CLOSE:
                     GuiBase.openGui(this.parent.getParent());
@@ -613,7 +646,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             CHANGE_SELECTION_MODE   ("litematica.gui.button.area_editor.change_selection_mode"),
             MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),
             CLOSE                   ("gui.close"),
-            SAVE                    ("syncmaterial.gui.button.save"),
             NUDGE_COORD_X           (""),
             NUDGE_COORD_Y           (""),
             NUDGE_COORD_Z           ("");
@@ -661,6 +693,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         public boolean onTextChange(GuiTextFieldGeneric textField)
         {
             this.parent.updatePosition(textField.getTextWrapper(), this.corner, this.type);
+            this.parent.sendCoordinateUpdate(this.corner);
             return false;
         }
     }
@@ -688,6 +721,23 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         {
             BlockPos pos = fi.dy.masa.malilib.util.position.PositionUtils.getEntityBlockPos(this.gui.mc.player);
             this.gui.selection.createNewSubRegionBox(pos, string);
+
+            Box box = this.gui.selection.getSubRegionBox(string);
+            if (box != null && this.gui.schematicId != null)
+            {
+                BlockPos p1 = box.getPos1();
+                BlockPos p2 = box.getPos2();
+                int x1 = Math.min(p1.getX(), p2.getX());
+                int y1 = Math.min(p1.getY(), p2.getY());
+                int z1 = Math.min(p1.getZ(), p2.getZ());
+                int x2 = Math.max(p1.getX(), p2.getX());
+                int y2 = Math.max(p1.getY(), p2.getY());
+                int z2 = Math.max(p1.getZ(), p2.getZ());
+                AreaData areaData = new AreaData(string, x1, y1, z1, x2, y2, z2, Optional.empty());
+                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                        this.gui.schematicId, "ADD", -1, Optional.of(areaData)));
+            }
+
             this.gui.initGui();
             return true;
         }
