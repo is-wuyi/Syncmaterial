@@ -22,6 +22,7 @@ import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
+import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListStagingAreas;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetStagingAreaEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
@@ -115,7 +116,16 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     {
         if (!packet.success())
         {
+            SyncMaterial.LOGGER.warn("[StagingArea] 服务端响应失败: {}", packet.message());
             return;
+        }
+
+        SyncMaterial.LOGGER.info("[StagingArea] onServerResponse: loadingFromServer={}, areas={}", 
+                this.loadingFromServer, packet.areas().size());
+        for (var a : packet.areas())
+        {
+            SyncMaterial.LOGGER.info("[StagingArea]   area id={} name='{}' coords=[{},{},{}]~[{},{},{}]",
+                    a.areaId(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2());
         }
 
         if (this.loadingFromServer)
@@ -135,6 +145,19 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             }
 
             this.initGui();
+        }
+        else
+        {
+            // 非 LIST 响应（ADD/UPDATE/RENAME/DELETE 的回复）：只更新 serverIdMap
+            // 不替换 Box 对象（本地内存已由 setCoordinate 更新）
+            for (var area : packet.areas())
+            {
+                if (this.selection.getServerId(area.name()) == null)
+                {
+                    SyncMaterial.LOGGER.info("[StagingArea]   更新 serverIdMap: {} -> {}", area.name(), area.areaId());
+                    this.selection.setServerId(area.name(), area.areaId());
+                }
+            }
         }
     }
 
@@ -427,6 +450,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     {
         if (corner == Corner.NONE || this.schematicId == null)
         {
+            SyncMaterial.LOGGER.warn("[StagingArea] sendCoordinateUpdate: corner=NONE or no schematicId");
             return;
         }
 
@@ -439,6 +463,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         if (box == null)
         {
+            SyncMaterial.LOGGER.warn("[StagingArea] sendCoordinateUpdate: box is null");
             return;
         }
 
@@ -446,6 +471,8 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         if (serverId == null)
         {
+            SyncMaterial.LOGGER.warn("[StagingArea] sendCoordinateUpdate: serverId null for '{}' (UUID: {})", 
+                    box.getName(), System.identityHashCode(this.selection));
             return;
         }
 
@@ -457,6 +484,10 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         int x2 = Math.max(pos1.getX(), pos2.getX());
         int y2 = Math.max(pos1.getY(), pos2.getY());
         int z2 = Math.max(pos1.getZ(), pos2.getZ());
+
+        SyncMaterial.LOGGER.info("[StagingArea] sendCoordinateUpdate: box='{}' serverId={} coords=[{},{},{}]~[{},{},{}]",
+                box.getName(), serverId, x1, y1, z1, x2, y2, z2);
+
         AreaData areaData = new AreaData(box.getName(), x1, y1, z1, x2, y2, z2, Optional.empty());
         ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                 this.schematicId, "UPDATE", serverId, Optional.of(areaData)));

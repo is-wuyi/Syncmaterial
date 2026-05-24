@@ -145,8 +145,10 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                 if (box != null)
                 {
                     selection.setSelectedSubRegionBox(box.getName());
-                    GuiBase.openGui(new GuiStagingAreaEditorSubRegion(
-                            selection, box, this.widget.parent.getEditorGui().getSchematicId()));
+                    GuiStagingAreaEditorSubRegion sub = new GuiStagingAreaEditorSubRegion(
+                            selection, box, this.widget.parent.getEditorGui().getSchematicId());
+                    sub.setParent(net.minecraft.client.MinecraftClient.getInstance().currentScreen);
+                    GuiBase.openGui(sub);
                 }
             }
             else if (this.type == ButtonType.REMOVE)

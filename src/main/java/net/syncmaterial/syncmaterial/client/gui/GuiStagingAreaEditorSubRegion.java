@@ -137,7 +137,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
         @Override
         public void actionPerformedWithButton(fi.dy.masa.malilib.gui.button.ButtonBase button, int mouseButton)
         {
-            this.gui.mc.setScreen(null);
+            this.gui.closeGui(true);
         }
     }
 }
