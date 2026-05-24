@@ -1,0 +1,24 @@
+{
+  "active_plan": "/run/media/wuyi/模型/开发/Syncmaterial-1/.sisyphus/plan/team-collaboration.md",
+  "started_at": "2026-05-22T12:36:45.940Z",
+  "session_ids": [
+    "ses_1baa9e70cffeF502MJ08GvE1hn",
+    "ses_1ad6ed109ffeKm2lcD8p0n63Rc",
+    "ses_1ad6eb6ccffeVDs3VUKckBjKmm",
+    "ses_1ad6eb6a3ffe7T1BUUqcQbC0eE",
+    "ses_1ace22dedffe5bL7sxnOqai4I5",
+    "ses_1ace21c01ffeJf50dr8KoQi01H",
+    "ses_1acd5affeffeL4HvB5hCY5kLnq"
+  ],
+  "plan_name": "team-collaboration",
+  "session_origins": {
+    "ses_1baa9e70cffeF502MJ08GvE1hn": "direct",
+    "ses_1ad6ed109ffeKm2lcD8p0n63Rc": "appended",
+    "ses_1ad6eb6ccffeVDs3VUKckBjKmm": "appended",
+    "ses_1ad6eb6a3ffe7T1BUUqcQbC0eE": "appended",
+    "ses_1ace22dedffe5bL7sxnOqai4I5": "appended",
+    "ses_1ace21c01ffeJf50dr8KoQi01H": "appended",
+    "ses_1acd5affeffeL4HvB5hCY5kLnq": "appended"
+  },
+  "task_sessions": {}
+}
