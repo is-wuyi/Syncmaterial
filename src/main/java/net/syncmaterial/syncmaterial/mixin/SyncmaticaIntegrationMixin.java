@@ -20,17 +20,25 @@ public class SyncmaticaIntegrationMixin {
     @Inject(method = "setContext", at = @At("TAIL"), remap = false)
     private void onSyncmaticaInit(Object context, CallbackInfo ci) {
         try {
-            SyncMaterial.LOGGER.info("开始初始化SyncMaterial服务端组件...");
+            SyncMaterial.LOGGER.info("检测到 Syncmatica 初始化，注册原理图上传监听器...");
 
-            // Initialize our components
-            SchematicDatabase database = new SchematicDatabase();
-            database.initialize();
-            SyncMaterial.LOGGER.info("数据库初始化完成");
-
+            // 使用 SyncMaterial 中的单例数据库实例，避免重复初始化
             net.syncmaterial.syncmaterial.server.DatabaseQueryService queryService =
-                new net.syncmaterial.syncmaterial.server.DatabaseQueryService(database);
+                SyncMaterial.getSharedQueryService();
 
-            LitematicaParser parser = new DefaultLitematicaParser(null); // TODO: proper thread pool
+            if (queryService == null) {
+                SyncMaterial.LOGGER.warn("DatabaseQueryService 尚未初始化，跳过监听器注册");
+                return;
+            }
+
+            LitematicaParser parser = SyncMaterial.getSharedParser();
+            SchematicDatabase database = SyncMaterial.getSharedDatabase();
+
+            if (database == null || parser == null) {
+                SyncMaterial.LOGGER.warn("数据库或解析器尚未初始化，跳过监听器注册");
+                return;
+            }
+
             SchematicUploadListener listener = new SchematicUploadListener(database, queryService, parser);
 
             // Register with syncmatica using reflection

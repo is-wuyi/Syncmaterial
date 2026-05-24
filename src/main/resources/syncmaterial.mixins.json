@@ -2,10 +2,10 @@
   "required": true,
   "package": "net.syncmaterial.syncmaterial.mixin",
   "mixins": [
-    "BlockEntityMixin"
+    "BlockEntityMixin",
+    "SyncmaticaIntegrationMixin"
   ],
   "client": [
-    "SyncmaticaIntegrationMixin",
     "WidgetSyncmaticaServerPlacementEntryMixin",
     "ButtonListenerMixin"
   ]

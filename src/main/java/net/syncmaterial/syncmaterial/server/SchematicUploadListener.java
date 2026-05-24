@@ -155,7 +155,7 @@ public class SchematicUploadListener implements Consumer<Object> {
      */
     private void insertMaterialEntries(String schematicId, List<MaterialEntry> materials) throws Exception {
         // 使用事务确保数据一致性
-        database.executeUpdate("BEGIN TRANSACTION");
+        database.beginTransaction();
 
         try {
             for (MaterialEntry entry : materials) {
@@ -170,9 +170,9 @@ public class SchematicUploadListener implements Consumer<Object> {
                 );
             }
 
-            database.executeUpdate("COMMIT");
+            database.commitTransaction();
         } catch (Exception e) {
-            database.executeUpdate("ROLLBACK");
+            database.rollbackTransaction();
             throw e;
         }
     }
