@@ -27,7 +27,13 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
     public GuiStagingAreaEditorSubRegion(AreaSelection selection, Box box, @Nullable String selectionId)
     {
         super(selection, selectionId);
+        this.box = box;
+        this.title = StringUtils.translate("litematica.gui.title.area_editor_sub_region");
+    }
 
+    public GuiStagingAreaEditorSubRegion(AreaSelection selection, Box box, @Nullable String selectionId, String schematicId)
+    {
+        super(selection, selectionId, schematicId);
         this.box = box;
         this.title = StringUtils.translate("litematica.gui.title.area_editor_sub_region");
     }

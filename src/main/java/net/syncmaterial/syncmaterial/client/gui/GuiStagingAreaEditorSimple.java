@@ -21,7 +21,12 @@ public class GuiStagingAreaEditorSimple extends GuiStagingAreaEditorNormal
     public GuiStagingAreaEditorSimple(AreaSelection selection, @Nullable String selectionId)
     {
         super(selection, selectionId);
+        this.title = StringUtils.translate("litematica.gui.title.area_editor_simple");
+    }
 
+    public GuiStagingAreaEditorSimple(AreaSelection selection, @Nullable String selectionId, String schematicId)
+    {
+        super(selection, selectionId, schematicId);
         this.title = StringUtils.translate("litematica.gui.title.area_editor_simple");
     }
 
