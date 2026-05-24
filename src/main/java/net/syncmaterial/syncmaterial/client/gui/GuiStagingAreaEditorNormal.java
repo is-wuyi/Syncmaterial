@@ -426,7 +426,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     {
         return new WidgetListStagingAreas(listX, listY,
                 this.getBrowserWidth(), this.getBrowserHeight(),
-                this.getStagingAreaEntries(), this);
+                this.selection, this);
     }
 
     protected List<StagingAreaEntry> getStagingAreaEntries()

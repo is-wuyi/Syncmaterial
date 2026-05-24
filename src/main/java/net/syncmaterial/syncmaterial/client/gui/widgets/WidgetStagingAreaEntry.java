@@ -34,7 +34,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     private final int buttonsStartX;
 
     public WidgetStagingAreaEntry(int x, int y, int width, int height, boolean isOdd,
-            StagingAreaEntry entry, int listIndex, List<StagingAreaEntry> areas, WidgetListStagingAreas parent)
+            StagingAreaEntry entry, int listIndex, AreaSelection selection, WidgetListStagingAreas parent)
     {
         super(x, y, width, height, entry, listIndex);
 
@@ -140,15 +140,13 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
             }
             else if (this.type == ButtonType.CONFIGURE)
             {
-                AreaSelection selection = new AreaSelection();
-                Box box = new Box(
-                        new BlockPos(this.widget.entryData.x1(), this.widget.entryData.y1(), this.widget.entryData.z1()),
-                        new BlockPos(this.widget.entryData.x2(), this.widget.entryData.y2(), this.widget.entryData.z2()),
-                        this.widget.entryData.name());
-                selection.addSubRegionBox(box, true);
-                selection.setSelectedSubRegionBox(box.getName());
-                GuiBase.openGui(new GuiStagingAreaEditorSubRegion(
-                        selection, box, this.widget.parent.getEditorGui().getSchematicId()));
+                AreaSelection selection = this.widget.parent.getSelection();
+                Box box = selection.getSubRegionBox(this.widget.entryData.name());
+                if (box != null)
+                {
+                    GuiBase.openGui(new GuiStagingAreaEditorSubRegion(
+                            selection, box, this.widget.parent.getEditorGui().getSchematicId()));
+                }
             }
             else if (this.type == ButtonType.REMOVE)
             {

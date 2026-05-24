@@ -1,26 +1,31 @@
 package net.syncmaterial.syncmaterial.client.gui.widgets;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
+import net.minecraft.util.math.BlockPos;
+
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
+import net.syncmaterial.syncmaterial.selection.AreaSelection;
+import net.syncmaterial.syncmaterial.selection.Box;
 import fi.dy.masa.malilib.gui.widgets.WidgetListBase;
 import fi.dy.masa.malilib.util.AlphaNumComparator.AlphaNumStringComparator;
 
 public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, WidgetStagingAreaEntry>
 {
     private final StagingAreaEditorGui gui;
-    private final List<StagingAreaEntry> areas;
+    private final AreaSelection selection;
 
     public WidgetListStagingAreas(int x, int y, int width, int height,
-            List<StagingAreaEntry> areas, StagingAreaEditorGui gui)
+            AreaSelection selection, StagingAreaEditorGui gui)
     {
         super(x, y, width, height, gui);
 
         this.gui = gui;
-        this.areas = areas;
+        this.selection = selection;
         this.browserEntryHeight = 22;
         this.shouldSortList = true;
     }
@@ -30,10 +35,32 @@ public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, Wid
         return this.gui;
     }
 
+    public AreaSelection getSelection()
+    {
+        return this.selection;
+    }
+
     @Override
     protected Collection<StagingAreaEntry> getAllEntries()
     {
-        return this.areas;
+        List<StagingAreaEntry> entries = new ArrayList<>();
+        int id = 0;
+
+        for (String name : this.selection.getAllSubRegionNames())
+        {
+            Box box = this.selection.getSubRegionBox(name);
+
+            if (box != null)
+            {
+                BlockPos pos1 = box.getPos1();
+                BlockPos pos2 = box.getPos2();
+                entries.add(new StagingAreaEntry(id++, name,
+                        pos1.getX(), pos1.getY(), pos1.getZ(),
+                        pos2.getX(), pos2.getY(), pos2.getZ(), ""));
+            }
+        }
+
+        return entries;
     }
 
     @Override
@@ -52,6 +79,6 @@ public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, Wid
     protected WidgetStagingAreaEntry createListEntryWidget(int x, int y, int listIndex, boolean isOdd, StagingAreaEntry entry)
     {
         return new WidgetStagingAreaEntry(x, y, this.browserEntryWidth, this.browserEntryHeight,
-                isOdd, entry, listIndex, this.areas, this);
+                isOdd, entry, listIndex, this.selection, this);
     }
 }
