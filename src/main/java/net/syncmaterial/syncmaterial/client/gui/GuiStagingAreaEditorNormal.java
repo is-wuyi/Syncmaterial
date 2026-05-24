@@ -1,10 +1,7 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -53,7 +50,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     @Nullable protected String selectionId;
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
-    private final Map<String, Integer> nameToIdMap = new HashMap<>();
 
     public GuiStagingAreaEditorNormal(AreaSelection selection, @Nullable String selectionId)
     {
@@ -83,11 +79,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         return this.schematicId;
     }
 
-    public Map<String, Integer> getNameToIdMap()
-    {
-        return this.nameToIdMap;
-    }
-
     @Override
     public void deleteArea(int areaId)
     {
@@ -95,10 +86,10 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         if (areaId >= 0 && areaId < names.size())
         {
             String name = names.get(areaId);
-            Integer serverId = this.nameToIdMap.get(name);
+            Integer serverId = this.selection.getServerId(name);
 
             this.selection.removeSubRegionBox(name);
-            this.nameToIdMap.remove(name);
+            this.selection.removeServerId(name);
 
             if (serverId != null && this.schematicId != null)
             {
@@ -127,7 +118,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             this.loadingFromServer = false;
 
             this.selection.removeAllSubRegionBoxes();
-            this.nameToIdMap.clear();
+            this.selection.clearServerIds();
 
             for (var area : packet.areas())
             {
@@ -135,7 +126,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 BlockPos pos2 = new BlockPos(area.x2(), area.y2(), area.z2());
                 Box box = new Box(pos1, pos2, area.name());
                 this.selection.addSubRegionBox(box, true);
-                this.nameToIdMap.put(area.name(), area.areaId());
+                this.selection.setServerId(area.name(), area.areaId());
             }
 
             this.initGui();
@@ -446,7 +437,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             return;
         }
 
-        Integer serverId = this.nameToIdMap.get(box.getName());
+        Integer serverId = this.selection.getServerId(box.getName());
 
         if (serverId == null)
         {

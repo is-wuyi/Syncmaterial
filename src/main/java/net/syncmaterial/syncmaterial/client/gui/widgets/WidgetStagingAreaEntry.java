@@ -144,6 +144,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                 Box box = selection.getSubRegionBox(this.widget.entryData.name());
                 if (box != null)
                 {
+                    selection.setSelectedSubRegionBox(box.getName());
                     GuiBase.openGui(new GuiStagingAreaEditorSubRegion(
                             selection, box, this.widget.parent.getEditorGui().getSchematicId()));
                 }

@@ -86,7 +86,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
 
         if (this.schematicId != null)
         {
-            Integer serverId = this.getNameToIdMap().get(oldName);
+            Integer serverId = this.selection.getServerId(oldName);
 
             if (serverId != null)
             {
@@ -102,8 +102,8 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                         this.schematicId, "RENAME", serverId, Optional.of(areaData)));
 
-                this.getNameToIdMap().remove(oldName);
-                this.getNameToIdMap().put(newName, serverId);
+                this.selection.removeServerId(oldName);
+                this.selection.setServerId(newName, serverId);
             }
         }
     }

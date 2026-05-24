@@ -50,6 +50,7 @@ public class AreaSelection
     );
 
     protected final Map<String, Box> subRegionBoxes;
+    protected final Map<String, Integer> serverIdMap;
     protected String name;
     protected boolean originSelected;
     protected BlockPos calculatedOrigin;
@@ -60,6 +61,7 @@ public class AreaSelection
     public AreaSelection()
     {
         this.subRegionBoxes = new HashMap<>();
+        this.serverIdMap = new HashMap<>();
         this.name = "Unnamed";
         this.calculatedOrigin = BlockPos.ORIGIN;
         this.calculatedOriginDirty = true;
@@ -69,6 +71,7 @@ public class AreaSelection
     private AreaSelection(String name, List<SubRegionBox> boxes, boolean originSelected, BlockPos calcOrigin, @Nullable BlockPos explicitOrigin, @Nullable String currentBox)
     {
         this.subRegionBoxes = new HashMap<>();
+        this.serverIdMap = new HashMap<>();
         this.name = name;
         this.originSelected = originSelected;
         this.calculatedOrigin = calcOrigin;
@@ -122,6 +125,26 @@ public class AreaSelection
     public void setName(String name)
     {
         this.name = name;
+    }
+
+    public Integer getServerId(String boxName)
+    {
+        return this.serverIdMap.get(boxName);
+    }
+
+    public void setServerId(String boxName, int serverId)
+    {
+        this.serverIdMap.put(boxName, serverId);
+    }
+
+    public void removeServerId(String boxName)
+    {
+        this.serverIdMap.remove(boxName);
+    }
+
+    public void clearServerIds()
+    {
+        this.serverIdMap.clear();
     }
 
     protected void markDirty()
