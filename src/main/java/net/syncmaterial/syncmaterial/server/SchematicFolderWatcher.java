@@ -109,7 +109,7 @@ public class SchematicFolderWatcher {
         
         // 等待文件写入完成
         try {
-            Thread.sleep(FILE_WATCH_DELAY_MS);
+            Thread.sleep(200);
         } catch (InterruptedException e) {
             return;
         }

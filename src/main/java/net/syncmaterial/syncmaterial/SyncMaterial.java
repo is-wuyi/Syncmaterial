@@ -24,11 +24,6 @@ public class SyncMaterial implements ModInitializer {
     public static final String MOD_ID = "syncmaterial";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-    // 定时任务间隔常量（ticks）
-    private static final int DIRTY_CONTAINER_CHECK_INTERVAL = 4; // 4 ticks = 200ms
-    private static final int FILE_WATCH_DELAY_MS = 200; // 文件监控延迟（毫秒）
-    private static final int HUD_UPDATE_INTERVAL_MS = 2000; // HUD 更新间隔（毫秒）
-
     private static MaterialStatisticsEngine statisticsEngine;
     private static SchematicDatabase sharedDatabase;
     private static DatabaseQueryService sharedQueryService;

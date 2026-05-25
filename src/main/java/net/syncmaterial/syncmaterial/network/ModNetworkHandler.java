@@ -18,9 +18,6 @@ public class ModNetworkHandler {
     private static DatabaseQueryService queryService;
     private static CollaborationManager collaborationManager;
 
-    private static final int LOG_THROTTLE_INTERVAL = 1000; // 日志节流间隔（毫秒）
-    private static long lastLogTime = 0;
-
     public static void initializeServices(DatabaseQueryService queryService, CollaborationManager collaborationManager) {
         ModNetworkHandler.queryService = queryService;
         ModNetworkHandler.collaborationManager = collaborationManager;

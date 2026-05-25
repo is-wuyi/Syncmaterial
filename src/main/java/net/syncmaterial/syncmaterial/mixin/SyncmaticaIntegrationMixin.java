@@ -4,7 +4,6 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 import net.syncmaterial.syncmaterial.server.SchematicUploadListener;
 import net.syncmaterial.syncmaterial.engine.LitematicaParser;
-import net.syncmaterial.syncmaterial.engine.impl.DefaultLitematicaParser;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
