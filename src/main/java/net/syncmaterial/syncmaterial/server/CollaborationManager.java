@@ -29,9 +29,9 @@ public class CollaborationManager {
         try {
             Map<String, Map<Integer, Integer>> allInventories = new java.util.HashMap<>();
             List<String> schematicIds = new java.util.ArrayList<>();
-            try (var rs = database.executeQuery("SELECT DISTINCT schematic_id FROM schematics")) {
+            try (var rs = database.executeQuery("SELECT DISTINCT id FROM schematics")) {
                 while (rs.next()) {
-                    schematicIds.add(rs.getString("schematic_id"));
+                    schematicIds.add(rs.getString("id"));
                 }
             }
             for (String sid : schematicIds) {
