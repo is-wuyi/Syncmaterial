@@ -29,9 +29,9 @@ public class CollaborationManager {
         try {
             Map<String, Map<Integer, Integer>> allInventories = new java.util.HashMap<>();
             List<String> schematicIds = new java.util.ArrayList<>();
-            try (var rs = database.executeQuery("SELECT DISTINCT schematic_id FROM schematics")) {
+            try (var rs = database.executeQuery("SELECT DISTINCT id FROM schematics")) {
                 while (rs.next()) {
-                    schematicIds.add(rs.getString("schematic_id"));
+                    schematicIds.add(rs.getString("id"));
                 }
             }
             for (String sid : schematicIds) {
@@ -57,7 +57,7 @@ public class CollaborationManager {
                 materialId, schematicId
             )) {
                 if (!rs.next()) {
-                    SyncMaterial.LOGGER.warn("材料 {} 不存在于原理图 {}", materialId, schematicId);
+                    SyncMaterial.LOGGER.debug("材料 {} 不存在于原理图 {}", materialId, schematicId);
                     return false;
                 }
             }
@@ -67,7 +67,7 @@ public class CollaborationManager {
                 schematicId, materialId, playerName
             );
             
-            SyncMaterial.LOGGER.info("玩家 {} 加入材料 {} 的协作组", playerName, materialId);
+            SyncMaterial.LOGGER.debug("玩家 {} 加入材料 {} 的协作组", playerName, materialId);
             return true;
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("加入协作组失败", e);
@@ -87,7 +87,7 @@ public class CollaborationManager {
                 return inv.isEmpty() ? null : inv;
             });
 
-            SyncMaterial.LOGGER.info("玩家 {} 退出材料 {} 的协作组", playerName, materialId);
+            SyncMaterial.LOGGER.debug("玩家 {} 退出材料 {} 的协作组", playerName, materialId);
             return true;
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("退出协作组失败", e);
@@ -142,7 +142,7 @@ public class CollaborationManager {
             for (var p : participants) {
                 collected += p.count();
             }
-            SyncMaterial.LOGGER.info("getCollaborationStatus: material={}, total={}, staging={}, participants={}, collected={}",
+            SyncMaterial.LOGGER.debug("getCollaborationStatus: material={}, total={}, staging={}, participants={}, collected={}",
                 materialId, totalCount, stagingCount, participants.size(), collected);
 
             return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingCount, participants);

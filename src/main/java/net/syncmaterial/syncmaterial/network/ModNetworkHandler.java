@@ -48,11 +48,10 @@ public class ModNetworkHandler {
 
             context.server().execute(() -> {
                 try {
-                    SyncMaterial.LOGGER.info(
-                        "收到玩家 {} 的材料统计请求: {}", player.getGameProfile().getName(), schematicId);
+                    SyncMaterial.LOGGER.debug("收到玩家 {} 的材料统计请求: {}", player.getGameProfile().getName(), schematicId);
 
                     var materials = queryService.getMaterials(schematicId);
-                    SyncMaterial.LOGGER.info("数据库查询结果: schematic={}, 材料数量={}", schematicId, materials.size());
+                    SyncMaterial.LOGGER.debug("数据库查询结果: schematic={}, 材料数量={}", schematicId, materials.size());
 
                     String schematicName = PlacementsUtil.getDisplayName(schematicId);
                     ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials));
@@ -102,12 +101,12 @@ public class ModNetworkHandler {
             String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
-                SyncMaterial.LOGGER.info("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
+                SyncMaterial.LOGGER.debug("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
                 if (collaborationManager.isCollaborating(schematicId, materialId, playerName)) {
                     collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
                     broadcastStatus(context.server(), schematicId, materialId);
                 } else {
-                    SyncMaterial.LOGGER.warn("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
+                    SyncMaterial.LOGGER.debug("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
                 }
             });
         });
@@ -117,7 +116,7 @@ public class ModNetworkHandler {
             var player = context.player();
 
             context.server().execute(() -> {
-                SyncMaterial.LOGGER.info("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getGameProfile().getName(), schematicId);
+                SyncMaterial.LOGGER.debug("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getGameProfile().getName(), schematicId);
                 List<Integer> materialIds = collaborationManager.getAllMaterialIds(schematicId);
                 for (int materialId : materialIds) {
                     sendStatusToPlayer(player, schematicId, materialId);
@@ -145,11 +144,7 @@ public class ModNetworkHandler {
         try {
             switch (action) {
                 case "LIST" -> {
-                    var areas = manager.getStagingAreas(schematicId);
-                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
-                    )).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "", areaInfos));
+                    sendStagingAreaResponse(player, manager, schematicId, true, "");
                 }
                 case "ADD" -> {
                     var ad = payload.areaData();
@@ -160,11 +155,7 @@ public class ModNetworkHandler {
                     AreaData data = ad.get();
                     String world = data.world().orElse(player.getWorld().getRegistryKey().getValue().toString());
                     manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
-                    var areas = manager.getStagingAreas(schematicId);
-                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
-                    )).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已添加", areaInfos));
+                    sendStagingAreaResponse(player, manager, schematicId, true, "备货区已添加");
                 }
                 case "RENAME" -> {
                     var ad = payload.areaData();
@@ -173,19 +164,11 @@ public class ModNetworkHandler {
                         return;
                     }
                     manager.renameStagingArea(payload.areaId(), schematicId, ad.get().name());
-                    var areas = manager.getStagingAreas(schematicId);
-                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
-                    )).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已重命名", areaInfos));
+                    sendStagingAreaResponse(player, manager, schematicId, true, "备货区已重命名");
                 }
                 case "DELETE" -> {
                     manager.removeStagingArea(payload.areaId(), schematicId);
-                    var areas = manager.getStagingAreas(schematicId);
-                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
-                    )).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已删除", areaInfos));
+                    sendStagingAreaResponse(player, manager, schematicId, true, "备货区已删除");
                 }
                 case "UPDATE" -> {
                     var ad = payload.areaData();
@@ -194,20 +177,10 @@ public class ModNetworkHandler {
                         return;
                     }
                     AreaData data = ad.get();
-                    SyncMaterial.LOGGER.info("[StagingArea] SERVER UPDATE: areaId={} schematicId='{}' name='{}' coords=[{},{},{}]~[{},{},{}]",
-                            payload.areaId(), schematicId, data.name(),
-                            data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    SyncMaterial.LOGGER.debug("[StagingArea] UPDATE: areaId={} schematicId='{}' name='{}'",
+                            payload.areaId(), schematicId, data.name());
                     manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
-                    var areas = manager.getStagingAreas(schematicId);
-                    SyncMaterial.LOGGER.info("[StagingArea] SERVER getStagingAreas after UPDATE: count={}", areas.size());
-                    for (var a : areas) {
-                        SyncMaterial.LOGGER.info("[StagingArea] SERVER   area id={} name='{}' coords=[{},{},{}]~[{},{},{}]",
-                                a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2());
-                    }
-                    var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
-                    )).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "备货区已更新", areaInfos));
+                    sendStagingAreaResponse(player, manager, schematicId, true, "备货区已更新");
                 }
                 case "CLEAR" -> {
                     var areas = manager.getStagingAreas(schematicId);
@@ -224,6 +197,19 @@ public class ModNetworkHandler {
             SyncMaterial.LOGGER.error("处理备货区配置失败", e);
             ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "操作失败: " + e.getMessage(), List.of()));
         }
+    }
+
+    /**
+     * 发送备货区列表响应
+     */
+    private static void sendStagingAreaResponse(net.minecraft.server.network.ServerPlayerEntity player, 
+                                                 StagingAreaManager manager, String schematicId, 
+                                                 boolean success, String message) {
+        var areas = manager.getStagingAreas(schematicId);
+        var areaInfos = areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+            a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()
+        )).toList();
+        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(success, message, areaInfos));
     }
 
     private static void broadcastStatus(MinecraftServer server, String schematicId, int materialId) {

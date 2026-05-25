@@ -105,7 +105,7 @@ public class SchematicFolderWatcher {
     }
 
     private void processPlacementsJson() {
-        SyncMaterial.LOGGER.info("开始处理 placements.json...");
+        SyncMaterial.LOGGER.debug("开始处理 placements.json...");
         
         // 等待文件写入完成
         try {
@@ -127,7 +127,7 @@ public class SchematicFolderWatcher {
             JsonObject root = gson.fromJson(content, JsonObject.class);
             JsonArray placements = root.getAsJsonArray("placements");
 
-            SyncMaterial.LOGGER.info("placements 数组大小: {}", placements.size());
+            SyncMaterial.LOGGER.debug("placements 数组大小: {}", placements.size());
 
             Set<String> currentHashes = new HashSet<>();
 
@@ -146,7 +146,7 @@ public class SchematicFolderWatcher {
 
                 currentHashes.add(hash);
                 placementNames.put(id, displayName);
-                SyncMaterial.LOGGER.info("发现 placement: id={}, hash={}, name={}", id, hash, displayName);
+                SyncMaterial.LOGGER.debug("发现 placement: id={}, hash={}, name={}", id, hash, displayName);
 
                 // 检查数据库中是否已存在该原理图的材料记录
                 boolean existsInDb = queryService.schematicExists(id);
@@ -159,7 +159,7 @@ public class SchematicFolderWatcher {
 
                 // 查找实际的 litematic 文件
                 Path litematicFile = findLitematicFile(hash);
-                SyncMaterial.LOGGER.info("findLitematicFile 结果: {} for hash {}", litematicFile, hash);
+                SyncMaterial.LOGGER.debug("findLitematicFile 结果: {} for hash {}", litematicFile, hash);
                 if (litematicFile != null) {
                     processNewSchematic(id, hash, displayName, ownerName, litematicFile);
                 } else {
@@ -168,18 +168,18 @@ public class SchematicFolderWatcher {
             }
 
             // 检测被删除的原理图并从数据库中删除
-            SyncMaterial.LOGGER.info("processedHashes: {}, currentHashes: {}", processedHashes, currentHashes);
+            SyncMaterial.LOGGER.debug("processedHashes: {}, currentHashes: {}", processedHashes, currentHashes);
             
             Set<String> removedHashes = new HashSet<>(processedHashes);
             removedHashes.removeAll(currentHashes);
             
-            SyncMaterial.LOGGER.info("removedHashes: {}", removedHashes);
+            SyncMaterial.LOGGER.debug("removedHashes: {}", removedHashes);
             
             for (String removedHash : removedHashes) {
-                // 根据 hash 查找对应的 schematic id
+                // 根据 hash 查找对应的 schematic id - 使用精确匹配避免 SQL 通配符问题
                 try (var results = database.executeQuery(
-                    "SELECT id FROM schematics WHERE file_path LIKE ?",
-                    "%" + removedHash + "%"
+                    "SELECT id FROM schematics WHERE file_path = ? OR file_path LIKE ? OR file_path LIKE ?",
+                    removedHash, removedHash + "/%", "%/" + removedHash
                 )) {
                     if (results.next()) {
                         String schematicId = results.getString("id");
@@ -211,34 +211,34 @@ public class SchematicFolderWatcher {
     }
 
     private void processNewSchematic(String id, String hash, String displayName, String owner, Path filePath) {
-        SyncMaterial.LOGGER.info("processNewSchematic 被调用: id={}, hash={}", id, hash);
+        SyncMaterial.LOGGER.debug("processNewSchematic 被调用: id={}, hash={}", id, hash);
         
         // 先检查是否已存在，只有确认不存在时才添加到 processedHashes
         boolean exists;
         try {
             exists = queryService.schematicExists(id);
-            SyncMaterial.LOGGER.info("schematicExists 结果: {}", exists);
+            SyncMaterial.LOGGER.debug("schematicExists 结果: {}", exists);
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("schematicExists 调用失败: {} - {}", id, e.getMessage(), e);
             return;
         }
         
         if (exists) {
-            SyncMaterial.LOGGER.info("原理图已存在，跳过: {}", id);
+            SyncMaterial.LOGGER.debug("原理图已存在，跳过: {}", id);
             processedHashes.add(hash);
             return;
         }
 
-        SyncMaterial.LOGGER.info("开始解析并存储新原理图: {}", id);
+        SyncMaterial.LOGGER.debug("开始解析并存储新原理图: {}", id);
         processedHashes.add(hash);
 
-        SyncMaterial.LOGGER.info("准备提交异步任务...");
+        SyncMaterial.LOGGER.debug("准备提交异步任务...");
         parseExecutor.submit(() -> {
-            SyncMaterial.LOGGER.info("异步任务开始执行: {}", id);
+            SyncMaterial.LOGGER.debug("异步任务开始执行: {}", id);
             try {
-                SyncMaterial.LOGGER.info("检测到新原理图: {} (hash: {})", displayName, hash);
+                SyncMaterial.LOGGER.debug("检测到新原理图: {} (hash: {})", displayName, hash);
                 var materials = parser.parseAsync(filePath.toString()).join();
-                SyncMaterial.LOGGER.info("解析完成, 材料数量: {}", materials.size());
+                SyncMaterial.LOGGER.debug("解析完成, 材料数量: {}", materials.size());
 
                 database.executeUpdate(
                     "INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
@@ -283,8 +283,16 @@ public class SchematicFolderWatcher {
     public void stop() {
         try {
             watchService.close();
-            watchExecutor.shutdown();
-            parseExecutor.shutdown();
+            watchExecutor.shutdownNow();
+            parseExecutor.shutdownNow();
+            
+            // 等待任务完成
+            if (!watchExecutor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                SyncMaterial.LOGGER.warn("watchExecutor 未能在 5 秒内完成");
+            }
+            if (!parseExecutor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                SyncMaterial.LOGGER.warn("parseExecutor 未能在 5 秒内完成");
+            }
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("停止监控失败", e);
         }

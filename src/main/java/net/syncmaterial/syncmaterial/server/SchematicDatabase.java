@@ -10,7 +10,7 @@ import java.util.Map;
  * SQLite数据库管理器
  * 负责数据库连接、表创建和基本维护操作
  */
-public class SchematicDatabase {
+public class SchematicDatabase implements AutoCloseable {
     private static final String DB_FILE = "syncmaterial.db";
     private Connection connection;
 
@@ -210,6 +210,32 @@ public class SchematicDatabase {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             setParameters(stmt, params);
             stmt.executeUpdate();
+        }
+    }
+
+    /**
+     * 开始事务
+     */
+    public void beginTransaction() throws SQLException {
+        connection.setAutoCommit(false);
+    }
+
+    /**
+     * 提交事务
+     */
+    public void commitTransaction() throws SQLException {
+        connection.commit();
+        connection.setAutoCommit(true);
+    }
+
+    /**
+     * 回滚事务
+     */
+    public void rollbackTransaction() throws SQLException {
+        try {
+            connection.rollback();
+        } finally {
+            connection.setAutoCommit(true);
         }
     }
 
