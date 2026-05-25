@@ -132,16 +132,37 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         {
             this.loadingFromServer = false;
 
-            this.selection.removeAllSubRegionBoxes();
-            this.selection.clearServerIds();
-
+            java.util.Set<String> serverNames = new java.util.HashSet<>();
             for (var area : packet.areas())
             {
-                BlockPos pos1 = new BlockPos(area.x1(), area.y1(), area.z1());
-                BlockPos pos2 = new BlockPos(area.x2(), area.y2(), area.z2());
-                Box box = new Box(pos1, pos2, area.name());
-                this.selection.addSubRegionBox(box, true);
+                serverNames.add(area.name());
+                Box existing = this.selection.getSubRegionBox(area.name());
+                if (existing != null)
+                {
+                    existing.setPos1(new BlockPos(area.x1(), area.y1(), area.z1()));
+                    existing.setPos2(new BlockPos(area.x2(), area.y2(), area.z2()));
+                }
+                else
+                {
+                    BlockPos pos1 = new BlockPos(area.x1(), area.y1(), area.z1());
+                    BlockPos pos2 = new BlockPos(area.x2(), area.y2(), area.z2());
+                    this.selection.addSubRegionBox(new Box(pos1, pos2, area.name()), true);
+                }
                 this.selection.setServerId(area.name(), area.areaId());
+            }
+
+            java.util.List<String> toRemove = new java.util.ArrayList<>();
+            for (String name : this.selection.getAllSubRegionNames())
+            {
+                if (!serverNames.contains(name))
+                {
+                    toRemove.add(name);
+                }
+            }
+            for (String name : toRemove)
+            {
+                this.selection.removeSubRegionBox(name);
+                this.selection.removeServerId(name);
             }
 
             this.initGui();
