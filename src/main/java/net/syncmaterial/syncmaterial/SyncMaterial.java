@@ -24,6 +24,11 @@ public class SyncMaterial implements ModInitializer {
     public static final String MOD_ID = "syncmaterial";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
+    // 定时任务间隔常量（ticks）
+    private static final int DIRTY_CONTAINER_CHECK_INTERVAL = 4; // 4 ticks = 200ms
+    private static final int FILE_WATCH_DELAY_MS = 200; // 文件监控延迟（毫秒）
+    private static final int HUD_UPDATE_INTERVAL_MS = 2000; // HUD 更新间隔（毫秒）
+
     private static MaterialStatisticsEngine statisticsEngine;
     private static SchematicDatabase sharedDatabase;
     private static DatabaseQueryService sharedQueryService;
@@ -80,7 +85,33 @@ public class SyncMaterial implements ModInitializer {
             }
         });
 
-        // 3. 服务端启动完成后，监控 placements.json
+        // 3. 注册服务器关闭事件，释放资源
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            LOGGER.info("SyncMaterial 服务端组件正在关闭...");
+            try {
+                if (sharedCollaborationManager != null) {
+                    sharedCollaborationManager = null;
+                }
+                if (sharedStagingAreaManager != null) {
+                    sharedStagingAreaManager = null;
+                }
+                if (sharedQueryService != null) {
+                    sharedQueryService = null;
+                }
+                if (sharedParser != null) {
+                    sharedParser = null;
+                }
+                if (sharedDatabase != null) {
+                    sharedDatabase.close();
+                    sharedDatabase = null;
+                }
+                LOGGER.info("SyncMaterial 服务端组件已关闭");
+            } catch (Exception e) {
+                LOGGER.error("关闭 SyncMaterial 服务端组件失败", e);
+            }
+        });
+
+        // 4. 服务端启动完成后，监控 placements.json
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             try {
                 // 服务端根目录 (FabricLoader.getInstance().getGameDir())
@@ -115,5 +146,26 @@ public class SyncMaterial implements ModInitializer {
 
     public static StagingAreaManager getServerStagingAreaManager() {
         return sharedStagingAreaManager;
+    }
+
+    /**
+     * 获取共享数据库实例。
+     */
+    public static SchematicDatabase getSharedDatabase() {
+        return sharedDatabase;
+    }
+
+    /**
+     * 获取共享数据库查询服务实例。
+     */
+    public static DatabaseQueryService getSharedQueryService() {
+        return sharedQueryService;
+    }
+
+    /**
+     * 获取共享解析器实例。
+     */
+    public static LitematicaParser getSharedParser() {
+        return sharedParser;
     }
 }
