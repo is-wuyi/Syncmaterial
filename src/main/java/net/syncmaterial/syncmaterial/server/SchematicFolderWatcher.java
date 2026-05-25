@@ -104,7 +104,7 @@ public class SchematicFolderWatcher {
         }
     }
 
-    private void processPlacementsJson() {
+    private synchronized void processPlacementsJson() {
         SyncMaterial.LOGGER.debug("开始处理 placements.json...");
         
         // 等待文件写入完成

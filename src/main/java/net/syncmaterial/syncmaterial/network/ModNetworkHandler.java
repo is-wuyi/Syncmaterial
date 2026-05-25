@@ -24,6 +24,47 @@ public class ModNetworkHandler {
         SyncMaterial.LOGGER.info("服务端网络服务初始化完成");
     }
 
+    private static boolean validateSchematicId(String schematicId) {
+        if (schematicId == null || schematicId.isBlank()) {
+            SyncMaterial.LOGGER.warn("收到无效的 schematicId (null/blank)");
+            return false;
+        }
+        if (schematicId.length() > 100) {
+            SyncMaterial.LOGGER.warn("收到过长的 schematicId: {} 字符", schematicId.length());
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean validateMaterialId(int materialId) {
+        if (materialId < 0) {
+            SyncMaterial.LOGGER.warn("收到无效的 materialId: {}", materialId);
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean validateCount(int count) {
+        if (count < 0) {
+            SyncMaterial.LOGGER.warn("收到无效的 count: {}", count);
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean validatePlayer(net.minecraft.server.network.ServerPlayerEntity player) {
+        if (player == null) {
+            SyncMaterial.LOGGER.warn("收到来自 null player 的网络包");
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean validateStagingAction(String action) {
+        return action != null && (action.equals("LIST") || action.equals("ADD") || action.equals("RENAME")
+            || action.equals("DELETE") || action.equals("UPDATE") || action.equals("CLEAR"));
+    }
+
     public static void register() {
         if (queryService == null) {
             SyncMaterial.LOGGER.error("DatabaseQueryService未初始化！");
@@ -45,6 +86,8 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(MaterialStatsRequestC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             var player = context.player();
+
+            if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
 
             context.server().execute(() -> {
                 try {
@@ -68,6 +111,7 @@ public class ModNetworkHandler {
             int materialId = payload.materialId();
             Map<Integer, Integer> inventoryCounts = payload.inventoryCounts();
             var player = context.player();
+            if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
             String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
@@ -84,6 +128,7 @@ public class ModNetworkHandler {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
             var player = context.player();
+            if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
             String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
@@ -98,6 +143,7 @@ public class ModNetworkHandler {
             int materialId = payload.materialId();
             int count = payload.count();
             var player = context.player();
+            if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId) || !validateCount(count)) return;
             String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
@@ -114,6 +160,7 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(QueryMaterialStatusC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             var player = context.player();
+            if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
 
             context.server().execute(() -> {
                 SyncMaterial.LOGGER.debug("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getGameProfile().getName(), schematicId);
@@ -125,8 +172,10 @@ public class ModNetworkHandler {
         });
 
         ServerPlayNetworking.registerGlobalReceiver(StagingAreaConfigC2SPacket.ID, (payload, context) -> {
+            var player = context.player();
+            if (!validatePlayer(player) || !validateSchematicId(payload.schematicId()) || !validateStagingAction(payload.action())) return;
             context.server().execute(() -> {
-                handleStagingAreaConfig(payload, context.player(), context.server());
+                handleStagingAreaConfig(payload, player, context.server());
             });
         });
     }
