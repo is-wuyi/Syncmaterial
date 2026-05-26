@@ -24,6 +24,25 @@ public class ModNetworkHandler {
         SyncMaterial.LOGGER.info("服务端网络服务初始化完成");
     }
 
+    /**
+     * 注册所有 PayloadType（必须在客户端和服务器初始化之前调用）。
+     * 客户端注册 receiver 时需要这些类型已经存在。
+     */
+    public static void registerPayloadTypes() {
+        // C2S (客户端到服务端)
+        PayloadTypeRegistry.playC2S().register(MaterialStatsRequestC2SPacket.ID, MaterialStatsRequestC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(JoinCollaborationC2SPacket.ID, JoinCollaborationC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(InventoryUpdateC2SPacket.ID, InventoryUpdateC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(StagingAreaConfigC2SPacket.ID, StagingAreaConfigC2SPacket.CODEC);
+
+        // S2C (服务端到客户端)
+        PayloadTypeRegistry.playS2C().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.playS2C().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
+        PayloadTypeRegistry.playS2C().register(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
+    }
+
     private static boolean validateSchematicId(String schematicId) {
         if (schematicId == null || schematicId.isBlank()) {
             SyncMaterial.LOGGER.warn("收到无效的 schematicId (null/blank)");

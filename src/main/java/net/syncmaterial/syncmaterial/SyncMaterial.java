@@ -35,7 +35,8 @@ public class SyncMaterial implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("SyncMaterial 初始化中...");
 
-        // 1. 初始化引擎实现
+        ModNetworkHandler.registerPayloadTypes();
+
         statisticsEngine = new DefaultMaterialStatisticsEngine();
 
         // 2. 注册服务端启动事件，用于初始化数据库
