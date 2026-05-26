@@ -141,6 +141,7 @@ public class ModNetworkHandler {
             context.server().execute(() -> {
                 if (collaborationManager.leaveCollaboration(schematicId, materialId, playerName)) {
                     broadcastStatus(context.server(), schematicId, materialId);
+                    sendStatusToPlayer(player, schematicId, materialId);
                 }
             });
         });
