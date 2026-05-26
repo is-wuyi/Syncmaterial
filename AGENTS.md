@@ -27,11 +27,11 @@
 
 ```
 src/main/java/net/syncmaterial/syncmaterial/
-├── SyncMaterial.java                    # 模组入口类
+├── SyncMaterial.java                    # 模组入口类（onInitialize）
 ├── api/
 │   └── MaterialEntry.java               # 材料条目数据结构
 ├── client/
-│   ├── SyncMaterialClient.java           # 客户端入口
+│   ├── SyncMaterialClient.java           # 客户端入口（onInitializeClient）
 │   ├── gui/                              # 独立 UI（不依赖 Litematica 运行时）
 │   │   ├── GuiMaterialList.java          # 材料清单 GUI 主类
 │   │   ├── SyncMaterialList.java         # 数据适配（MaterialEntry → MaterialListEntry）
@@ -40,24 +40,43 @@ src/main/java/net/syncmaterial/syncmaterial/
 │   │   ├── MaterialListSorter.java       # 排序器
 │   │   ├── MaterialListUtils.java        # 工具类（背包检测、数据转换）
 │   │   ├── MaterialListHudRenderer.java  # HUD 渲染器
+│   │   ├── GuiStagingAreaEditorNormal.java   # 备货区编辑器（标准模式）
+│   │   ├── GuiStagingAreaEditorSimple.java   # 备货区编辑器（简易模式）
+│   │   ├── GuiStagingAreaEditorSubRegion.java # 备货区编辑器（子区域）
 │   │   └── widgets/
-│   │       ├── WidgetListMaterialList.java   # 材料列表 widget
-│   │       └── WidgetMaterialListEntry.java  # 材料条目 widget
+│   │       ├── WidgetListMaterialList.java    # 材料列表 widget
+│   │       ├── WidgetMaterialListEntry.java   # 材料条目 widget
+│   │       ├── WidgetListStagingAreas.java    # 备货区列表 widget
+│   │       └── WidgetStagingAreaEntry.java    # 备货区条目 widget
 │   └── infohud/
 │       ├── IInfoHudRenderer.java         # HUD 渲染接口
 │       └── RenderPhase.java              # 渲染阶段枚举
 ├── server/
-│   ├── SchematicDatabase.java            # SQLite 数据库
+│   ├── SchematicDatabase.java            # SQLite 数据库（AutoCloseable）
 │   ├── DatabaseQueryService.java         # 数据库查询服务
 │   ├── SchematicFolderWatcher.java       # 原理图文件夹监控
 │   ├── SchematicUploadListener.java      # 原理图上传监听
+│   ├── StagingAreaManager.java           # 备货区管理器
+│   ├── CollaborationManager.java         # 协作管理器
 │   └── PlacementsUtil.java               # placements.json 工具
 ├── network/
-│   ├── ModNetworkHandler.java            # 服务端网络处理
-│   ├── ModNetworkHandlerClient.java      # 客户端网络处理
-│   ├── MaterialStatsRequestC2SPacket.java   # 请求包
-│   ├── MaterialStatsResponseS2CPacket.java  # 响应包
-│   └── ModPackets.java                   # 包 ID 常量
+│   ├── ModNetworkHandler.java            # 服务端网络处理（PayloadType 注册 + handler）
+│   ├── ModNetworkHandlerClient.java      # 客户端网络处理（receiver 注册）
+│   ├── ModPackets.java                   # 包 ID 常量
+│   ├── MaterialStatsRequestC2SPacket.java
+│   ├── MaterialStatsResponseS2CPacket.java
+│   ├── JoinCollaborationC2SPacket.java
+│   ├── CollaborationStatusS2CPacket.java
+│   ├── LeaveCollaborationC2SPacket.java
+│   ├── InventoryUpdateC2SPacket.java
+│   ├── QueryMaterialStatusC2SPacket.java
+│   ├── StagingAreaConfigC2SPacket.java
+│   └── StagingAreaConfigResponseS2CPacket.java
+├── selection/                            # 备货区坐标数据类（复制自 Litematica）
+│   ├── AreaSelection.java
+│   ├── Box.java
+│   ├── SelectionMode.java
+│   └── CornerSelectionMode.java
 ├── engine/
 │   ├── LitematicaParser.java             # Litematica 文件解析器
 │   ├── AbstractLitematicaParser.java     # 解析器基类
@@ -66,8 +85,9 @@ src/main/java/net/syncmaterial/syncmaterial/
 │       ├── StatisticsProcessor.java
 │       └── DefaultLitematicaParser.java
 ├── mixin/
+│   ├── SyncmaticaIntegrationMixin.java       # 注册原理图上传监听器（通用 mixin）
 │   ├── WidgetSyncmaticaServerPlacementEntryMixin.java
-│   └── SyncmaticaIntegrationMixin.java
+│   └── ButtonListenerMixin.java
 └── config/
     └── ModConfig.java
 ```
@@ -115,16 +135,18 @@ src/main/java/net/syncmaterial/syncmaterial/
 ### 服务端核心
 
 **SchematicDatabase.java** — SQLite 数据库操作
-- 表: schematics, material_entries, team_assignments（预留）
-- 提供增删改查接口
+- 表: schematics, material_entries, staging_areas, staging_area_inventory, claims, assignments, assignment_permissions
+- 实现 AutoCloseable，通过 SERVER_STOPPING 事件关闭
 
 **SchematicFolderWatcher.java** — 原理图监控
 - 监控 placements.json 变化
 - 维护 placementNames Map（id → display_name）
-- 触发原理图解析和数据库存储
+- processPlacementsJson() 有 synchronized 保护
 
 **ModNetworkHandler.java** — 网络处理
+- **PayloadType 注册必须在 onInitialize() 中**（比 SERVER_STARTING 更早），否则客户端崩溃
 - 接收客户端请求，查询数据库，返回响应
+- 所有 C2S handler 都有输入验证（schematicId/materialId/count/player/action）
 
 ### 客户端核心
 
@@ -133,16 +155,54 @@ src/main/java/net/syncmaterial/syncmaterial/
 - 按钮：刷新列表、HUD 开关、关闭
 - 表头列：物品、总计、缺失、已有（点击排序）
 
+**GuiStagingAreaEditorNormal.java** — 备货区标准编辑器
+- 复制自 Litematica 的 GuiAreaSelectionEditorNormal
+- 支持多子区域管理，通过网络包与服务端同步
+
 **MaterialListHudRenderer.java** — HUD 渲染器
 - 每 2 秒自动刷新背包检测
-- 显示图标 + 物品名 + 缺失数量（含组数计算，如 262 (4 x 64 + 6)）
 - 通过 HudRenderCallback 全局叠加渲染
 
 ### Mixin
 
-**WidgetSyncmaticaServerPlacementEntryMixin.java**
-- 拦截 Syncmatica 的材料清单按钮点击
-- 发送网络请求
+**SyncmaticaIntegrationMixin.java** — 通用 mixin（在 mixins 数组中，非 client）
+- 注入 LitematicManager.setContext，注册 SchematicUploadListener
+- 使用 SyncMaterial.getSharedDatabase() 获取共享实例
+
+## 网络包架构
+
+### PayloadType 注册时序（关键）
+
+```
+ModInitializer.onInitialize()
+  └─ ModNetworkHandler.registerPayloadTypes()  ← 必须在这里
+       注册所有 C2S 和 S2C 的 PayloadType
+       ↓
+SyncMaterialClient.onInitializeClient()
+  └─ ModNetworkHandlerClient.register()  ← 注册客户端 receiver
+       需要 PayloadType 已经存在
+       ↓
+ServerLifecycleEvents.SERVER_STARTING
+  └─ ModNetworkHandler.register()  ← 注册服务端 handler
+       需要 PayloadType 已经存在
+```
+
+### C2S 包（客户端发送，服务端接收）
+| 包 | 字段 |
+|---|---|
+| MaterialStatsRequestC2SPacket | schematicId |
+| JoinCollaborationC2SPacket | schematicId, materialId, inventoryCounts |
+| LeaveCollaborationC2SPacket | schematicId, materialId |
+| InventoryUpdateC2SPacket | schematicId, materialId, count |
+| QueryMaterialStatusC2SPacket | schematicId |
+| StagingAreaConfigC2SPacket | schematicId, action, areaId, areaData |
+
+### S2C 包（服务端发送，客户端接收）
+| 包 | 字段 |
+|---|---|
+| MaterialStatsResponseS2CPacket | schematicId, schematicName, materials |
+| CollaborationStatusS2CPacket | schematicId, materialId, totalCount, stagingCount, participants |
+| StagingAreaConfigResponseS2CPacket | success, message, areas |
 
 ## 构建与运行
 
@@ -187,6 +247,37 @@ src/main/java/net/syncmaterial/syncmaterial/
 - 修改代码时自动更新 `build.gradle` 中的版本号
 - `README.md` / `README_ZH.md` 中的版本号**不需要同步更新**（只是说明输出目录）
 - 只提交代码和配置修改，AGENTS.md 不提交（skip-worktree）
+
+### 7. 发布规范
+
+**必须按以下步骤操作，缺一不可：**
+
+#### 7.1 编写发布说明
+在 `build.gradle` 更新版本号后、打 tag 前，编辑 `.github/release-notes/latest.md` 文件，写入本次发布的更新说明。
+
+格式示例：
+```markdown
+## SyncMaterial v1.21.7-0.2.0-alpha.1
+
+### 新功能
+- 功能 A：简要描述
+
+### 修复
+- 修复 B：简要描述
+
+### 技术变更
+- 版本号更新、依赖调整等
+```
+
+> 描述要通俗易懂，用中文，让玩家能看明白。
+
+#### 7.2 发布流程
+1. 更新 `build.gradle` 版本号 → 提交
+2. 编写 `.github/release-notes/latest.md` → 提交
+3. 打 tag：`git tag v<版本号>`（如 `v1.21.7-0.2.0-alpha.1`）
+4. 推送 tag：`git push origin v<版本号>`
+5. GitHub Actions 自动构建并发布
+6. 发布完成后，删除 `.github/release-notes/latest.md` → 提交
 
 ### 7. 发布规范
 
