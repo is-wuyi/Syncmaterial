@@ -15,59 +15,36 @@ public abstract class BlockEntityMixin {
 
     @Inject(method = "markDirty", at = @At("HEAD"))
     private void onMarkDirty(CallbackInfo ci) {
+        StagingAreaManager mgr = net.syncmaterial.syncmaterial.SyncMaterial.getServerStagingAreaManager();
+        if (mgr != null) {
+            this.withStagingAreaContext(mgr, mgr::scheduleContainerScan);
+        }
+    }
+
+    @Inject(method = "markRemoved", at = @At("HEAD"))
+    private void onMarkRemoved(CallbackInfo ci) {
+        StagingAreaManager mgr = net.syncmaterial.syncmaterial.SyncMaterial.getServerStagingAreaManager();
+        if (mgr != null) {
+            this.withStagingAreaContext(mgr, mgr::onContainerRemoved);
+        }
+    }
+
+    private void withStagingAreaContext(StagingAreaManager mgr, java.util.function.BiConsumer<BlockPos, ServerWorld> action) {
         BlockEntity self = (BlockEntity) (Object) this;
 
         if (!(self instanceof Inventory)) {
             return;
         }
 
-        if (self.getWorld() == null) {
-            return;
-        }
-
-        if (self.getWorld().isClient()) {
+        if (self.getWorld() == null || self.getWorld().isClient()) {
             return;
         }
 
         ServerWorld world = (ServerWorld) self.getWorld();
         BlockPos pos = self.getPos();
 
-        StagingAreaManager manager = net.syncmaterial.syncmaterial.SyncMaterial.getServerStagingAreaManager();
-        if (manager == null) {
-            return;
-        }
-
-        if (manager.isInAnyStagingArea(pos, world)) {
-            manager.scheduleContainerScan(pos, world);
-        }
-    }
-
-    @Inject(method = "markRemoved", at = @At("HEAD"))
-    private void onMarkRemoved(CallbackInfo ci) {
-        BlockEntity self = (BlockEntity) (Object) this;
-
-        if (!(self instanceof Inventory)) {
-            return;
-        }
-
-        if (self.getWorld() == null) {
-            return;
-        }
-
-        if (self.getWorld().isClient()) {
-            return;
-        }
-
-        ServerWorld serverWorld = (ServerWorld) self.getWorld();
-        BlockPos pos = self.getPos();
-
-        StagingAreaManager manager = net.syncmaterial.syncmaterial.SyncMaterial.getServerStagingAreaManager();
-        if (manager == null) {
-            return;
-        }
-
-        if (manager.isInAnyStagingArea(pos, serverWorld)) {
-            manager.onContainerRemoved(pos, serverWorld);
+        if (mgr.isInAnyStagingArea(pos, world)) {
+            action.accept(pos, world);
         }
     }
 }

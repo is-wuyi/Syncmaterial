@@ -273,9 +273,7 @@ public class SchematicFolderWatcher {
 
                 SyncMaterial.LOGGER.info("原理图处理完成: {} ({} 项材料)", displayName, aggregatedMaterials.size());
             } catch (Throwable t) {
-                SyncMaterial.LOGGER.error("处理原理图失败: {} - Exception: {}, StackTrace: {}", 
-                    displayName, t.getMessage(), t.getClass().getName());
-                t.printStackTrace();
+                SyncMaterial.LOGGER.error("处理原理图失败: {}", displayName, t);
             }
         });
     }
