@@ -49,3 +49,15 @@
 ## 许可证
 
 GNU 通用公共许可证 v3.0 - 详见 [LICENSE](LICENSE)
+
+本项目包含来自 [Litematica](https://github.com/sakura-kyoko/litematica)（作者 masa）的代码，使用 [LGPL-3.0](https://www.gnu.org/licenses/lgpl-3.0.html) 许可证。以下文件源自 Litematica：
+
+- `selection/Box.java` - 坐标数据类
+- `selection/AreaSelection.java` - 区域选择数据
+- `selection/SelectionMode.java` - 选择模式枚举
+- `selection/CornerSelectionMode.java` - 角点模式枚举
+- `client/gui/GuiStagingAreaEditorNormal.java` - 备货区编辑器（标准模式）
+- `client/gui/GuiStagingAreaEditorSimple.java` - 备货区编辑器（简易模式）
+- `client/gui/GuiStagingAreaEditorSubRegion.java` - 备货区编辑器（子区域）
+- `client/gui/widgets/WidgetListStagingAreas.java` - 备货区列表 widget
+- `client/gui/widgets/WidgetStagingAreaEntry.java` - 备货区条目 widget
