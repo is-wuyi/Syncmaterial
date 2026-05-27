@@ -49,3 +49,15 @@ Output: `build/libs/Syncmaterial-1-1.21.7-0.1.0-alpha.2.jar`
 ## License
 
 GNU General Public License v3.0 - see [LICENSE](LICENSE)
+
+This project includes code from [Litematica](https://github.com/sakura-kyoko/litematica) by masa, licensed under [LGPL-3.0](https://www.gnu.org/licenses/lgpl-3.0.html). The following files are derived from Litematica:
+
+- `selection/Box.java` - Coordinate data class
+- `selection/AreaSelection.java` - Area selection data
+- `selection/SelectionMode.java` - Selection mode enum
+- `selection/CornerSelectionMode.java` - Corner mode enum
+- `client/gui/GuiStagingAreaEditorNormal.java` - Staging area editor (normal mode)
+- `client/gui/GuiStagingAreaEditorSimple.java` - Staging area editor (simple mode)
+- `client/gui/GuiStagingAreaEditorSubRegion.java` - Staging area editor (sub-region)
+- `client/gui/widgets/WidgetListStagingAreas.java` - Staging area list widget
+- `client/gui/widgets/WidgetStagingAreaEntry.java` - Staging area entry widget

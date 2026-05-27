@@ -1,3 +1,10 @@
+/*
+ * This file is part of SyncMaterial, licensed under GNU Lesser General Public License v3 (LGPL-3.0).
+ * Original code from Litematica by masa (https://github.com/sakura-kyoko/litematica)
+ * Licensed under LGPL-3.0: https://www.gnu.org/licenses/lgpl-3.0.html
+ * Modified for SyncMaterial: removed Litematica-specific dependencies, adapted for server-side storage.
+ */
+
 package net.syncmaterial.syncmaterial.selection;
 
 import java.util.*;
