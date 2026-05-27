@@ -21,7 +21,6 @@ import net.minecraft.util.math.BlockPos;
 
 import fi.dy.masa.malilib.util.JsonUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
-import fi.dy.masa.litematica.util.PositionUtils;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
 public class Box
@@ -131,25 +130,15 @@ public class Box
         this.selectedCorner = corner;
     }
 
-    /*
-    public void rotate(Rotation rotation)
-    {
-        BlockPos pos = PositionUtils.getTransformedBlockPos(this.getSize(), Mirror.NONE, rotation);
-        this.setPos2(this.getPos1().add(pos).add(-1, -1, -1));
-    }
-
-    public void mirror(Mirror mirror)
-    {
-        BlockPos pos = PositionUtils.getTransformedBlockPos(this.getSize(), mirror, Rotation.NONE);
-        this.setPos2(this.getPos1().add(pos).add(-1, -1, -1));
-    }
-    */
-
     private void updateSize()
     {
         if (this.pos1 != null && this.pos2 != null)
         {
-            this.size = PositionUtils.getAreaSizeFromRelativeEndPosition(this.pos2.subtract(this.pos1));
+            BlockPos diff = this.pos2.subtract(this.pos1);
+            int x = diff.getX() >= 0 ? diff.getX() + 1 : diff.getX() - 1;
+            int y = diff.getY() >= 0 ? diff.getY() + 1 : diff.getY() - 1;
+            int z = diff.getZ() >= 0 ? diff.getZ() + 1 : diff.getZ() - 1;
+            this.size = new BlockPos(x, y, z);
         }
         else if (this.pos1 == null && this.pos2 == null)
         {
@@ -195,7 +184,12 @@ public class Box
     public void setCoordinate(int value, Corner corner, CoordinateType type)
     {
         BlockPos pos = this.getPosition(corner);
-        pos = PositionUtils.getModifiedPosition(pos, value, type);
+        switch (type)
+        {
+            case X -> pos = new BlockPos(value, pos.getY(), pos.getZ());
+            case Y -> pos = new BlockPos(pos.getX(), value, pos.getZ());
+            case Z -> pos = new BlockPos(pos.getX(), pos.getY(), value);
+        }
         this.setPosition(pos, corner);
     }
 

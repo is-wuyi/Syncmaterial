@@ -28,11 +28,6 @@ import fi.dy.masa.malilib.gui.interfaces.IMessageConsumer;
 import fi.dy.masa.malilib.util.InfoUtils;
 import fi.dy.masa.malilib.util.JsonUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
-import fi.dy.masa.litematica.config.Configs;
-import fi.dy.masa.litematica.render.infohud.StatusInfoRenderer;
-import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
-import fi.dy.masa.litematica.schematic.placement.SubRegionPlacement.RequiredEnabled;
-import fi.dy.masa.litematica.util.PositionUtils;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
 public class AreaSelection
@@ -110,20 +105,6 @@ public class AreaSelection
         return list;
     }
 
-    // TODO: 需要从 Litematica 的 SchematicPlacement 转换 Box 类型
-    // public static AreaSelection fromPlacement(SchematicPlacement placement)
-    // {
-    //     ImmutableMap<String, Box> boxes = placement.getSubRegionBoxes(RequiredEnabled.PLACEMENT_ENABLED);
-    //     BlockPos origin = placement.getOrigin();
-    //
-    //     AreaSelection selection = new AreaSelection();
-    //     selection.setExplicitOrigin(origin);
-    //     selection.name = placement.getName();
-    //     selection.subRegionBoxes.putAll(boxes);
-    //
-    //     return selection;
-    // }
-
     public String getName()
     {
         return this.name;
@@ -157,11 +138,6 @@ public class AreaSelection
     protected void markDirty()
     {
         this.calculatedOriginDirty = true;
-
-        if (Configs.Visuals.ENABLE_AREA_SELECTION_RENDERING.getBooleanValue() == false)
-        {
-            StatusInfoRenderer.getInstance().startOverrideDelay();
-        }
     }
 
     @Nullable
@@ -236,9 +212,7 @@ public class AreaSelection
 
     protected void updateCalculatedOrigin()
     {
-        // TODO: PositionUtils.getEnclosingAreaCorners 期望 Litematica Box 类型，需要适配
         this.calculatedOrigin = BlockPos.ORIGIN;
-
         this.calculatedOriginDirty = false;
     }
 
@@ -486,7 +460,12 @@ public class AreaSelection
         }
         else if (this.explicitOrigin != null)
         {
-            this.setExplicitOrigin(PositionUtils.getModifiedPosition(this.explicitOrigin, value, type));
+            switch (type)
+            {
+                case X -> this.setExplicitOrigin(new BlockPos(value, this.explicitOrigin.getY(), this.explicitOrigin.getZ()));
+                case Y -> this.setExplicitOrigin(new BlockPos(this.explicitOrigin.getX(), value, this.explicitOrigin.getZ()));
+                case Z -> this.setExplicitOrigin(new BlockPos(this.explicitOrigin.getX(), this.explicitOrigin.getY(), value));
+            }
         }
     }
 
