@@ -27,9 +27,10 @@ import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.syncmaterial.syncmaterial.selection.Box;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
-public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorSimple
+public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorNormal
 {
     protected final Box box;
+    protected GuiTextFieldGeneric textFieldBoxName;
 
     public GuiStagingAreaEditorSubRegion(AreaSelection selection, Box box, @Nullable String selectionId)
     {

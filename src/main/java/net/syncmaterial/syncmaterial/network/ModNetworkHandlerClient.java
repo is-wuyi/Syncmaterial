@@ -4,7 +4,6 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal;
-import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSimple;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSubRegion;
 
 public class ModNetworkHandlerClient {

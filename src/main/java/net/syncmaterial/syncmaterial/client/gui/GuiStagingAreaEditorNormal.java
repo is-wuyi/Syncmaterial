@@ -37,7 +37,6 @@ import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.syncmaterial.syncmaterial.selection.Box;
-import net.syncmaterial.syncmaterial.selection.SelectionMode;
 import fi.dy.masa.litematica.gui.Icons;
 import fi.dy.masa.litematica.util.PositionUtils;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
@@ -221,7 +220,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         int x = xLeft - 2;
         int y = 24;
 
-        x += this.createButton(x, y, -1, ButtonListener.Type.CHANGE_SELECTION_MODE) + 4;
         this.xOrigin = x;
 
         x = xLeft;
@@ -384,16 +382,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
     protected int createButton(int x, int y, int width, @Nullable Corner corner, ButtonListener.Type type)
     {
-        String label;
-
-        if (type == ButtonListener.Type.CHANGE_SELECTION_MODE)
-        {
-            label = type.getDisplayName(this.getSelectionModeName());
-        }
-        else
-        {
-            label = type.getDisplayName();
-        }
+        String label = type.getDisplayName();
 
         if (width == -1)
         {
@@ -405,11 +394,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         this.addButton(button, listener);
 
         return width;
-    }
-
-    protected String getSelectionModeName()
-    {
-        return SelectionMode.NORMAL.getDisplayName();
     }
 
     protected void createCoordinateButton(int x, int y, Corner corner, CoordinateType coordType, ButtonListener.Type type)
@@ -629,45 +613,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                     this.parent.sendCoordinateUpdate(this.corner);
                     break;
 
-                case CHANGE_SELECTION_MODE:
-                {
-                    boolean isSimple = this.parent instanceof GuiStagingAreaEditorSimple;
-                    SelectionMode newMode = isSimple ? SelectionMode.NORMAL : SelectionMode.SIMPLE;
-
-                    if (newMode == SelectionMode.SIMPLE)
-                    {
-                        java.util.Collection<String> names = this.parent.selection.getAllSubRegionNames();
-
-                        if (names.isEmpty())
-                        {
-                            this.parent.addMessage(MessageType.WARNING, "请先创建至少一个子区域再切换到简易模式");
-                            break;
-                        }
-
-                        if (this.parent.selection.getSelectedSubRegionBox() == null)
-                        {
-                            this.parent.selection.setSelectedSubRegionBox(names.iterator().next());
-                        }
-                    }
-
-                    GuiStagingAreaEditorNormal newEditor;
-
-                    if (newMode == SelectionMode.SIMPLE)
-                    {
-                        newEditor = new GuiStagingAreaEditorSimple(
-                                this.parent.selection, this.parent.selectionId, this.parent.schematicId);
-                    }
-                    else
-                    {
-                        newEditor = new GuiStagingAreaEditorNormal(
-                                this.parent.selection, this.parent.selectionId, this.parent.schematicId);
-                    }
-
-                    newEditor.setParent(this.parent.getParent());
-                    GuiBase.openGui(newEditor);
-                    return;
-                }
-
                 case CREATE_SUB_REGION:
                 {
                     GuiTextInput gui = new GuiTextInput(512, "litematica.gui.title.area_editor.sub_region_name", "", null, new SubRegionCreator(this.parent));
@@ -732,7 +677,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             SET_BOX_NAME            ("litematica.gui.button.area_editor.set_box_name"),
             TOGGLE_ORIGIN_ENABLED   ("litematica.gui.button.area_editor.origin_enabled"),
             CREATE_SUB_REGION       ("litematica.gui.button.area_editor.create_sub_region"),
-            CHANGE_SELECTION_MODE   ("litematica.gui.button.area_editor.change_selection_mode"),
             MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),
             CLOSE                   ("gui.close"),
             NUDGE_COORD_X           (""),
