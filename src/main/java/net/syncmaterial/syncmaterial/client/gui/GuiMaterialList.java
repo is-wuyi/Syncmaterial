@@ -79,7 +79,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "备货区配置");
         this.addButton(button, (btn, mouseButton) -> {
             AreaSelection selection = new AreaSelection();
-            this.mc.setScreen(new GuiStagingAreaEditorNormal(selection, null, this.materialList.getSchematicId()));
+            GuiStagingAreaEditorNormal editor = new GuiStagingAreaEditorNormal(selection, null, this.materialList.getSchematicId());
+            editor.setParent(this);
+            this.mc.setScreen(editor);
         });
         return button.getWidth();
     }

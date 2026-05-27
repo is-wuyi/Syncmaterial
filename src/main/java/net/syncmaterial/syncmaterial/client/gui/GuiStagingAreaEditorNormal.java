@@ -630,7 +630,27 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                     break;
 
                 case CHANGE_SELECTION_MODE:
-                    break;
+                {
+                    boolean isSimple = this.parent instanceof GuiStagingAreaEditorSimple;
+                    SelectionMode newMode = isSimple ? SelectionMode.NORMAL : SelectionMode.SIMPLE;
+
+                    GuiStagingAreaEditorNormal newEditor;
+
+                    if (newMode == SelectionMode.SIMPLE)
+                    {
+                        newEditor = new GuiStagingAreaEditorSimple(
+                                this.parent.selection, this.parent.selectionId, this.parent.schematicId);
+                    }
+                    else
+                    {
+                        newEditor = new GuiStagingAreaEditorNormal(
+                                this.parent.selection, this.parent.selectionId, this.parent.schematicId);
+                    }
+
+                    newEditor.setParent(this.parent.getParent());
+                    GuiBase.openGui(newEditor);
+                    return;
+                }
 
                 case CREATE_SUB_REGION:
                 {
