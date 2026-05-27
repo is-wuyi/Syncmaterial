@@ -271,7 +271,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         y = this.getScreenHeight() - 26;
 
-        String label = GuiBase.TXT_RED + StringUtils.translate("gui.close");
+        String label = GuiBase.TXT_RED + StringUtils.translate("gui.back");
         int buttonWidth = this.getStringWidth(label) + 10;
         x = this.getScreenWidth() - buttonWidth - 10;
         this.addButton(new ButtonGeneric(x, y, buttonWidth, 20, label), new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
@@ -633,6 +633,22 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 {
                     boolean isSimple = this.parent instanceof GuiStagingAreaEditorSimple;
                     SelectionMode newMode = isSimple ? SelectionMode.NORMAL : SelectionMode.SIMPLE;
+
+                    if (newMode == SelectionMode.SIMPLE)
+                    {
+                        java.util.Collection<String> names = this.parent.selection.getAllSubRegionNames();
+
+                        if (names.isEmpty())
+                        {
+                            this.parent.addMessage(MessageType.WARNING, "请先创建至少一个子区域再切换到简易模式");
+                            break;
+                        }
+
+                        if (this.parent.selection.getSelectedSubRegionBox() == null)
+                        {
+                            this.parent.selection.setSelectedSubRegionBox(names.iterator().next());
+                        }
+                    }
 
                     GuiStagingAreaEditorNormal newEditor;
 
