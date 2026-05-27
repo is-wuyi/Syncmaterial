@@ -5,6 +5,7 @@ import net.fabricmc.api.Environment;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.syncmaterial.syncmaterial.api.MaterialStatisticsEngine;
 import net.syncmaterial.syncmaterial.engine.DefaultMaterialStatisticsEngine;
@@ -81,7 +82,14 @@ public class SyncMaterial implements ModInitializer {
             }
         });
 
-        // 3. 注册服务器关闭事件，释放资源
+        // 3. 注册玩家断开连接事件，清理订阅
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            if (sharedStagingAreaManager != null) {
+                sharedStagingAreaManager.unsubscribeAll(handler.player);
+            }
+        });
+
+        // 4. 注册服务器关闭事件，释放资源
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             LOGGER.info("SyncMaterial 服务端组件正在关闭...");
             try {

@@ -5,6 +5,7 @@ import net.minecraft.client.MinecraftClient;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSubRegion;
+import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 
 public class ModNetworkHandlerClient {
 

@@ -13,10 +13,15 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
+
 public class StagingAreaManager {
     private final SchematicDatabase database;
     private final Map<String, List<StagingArea>> stagingAreasBySchematic = new ConcurrentHashMap<>();
     private final Map<BlockPos, ServerWorld> dirtyContainers = new ConcurrentHashMap<>();
+    private final Map<String, Set<ServerPlayerEntity>> subscribers = new ConcurrentHashMap<>();
     private MinecraftServer server;
 
     public StagingAreaManager(SchematicDatabase database) {
@@ -25,6 +30,49 @@ public class StagingAreaManager {
 
     public void setServer(MinecraftServer server) {
         this.server = server;
+    }
+
+    public void subscribe(ServerPlayerEntity player, String schematicId) {
+        subscribers.computeIfAbsent(schematicId, k -> ConcurrentHashMap.newKeySet()).add(player);
+        SyncMaterial.LOGGER.info("[StagingArea] 玩家 {} 订阅了原理图 {} 的备货区更新", player.getName().getString(), schematicId);
+    }
+
+    public void unsubscribe(ServerPlayerEntity player, String schematicId) {
+        Set<ServerPlayerEntity> set = subscribers.get(schematicId);
+        if (set != null) {
+            set.remove(player);
+            if (set.isEmpty()) {
+                subscribers.remove(schematicId);
+            }
+        }
+    }
+
+    public void unsubscribeAll(ServerPlayerEntity player) {
+        for (var entry : subscribers.entrySet()) {
+            entry.getValue().remove(player);
+        }
+        subscribers.entrySet().removeIf(e -> e.getValue().isEmpty());
+    }
+
+    public void broadcastUpdate(String schematicId) {
+        Set<ServerPlayerEntity> set = subscribers.get(schematicId);
+        if (set == null || set.isEmpty()) {
+            return;
+        }
+
+        List<StagingArea> areas = getStagingAreas(schematicId);
+        List<StagingAreaConfigResponseS2CPacket.AreaInfo> areaInfos = areas.stream()
+                .map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()))
+                .toList();
+        StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket(true, "", areaInfos);
+
+        for (ServerPlayerEntity player : set) {
+            if (player.isAlive() && player.networkHandler != null) {
+                ServerPlayNetworking.send(player, packet);
+            }
+        }
+        SyncMaterial.LOGGER.info("[StagingArea] 广播原理图 {} 的备货区更新给 {} 个玩家", schematicId, set.size());
     }
 
     public int addStagingArea(String schematicId, String world, String name, int x1, int y1, int z1, int x2, int y2, int z2) {

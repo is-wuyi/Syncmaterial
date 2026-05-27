@@ -201,6 +201,7 @@ public class ModNetworkHandler {
         try {
             switch (action) {
                 case "LIST" -> {
+                    manager.subscribe(player, schematicId);
                     sendStagingAreaResponse(player, manager, schematicId, true, "");
                 }
                 case "ADD" -> {
@@ -213,6 +214,7 @@ public class ModNetworkHandler {
                     String world = data.world().orElse(player.getWorld().getRegistryKey().getValue().toString());
                     manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     sendStagingAreaResponse(player, manager, schematicId, true, "备货区已添加");
+                    manager.broadcastUpdate(schematicId);
                 }
                 case "RENAME" -> {
                     var ad = payload.areaData();
@@ -222,10 +224,12 @@ public class ModNetworkHandler {
                     }
                     manager.renameStagingArea(payload.areaId(), schematicId, ad.get().name());
                     sendStagingAreaResponse(player, manager, schematicId, true, "备货区已重命名");
+                    manager.broadcastUpdate(schematicId);
                 }
                 case "DELETE" -> {
                     manager.removeStagingArea(payload.areaId(), schematicId);
                     sendStagingAreaResponse(player, manager, schematicId, true, "备货区已删除");
+                    manager.broadcastUpdate(schematicId);
                 }
                 case "UPDATE" -> {
                     var ad = payload.areaData();
@@ -238,6 +242,7 @@ public class ModNetworkHandler {
                             payload.areaId(), schematicId, data.name());
                     manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     sendStagingAreaResponse(player, manager, schematicId, true, "备货区已更新");
+                    manager.broadcastUpdate(schematicId);
                 }
                 case "CLEAR" -> {
                     var areas = manager.getStagingAreas(schematicId);
@@ -245,6 +250,7 @@ public class ModNetworkHandler {
                         manager.removeStagingArea(area.id(), schematicId);
                     }
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(true, "已清除所有备货区", List.of()));
+                    manager.broadcastUpdate(schematicId);
                 }
                 default -> {
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(false, "未知操作: " + action, List.of()));
