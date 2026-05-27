@@ -10,6 +10,7 @@ import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListHudRenderer;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
+import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket;
 import org.slf4j.Logger;
 
@@ -31,6 +32,9 @@ public class SyncMaterialClient implements ClientModInitializer {
                         fi.dy.masa.malilib.config.HudAlignment.TOP_LEFT);
             }
         });
+
+        fi.dy.masa.malilib.event.RenderEventHandler.getInstance().registerWorldLastRenderer(
+                StagingAreaRenderer.getInstance());
     }
 
     public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials) {

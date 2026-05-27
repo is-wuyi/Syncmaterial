@@ -30,6 +30,7 @@ import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 import net.syncmaterial.syncmaterial.SyncMaterial;
+import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListStagingAreas;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetStagingAreaEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
@@ -78,6 +79,8 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         this.needsServerLoad = schematicId != null && !schematicId.isEmpty();
         this.useTitleHierarchy = false;
         this.title = StringUtils.translate("litematica.gui.title.area_editor_normal");
+
+        StagingAreaRenderer.getInstance().setCurrentSelection(selection);
     }
 
     public void setSelectionId(@Nullable String selectionId)
@@ -89,6 +92,13 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     public String getSchematicId()
     {
         return this.schematicId;
+    }
+
+    @Override
+    public void removed()
+    {
+        super.removed();
+        StagingAreaRenderer.getInstance().setCurrentSelection(null);
     }
 
     @Override
