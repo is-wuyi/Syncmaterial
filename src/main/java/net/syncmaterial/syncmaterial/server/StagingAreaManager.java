@@ -154,53 +154,85 @@ public class StagingAreaManager {
             return;
         }
 
-        Map<String, Map<String, Integer>> materialChanges = new HashMap<>();
+        Set<Integer> dirtyAreaIds = new HashSet<>();
 
         for (Map.Entry<BlockPos, ServerWorld> entry : dirtyContainers.entrySet()) {
             BlockPos pos = entry.getKey();
             ServerWorld world = entry.getValue();
 
-            scanContainer(pos, world, materialChanges);
+            Integer areaId = findAreaId(pos, world);
+            if (areaId != null) {
+                dirtyAreaIds.add(areaId);
+            }
         }
 
         dirtyContainers.clear();
 
-        if (!materialChanges.isEmpty() && server != null) {
+        if (!dirtyAreaIds.isEmpty() && server != null) {
             server.execute(() -> {
-                broadcastMaterialChanges(materialChanges);
+                for (int areaId : dirtyAreaIds) {
+                    rescanStagingArea(areaId);
+                }
             });
         }
     }
 
-    private void scanContainer(BlockPos pos, ServerWorld world, Map<String, Map<String, Integer>> materialChanges) {
-        BlockEntity be = world.getBlockEntity(pos);
-        if (!(be instanceof Inventory inventory)) {
-            return;
-        }
-
+    private Integer findAreaId(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
-
         for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
             for (StagingArea area : areas) {
                 if (area.world.equals(worldId) && isPosInArea(pos, area)) {
-                    int areaId = area.id;
-
-                    for (int i = 0; i < inventory.size(); i++) {
-                        var stack = inventory.getStack(i);
-                        if (!stack.isEmpty()) {
-                            String itemId = stack.getItem().toString();
-                            int count = stack.getCount();
-
-                            materialChanges.computeIfAbsent(String.valueOf(areaId), k -> new HashMap<>())
-                                    .merge(itemId, count, Integer::sum);
-                        }
-                    }
-
-                    updateStagingAreaInventory(areaId, materialChanges.get(String.valueOf(areaId)));
-                    return;
+                    return area.id;
                 }
             }
         }
+        return null;
+    }
+
+    private void rescanStagingArea(int areaId) {
+        StagingArea area = findStagingAreaById(areaId);
+        if (area == null) {
+            return;
+        }
+
+        ServerWorld world = server.getWorld(net.minecraft.registry.RegistryKey.of(
+                net.minecraft.registry.RegistryKeys.WORLD, Identifier.of(area.world)));
+        if (world == null) {
+            return;
+        }
+
+        Map<String, Integer> totalItems = new HashMap<>();
+
+        for (int x = area.x1; x <= area.x2; x++) {
+            for (int y = area.y1; y <= area.y2; y++) {
+                for (int z = area.z1; z <= area.z2; z++) {
+                    BlockPos pos = new BlockPos(x, y, z);
+                    BlockEntity be = world.getBlockEntity(pos);
+                    if (be instanceof Inventory inventory) {
+                        for (int i = 0; i < inventory.size(); i++) {
+                            var stack = inventory.getStack(i);
+                            if (!stack.isEmpty()) {
+                                String itemId = stack.getItem().toString();
+                                totalItems.merge(itemId, stack.getCount(), Integer::sum);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        updateStagingAreaInventory(areaId, totalItems);
+    }
+
+    private StagingArea findStagingAreaById(int areaId) {
+        for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
+            for (StagingArea area : areas) {
+                if (area.id == areaId) {
+                    return area;
+                }
+            }
+        }
+        return null;
     }
 
     private void updateStagingAreaInventory(int areaId, Map<String, Integer> itemCounts) {
