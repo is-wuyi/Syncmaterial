@@ -229,6 +229,17 @@ public class StagingAreaManager {
                             if (!stack.isEmpty()) {
                                 String itemId = stack.getItem().toString();
                                 totalItems.merge(itemId, stack.getCount(), Integer::sum);
+
+                                // 潜影盒内容物统计
+                                if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
+                                    blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
+                                    var storedItems = fi.dy.masa.malilib.util.InventoryUtils.getStoredItems(stack);
+                                    for (var stored : storedItems) {
+                                        if (stored.isEmpty()) continue;
+                                        String storedId = stored.getItem().toString();
+                                        totalItems.merge(storedId, stored.getCount(), Integer::sum);
+                                    }
+                                }
                             }
                         }
                     }

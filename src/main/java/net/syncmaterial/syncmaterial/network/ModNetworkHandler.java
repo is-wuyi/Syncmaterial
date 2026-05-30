@@ -103,6 +103,19 @@ public class ModNetworkHandler {
                     var materials = queryService.getMaterials(schematicId);
                     SyncMaterial.LOGGER.debug("数据库查询结果: schematic={}, 材料数量={}", schematicId, materials.size());
 
+                    // 自动计算每个材料的进度（备货区 + 协作者背包）
+                    for (var entry : materials) {
+                        var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
+                        if (status != null) {
+                            int collected = status.stagingCount();
+                            for (var p : status.participants()) {
+                                collected += p.count();
+                            }
+                            entry.setCountAvailable(collected);
+                            entry.setCountMissing(Math.max(0, entry.getCountTotal() - collected));
+                        }
+                    }
+
                     String schematicName = PlacementsUtil.getDisplayName(schematicId);
                     ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials));
 
