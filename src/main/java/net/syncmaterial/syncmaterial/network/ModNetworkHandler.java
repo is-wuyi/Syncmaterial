@@ -229,7 +229,10 @@ public class ModNetworkHandler {
                     }
                     AreaData data = ad.get();
                     String world = data.world().orElse(player.getWorld().getRegistryKey().getValue().toString());
-                    manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    int areaId = manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    if (areaId > 0) {
+                        manager.rescanStagingArea(areaId);
+                    }
                     sendStagingAreaResponse(player, manager, schematicId, true, "备货区已添加");
                     manager.broadcastUpdate(schematicId);
                 }

@@ -195,7 +195,7 @@ public class StagingAreaManager {
         return null;
     }
 
-    private void rescanStagingArea(int areaId) {
+    public void rescanStagingArea(int areaId) {
         StagingArea area = findStagingAreaById(areaId);
         if (area == null) {
             SyncMaterial.LOGGER.warn("[StagingArea] rescanStagingArea: area {} not found", areaId);
