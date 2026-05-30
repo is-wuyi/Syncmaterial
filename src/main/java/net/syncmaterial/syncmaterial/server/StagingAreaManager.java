@@ -211,9 +211,16 @@ public class StagingAreaManager {
 
         Map<String, Integer> totalItems = new HashMap<>();
 
-        for (int x = area.x1; x <= area.x2; x++) {
-            for (int y = area.y1; y <= area.y2; y++) {
-                for (int z = area.z1; z <= area.z2; z++) {
+        int minX = Math.min(area.x1, area.x2);
+        int maxX = Math.max(area.x1, area.x2);
+        int minY = Math.min(area.y1, area.y2);
+        int maxY = Math.max(area.y1, area.y2);
+        int minZ = Math.min(area.z1, area.z2);
+        int maxZ = Math.max(area.z1, area.z2);
+
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
                     BlockPos pos = new BlockPos(x, y, z);
                     BlockEntity be = world.getBlockEntity(pos);
                     if (be instanceof Inventory inventory) {
