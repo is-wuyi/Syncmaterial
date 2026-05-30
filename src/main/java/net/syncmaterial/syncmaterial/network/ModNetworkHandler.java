@@ -113,6 +113,8 @@ public class ModNetworkHandler {
                             }
                             entry.setCountAvailable(collected);
                             entry.setCountMissing(Math.max(0, entry.getCountTotal() - collected));
+                            // 同时发送协作状态包，让客户端能显示进度条
+                            ServerPlayNetworking.send(player, status);
                         }
                     }
 
