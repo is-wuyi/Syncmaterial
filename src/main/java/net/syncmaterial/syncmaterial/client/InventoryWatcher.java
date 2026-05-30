@@ -10,6 +10,7 @@ import net.syncmaterial.syncmaterial.network.InventoryUpdateC2SPacket;
 
 import java.util.*;
 import org.slf4j.Logger;
+import net.minecraft.item.ItemStack;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 
 public class InventoryWatcher {
@@ -48,6 +49,17 @@ public class InventoryWatcher {
         checkInventoryChanges(MinecraftClient.getInstance().player.getInventory());
     }
 
+    public static List<ItemStack> getShulkerContents(ItemStack stack) {
+        if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
+            blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
+            var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
+            if (container != null) {
+                return container.streamNonEmpty().toList();
+            }
+        }
+        return List.of();
+    }
+
     public static Map<Integer, Integer> getCurrentCounts() {
         if (MinecraftClient.getInstance().player == null) return Map.of();
         Map<Integer, Integer> currentCounts = new HashMap<>();
@@ -63,19 +75,11 @@ public class InventoryWatcher {
                 currentCounts.merge(materialId, stack.getCount(), Integer::sum);
             }
 
-            // 潜影盒内容物统计
-            if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
-                blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
-                var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
-                if (container != null) {
-                    for (var stored : container.streamNonEmpty().toList()) {
-                        if (stored.isEmpty()) continue;
-                        String storedId = Registries.ITEM.getId(stored.getItem()).toString();
-                        Integer storedMaterialId = itemIdToMaterialId.get(storedId);
-                        if (storedMaterialId != null) {
-                            currentCounts.merge(storedMaterialId, stored.getCount(), Integer::sum);
-                        }
-                    }
+            for (var stored : getShulkerContents(stack)) {
+                String storedId = Registries.ITEM.getId(stored.getItem()).toString();
+                Integer storedMaterialId = itemIdToMaterialId.get(storedId);
+                if (storedMaterialId != null) {
+                    currentCounts.merge(storedMaterialId, stored.getCount(), Integer::sum);
                 }
             }
         }

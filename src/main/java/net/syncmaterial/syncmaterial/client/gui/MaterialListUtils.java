@@ -19,16 +19,9 @@ public class MaterialListUtils {
             String itemId = net.minecraft.registry.Registries.ITEM.getId(stack.getItem()).toString();
             playerCounts.merge(itemId, stack.getCount(), Integer::sum);
 
-            if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
-                blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
-                var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
-                if (container != null) {
-                    for (var stored : container.streamNonEmpty().toList()) {
-                        if (stored.isEmpty()) continue;
-                        String storedId = net.minecraft.registry.Registries.ITEM.getId(stored.getItem()).toString();
-                        playerCounts.merge(storedId, stored.getCount(), Integer::sum);
-                    }
-                }
+            for (var stored : net.syncmaterial.syncmaterial.client.InventoryWatcher.getShulkerContents(stack)) {
+                String storedId = net.minecraft.registry.Registries.ITEM.getId(stored.getItem()).toString();
+                playerCounts.merge(storedId, stored.getCount(), Integer::sum);
             }
         }
 

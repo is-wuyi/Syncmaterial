@@ -101,12 +101,12 @@ public class ModNetworkHandler {
                     SyncMaterial.LOGGER.debug("收到玩家 {} 的材料统计请求: {}", player.getGameProfile().getName(), schematicId);
 
                     var materials = queryService.getMaterials(schematicId);
-                    SyncMaterial.LOGGER.debug("数据库查询结果: schematic={}, 材料数量={}", schematicId, materials.size());
+                    var statuses = new java.util.ArrayList<CollaborationStatusS2CPacket>();
 
-                    // 自动计算每个材料的进度（备货区 + 协作者背包）
                     for (var entry : materials) {
                         var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
                         if (status != null) {
+                            statuses.add(status);
                             int collected = status.stagingCount();
                             for (var p : status.participants()) {
                                 collected += p.count();
@@ -119,11 +119,8 @@ public class ModNetworkHandler {
                     String schematicName = PlacementsUtil.getDisplayName(schematicId);
                     ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials));
 
-                    for (var entry : materials) {
-                        var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
-                        if (status != null) {
-                            ServerPlayNetworking.send(player, status);
-                        }
+                    for (var status : statuses) {
+                        ServerPlayNetworking.send(player, status);
                     }
 
                 } catch (Exception e) {
