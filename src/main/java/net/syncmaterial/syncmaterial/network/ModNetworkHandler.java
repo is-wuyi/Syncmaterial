@@ -113,13 +113,18 @@ public class ModNetworkHandler {
                             }
                             entry.setCountAvailable(collected);
                             entry.setCountMissing(Math.max(0, entry.getCountTotal() - collected));
-                            // 同时发送协作状态包，让客户端能显示进度条
-                            ServerPlayNetworking.send(player, status);
                         }
                     }
 
                     String schematicName = PlacementsUtil.getDisplayName(schematicId);
                     ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials));
+
+                    for (var entry : materials) {
+                        var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
+                        if (status != null) {
+                            ServerPlayNetworking.send(player, status);
+                        }
+                    }
 
                 } catch (Exception e) {
                     SyncMaterial.LOGGER.error("处理材料统计请求失败", e);
