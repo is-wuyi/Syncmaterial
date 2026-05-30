@@ -24,7 +24,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             "litematica.gui.label.material_list.title.item",
             "litematica.gui.label.material_list.title.total",
             "litematica.gui.label.material_list.title.missing",
-            "litematica.gui.label.material_list.title.available",
+            "syncmaterial.gui.label.material_list.title.backpack",
             "syncmaterial.gui.label.material_list.title.claim" };
     private static int maxNameLength;
     private static int maxCountLength1;

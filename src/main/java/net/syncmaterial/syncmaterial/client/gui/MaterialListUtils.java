@@ -11,7 +11,6 @@ public class MaterialListUtils {
     public static void updateAvailableCounts(List<MaterialListEntry> list, PlayerEntity player) {
         if (player == null) return;
 
-        // 先扫描玩家背包（包括潜影盒内容物）
         java.util.Map<String, Integer> playerCounts = new java.util.HashMap<>();
         for (int i = 0; i < player.getInventory().size(); i++) {
             ItemStack stack = player.getInventory().getStack(i);
@@ -20,7 +19,6 @@ public class MaterialListUtils {
             String itemId = net.minecraft.registry.Registries.ITEM.getId(stack.getItem()).toString();
             playerCounts.merge(itemId, stack.getCount(), Integer::sum);
 
-            // 潜影盒内容物统计
             if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
                 blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
                 var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
@@ -37,12 +35,8 @@ public class MaterialListUtils {
         for (MaterialListEntry entry : list) {
             String itemId = net.minecraft.registry.Registries.ITEM.getId(entry.getStack().getItem()).toString();
             int playerCount = playerCounts.getOrDefault(itemId, 0);
-
-            // 已有数量 = 备货区数量(来自服务端) + 玩家背包数量(客户端扫描)
-            int stagingCount = entry.getCountAvailable();  // 服务端已设置的备货区数量
-            int available = stagingCount + playerCount;
-            entry.setCountAvailable(available);
-            entry.setCountMissing(Math.max(0, entry.getCountTotal() - available));
+            entry.setCountAvailable(playerCount);
+            entry.setCountMissing(Math.max(0, entry.getCountTotal() - playerCount));
         }
     }
 

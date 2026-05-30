@@ -83,18 +83,7 @@ public class InventoryWatcher {
     }
 
     private static void checkInventoryChanges(PlayerInventory inventory) {
-        Map<Integer, Integer> currentCounts = new HashMap<>();
-
-        for (int i = 0; i < inventory.size(); i++) {
-            ItemStack stack = inventory.getStack(i);
-            if (stack.isEmpty()) continue;
-
-            String itemId = Registries.ITEM.getId(stack.getItem()).toString();
-            Integer materialId = itemIdToMaterialId.get(itemId);
-            if (materialId != null) {
-                currentCounts.merge(materialId, stack.getCount(), Integer::sum);
-            }
-        }
+        Map<Integer, Integer> currentCounts = getCurrentCounts();
 
         for (Map.Entry<Integer, Integer> entry : currentCounts.entrySet()) {
             int materialId = entry.getKey();

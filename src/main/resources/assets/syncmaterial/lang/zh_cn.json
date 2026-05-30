@@ -1,5 +1,6 @@
 {
   "syncmaterial.gui.label.material_list.title.claim": "认领状态",
+  "syncmaterial.gui.label.material_list.title.backpack": "背包",
   "syncmaterial.gui.button.material_list.claim": "认领",
   "syncmaterial.gui.button.material_list.abandon": "放弃",
   "syncmaterial.gui.label.claim.unclaimed": "未认领",
