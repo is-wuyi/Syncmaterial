@@ -147,12 +147,15 @@ public class StagingAreaManager {
 
     public void scheduleContainerScan(BlockPos pos, ServerWorld world) {
         dirtyContainers.put(pos, world);
+        SyncMaterial.LOGGER.info("[StagingArea] scheduleContainerScan: pos={},{},{}", pos.getX(), pos.getY(), pos.getZ());
     }
 
     public void processDirtyContainers() {
         if (dirtyContainers.isEmpty()) {
             return;
         }
+
+        SyncMaterial.LOGGER.info("[StagingArea] processDirtyContainers: {} dirty containers", dirtyContainers.size());
 
         Set<Integer> dirtyAreaIds = new HashSet<>();
 
@@ -161,12 +164,15 @@ public class StagingAreaManager {
             ServerWorld world = entry.getValue();
 
             Integer areaId = findAreaId(pos, world);
+            SyncMaterial.LOGGER.info("[StagingArea] findAreaId: pos={},{},{} areaId={}", pos.getX(), pos.getY(), pos.getZ(), areaId);
             if (areaId != null) {
                 dirtyAreaIds.add(areaId);
             }
         }
 
         dirtyContainers.clear();
+
+        SyncMaterial.LOGGER.info("[StagingArea] dirtyAreaIds: {}", dirtyAreaIds);
 
         if (!dirtyAreaIds.isEmpty() && server != null) {
             server.execute(() -> {
@@ -192,12 +198,14 @@ public class StagingAreaManager {
     private void rescanStagingArea(int areaId) {
         StagingArea area = findStagingAreaById(areaId);
         if (area == null) {
+            SyncMaterial.LOGGER.warn("[StagingArea] rescanStagingArea: area {} not found", areaId);
             return;
         }
 
         ServerWorld world = server.getWorld(net.minecraft.registry.RegistryKey.of(
                 net.minecraft.registry.RegistryKeys.WORLD, Identifier.of(area.world)));
         if (world == null) {
+            SyncMaterial.LOGGER.warn("[StagingArea] rescanStagingArea: world {} not found", area.world);
             return;
         }
 
@@ -221,6 +229,11 @@ public class StagingAreaManager {
             }
         }
 
+        SyncMaterial.LOGGER.info("[StagingArea] rescanStagingArea: areaId={} found {} item types", areaId, totalItems.size());
+        for (var entry : totalItems.entrySet()) {
+            SyncMaterial.LOGGER.info("[StagingArea]   {} x{}", entry.getKey(), entry.getValue());
+        }
+
         updateStagingAreaInventory(areaId, totalItems);
     }
 
@@ -237,8 +250,11 @@ public class StagingAreaManager {
 
     private void updateStagingAreaInventory(int areaId, Map<String, Integer> itemCounts) {
         if (itemCounts == null || itemCounts.isEmpty()) {
+            SyncMaterial.LOGGER.info("[StagingArea] updateStagingAreaInventory: areaId={} itemCounts is empty, skipping", areaId);
             return;
         }
+
+        SyncMaterial.LOGGER.info("[StagingArea] updateStagingAreaInventory: areaId={} with {} items", areaId, itemCounts.size());
 
         try {
             database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id = ?", areaId);
