@@ -79,7 +79,7 @@ public class SyncMaterialList extends MaterialListBase {
         List<MaterialListEntry> entries = this.getMaterialsAll();
         for (MaterialListEntry entry : entries) {
             CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
-            if (status != null && !status.participants().isEmpty()) {
+            if (status != null && (status.stagingCount() > 0 || !status.participants().isEmpty())) {
                 int collected = status.stagingCount();
                 for (var p : status.participants()) {
                     collected += p.count();
