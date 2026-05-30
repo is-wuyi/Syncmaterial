@@ -66,13 +66,15 @@ public class InventoryWatcher {
             // 潜影盒内容物统计
             if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
                 blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
-                var storedItems = fi.dy.masa.malilib.util.InventoryUtils.getStoredItems(stack);
-                for (var stored : storedItems) {
-                    if (stored.isEmpty()) continue;
-                    String storedId = Registries.ITEM.getId(stored.getItem()).toString();
-                    Integer storedMaterialId = itemIdToMaterialId.get(storedId);
-                    if (storedMaterialId != null) {
-                        currentCounts.merge(storedMaterialId, stored.getCount(), Integer::sum);
+                var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
+                if (container != null) {
+                    for (var stored : container.streamNonEmpty().toList()) {
+                        if (stored.isEmpty()) continue;
+                        String storedId = Registries.ITEM.getId(stored.getItem()).toString();
+                        Integer storedMaterialId = itemIdToMaterialId.get(storedId);
+                        if (storedMaterialId != null) {
+                            currentCounts.merge(storedMaterialId, stored.getCount(), Integer::sum);
+                        }
                     }
                 }
             }

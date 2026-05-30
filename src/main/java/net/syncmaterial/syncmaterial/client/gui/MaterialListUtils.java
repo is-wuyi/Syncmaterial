@@ -10,15 +10,37 @@ import java.util.List;
 public class MaterialListUtils {
     public static void updateAvailableCounts(List<MaterialListEntry> list, PlayerEntity player) {
         if (player == null) return;
-        for (MaterialListEntry entry : list) {
-            Item item = entry.getStack().getItem();
-            int available = 0;
-            for (int i = 0; i < player.getInventory().size(); i++) {
-                ItemStack stack = player.getInventory().getStack(i);
-                if (stack.getItem() == item) {
-                    available += stack.getCount();
+
+        // 先扫描玩家背包（包括潜影盒内容物）
+        java.util.Map<String, Integer> playerCounts = new java.util.HashMap<>();
+        for (int i = 0; i < player.getInventory().size(); i++) {
+            ItemStack stack = player.getInventory().getStack(i);
+            if (stack.isEmpty()) continue;
+
+            String itemId = net.minecraft.registry.Registries.ITEM.getId(stack.getItem()).toString();
+            playerCounts.merge(itemId, stack.getCount(), Integer::sum);
+
+            // 潜影盒内容物统计
+            if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
+                blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
+                var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
+                if (container != null) {
+                    for (var stored : container.streamNonEmpty().toList()) {
+                        if (stored.isEmpty()) continue;
+                        String storedId = net.minecraft.registry.Registries.ITEM.getId(stored.getItem()).toString();
+                        playerCounts.merge(storedId, stored.getCount(), Integer::sum);
+                    }
                 }
             }
+        }
+
+        for (MaterialListEntry entry : list) {
+            String itemId = net.minecraft.registry.Registries.ITEM.getId(entry.getStack().getItem()).toString();
+            int playerCount = playerCounts.getOrDefault(itemId, 0);
+
+            // 已有数量 = 备货区数量(来自服务端) + 玩家背包数量(客户端扫描)
+            int stagingCount = entry.getCountAvailable();  // 服务端已设置的备货区数量
+            int available = stagingCount + playerCount;
             entry.setCountAvailable(available);
             entry.setCountMissing(Math.max(0, entry.getCountTotal() - available));
         }
