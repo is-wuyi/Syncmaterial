@@ -302,7 +302,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         x = 12;
         y = this.getListY() - 12;
         String str = String.valueOf(this.selection.getAllSubRegionNames().size());
-        this.addLabel(x, y, -1, 16, 0xFFFFFFFF, GuiBase.TXT_BOLD + StringUtils.translate("litematica.gui.label.area_editor.sub_regions", str));
+        this.addLabel(x, y, -1, 16, 0xFFFFFFFF, GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.label.staging_areas", str));
 
         y = this.getScreenHeight() - 26;
 
@@ -763,9 +763,9 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         public enum Type
         {
             SET_SELECTION_NAME      ("litematica.gui.button.area_editor.set_selection_name"),
-            SET_BOX_NAME            ("litematica.gui.button.area_editor.set_box_name"),
+            SET_BOX_NAME            ("syncmaterial.gui.button.rename_staging_area"),
             TOGGLE_ORIGIN_ENABLED   ("litematica.gui.button.area_editor.origin_enabled"),
-            CREATE_SUB_REGION       ("litematica.gui.button.area_editor.create_sub_region"),
+            CREATE_SUB_REGION       ("syncmaterial.gui.button.add_staging_area"),
             SELECT_AREA             ("syncmaterial.gui.button.select_area"),
             MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),
             CLOSE                   ("gui.close"),
