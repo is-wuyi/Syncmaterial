@@ -13,6 +13,7 @@ import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
 import net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket;
+import net.syncmaterial.syncmaterial.network.RescanStagingAreaC2SPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
@@ -69,8 +70,12 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private int createButtonRefresh(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "刷新列表");
         this.addButton(button, (btn, mouseButton) -> {
-            MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
-            this.getListWidget().refreshEntries();
+            String schematicId = this.materialList.getSchematicId();
+            if (schematicId != null && !schematicId.isEmpty()) {
+                ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(schematicId));
+                btn.setDisplayString("刷新中...");
+                btn.setEnabled(false);
+            }
         });
         return button.getWidth();
     }
@@ -94,6 +99,16 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             btn.setDisplayString("HUD信息显示：" + (this.materialList.getHudRenderer().getShouldRender() ? "开启" : "关闭"));
         });
         return button.getWidth();
+    }
+
+    public void onRescanResponse(boolean success, String message) {
+        this.initGui();
+        if (success) {
+            this.materialList.requestCollaborationStatus();
+            MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
+            this.getListWidget().refreshEntries();
+        }
+        net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.info("[Rescan] 结果: success={}, message={}", success, message);
     }
 
     private int createButtonClose(int x, int y) {

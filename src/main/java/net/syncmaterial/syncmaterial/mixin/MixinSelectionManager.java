@@ -22,24 +22,60 @@ public class MixinSelectionManager
         GuiStagingAreaEditorNormal editor = GuiStagingAreaEditorNormal.getCurrentEditor();
         if (editor != null)
         {
-            cir.setReturnValue(editor.getLitematicaSelection());
+            try
+            {
+                cir.setReturnValue(editor.getLitematicaSelection());
+            }
+            catch (Exception e)
+            {
+                SyncMaterial.LOGGER.error("[Mixin] getCurrentSelection EXCEPTION!", e);
+            }
         }
     }
 
     @Inject(method = "setPositionOfCurrentSelectionToRayTrace", at = @At("HEAD"), cancellable = false)
     private void onSetPositionOfCurrentSelectionToRayTraceHead(MinecraftClient mc, Corner corner, boolean moveEntireSelection, double maxDistance, CallbackInfo ci)
     {
-        SyncMaterial.LOGGER.info("[Mixin] setPositionOfCurrentSelectionToRayTrace HEAD: corner={}", corner);
+        if (GuiStagingAreaEditorNormal.getCurrentEditor() != null)
+        {
+            SyncMaterial.LOGGER.info("[Mixin] setPositionOfCurrentSelectionToRayTrace HEAD: corner={}", corner);
+        }
     }
 
     @Inject(method = "setPositionOfCurrentSelectionToRayTrace", at = @At("RETURN"), cancellable = false)
     private void onSetPositionOfCurrentSelectionToRayTrace(MinecraftClient mc, Corner corner, boolean moveEntireSelection, double maxDistance, CallbackInfo ci)
     {
-        GuiStagingAreaEditorNormal editor = GuiStagingAreaEditorNormal.getCurrentEditor();
-        if (editor != null && corner != Corner.NONE)
+        try
         {
-            SyncMaterial.LOGGER.info("[Mixin] setPositionOfCurrentSelectionToRayTrace RETURN: syncing corner {}", corner);
-            editor.syncCornerToServer(corner);
+            GuiStagingAreaEditorNormal editor = GuiStagingAreaEditorNormal.getCurrentEditor();
+            if (editor != null && corner != Corner.NONE)
+            {
+                SyncMaterial.LOGGER.info("[Mixin] setPositionOfCurrentSelectionToRayTrace RETURN: syncing corner {}", corner);
+                editor.syncCornerToServer(corner);
+            }
+        }
+        catch (Exception e)
+        {
+            SyncMaterial.LOGGER.error("[Mixin] setPositionOfCurrentSelectionToRayTrace RETURN EXCEPTION!", e);
+        }
+    }
+
+    @Inject(method = "handleCuboidModeMouseClick", at = @At("RETURN"), cancellable = false)
+    private void onHandleCuboidModeMouseClickReturn(MinecraftClient mc, double maxDistance, boolean isRightClick, boolean moveEntireSelection, CallbackInfo ci)
+    {
+        try
+        {
+            GuiStagingAreaEditorNormal editor = GuiStagingAreaEditorNormal.getCurrentEditor();
+            if (editor != null)
+            {
+                editor.syncLitematicaChangesToSelection();
+                editor.syncCornerToServer(Corner.CORNER_1);
+                editor.syncCornerToServer(Corner.CORNER_2);
+            }
+        }
+        catch (Exception e)
+        {
+            SyncMaterial.LOGGER.error("[Mixin] handleCuboidModeMouseClick RETURN EXCEPTION!", e);
         }
     }
 }

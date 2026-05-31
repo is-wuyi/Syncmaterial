@@ -20,4 +20,8 @@ public class ModPackets {
     // Staging area packets (Phase 2)
     public static final Identifier STAGING_AREA_CONFIG = Identifier.of("syncmaterial", "staging_area_config");
     public static final Identifier STAGING_AREA_CONFIG_RESPONSE = Identifier.of("syncmaterial", "staging_area_config_response");
+
+    // Rescan staging area packets
+    public static final Identifier RESCAN_STAGING_AREA = Identifier.of("syncmaterial", "rescan_staging_area");
+    public static final Identifier RESCAN_STAGING_AREA_RESPONSE = Identifier.of("syncmaterial", "rescan_staging_area_response");
 }

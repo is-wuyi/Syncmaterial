@@ -46,6 +46,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                                           implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui
 {
     @Nullable private static GuiStagingAreaEditorNormal currentEditor;
+    @Nullable private static fi.dy.masa.litematica.selection.AreaSelection cachedLitematicaSelection;
 
     protected final AreaSelection selection;
     protected final String schematicId;
@@ -70,26 +71,78 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     public static void clearCurrentEditor()
     {
         currentEditor = null;
+        cachedLitematicaSelection = null;
     }
 
     public fi.dy.masa.litematica.selection.AreaSelection getLitematicaSelection()
     {
-        fi.dy.masa.litematica.selection.AreaSelection litematicaSelection = new fi.dy.masa.litematica.selection.AreaSelection();
-        for (String name : this.selection.getAllSubRegionNames())
+        // 检查缓存是否有效：子区域数量和选中名称是否变化
+        boolean cacheValid = cachedLitematicaSelection != null;
+        if (cacheValid)
         {
-            Box box = this.selection.getSubRegionBox(name);
-            if (box != null)
+            boolean sameBoxCount = cachedLitematicaSelection.getAllSubRegionNames().size() == this.selection.getAllSubRegionNames().size();
+            String cachedCurrentBox = cachedLitematicaSelection.getCurrentSubRegionBoxName();
+            String currentBox = this.selection.getCurrentSubRegionBoxName();
+            boolean sameCurrentBox = (cachedCurrentBox == null && currentBox == null) || (cachedCurrentBox != null && cachedCurrentBox.equals(currentBox));
+            cacheValid = sameBoxCount && sameCurrentBox;
+        }
+
+        if (!cacheValid)
+        {
+            SyncMaterial.LOGGER.info("[getLitematicaSelection] rebuilding cache");
+            fi.dy.masa.litematica.selection.AreaSelection litematicaSelection = new fi.dy.masa.litematica.selection.AreaSelection();
+            for (String name : this.selection.getAllSubRegionNames())
             {
-                fi.dy.masa.litematica.selection.Box litematicaBox = new fi.dy.masa.litematica.selection.Box(box.getPos1(), box.getPos2(), name);
-                litematicaSelection.addSubRegionBox(litematicaBox, true);
+                Box box = this.selection.getSubRegionBox(name);
+                if (box != null)
+                {
+                    fi.dy.masa.litematica.selection.Box litematicaBox = new fi.dy.masa.litematica.selection.Box(box.getPos1(), box.getPos2(), name);
+                    litematicaSelection.addSubRegionBox(litematicaBox, true);
+                }
+            }
+            String selectedName = this.selection.getCurrentSubRegionBoxName();
+            if (selectedName != null)
+            {
+                litematicaSelection.setSelectedSubRegionBox(selectedName);
+            }
+            cachedLitematicaSelection = litematicaSelection;
+        }
+
+        return cachedLitematicaSelection;
+    }
+
+    public void syncLitematicaChangesToSelection()
+    {
+        if (cachedLitematicaSelection == null)
+        {
+            return;
+        }
+
+        for (String name : cachedLitematicaSelection.getAllSubRegionNames())
+        {
+            fi.dy.masa.litematica.selection.Box litematicaBox = cachedLitematicaSelection.getSubRegionBox(name);
+            Box ourBox = this.selection.getSubRegionBox(name);
+
+            if (litematicaBox != null && ourBox != null)
+            {
+                BlockPos litematicaPos1 = litematicaBox.getPos1();
+                BlockPos litematicaPos2 = litematicaBox.getPos2();
+                BlockPos ourPos1 = ourBox.getPos1();
+                BlockPos ourPos2 = ourBox.getPos2();
+
+                boolean pos1Changed = litematicaPos1 != null && !litematicaPos1.equals(ourPos1);
+                boolean pos2Changed = litematicaPos2 != null && !litematicaPos2.equals(ourPos2);
+
+                if (pos1Changed)
+                {
+                    ourBox.setPos1(litematicaPos1);
+                }
+                if (pos2Changed)
+                {
+                    ourBox.setPos2(litematicaPos2);
+                }
             }
         }
-        String selectedName = this.selection.getCurrentSubRegionBoxName();
-        if (selectedName != null)
-        {
-            litematicaSelection.setSelectedSubRegionBox(selectedName);
-        }
-        return litematicaSelection;
     }
 
     public void setNeedsServerLoad()

@@ -51,5 +51,15 @@ public class ModNetworkHandlerClient {
                 }
             });
         });
+
+        ClientPlayNetworking.registerGlobalReceiver(RescanStagingAreaResponseS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.info("[Rescan] 收到重新扫描响应: success={}, message={}", payload.success(), payload.message());
+                var screen = MinecraftClient.getInstance().currentScreen;
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                    materialListScreen.onRescanResponse(payload.success(), payload.message());
+                }
+            });
+        });
     }
 }

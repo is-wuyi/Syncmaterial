@@ -36,11 +36,13 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playC2S().register(InventoryUpdateC2SPacket.ID, InventoryUpdateC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(StagingAreaConfigC2SPacket.ID, StagingAreaConfigC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(RescanStagingAreaC2SPacket.ID, RescanStagingAreaC2SPacket.CODEC);
 
         // S2C (服务端到客户端)
         PayloadTypeRegistry.playS2C().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.playS2C().register(RescanStagingAreaResponseS2CPacket.ID, RescanStagingAreaResponseS2CPacket.CODEC);
     }
 
     private static boolean validateSchematicId(String schematicId) {
@@ -203,6 +205,14 @@ public class ModNetworkHandler {
                 handleStagingAreaConfig(payload, player, context.server());
             });
         });
+
+        ServerPlayNetworking.registerGlobalReceiver(RescanStagingAreaC2SPacket.ID, (payload, context) -> {
+            var player = context.player();
+            if (!validatePlayer(player)) return;
+            context.server().execute(() -> {
+                handleRescanStagingArea(payload, context);
+            });
+        });
     }
 
     private static void handleStagingAreaConfig(StagingAreaConfigC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
@@ -260,6 +270,7 @@ public class ModNetworkHandler {
                     SyncMaterial.LOGGER.debug("[StagingArea] UPDATE: areaId={} schematicId='{}' name='{}'",
                             payload.areaId(), schematicId, data.name());
                     manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    manager.rescanStagingArea(payload.areaId());
                     sendStagingAreaResponse(player, manager, schematicId, true, "备货区已更新");
                     manager.broadcastUpdate(schematicId);
                 }
@@ -278,6 +289,43 @@ public class ModNetworkHandler {
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("处理备货区配置失败", e);
             ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, false, "操作失败: " + e.getMessage(), List.of()));
+        }
+    }
+
+    private static void handleRescanStagingArea(RescanStagingAreaC2SPacket payload, ServerPlayNetworking.Context context) {
+        try {
+            var player = context.player();
+            if (!validatePlayer(player)) return;
+
+            String schematicId = payload.schematicId();
+            if (!validateSchematicId(schematicId)) {
+                ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(false, "无效的原理图ID"));
+                return;
+            }
+
+            var manager = SyncMaterial.getServerStagingAreaManager();
+            if (manager == null) {
+                ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(false, "备货区管理器未初始化"));
+                return;
+            }
+
+            var areas = manager.getStagingAreas(schematicId);
+            if (areas.isEmpty()) {
+                ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(false, "没有找到备货区"));
+                return;
+            }
+
+            int rescannedCount = 0;
+            for (var area : areas) {
+                manager.rescanStagingArea(area.id());
+                rescannedCount++;
+            }
+
+            SyncMaterial.LOGGER.info("[StagingArea] 手动重新扫描完成: schematicId={}, 区域数={}", schematicId, rescannedCount);
+            ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(true, "成功重新扫描 " + rescannedCount + " 个备货区"));
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("处理重新扫描请求失败", e);
+            ServerPlayNetworking.send(context.player(), new RescanStagingAreaResponseS2CPacket(false, "重新扫描失败: " + e.getMessage()));
         }
     }
 
