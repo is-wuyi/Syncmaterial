@@ -197,15 +197,17 @@ public class StagingAreaSelector {
         String line1 = "左键: 设置 pos1" + (this.pos1 != null ? " ✓" : "");
         String line2 = "右键: 设置 pos2" + (this.pos2 != null ? " ✓" : "");
         String line3 = "Enter: 确认 | Esc: 取消";
-
-        if (this.posLookingAt != null) {
-            line1 += "  准星: " + this.posLookingAt.getX() + ", " + this.posLookingAt.getY() + ", " + this.posLookingAt.getZ();
-        }
+        String lineCrosshair = this.posLookingAt != null
+                ? "准星: " + this.posLookingAt.getX() + ", " + this.posLookingAt.getY() + ", " + this.posLookingAt.getZ()
+                : "";
 
         int textY = centerY - 30;
-        drawContext.fill(centerX - 150, textY - 5, centerX + 150, textY + 45, 0xCC000000);
+        drawContext.fill(centerX - 150, textY - 5, centerX + 150, textY + 55, 0xCC000000);
         drawContext.drawTextWithShadow(mc.textRenderer, line1, centerX - mc.textRenderer.getWidth(line1) / 2, textY, 0xFFFFFFFF);
         drawContext.drawTextWithShadow(mc.textRenderer, line2, centerX - mc.textRenderer.getWidth(line2) / 2, textY + 14, 0xFFFFFFFF);
         drawContext.drawTextWithShadow(mc.textRenderer, line3, centerX - mc.textRenderer.getWidth(line3) / 2, textY + 28, 0xFFAAAAAA);
+        if (!lineCrosshair.isEmpty()) {
+            drawContext.drawTextWithShadow(mc.textRenderer, lineCrosshair, centerX - mc.textRenderer.getWidth(lineCrosshair) / 2, textY + 42, 0xFF55FFFF);
+        }
     }
 }
