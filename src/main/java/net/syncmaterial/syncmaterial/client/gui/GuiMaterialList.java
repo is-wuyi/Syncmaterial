@@ -16,6 +16,8 @@ import net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket;
 import net.syncmaterial.syncmaterial.network.RescanStagingAreaC2SPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import fi.dy.masa.malilib.gui.Message.MessageType;
+import fi.dy.masa.malilib.util.InfoUtils;
 
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
     private final SyncMaterialList materialList;
@@ -107,6 +109,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             this.materialList.requestCollaborationStatus();
             MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
             this.getListWidget().refreshEntries();
+            InfoUtils.showGuiOrActionBarMessage(MessageType.SUCCESS, message);
+        } else {
+            InfoUtils.showGuiOrActionBarMessage(MessageType.ERROR, message);
         }
         net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.info("[Rescan] 结果: success={}, message={}", success, message);
     }
