@@ -67,6 +67,11 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         return currentEditor;
     }
 
+    public static void clearCurrentEditor()
+    {
+        currentEditor = null;
+    }
+
     public fi.dy.masa.litematica.selection.AreaSelection getLitematicaSelection()
     {
         fi.dy.masa.litematica.selection.AreaSelection litematicaSelection = new fi.dy.masa.litematica.selection.AreaSelection();
@@ -253,11 +258,8 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     public void removed()
     {
         super.removed();
-        if (currentEditor == this)
-        {
-            SyncMaterial.LOGGER.info("[StagingAreaEditor] removed: clearing currentEditor");
-            currentEditor = null;
-        }
+        // 不清除 currentEditor，让木棍交互在关闭 GUI 后仍能工作
+        // currentEditor 会在玩家断开连接或打开其他编辑器时被清除
     }
 
     protected void createSelectionEditFields()

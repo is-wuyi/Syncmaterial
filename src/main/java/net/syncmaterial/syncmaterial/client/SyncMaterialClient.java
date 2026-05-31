@@ -34,6 +34,11 @@ public class SyncMaterialClient implements ClientModInitializer {
 
         fi.dy.masa.malilib.event.RenderEventHandler.getInstance().registerWorldLastRenderer(
                 StagingAreaRenderer.getInstance());
+
+        // 断开连接时清除编辑器状态
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal.clearCurrentEditor();
+        });
     }
 
     public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials) {
