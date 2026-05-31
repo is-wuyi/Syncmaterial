@@ -226,6 +226,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     {
         super.initGui();
         currentEditor = this;
+        SyncMaterial.LOGGER.info("[StagingAreaEditor] initGui: currentEditor set to {}", this.hashCode());
 
         if (this.selection != null)
         {
@@ -254,6 +255,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         super.removed();
         if (currentEditor == this)
         {
+            SyncMaterial.LOGGER.info("[StagingAreaEditor] removed: clearing currentEditor");
             currentEditor = null;
         }
     }

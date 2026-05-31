@@ -30,6 +30,25 @@ public class ModNetworkHandlerClient {
                 {
                     editor.onServerResponse(payload);
                 }
+                else
+                {
+                    var renderer = StagingAreaRenderer.getInstance();
+                    var selection = renderer.getSelection(payload.schematicId());
+                    if (selection == null)
+                    {
+                        selection = new net.syncmaterial.syncmaterial.selection.AreaSelection();
+                        renderer.updateSelection(payload.schematicId(), selection);
+                    }
+                    for (var area : payload.areas())
+                    {
+                        var box = new net.syncmaterial.syncmaterial.selection.Box(
+                            new net.minecraft.util.math.BlockPos(area.x1(), area.y1(), area.z1()),
+                            new net.minecraft.util.math.BlockPos(area.x2(), area.y2(), area.z2()),
+                            area.name());
+                        selection.addSubRegionBox(box, true);
+                        selection.setServerId(area.name(), area.areaId());
+                    }
+                }
             });
         });
     }

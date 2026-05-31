@@ -10,6 +10,7 @@ import net.minecraft.client.MinecraftClient;
 import fi.dy.masa.litematica.selection.AreaSelection;
 import fi.dy.masa.litematica.selection.SelectionManager;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
+import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal;
 
 @Mixin(SelectionManager.class)
@@ -21,6 +22,7 @@ public class MixinSelectionManager
         GuiStagingAreaEditorNormal editor = GuiStagingAreaEditorNormal.getCurrentEditor();
         if (editor != null)
         {
+            SyncMaterial.LOGGER.info("[Mixin] getCurrentSelection: editor={}, returning litematica selection", editor.hashCode());
             cir.setReturnValue(editor.getLitematicaSelection());
         }
     }
@@ -31,6 +33,7 @@ public class MixinSelectionManager
         GuiStagingAreaEditorNormal editor = GuiStagingAreaEditorNormal.getCurrentEditor();
         if (editor != null && corner != Corner.NONE)
         {
+            SyncMaterial.LOGGER.info("[Mixin] setPositionOfCurrentSelectionToRayTrace: syncing corner {}", corner);
             editor.syncCornerToServer(corner);
         }
     }
