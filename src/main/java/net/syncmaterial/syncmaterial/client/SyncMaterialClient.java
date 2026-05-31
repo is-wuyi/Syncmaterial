@@ -8,6 +8,7 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListHudRenderer;
+import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket;
@@ -34,6 +35,14 @@ public class SyncMaterialClient implements ClientModInitializer {
 
         fi.dy.masa.malilib.event.RenderEventHandler.getInstance().registerWorldLastRenderer(
                 StagingAreaRenderer.getInstance());
+
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            StagingAreaSelector.getInstance().onTick();
+        });
+
+        net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
+            StagingAreaSelector.getInstance().onRenderHUD(drawContext);
+        });
 
         // 断开连接时清除编辑器状态
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {

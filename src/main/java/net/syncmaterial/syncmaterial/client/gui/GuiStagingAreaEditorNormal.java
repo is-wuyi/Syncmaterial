@@ -46,7 +46,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                                           implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui
 {
     @Nullable private static GuiStagingAreaEditorNormal currentEditor;
-    @Nullable private static fi.dy.masa.litematica.selection.AreaSelection cachedLitematicaSelection;
 
     protected final AreaSelection selection;
     protected final String schematicId;
@@ -71,78 +70,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     public static void clearCurrentEditor()
     {
         currentEditor = null;
-        cachedLitematicaSelection = null;
-    }
-
-    public fi.dy.masa.litematica.selection.AreaSelection getLitematicaSelection()
-    {
-        // 检查缓存是否有效：子区域数量和选中名称是否变化
-        boolean cacheValid = cachedLitematicaSelection != null;
-        if (cacheValid)
-        {
-            boolean sameBoxCount = cachedLitematicaSelection.getAllSubRegionNames().size() == this.selection.getAllSubRegionNames().size();
-            String cachedCurrentBox = cachedLitematicaSelection.getCurrentSubRegionBoxName();
-            String currentBox = this.selection.getCurrentSubRegionBoxName();
-            boolean sameCurrentBox = (cachedCurrentBox == null && currentBox == null) || (cachedCurrentBox != null && cachedCurrentBox.equals(currentBox));
-            cacheValid = sameBoxCount && sameCurrentBox;
-        }
-
-        if (!cacheValid)
-        {
-            SyncMaterial.LOGGER.info("[getLitematicaSelection] rebuilding cache");
-            fi.dy.masa.litematica.selection.AreaSelection litematicaSelection = new fi.dy.masa.litematica.selection.AreaSelection();
-            for (String name : this.selection.getAllSubRegionNames())
-            {
-                Box box = this.selection.getSubRegionBox(name);
-                if (box != null)
-                {
-                    fi.dy.masa.litematica.selection.Box litematicaBox = new fi.dy.masa.litematica.selection.Box(box.getPos1(), box.getPos2(), name);
-                    litematicaSelection.addSubRegionBox(litematicaBox, true);
-                }
-            }
-            String selectedName = this.selection.getCurrentSubRegionBoxName();
-            if (selectedName != null)
-            {
-                litematicaSelection.setSelectedSubRegionBox(selectedName);
-            }
-            cachedLitematicaSelection = litematicaSelection;
-        }
-
-        return cachedLitematicaSelection;
-    }
-
-    public void syncLitematicaChangesToSelection()
-    {
-        if (cachedLitematicaSelection == null)
-        {
-            return;
-        }
-
-        for (String name : cachedLitematicaSelection.getAllSubRegionNames())
-        {
-            fi.dy.masa.litematica.selection.Box litematicaBox = cachedLitematicaSelection.getSubRegionBox(name);
-            Box ourBox = this.selection.getSubRegionBox(name);
-
-            if (litematicaBox != null && ourBox != null)
-            {
-                BlockPos litematicaPos1 = litematicaBox.getPos1();
-                BlockPos litematicaPos2 = litematicaBox.getPos2();
-                BlockPos ourPos1 = ourBox.getPos1();
-                BlockPos ourPos2 = ourBox.getPos2();
-
-                boolean pos1Changed = litematicaPos1 != null && !litematicaPos1.equals(ourPos1);
-                boolean pos2Changed = litematicaPos2 != null && !litematicaPos2.equals(ourPos2);
-
-                if (pos1Changed)
-                {
-                    ourBox.setPos1(litematicaPos1);
-                }
-                if (pos2Changed)
-                {
-                    ourBox.setPos2(litematicaPos2);
-                }
-            }
-        }
     }
 
     public void setNeedsServerLoad()
@@ -351,6 +278,8 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         boolean currentlyOn = this.selection.getExplicitOrigin() != null;
         xSave += this.createButtonOnOff(xSave, ySave, -1, currentlyOn, ButtonListener.Type.TOGGLE_ORIGIN_ENABLED) + 4;
+
+        xSave += this.createButton(xSave, ySave, -1, ButtonListener.Type.SELECT_AREA) + 4;
 
         if (this.selection.getExplicitOrigin() != null)
         {
@@ -604,9 +533,45 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
     }
 
-    public void syncCornerToServer(Corner corner)
+    public void onSelectionConfirmed(@Nullable String boxName, BlockPos pos1, BlockPos pos2)
     {
-        this.sendCoordinateUpdate(corner);
+        if (boxName == null)
+        {
+            String newName = "备货区 " + (this.selection.getAllSubRegionNames().size() + 1);
+            Box newBox = new Box(pos1, pos2, newName);
+            this.selection.addSubRegionBox(newBox, true);
+            this.selection.setSelectedSubRegionBox(newName);
+
+            if (this.schematicId != null && !this.schematicId.isEmpty())
+            {
+                AreaData areaData = new AreaData(newName,
+                        pos1.getX(), pos1.getY(), pos1.getZ(),
+                        pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
+                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                        this.schematicId, "ADD", -1, Optional.of(areaData)));
+            }
+        }
+        else
+        {
+            Box box = this.selection.getSubRegionBox(boxName);
+            if (box != null)
+            {
+                box.setPos1(pos1);
+                box.setPos2(pos2);
+
+                Integer serverId = this.selection.getServerId(boxName);
+                if (serverId != null && this.schematicId != null && !this.schematicId.isEmpty())
+                {
+                    AreaData areaData = new AreaData(boxName,
+                            pos1.getX(), pos1.getY(), pos1.getZ(),
+                            pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
+                    ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                            this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+                }
+            }
+        }
+
+        StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
     }
 
     protected void renameSelection()
@@ -769,6 +734,17 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                     }
                     break;
 
+                case SELECT_AREA:
+                {
+                    Box selectedBox = this.parent.selection.getSelectedSubRegionBox();
+                    String boxName = selectedBox != null ? selectedBox.getName() : null;
+                    BlockPos pos1 = selectedBox != null ? selectedBox.getPos1() : null;
+                    BlockPos pos2 = selectedBox != null ? selectedBox.getPos2() : null;
+
+                    StagingAreaSelector.getInstance().start(this.parent, boxName, pos1, pos2);
+                    return;
+                }
+
                 case CLOSE:
                     GuiBase.openGui(this.parent.getParent());
                     return;
@@ -783,6 +759,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             SET_BOX_NAME            ("litematica.gui.button.area_editor.set_box_name"),
             TOGGLE_ORIGIN_ENABLED   ("litematica.gui.button.area_editor.origin_enabled"),
             CREATE_SUB_REGION       ("litematica.gui.button.area_editor.create_sub_region"),
+            SELECT_AREA             ("syncmaterial.gui.button.select_area"),
             MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),
             CLOSE                   ("gui.close"),
             NUDGE_COORD_X           (""),

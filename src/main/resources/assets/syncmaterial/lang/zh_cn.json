@@ -10,5 +10,6 @@
   "syncmaterial.gui.dialog.claim.total_needed": "需要总量",
   "syncmaterial.gui.dialog.claim.claim_amount": "认领数量",
   "syncmaterial.gui.dialog.claim.confirm": "确认",
-  "syncmaterial.gui.dialog.claim.cancel": "取消"
+  "syncmaterial.gui.dialog.claim.cancel": "取消",
+  "syncmaterial.gui.button.select_area": "选择区域"
 }

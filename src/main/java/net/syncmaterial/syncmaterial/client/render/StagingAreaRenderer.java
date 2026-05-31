@@ -18,6 +18,7 @@ import fi.dy.masa.malilib.interfaces.IRenderer;
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
 
+import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.syncmaterial.syncmaterial.selection.Box;
 
@@ -95,6 +96,8 @@ public class StagingAreaRenderer implements IRenderer
                 RenderUtils.renderAreaSides(pos1, pos2, sideColor, posMatrix);
             }
         }
+
+        StagingAreaSelector.getInstance().onRenderWorld(this, posMatrix);
 
         profiler.pop();
     }
