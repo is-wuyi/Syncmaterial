@@ -45,6 +45,8 @@ import fi.dy.masa.litematica.util.PositionUtils.Corner;
 public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, WidgetStagingAreaEntry, WidgetListStagingAreas>
                                           implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui
 {
+    @Nullable private static GuiStagingAreaEditorNormal currentEditor;
+
     protected final AreaSelection selection;
     protected final String schematicId;
     protected GuiTextFieldGeneric textFieldSelectionName;
@@ -58,6 +60,32 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     @Nullable protected String selectionId;
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
+
+    @Nullable
+    public static GuiStagingAreaEditorNormal getCurrentEditor()
+    {
+        return currentEditor;
+    }
+
+    public fi.dy.masa.litematica.selection.AreaSelection getLitematicaSelection()
+    {
+        fi.dy.masa.litematica.selection.AreaSelection litematicaSelection = new fi.dy.masa.litematica.selection.AreaSelection();
+        for (String name : this.selection.getAllSubRegionNames())
+        {
+            Box box = this.selection.getSubRegionBox(name);
+            if (box != null)
+            {
+                fi.dy.masa.litematica.selection.Box litematicaBox = new fi.dy.masa.litematica.selection.Box(box.getPos1(), box.getPos2(), name);
+                litematicaSelection.addSubRegionBox(litematicaBox, true);
+            }
+        }
+        String selectedName = this.selection.getCurrentSubRegionBoxName();
+        if (selectedName != null)
+        {
+            litematicaSelection.setSelectedSubRegionBox(selectedName);
+        }
+        return litematicaSelection;
+    }
 
     public void setNeedsServerLoad()
     {
@@ -197,6 +225,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     public void initGui()
     {
         super.initGui();
+        currentEditor = this;
 
         if (this.selection != null)
         {
@@ -216,6 +245,16 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             this.loadingFromServer = true;
             ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                     this.schematicId, "LIST", -1, Optional.empty()));
+        }
+    }
+
+    @Override
+    public void removed()
+    {
+        super.removed();
+        if (currentEditor == this)
+        {
+            currentEditor = null;
         }
     }
 
@@ -506,6 +545,11 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
         ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                 this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+    }
+
+    public void syncCornerToServer(Corner corner)
+    {
+        this.sendCoordinateUpdate(corner);
     }
 
     protected void renameSelection()
