@@ -3,7 +3,8 @@
   "package": "net.syncmaterial.syncmaterial.mixin",
   "mixins": [
     "BlockEntityMixin",
-    "SyncmaticaIntegrationMixin"
+    "SyncmaticaIntegrationMixin",
+    "MixinSelectionManager"
   ],
   "client": [
     "WidgetSyncmaticaServerPlacementEntryMixin",
