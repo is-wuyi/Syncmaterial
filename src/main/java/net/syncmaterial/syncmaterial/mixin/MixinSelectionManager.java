@@ -22,9 +22,14 @@ public class MixinSelectionManager
         GuiStagingAreaEditorNormal editor = GuiStagingAreaEditorNormal.getCurrentEditor();
         if (editor != null)
         {
-            SyncMaterial.LOGGER.info("[Mixin] getCurrentSelection: editor={}, returning litematica selection", editor.hashCode());
             cir.setReturnValue(editor.getLitematicaSelection());
         }
+    }
+
+    @Inject(method = "setPositionOfCurrentSelectionToRayTrace", at = @At("HEAD"), cancellable = false)
+    private void onSetPositionOfCurrentSelectionToRayTraceHead(MinecraftClient mc, Corner corner, boolean moveEntireSelection, double maxDistance, CallbackInfo ci)
+    {
+        SyncMaterial.LOGGER.info("[Mixin] setPositionOfCurrentSelectionToRayTrace HEAD: corner={}", corner);
     }
 
     @Inject(method = "setPositionOfCurrentSelectionToRayTrace", at = @At("RETURN"), cancellable = false)
@@ -33,7 +38,7 @@ public class MixinSelectionManager
         GuiStagingAreaEditorNormal editor = GuiStagingAreaEditorNormal.getCurrentEditor();
         if (editor != null && corner != Corner.NONE)
         {
-            SyncMaterial.LOGGER.info("[Mixin] setPositionOfCurrentSelectionToRayTrace: syncing corner {}", corner);
+            SyncMaterial.LOGGER.info("[Mixin] setPositionOfCurrentSelectionToRayTrace RETURN: syncing corner {}", corner);
             editor.syncCornerToServer(corner);
         }
     }
