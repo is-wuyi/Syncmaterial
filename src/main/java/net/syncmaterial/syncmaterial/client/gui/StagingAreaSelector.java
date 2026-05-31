@@ -31,6 +31,8 @@ public class StagingAreaSelector {
     @Nullable private BlockPos posLookingAt = null;
     @Nullable private GuiStagingAreaEditorNormal returnScreen = null;
     @Nullable private String targetBoxName = null;
+    private boolean leftClicked = false;
+    private boolean rightClicked = false;
 
     private StagingAreaSelector() {}
 
@@ -136,15 +138,24 @@ public class StagingAreaSelector {
         }
 
         if (this.posLookingAt != null) {
-            if (mc.options.attackKey.wasPressed()) {
+            boolean attackDown = mc.options.attackKey.isPressed();
+            boolean useDown = mc.options.useKey.isPressed();
+
+            if (attackDown && !this.leftClicked) {
                 this.pos1 = this.posLookingAt;
                 SyncMaterial.LOGGER.info("[StagingAreaSelector] 设置 pos1: {}", this.pos1);
             }
 
-            if (mc.options.useKey.wasPressed()) {
+            if (useDown && !this.rightClicked) {
                 this.pos2 = this.posLookingAt;
                 SyncMaterial.LOGGER.info("[StagingAreaSelector] 设置 pos2: {}", this.pos2);
             }
+
+            this.leftClicked = attackDown;
+            this.rightClicked = useDown;
+        } else {
+            this.leftClicked = false;
+            this.rightClicked = false;
         }
     }
 
