@@ -204,8 +204,8 @@ public class StagingAreaSelector {
 
         int textY = centerY - 30;
         drawContext.fill(centerX - 150, textY - 5, centerX + 150, textY + 45, 0xCC000000);
-        drawContext.drawTextWithShadow(mc.textRenderer, line1, centerX - mc.textRenderer.getWidth(line1) / 2, textY, 0xFFFFFF);
-        drawContext.drawTextWithShadow(mc.textRenderer, line2, centerX - mc.textRenderer.getWidth(line2) / 2, textY + 14, 0xFFFFFF);
-        drawContext.drawTextWithShadow(mc.textRenderer, line3, centerX - mc.textRenderer.getWidth(line3) / 2, textY + 28, 0xAAAAAA);
+        drawContext.drawTextWithShadow(mc.textRenderer, line1, centerX - mc.textRenderer.getWidth(line1) / 2, textY, 0xFFFFFFFF);
+        drawContext.drawTextWithShadow(mc.textRenderer, line2, centerX - mc.textRenderer.getWidth(line2) / 2, textY + 14, 0xFFFFFFFF);
+        drawContext.drawTextWithShadow(mc.textRenderer, line3, centerX - mc.textRenderer.getWidth(line3) / 2, textY + 28, 0xFFAAAAAA);
     }
 }
