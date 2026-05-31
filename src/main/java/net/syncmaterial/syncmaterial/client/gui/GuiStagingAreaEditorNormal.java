@@ -279,7 +279,14 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         boolean currentlyOn = this.selection.getExplicitOrigin() != null;
         xSave += this.createButtonOnOff(xSave, ySave, -1, currentlyOn, ButtonListener.Type.TOGGLE_ORIGIN_ENABLED) + 4;
 
-        xSave += this.createButton(xSave, ySave, -1, ButtonListener.Type.SELECT_AREA) + 4;
+        {
+            String selectLabel = ButtonListener.Type.SELECT_AREA.getDisplayName();
+            String selectHover = StringUtils.translate("syncmaterial.gui.button.select_area.hover");
+            int selectWidth = this.getStringWidth(selectLabel) + 10;
+            ButtonGeneric selectButton = new ButtonGeneric(xSave, ySave, selectWidth, 20, selectLabel, selectHover);
+            this.addButton(selectButton, new ButtonListener(ButtonListener.Type.SELECT_AREA, null, null, this));
+            xSave += selectWidth + 4;
+        }
 
         if (this.selection.getExplicitOrigin() != null)
         {

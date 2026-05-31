@@ -11,5 +11,6 @@
   "syncmaterial.gui.dialog.claim.claim_amount": "认领数量",
   "syncmaterial.gui.dialog.claim.confirm": "确认",
   "syncmaterial.gui.dialog.claim.cancel": "取消",
-  "syncmaterial.gui.button.select_area": "选择区域"
+  "syncmaterial.gui.button.select_area": "准星选区",
+  "syncmaterial.gui.button.select_area.hover": "准星对准方块，左键设起点，右键设终点，Enter确认\\n未选中子区域时将创建新的备货区"
 }
