@@ -32,6 +32,7 @@ src/main/java/net/syncmaterial/syncmaterial/
 │   └── MaterialEntry.java               # 材料条目数据结构
 ├── client/
 │   ├── SyncMaterialClient.java           # 客户端入口（onInitializeClient）
+│   ├── InventoryWatcher.java             # 背包监控（潜影盒扫描）
 │   ├── gui/                              # 独立 UI（不依赖 Litematica 运行时）
 │   │   ├── GuiMaterialList.java          # 材料清单 GUI 主类
 │   │   ├── SyncMaterialList.java         # 数据适配（MaterialEntry → MaterialListEntry）
@@ -40,6 +41,7 @@ src/main/java/net/syncmaterial/syncmaterial/
 │   │   ├── MaterialListSorter.java       # 排序器
 │   │   ├── MaterialListUtils.java        # 工具类（背包检测、数据转换）
 │   │   ├── MaterialListHudRenderer.java  # HUD 渲染器
+│   │   ├── StagingAreaSelector.java      # 准星选区模式（左键/右键/Enter/Esc）
 │   │   ├── GuiStagingAreaEditorNormal.java   # 备货区编辑器（标准模式）
 │   │   ├── GuiStagingAreaEditorSimple.java   # 备货区编辑器（简易模式）
 │   │   ├── GuiStagingAreaEditorSubRegion.java # 备货区编辑器（子区域）
@@ -48,6 +50,8 @@ src/main/java/net/syncmaterial/syncmaterial/
 │   │       ├── WidgetMaterialListEntry.java   # 材料条目 widget
 │   │       ├── WidgetListStagingAreas.java    # 备货区列表 widget
 │   │       └── WidgetStagingAreaEntry.java    # 备货区条目 widget
+│   ├── render/
+│   │   └── StagingAreaRenderer.java      # 备货区渲染器（含选区预览）
 │   └── infohud/
 │       ├── IInfoHudRenderer.java         # HUD 渲染接口
 │       └── RenderPhase.java              # 渲染阶段枚举
@@ -67,6 +71,13 @@ src/main/java/net/syncmaterial/syncmaterial/
 │   ├── MaterialStatsResponseS2CPacket.java
 │   ├── JoinCollaborationC2SPacket.java
 │   ├── CollaborationStatusS2CPacket.java
+│   ├── LeaveCollaborationC2SPacket.java
+│   ├── InventoryUpdateC2SPacket.java
+│   ├── QueryMaterialStatusC2SPacket.java
+│   ├── StagingAreaConfigC2SPacket.java
+│   ├── StagingAreaConfigResponseS2CPacket.java
+│   ├── RescanStagingAreaC2SPacket.java   # 刷新备货区请求
+│   └── RescanStagingAreaResponseS2CPacket.java # 刷新备货区响应
 │   ├── LeaveCollaborationC2SPacket.java
 │   ├── InventoryUpdateC2SPacket.java
 │   ├── QueryMaterialStatusC2SPacket.java
@@ -152,12 +163,25 @@ src/main/java/net/syncmaterial/syncmaterial/
 
 **GuiMaterialList.java** — 材料清单 GUI 主类
 - 继承 MaLiLib 的 GuiListBase
-- 按钮：刷新列表、HUD 开关、关闭
-- 表头列：物品、总计、缺失、已有（点击排序）
+- 按钮：刷新列表（触发服务端重新扫描）、HUD 开关、关闭
+- 表头列：物品、总计、缺失、背包（点击排序）
+
+**StagingAreaSelector.java** — 准星选区模式
+- 点击"准星选区"按钮进入，关闭 GUI 进入选区模式
+- 左键设置 pos1（红色），右键设置 pos2（蓝色），准星位置显示黄色
+- Enter 确认（创建/更新备货区），Esc 取消
+- HUD 显示操作提示和准星坐标
+- 参考 Wurst 的 ExcavatorHack 实现
 
 **GuiStagingAreaEditorNormal.java** — 备货区标准编辑器
 - 复制自 Litematica 的 GuiAreaSelectionEditorNormal
 - 支持多子区域管理，通过网络包与服务端同步
+- 包含"准星选区"按钮（带悬浮提示）
+
+**StagingAreaRenderer.java** — 备货区渲染器
+- 实现 MaLiLib 的 IRenderer 接口
+- 渲染备货区边框（绿色/黄色）
+- 渲染 StagingAreaSelector 的选区预览
 
 **MaterialListHudRenderer.java** — HUD 渲染器
 - 每 2 秒自动刷新背包检测
@@ -203,6 +227,7 @@ ServerLifecycleEvents.SERVER_STARTING
 | MaterialStatsResponseS2CPacket | schematicId, schematicName, materials |
 | CollaborationStatusS2CPacket | schematicId, materialId, totalCount, stagingCount, participants |
 | StagingAreaConfigResponseS2CPacket | success, message, areas |
+| RescanStagingAreaResponseS2CPacket | success, message |
 
 ## 构建与运行
 
@@ -248,36 +273,20 @@ ServerLifecycleEvents.SERVER_STARTING
 - `README.md` / `README_ZH.md` 中的版本号**不需要同步更新**（只是说明输出目录）
 - 只提交代码和配置修改，AGENTS.md 不提交（skip-worktree）
 
-### 7. 发布规范
+### 7. 准星选区模式
 
-**必须按以下步骤操作，缺一不可：**
+StagingAreaSelector 实现了类似 Wurst Excavator 的选区逻辑：
+- 进入选区模式后，关闭 GUI，玩家在游戏世界中操作
+- 左键设置 pos1（红色方块），右键设置 pos2（蓝色方块）
+- Enter 确认（创建/更新备货区），Esc 取消
+- HUD 显示操作提示和准星坐标（带半透明黑色背景）
+- 选区完成后自动同步到服务端
 
-#### 7.1 编写发布说明
-在 `build.gradle` 更新版本号后、打 tag 前，编辑 `.github/release-notes/latest.md` 文件，写入本次发布的更新说明。
-
-格式示例：
-```markdown
-## SyncMaterial v1.21.7-0.2.0-alpha.1
-
-### 新功能
-- 功能 A：简要描述
-
-### 修复
-- 修复 B：简要描述
-
-### 技术变更
-- 版本号更新、依赖调整等
-```
-
-> 描述要通俗易懂，用中文，让玩家能看明白。
-
-#### 7.2 发布流程
-1. 更新 `build.gradle` 版本号 → 提交
-2. 编写 `.github/release-notes/latest.md` → 提交
-3. 打 tag：`git tag v<版本号>`（如 `v1.21.7-0.2.0-alpha.1`）
-4. 推送 tag：`git push origin v<版本号>`
-5. GitHub Actions 自动构建并发布
-6. 发布完成后，删除 `.github/release-notes/latest.md` → 提交
+关键实现细节：
+- 使用 `isPressed()` 而非 `wasPressed()` 检测鼠标点击（避免被游戏输入系统消耗）
+- HUD 颜色使用 ARGB 格式（`0xFFFFFFFF` 为完全不透明白色）
+- 通过 `ClientTickEvents.END_CLIENT_TICK` 注册 tick 事件
+- 通过 `HudRenderCallback.EVENT` 注册 HUD 渲染事件
 
 ### 7. 发布规范
 
@@ -315,3 +324,4 @@ ServerLifecycleEvents.SERVER_STARTING
 - Litematica 源码: `.关于本项目的依赖模组的源代码/litematica-LTS-1.21.8/`
 - MaLiLib 源码: `.关于本项目的依赖模组的源代码/malilib-LTS-1.21.8/`
 - Syncmatica 源码: `.关于本项目的依赖模组的源代码/syncmatica-LTS-1.21.8/`
+- Wurst 源码: `.关于本项目的依赖模组的源代码/Wurst7-1.21.8/`（参考 ExcavatorHack 的选区逻辑）

@@ -21,6 +21,7 @@ bin/
 .opencode/
 opencode.json
 .sisyphus/
+.claude/
 
 # Test runs
 run/
