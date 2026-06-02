@@ -100,7 +100,7 @@ public class GuiPlayerSelector extends Screen {
         super.render(drawContext, mouseX, mouseY, delta);
 
         // 标题
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 10, 0xFFFFFF);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 10, 0xFFFFFFFF);
 
         // 操作提示
         String hint = switch (action) {
@@ -110,7 +110,7 @@ public class GuiPlayerSelector extends Screen {
             case "ADD_DEPUTY" -> "点击选择要添加的副负责人";
             default -> "选择玩家";
         };
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, hint, this.width / 2, 25, 0xAAAAAA);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, hint, this.width / 2, 25, 0xFFAAAAAA);
 
         // 玩家列表
         int listX = this.width / 2 - 150;
@@ -140,18 +140,18 @@ public class GuiPlayerSelector extends Screen {
             drawContext.fill(checkboxX, checkboxY, checkboxX + 14, checkboxY + 14, 0xFF333333);
             drawContext.fill(checkboxX + 1, checkboxY + 1, checkboxX + 13, checkboxY + 13, selected ? 0xFF00AA00 : 0xFF222222);
             if (selected) {
-                drawContext.drawCenteredTextWithShadow(this.textRenderer, "✓", checkboxX + 7, checkboxY + 2, 0xFFFFFF);
+                drawContext.drawCenteredTextWithShadow(this.textRenderer, "✓", checkboxX + 7, checkboxY + 2, 0xFFFFFFFF);
             }
 
             // 玩家名
-            int textColor = player.online() ? 0x55FF55 : 0xAAAAAA;
+            int textColor = player.online() ? 0xFF55FF55 : 0xFFAAAAAA;
             drawContext.drawTextWithShadow(this.textRenderer, player.name(), listX + 24, rowY + 6, textColor);
 
             // 在线状态
             if (player.online()) {
                 String statusText = "在线";
                 int statusWidth = this.textRenderer.getWidth(statusText);
-                drawContext.drawTextWithShadow(this.textRenderer, statusText, listX + listWidth - statusWidth - 8, rowY + 6, 0x55FF55);
+                drawContext.drawTextWithShadow(this.textRenderer, statusText, listX + listWidth - statusWidth - 8, rowY + 6, 0xFF55FF55);
             }
         }
 
@@ -168,7 +168,7 @@ public class GuiPlayerSelector extends Screen {
         // 底部提示
         drawContext.drawTextWithShadow(this.textRenderer,
             "已选择 " + selectedPlayers.size() + " 个玩家 | 材料 " + materialIds.size() + " 个",
-            this.width / 2 - 80, this.height - 45, 0xCCCCCC);
+            this.width / 2 - 80, this.height - 45, 0xFFCCCCCC);
     }
 
     @Override

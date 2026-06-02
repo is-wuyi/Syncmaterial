@@ -23,7 +23,7 @@ public class GuiManagement extends Screen {
     private boolean allowSelfClaim;
     private final boolean isMainOwner;
     private String statusMessage = "";
-    private int statusColor = 0xFFFFFF;
+    private int statusColor = 0xFFFFFFFF;
     private int statusTimer = 0;
 
     /** 记录玩家列表请求的操作类型 */
@@ -94,15 +94,15 @@ public class GuiManagement extends Screen {
         int centerX = this.width / 2;
 
         // 标题
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, this.title, centerX, 10, 0xFFFFFF);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, this.title, centerX, 10, 0xFFFFFFFF);
 
         // 原理图名
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, "原理图: " + schematicName, centerX, 26, 0xAAAAAA);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, "原理图: " + schematicName, centerX, 26, 0xFFAAAAAA);
 
         // 负责人信息
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, "主负责人: " + ownerName, centerX, 42, 0x55FF55);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, "主负责人: " + ownerName, centerX, 42, 0xFF55FF55);
         if (!deputyOwners.isEmpty()) {
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "副负责人: " + String.join(", ", deputyOwners), centerX, 54, 0x55FF55);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "副负责人: " + String.join(", ", deputyOwners), centerX, 54, 0xFF55FF55);
         }
 
         // 状态消息
@@ -115,7 +115,7 @@ public class GuiManagement extends Screen {
     /** 处理负责人操作响应 */
     public void onOwnerActionResponse(boolean success, String message) {
         statusMessage = message;
-        statusColor = success ? 0x55FF55 : 0xFF5555;
+        statusColor = success ? 0xFF55FF55 : 0xFFFF5555;
         statusTimer = 100;
     }
 

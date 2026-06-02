@@ -167,8 +167,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     private void createBottomButtons() {
-        // 放在列表区域底部，底部按钮栏上方
-        int y = this.getScreenHeight() - 68;
+        // 紧跟在列表区域下方
+        int listBottom = 48 + this.getBrowserHeight();
+        int y = listBottom + 4;
         int x = 10;
 
         ButtonGeneric btnAssign = new ButtonGeneric(x, y, -1, true, "分配给...");
