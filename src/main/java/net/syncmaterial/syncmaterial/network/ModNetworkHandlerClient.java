@@ -12,7 +12,7 @@ public class ModNetworkHandlerClient {
     public static void register() {
         ClientPlayNetworking.registerGlobalReceiver(MaterialStatsResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                SyncMaterialClient.openMaterialListScreen(payload.schematicId(), payload.schematicName(), payload.materials());
+                SyncMaterialClient.openMaterialListScreen(payload.schematicId(), payload.schematicName(), payload.materials(), payload.isOwner(), payload.isMainOwner(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
             });
         });
 
@@ -58,6 +58,50 @@ public class ModNetworkHandlerClient {
                 var screen = MinecraftClient.getInstance().currentScreen;
                 if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onRescanResponse(payload.success(), payload.message());
+                }
+            });
+        });
+
+        // Phase 4: 负责人操作响应
+        ClientPlayNetworking.registerGlobalReceiver(OwnerActionResponseS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                var screen = MinecraftClient.getInstance().currentScreen;
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                    materialListScreen.onOwnerActionResponse(payload.success(), payload.message());
+                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiManagement managementScreen) {
+                    managementScreen.onOwnerActionResponse(payload.success(), payload.message());
+                }
+            });
+        });
+
+        // Phase 4: 批量分配响应
+        ClientPlayNetworking.registerGlobalReceiver(BatchAssignResponseS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                var screen = MinecraftClient.getInstance().currentScreen;
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                    materialListScreen.onBatchAssignResponse(payload.success(), payload.message());
+                }
+            });
+        });
+
+        // Phase 4: 踢出响应
+        ClientPlayNetworking.registerGlobalReceiver(KickFromMaterialResponseS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                var screen = MinecraftClient.getInstance().currentScreen;
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                    materialListScreen.onKickResponse(payload.success(), payload.message());
+                }
+            });
+        });
+
+        // Phase 4: 玩家列表响应
+        ClientPlayNetworking.registerGlobalReceiver(PlayerListResponseS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                var screen = MinecraftClient.getInstance().currentScreen;
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                    materialListScreen.onPlayerListResponse(payload.players());
+                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiManagement managementScreen) {
+                    managementScreen.onPlayerListResponse(payload.players());
                 }
             });
         });

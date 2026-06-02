@@ -33,6 +33,10 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
         this.shouldSortList = true;
     }
 
+    public GuiMaterialList getGui() {
+        return this.gui;
+    }
+
     @Override
     public void drawContents(DrawContext drawContext, int mouseX, int mouseY, float partialTicks)
     {
@@ -63,7 +67,17 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     @Override
     protected Collection<MaterialListEntry> getAllEntries()
     {
-        return this.gui.getMaterialList().getMaterialsFiltered(true);
+        var entries = this.gui.getMaterialList().getMaterialsFiltered(true);
+
+        // Phase 4: "仅显示我加入的" 过滤
+        if (this.gui.isFilterMyMaterials()) {
+            var syncList = this.gui.getMaterialList();
+            entries = entries.stream()
+                .filter(syncList::isCollaborating)
+                .collect(java.util.stream.Collectors.toList());
+        }
+
+        return entries;
     }
 
     @Override

@@ -1,0 +1,45 @@
+package net.syncmaterial.syncmaterial.network;
+
+import net.minecraft.network.RegistryByteBuf;
+import net.minecraft.network.codec.PacketCodec;
+import net.minecraft.network.codec.PacketCodecs;
+import net.minecraft.network.packet.CustomPayload;
+
+import java.util.List;
+
+/**
+ * 玩家列表响应包 (Phase 4)
+ */
+public record PlayerListResponseS2CPacket(
+    List<PlayerInfo> players
+) implements CustomPayload {
+
+    public static final CustomPayload.Id<PlayerListResponseS2CPacket> ID = new CustomPayload.Id<>(ModPackets.PLAYER_LIST_RESPONSE);
+
+    public static final PacketCodec<RegistryByteBuf, PlayerInfo> PLAYER_INFO_CODEC = new PacketCodec<>() {
+        @Override
+        public PlayerInfo decode(RegistryByteBuf buf) {
+            String name = PacketCodecs.STRING.decode(buf);
+            boolean online = PacketCodecs.BOOLEAN.decode(buf);
+            return new PlayerInfo(name, online);
+        }
+
+        @Override
+        public void encode(RegistryByteBuf buf, PlayerInfo info) {
+            PacketCodecs.STRING.encode(buf, info.name());
+            PacketCodecs.BOOLEAN.encode(buf, info.online());
+        }
+    };
+
+    public static final PacketCodec<RegistryByteBuf, PlayerListResponseS2CPacket> CODEC = PacketCodec.tuple(
+            PLAYER_INFO_CODEC.collect(PacketCodecs.toList()), PlayerListResponseS2CPacket::players,
+            PlayerListResponseS2CPacket::new
+    );
+
+    @Override
+    public Id<? extends CustomPayload> getId() {
+        return ID;
+    }
+
+    public record PlayerInfo(String name, boolean online) {}
+}

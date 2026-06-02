@@ -50,9 +50,9 @@ public class SyncMaterialClient implements ClientModInitializer {
         });
     }
 
-    public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials) {
-        LOGGER.info("收到材料清单响应，准备打开 UI。共 {} 项。", materials.size());
-        GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials);
+    public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
+        LOGGER.info("收到材料清单响应，准备打开 UI。共 {} 项。isOwner={}, isMainOwner={}", materials.size(), isOwner, isMainOwner);
+        GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim);
         activeMaterialList = gui.getMaterialList();
         MinecraftClient.getInstance().setScreen(gui);
     }

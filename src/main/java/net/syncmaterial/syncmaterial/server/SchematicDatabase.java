@@ -97,31 +97,15 @@ public class SchematicDatabase implements AutoCloseable {
             );
             """);
 
-        // 分配记录表 (Phase 2: 权限与分配)
+        // 副负责人表 (Phase 4: 负责人管理)
         executeUpdate("""
-            CREATE TABLE IF NOT EXISTS assignments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schematic_id TEXT NOT NULL,
-                material_id INTEGER NOT NULL,
-                assignee_name TEXT NOT NULL,
-                assigned_by_name TEXT NOT NULL,
-                assigned_count INTEGER NOT NULL,
-                status TEXT DEFAULT 'pending',
-                reject_reason TEXT,
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
-                FOREIGN KEY (material_id) REFERENCES material_entries(id) ON DELETE CASCADE
-            );
-            """);
-
-        // 分配权限白名单表 (Phase 2: 权限与分配)
-        executeUpdate("""
-            CREATE TABLE IF NOT EXISTS assignment_permissions (
+            CREATE TABLE IF NOT EXISTS deputy_owners (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 schematic_id TEXT NOT NULL,
                 player_name TEXT NOT NULL,
-                granted_by_name TEXT NOT NULL,
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
+                UNIQUE(schematic_id, player_name)
             );
             """);
 
@@ -196,11 +180,10 @@ public class SchematicDatabase implements AutoCloseable {
         executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_claim_unique ON claims(schematic_id, material_id, player_name);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_schematic ON claims(schematic_id);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_player ON claims(player_name);");
-        
-        // Assignment indexes (Phase 2)
-        executeUpdate("CREATE INDEX IF NOT EXISTS idx_assignments_schematic ON assignments(schematic_id);");
-        executeUpdate("CREATE INDEX IF NOT EXISTS idx_assignments_assignee ON assignments(assignee_name);");
-        executeUpdate("CREATE INDEX IF NOT EXISTS idx_assignment_permissions_schematic ON assignment_permissions(schematic_id);");
+
+        // Deputy owners indexes (Phase 4)
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_deputy_owners_schematic ON deputy_owners(schematic_id);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_deputy_owners_player ON deputy_owners(player_name);");
     }
 
     /**
@@ -320,6 +303,125 @@ public class SchematicDatabase implements AutoCloseable {
             "ON CONFLICT(schematic_id, player_name, material_id) DO UPDATE SET count = ?, updated_at = (strftime('%s', 'now') * 1000)",
             schematicId, playerName, materialId, count, count
         );
+    }
+
+    // ========== 副负责人管理 (Phase 4) ==========
+
+    /**
+     * 获取主负责人名称
+     */
+    public String getUploadedBy(String schematicId) throws SQLException {
+        try (var rs = executeQuery(
+            "SELECT uploaded_by FROM schematics WHERE id = ?",
+            schematicId
+        )) {
+            if (rs.next()) {
+                String name = rs.getString("uploaded_by");
+                return name != null ? name : "";
+            }
+            return "";
+        }
+    }
+
+    /**
+     * 检查是否是主负责人
+     */
+    public boolean isMainOwner(String schematicId, String playerName) throws SQLException {
+        try (var rs = executeQuery(
+            "SELECT 1 FROM schematics WHERE id = ? AND uploaded_by = ?",
+            schematicId, playerName
+        )) {
+            return rs.next();
+        }
+    }
+
+    /**
+     * 检查是否是负责人（主负责人或副负责人）
+     */
+    public boolean isOwner(String schematicId, String playerName) throws SQLException {
+        if (isMainOwner(schematicId, playerName)) return true;
+        return isDeputyOwner(schematicId, playerName);
+    }
+
+    /**
+     * 添加副负责人
+     */
+    public void addDeputyOwner(String schematicId, String playerName) throws SQLException {
+        executeUpdate(
+            "INSERT OR IGNORE INTO deputy_owners (schematic_id, player_name) VALUES (?, ?)",
+            schematicId, playerName
+        );
+    }
+
+    /**
+     * 移除副负责人
+     */
+    public void removeDeputyOwner(String schematicId, String playerName) throws SQLException {
+        executeUpdate(
+            "DELETE FROM deputy_owners WHERE schematic_id = ? AND player_name = ?",
+            schematicId, playerName
+        );
+    }
+
+    /**
+     * 检查是否是副负责人
+     */
+    public boolean isDeputyOwner(String schematicId, String playerName) throws SQLException {
+        try (var rs = executeQuery(
+            "SELECT 1 FROM deputy_owners WHERE schematic_id = ? AND player_name = ?",
+            schematicId, playerName
+        )) {
+            return rs.next();
+        }
+    }
+
+    /**
+     * 获取所有副负责人
+     */
+    public java.util.List<String> getDeputyOwners(String schematicId) throws SQLException {
+        java.util.List<String> result = new java.util.ArrayList<>();
+        executeQueryAndProcess(
+            "SELECT player_name FROM deputy_owners WHERE schematic_id = ?",
+            rs -> {
+                while (rs.next()) {
+                    result.add(rs.getString("player_name"));
+                }
+            },
+            schematicId
+        );
+        return result;
+    }
+
+    /**
+     * 转让主负责人
+     */
+    public void transferOwnership(String schematicId, String newOwnerName) throws SQLException {
+        executeUpdate(
+            "UPDATE schematics SET uploaded_by = ? WHERE id = ?",
+            newOwnerName, schematicId
+        );
+    }
+
+    /**
+     * 设置自行认领开关
+     */
+    public void setAllowSelfClaim(String schematicId, boolean allow) throws SQLException {
+        executeUpdate(
+            "UPDATE schematics SET allow_self_claim = ? WHERE id = ?",
+            allow ? 1 : 0, schematicId
+        );
+    }
+
+    /**
+     * 获取自行认领开关状态
+     */
+    public boolean getAllowSelfClaim(String schematicId) throws SQLException {
+        try (var rs = executeQuery(
+            "SELECT allow_self_claim FROM schematics WHERE id = ?",
+            schematicId
+        )) {
+            return rs.next() && rs.getInt("allow_self_claim") == 1;
+        }
     }
 
     /**

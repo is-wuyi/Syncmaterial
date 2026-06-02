@@ -42,6 +42,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private final String header5;
     private final String shulkerBoxAbbr;
     private final boolean isOdd;
+    private final boolean isOwner;
 
     public WidgetMaterialListEntry(int x, int y, int width, int height, boolean isOdd,
             MaterialListBase materialList, MaterialListEntry entry, int listIndex, WidgetListMaterialList listWidget)
@@ -53,6 +54,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         this.isOdd = isOdd;
         this.listWidget = listWidget;
         this.materialList = materialList;
+        this.isOwner = listWidget.getGui().isOwner();
         this.shulkerBoxAbbr = StringUtils.translate("litematica.gui.label.material_list.abbr.shulker_box");
 
         if (this.entry != null)
@@ -131,7 +133,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     @Override
     protected int getColumnPosX(int column)
     {
-        int x1 = this.x + 4;
+        // Phase 4: 负责人视角复选框占 16px
+        int checkboxOffset = this.isOwner ? 16 : 0;
+        int x1 = this.x + 4 + checkboxOffset;
         int x2 = x1 + maxNameLength + 40; // item icon plus offset
         int x3 = x2 + maxCountLength1 + 20;
         int x4 = x3 + maxCountLength2 + 20;
@@ -152,6 +156,22 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     @Override
     protected boolean onMouseClickedImpl(int mouseX, int mouseY, int mouseButton)
     {
+        // Phase 4: 负责人复选框点击
+        if (this.isOwner && this.entry != null) {
+            int cbX = this.x + 2;
+            int cbY = this.y + 7;
+            if (mouseX >= cbX && mouseX <= cbX + 12 && mouseY >= cbY && mouseY <= cbY + 12) {
+                var selected = this.listWidget.getGui().getSelectedMaterialIds();
+                int id = this.entry.getDatabaseId();
+                if (selected.contains(id)) {
+                    selected.remove(Integer.valueOf(id));
+                } else {
+                    selected.add(id);
+                }
+                return true;
+            }
+        }
+
         if (super.onMouseClickedImpl(mouseX, mouseY, mouseButton))
         {
             return true;
@@ -212,6 +232,18 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         int x4 = this.getColumnPosX(3);
         int y = this.y + 7;
         int color = 0xFFFFFFFF;
+
+        // Phase 4: 负责人视角复选框
+        if (this.isOwner && this.entry != null) {
+            boolean checked = this.listWidget.getGui().getSelectedMaterialIds().contains(this.entry.getDatabaseId());
+            int cbX = this.x + 2;
+            int cbY = this.y + 7;
+            drawContext.fill(cbX, cbY, cbX + 12, cbY + 12, 0xFF333333);
+            drawContext.fill(cbX + 1, cbY + 1, cbX + 11, cbY + 11, checked ? 0xFF00AA00 : 0xFF222222);
+            if (checked) {
+                this.drawString(drawContext, cbX + 1, cbY, 0xFFFFFF, "✓");
+            }
+        }
 
         if (this.header1 != null)
         {
@@ -275,15 +307,27 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int claimColor;
             if (claimStatus.equals("未认领")) {
                 claimColor = 0xFF888888;
-            } else if (claimStatus.contains("我")) {
-                claimColor = 0xFF00AA00;
             } else if (claimStatus.contains("剩余: 0") || claimStatus.contains("剩余:0")) {
-                claimStatus = "已完成 ✓";
                 claimColor = 0xFF00CC00;
             } else {
                 claimColor = 0xFF0000AA;
             }
-            this.drawString(drawContext, x5, y, claimColor, claimStatus);
+
+            // Phase 4: 负责人视角显示参与者名字
+            if (this.isOwner) {
+                var participants = this.entry.getParticipants();
+                if (!participants.isEmpty()) {
+                    String names = participants.stream()
+                        .map(p -> p.playerName())
+                        .reduce((a, b) -> a + ", " + b)
+                        .orElse("");
+                    this.drawString(drawContext, x5, y, 0xFF55FF55, names);
+                } else {
+                    this.drawString(drawContext, x5, y, claimColor, claimStatus);
+                }
+            } else {
+                this.drawString(drawContext, x5, y, claimColor, claimStatus);
+            }
 
 //            drawContext.getMatrices().push();
             //TODO: RenderSystem.disableLighting();

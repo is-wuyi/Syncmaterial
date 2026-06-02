@@ -24,4 +24,14 @@ public class ModPackets {
     // Rescan staging area packets
     public static final Identifier RESCAN_STAGING_AREA = Identifier.of("syncmaterial", "rescan_staging_area");
     public static final Identifier RESCAN_STAGING_AREA_RESPONSE = Identifier.of("syncmaterial", "rescan_staging_area_response");
+
+    // Phase 4: 负责人管理与批量分配
+    public static final Identifier OWNER_ACTION = Identifier.of("syncmaterial", "owner_action");
+    public static final Identifier OWNER_ACTION_RESPONSE = Identifier.of("syncmaterial", "owner_action_response");
+    public static final Identifier BATCH_ASSIGN = Identifier.of("syncmaterial", "batch_assign");
+    public static final Identifier BATCH_ASSIGN_RESPONSE = Identifier.of("syncmaterial", "batch_assign_response");
+    public static final Identifier KICK_FROM_MATERIAL = Identifier.of("syncmaterial", "kick_from_material");
+    public static final Identifier KICK_FROM_MATERIAL_RESPONSE = Identifier.of("syncmaterial", "kick_from_material_response");
+    public static final Identifier PLAYER_LIST_REQUEST = Identifier.of("syncmaterial", "player_list_request");
+    public static final Identifier PLAYER_LIST_RESPONSE = Identifier.of("syncmaterial", "player_list_response");
 }
