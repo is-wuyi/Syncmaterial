@@ -107,7 +107,8 @@ public class GuiManagement extends Screen {
 
     @Override
     public void render(DrawContext drawContext, int mouseX, int mouseY, float delta) {
-        this.renderBackground(drawContext, mouseX, mouseY, delta);
+        // renderBackground 由 super.render() 处理，不重复调用
+        super.render(drawContext, mouseX, mouseY, delta);
 
         int centerX = this.width / 2;
 
@@ -133,8 +134,6 @@ public class GuiManagement extends Screen {
         if (addDeputyInput != null) {
             addDeputyInput.render(drawContext, mouseX, mouseY, delta);
         }
-
-        super.render(drawContext, mouseX, mouseY, delta);
     }
 
     @Override

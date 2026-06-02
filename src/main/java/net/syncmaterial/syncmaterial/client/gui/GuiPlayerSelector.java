@@ -70,8 +70,7 @@ public class GuiPlayerSelector extends Screen {
 
     @Override
     public void render(DrawContext drawContext, int mouseX, int mouseY, float delta) {
-        // 半透明背景
-        this.renderBackground(drawContext, mouseX, mouseY, delta);
+        super.render(drawContext, mouseX, mouseY, delta);
 
         // 标题
         drawContext.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 10, 0xFFFFFF);
@@ -137,8 +136,6 @@ public class GuiPlayerSelector extends Screen {
         drawContext.drawCenteredTextWithShadow(this.textRenderer,
             "已选择 " + selectedPlayers.size() + " 个玩家 | 材料 " + materialIds.size() + " 个",
             this.width / 2, this.height - 45, 0xCCCCCC);
-
-        super.render(drawContext, mouseX, mouseY, delta);
     }
 
     @Override
