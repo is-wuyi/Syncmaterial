@@ -7,17 +7,19 @@ import net.minecraft.text.Text;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.syncmaterial.syncmaterial.network.BatchAssignC2SPacket;
 import net.syncmaterial.syncmaterial.network.KickFromMaterialC2SPacket;
+import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
 import net.syncmaterial.syncmaterial.network.PlayerListResponseS2CPacket.PlayerInfo;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 玩家选择界面 - 用于批量分配和踢出操作 (Phase 4)
+ * 玩家选择界面 - 用于分配/踢出/转让/添加副负责人 (Phase 4)
+ * action: ASSIGN, KICK, TRANSFER, ADD_DEPUTY
  */
 public class GuiPlayerSelector extends Screen {
     private final List<PlayerInfo> players;
-    private final String action; // "ASSIGN" 或 "KICK"
+    private final String action;
     private final String schematicId;
     private final List<Integer> materialIds;
     private final Screen parent;
@@ -26,13 +28,27 @@ public class GuiPlayerSelector extends Screen {
     private static final int VISIBLE_ROWS = 10;
     private static final int ROW_HEIGHT = 20;
 
+    /** 单选模式：转让/添加副负责人 */
+    private final boolean singleSelect;
+
     public GuiPlayerSelector(List<PlayerInfo> players, String action, String schematicId, List<Integer> materialIds, Screen parent) {
-        super(Text.literal("ASSIGN".equals(action) ? "选择分配玩家" : "选择踢出玩家"));
+        super(Text.literal(getTitleForAction(action)));
         this.players = players;
         this.action = action;
         this.schematicId = schematicId;
         this.materialIds = materialIds;
         this.parent = parent;
+        this.singleSelect = "TRANSFER".equals(action) || "ADD_DEPUTY".equals(action);
+    }
+
+    private static String getTitleForAction(String action) {
+        return switch (action) {
+            case "ASSIGN" -> "选择分配玩家";
+            case "KICK" -> "选择踢出玩家";
+            case "TRANSFER" -> "转让负责人";
+            case "ADD_DEPUTY" -> "选择副负责人";
+            default -> "选择玩家";
+        };
     }
 
     @Override
@@ -40,15 +56,17 @@ public class GuiPlayerSelector extends Screen {
         int centerX = this.width / 2;
         int bottomY = this.height - 30;
 
-        // 确认按钮
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("确认"), btn -> {
-            onConfirm();
-        }).dimensions(centerX - 80, bottomY, 70, 20).build());
+        // 确认按钮（单选模式自动确认，不需要）
+        if (!singleSelect) {
+            this.addDrawableChild(ButtonWidget.builder(Text.literal("确认"), btn -> {
+                onConfirm();
+            }).dimensions(centerX - 80, bottomY, 70, 20).build());
+        }
 
         // 取消按钮
         this.addDrawableChild(ButtonWidget.builder(Text.literal("取消"), btn -> {
             this.client.setScreen(parent);
-        }).dimensions(centerX + 10, bottomY, 70, 20).build());
+        }).dimensions(centerX + (singleSelect ? -35 : 10), bottomY, 70, 20).build());
     }
 
     private void onConfirm() {
@@ -56,12 +74,20 @@ public class GuiPlayerSelector extends Screen {
             return;
         }
 
-        if ("ASSIGN".equals(action)) {
-            ClientPlayNetworking.send(new BatchAssignC2SPacket(schematicId, materialIds, new ArrayList<>(selectedPlayers)));
-        } else {
-            // KICK - 每个选中的玩家发送一个踢出请求
-            for (String player : selectedPlayers) {
-                ClientPlayNetworking.send(new KickFromMaterialC2SPacket(schematicId, materialIds, player));
+        switch (action) {
+            case "ASSIGN" -> ClientPlayNetworking.send(new BatchAssignC2SPacket(schematicId, materialIds, new ArrayList<>(selectedPlayers)));
+            case "KICK" -> {
+                for (String player : selectedPlayers) {
+                    ClientPlayNetworking.send(new KickFromMaterialC2SPacket(schematicId, materialIds, player));
+                }
+            }
+            case "TRANSFER" -> {
+                String target = selectedPlayers.get(0);
+                ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "TRANSFER", target));
+            }
+            case "ADD_DEPUTY" -> {
+                String target = selectedPlayers.get(0);
+                ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "ADD_DEPUTY", target));
             }
         }
 
@@ -70,13 +96,20 @@ public class GuiPlayerSelector extends Screen {
 
     @Override
     public void render(DrawContext drawContext, int mouseX, int mouseY, float delta) {
+        // super.render 渲染背景 + 所有 widgets（按钮等）
         super.render(drawContext, mouseX, mouseY, delta);
 
         // 标题
         drawContext.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 10, 0xFFFFFF);
 
         // 操作提示
-        String hint = "ASSIGN".equals(action) ? "勾选要分配给的玩家" : "勾选要踢出的玩家";
+        String hint = switch (action) {
+            case "ASSIGN" -> "勾选要分配给的玩家";
+            case "KICK" -> "勾选要踢出的玩家";
+            case "TRANSFER" -> "点击选择新的主负责人";
+            case "ADD_DEPUTY" -> "点击选择要添加的副负责人";
+            default -> "选择玩家";
+        };
         drawContext.drawCenteredTextWithShadow(this.textRenderer, hint, this.width / 2, 25, 0xAAAAAA);
 
         // 玩家列表
@@ -86,7 +119,7 @@ public class GuiPlayerSelector extends Screen {
         int listHeight = VISIBLE_ROWS * ROW_HEIGHT;
 
         // 列表背景
-        drawContext.fill(listX, listY, listX + listWidth, listY + listHeight, 0x80000000);
+        drawContext.fill(listX, listY, listX + listWidth, listY + listHeight, 0xC0101010);
 
         int endIndex = Math.min(scrollOffset + VISIBLE_ROWS, players.size());
         for (int i = scrollOffset; i < endIndex; i++) {
@@ -112,13 +145,13 @@ public class GuiPlayerSelector extends Screen {
 
             // 玩家名
             int textColor = player.online() ? 0x55FF55 : 0xAAAAAA;
-            drawContext.drawTextWithShadow(this.textRenderer, player.name(), listX + 24, rowY + 4, textColor);
+            drawContext.drawTextWithShadow(this.textRenderer, player.name(), listX + 24, rowY + 6, textColor);
 
             // 在线状态
             if (player.online()) {
                 String statusText = "在线";
                 int statusWidth = this.textRenderer.getWidth(statusText);
-                drawContext.drawTextWithShadow(this.textRenderer, statusText, listX + listWidth - statusWidth - 8, rowY + 4, 0x55FF55);
+                drawContext.drawTextWithShadow(this.textRenderer, statusText, listX + listWidth - statusWidth - 8, rowY + 6, 0x55FF55);
             }
         }
 
@@ -133,9 +166,9 @@ public class GuiPlayerSelector extends Screen {
         }
 
         // 底部提示
-        drawContext.drawCenteredTextWithShadow(this.textRenderer,
+        drawContext.drawTextWithShadow(this.textRenderer,
             "已选择 " + selectedPlayers.size() + " 个玩家 | 材料 " + materialIds.size() + " 个",
-            this.width / 2, this.height - 45, 0xCCCCCC);
+            this.width / 2 - 80, this.height - 45, 0xCCCCCC);
     }
 
     @Override
@@ -148,12 +181,19 @@ public class GuiPlayerSelector extends Screen {
             int row = (int) ((mouseY - listY) / ROW_HEIGHT) + scrollOffset;
             if (row >= 0 && row < players.size()) {
                 String playerName = players.get(row).name();
-                if (selectedPlayers.contains(playerName)) {
-                    selectedPlayers.remove(playerName);
-                } else {
+                if (singleSelect) {
+                    selectedPlayers.clear();
                     selectedPlayers.add(playerName);
+                    onConfirm();
+                    return true;
+                } else {
+                    if (selectedPlayers.contains(playerName)) {
+                        selectedPlayers.remove(playerName);
+                    } else {
+                        selectedPlayers.add(playerName);
+                    }
+                    return true;
                 }
-                return true;
             }
         }
 

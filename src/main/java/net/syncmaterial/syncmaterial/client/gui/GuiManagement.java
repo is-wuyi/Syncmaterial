@@ -4,7 +4,6 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
 import net.syncmaterial.syncmaterial.network.PlayerListRequestC2SPacket;
@@ -27,10 +26,8 @@ public class GuiManagement extends Screen {
     private int statusColor = 0xFFFFFF;
     private int statusTimer = 0;
 
-    // 添加副负责人输入框
-    private TextFieldWidget addDeputyInput;
-    // 移除副负责人选择
-    private String selectedDeputyToRemove = null;
+    /** 记录玩家列表请求的操作类型 */
+    private String pendingPlayerListAction = null;
 
     public GuiManagement(String schematicId, String schematicName, String ownerName, List<String> deputyOwners, boolean allowSelfClaim, boolean isMainOwner) {
         super(Text.literal("管理"));
@@ -47,48 +44,31 @@ public class GuiManagement extends Screen {
         int centerX = this.width / 2;
         int y = 70;
 
-        // 转让负责人按钮（仅主负责人）
+        // 仅主负责人可见的管理功能
         if (isMainOwner) {
             this.addDrawableChild(ButtonWidget.builder(Text.literal("转让负责人"), btn -> {
-                // 打开一个简单的输入对话框
-                // 简化实现：使用玩家列表选择
+                pendingPlayerListAction = "TRANSFER";
                 ClientPlayNetworking.send(new PlayerListRequestC2SPacket(schematicId));
             }).dimensions(centerX - 100, y, 95, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(Text.literal("添加副负责人"), btn -> {
-                if (addDeputyInput != null && !addDeputyInput.getText().isBlank()) {
-                    ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "ADD_DEPUTY", addDeputyInput.getText().trim()));
-                }
+                pendingPlayerListAction = "ADD_DEPUTY";
+                ClientPlayNetworking.send(new PlayerListRequestC2SPacket(schematicId));
             }).dimensions(centerX + 5, y, 95, 20).build());
             y += 25;
 
-            // 添加副负责人输入框
-            this.addDeputyInput = new TextFieldWidget(this.textRenderer, centerX - 100, y, 200, 20, Text.literal("玩家名"));
-            this.addDeputyInput.setPlaceholder(Text.literal("输入玩家名..."));
-            this.addSelectableChild(this.addDeputyInput);
-            y += 30;
-
             // 移除副负责人
             if (!deputyOwners.isEmpty()) {
-                this.addDrawableChild(ButtonWidget.builder(Text.literal("移除副负责人"), btn -> {
-                    if (selectedDeputyToRemove != null) {
-                        ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "REMOVE_DEPUTY", selectedDeputyToRemove));
-                        selectedDeputyToRemove = null;
-                    }
-                }).dimensions(centerX - 100, y, 95, 20).build());
-                y += 25;
-
-                // 副负责人列表（可点击选择）
                 for (String deputy : deputyOwners) {
                     final String deputyName = deputy;
-                    boolean selected = deputyName.equals(selectedDeputyToRemove);
                     this.addDrawableChild(ButtonWidget.builder(
-                        Text.literal((selected ? "✓ " : "  ") + deputyName),
+                        Text.literal("移除 " + deputyName),
                         btn -> {
-                            selectedDeputyToRemove = deputyName.equals(selectedDeputyToRemove) ? null : deputyName;
-                            this.init(); // 重新初始化以更新选中状态
+                            ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "REMOVE_DEPUTY", deputyName));
+                            deputyOwners.remove(deputyName);
+                            this.init();
                         }
-                    ).dimensions(centerX - 100, y, 200, 18).build());
+                    ).dimensions(centerX - 60, y, 120, 18).build());
                     y += 20;
                 }
             }
@@ -101,13 +81,14 @@ public class GuiManagement extends Screen {
             Text.literal("自行认领: " + (allowSelfClaim ? "开启" : "关闭")),
             btn -> {
                 ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "TOGGLE_SELF_CLAIM", ""));
+                allowSelfClaim = !allowSelfClaim;
+                this.init();
             }
         ).dimensions(centerX - 60, y, 120, 20).build());
     }
 
     @Override
     public void render(DrawContext drawContext, int mouseX, int mouseY, float delta) {
-        // renderBackground 由 super.render() 处理，不重复调用
         super.render(drawContext, mouseX, mouseY, delta);
 
         int centerX = this.width / 2;
@@ -129,53 +110,23 @@ public class GuiManagement extends Screen {
             drawContext.drawCenteredTextWithShadow(this.textRenderer, statusMessage, centerX, this.height - 50, statusColor);
             statusTimer--;
         }
-
-        // 输入框
-        if (addDeputyInput != null) {
-            addDeputyInput.render(drawContext, mouseX, mouseY, delta);
-        }
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (addDeputyInput != null) {
-            addDeputyInput.mouseClicked(mouseX, mouseY, button);
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (addDeputyInput != null && addDeputyInput.isFocused()) {
-            return addDeputyInput.charTyped(chr, modifiers);
-        }
-        return super.charTyped(chr, modifiers);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (addDeputyInput != null && addDeputyInput.isFocused()) {
-            return addDeputyInput.keyPressed(keyCode, scanCode, modifiers);
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     /** 处理负责人操作响应 */
     public void onOwnerActionResponse(boolean success, String message) {
         statusMessage = message;
         statusColor = success ? 0x55FF55 : 0xFF5555;
-        statusTimer = 100; // 约 5 秒
-        if (success) {
-            // 重新请求材料列表以刷新负责人信息
-            // 简单方案：关闭管理界面，回到材料列表后会自动刷新
-        }
+        statusTimer = 100;
     }
 
-    /** 处理玩家列表响应（用于转让负责人） */
+    /** 处理玩家列表响应（用于转让负责人/添加副负责人） */
     public void onPlayerListResponse(List<PlayerListResponseS2CPacket.PlayerInfo> players) {
-        // 简化实现：转让负责人通过输入框
-        // 在输入框中输入目标玩家名，然后点转让
-        // 这里可以扩展为弹出选择列表
+        if (pendingPlayerListAction == null) return;
+        String action = pendingPlayerListAction;
+        pendingPlayerListAction = null;
+
+        GuiPlayerSelector selector = new GuiPlayerSelector(players, action, schematicId, List.of(), this);
+        this.client.setScreen(selector);
     }
 
     @Override
