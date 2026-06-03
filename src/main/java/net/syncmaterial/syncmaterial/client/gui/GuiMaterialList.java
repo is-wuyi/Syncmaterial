@@ -498,104 +498,132 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     // ========== 管理 overlay ==========
 
-    private void renderManagementOverlay(DrawContext drawContext, int mouseX, int mouseY) {
-        int panelWidth = 300;
-        int panelX = (this.width - panelWidth) / 2;
+    /** 管理面板内部各区段的 Y 偏移（相对 panelY） */
+    private static final int MGMT_PAD = 10;
+    private static final int MGMT_TITLE_H = 14;
+    private static final int MGMT_SUBTITLE_H = 18;
+    private static final int MGMT_DESC_H = 54;
+    private static final int MGMT_SECTION_TITLE_H = 24;
+    private static final int MGMT_ROW_H = 22;
+    private static final int MGMT_ADD_DEPUTY_H = 24;
+    private static final int MGMT_TOGGLE_H = 48;
+    private static final int MGMT_STATUS_H = 20;
+    private static final int MGMT_CLOSE_BTN_H = 22;
+    private static final int MGMT_GAP = 8;
+    private static final int MGMT_PANEL_W = 300;
+    private static final int MGMT_INNER_W = MGMT_PANEL_W - 30;
+    private static final int MGMT_LEFT_PAD = 15;
 
-        int contentHeight = 20 + 16;
-        contentHeight += 70;
-        contentHeight += 30;
-        contentHeight += 24;
-        contentHeight += Math.max(1, deputyOwners.size()) * 22 + 4;
-        if (isMainOwner) contentHeight += 26;
-        contentHeight += 10;
-        contentHeight += 50;
-        contentHeight += 30;
-        int panelHeight = contentHeight;
+    /** 计算管理面板总高度 */
+    private int calcManagementPanelHeight() {
+        int h = MGMT_PAD;
+        h += MGMT_TITLE_H + MGMT_SUBTITLE_H;
+        h += MGMT_DESC_H + MGMT_GAP;
+        h += MGMT_SECTION_TITLE_H;
+        h += Math.max(1, deputyOwners.size()) * MGMT_ROW_H;
+        if (isMainOwner) h += 2 + MGMT_ADD_DEPUTY_H;
+        h += MGMT_GAP;
+        h += MGMT_TOGGLE_H;
+        h += MGMT_STATUS_H;
+        h += MGMT_GAP + MGMT_CLOSE_BTN_H;
+        h += MGMT_PAD;
+        return h;
+    }
+
+    private void renderManagementOverlay(DrawContext drawContext, int mouseX, int mouseY) {
+        int panelX = (this.width - MGMT_PANEL_W) / 2;
+        int panelHeight = calcManagementPanelHeight();
         int panelY = (this.height - panelHeight) / 2;
+        int centerX = this.width / 2;
+        int leftX = panelX + MGMT_LEFT_PAD;
 
         // 面板背景
-        drawContext.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, CLR_PANEL_BG);
+        drawContext.fill(panelX, panelY, panelX + MGMT_PANEL_W, panelY + panelHeight, CLR_PANEL_BG);
 
-        int y = panelY + 10;
-        int centerX = this.width / 2;
-        int leftX = panelX + 15;
-        int innerWidth = panelWidth - 30;
+        int y = panelY + MGMT_PAD;
 
         // 标题
         drawContext.drawCenteredTextWithShadow(this.textRenderer, "负责人管理", centerX, y, CLR_TEXT_WHITE);
-        y += 14;
+        y += MGMT_TITLE_H;
         drawContext.drawCenteredTextWithShadow(this.textRenderer, "原理图: " + this.materialList.getTitle(), centerX, y, CLR_TEXT_GRAY);
-        y += 18;
+        y += MGMT_SUBTITLE_H;
 
-        // 说明区块
-        int infoBoxY = y;
-        int infoBoxH = 66;
-        drawContext.fill(leftX, y, leftX + innerWidth, y + infoBoxH, CLR_SECTION_BG);
-        y += 4;
-        drawTextWrapped(drawContext, "负责人可以管理材料的认领与分配。主负责人拥有全部管理权限，可转让负责人、添加/移除副负责人。副负责人可以批量分配材料和踢出玩家。开启「自行认领」后，所有玩家可以自行认领材料。", leftX + 6, y, innerWidth - 12, CLR_TEXT_DIM);
-        y = infoBoxY + infoBoxH + 8;
+        // 说明区块 — 用左侧竖线装饰，避免像输入框
+        int descY = y;
+        drawContext.fill(leftX, descY, leftX + 3, descY + MGMT_DESC_H, CLR_TEXT_DIM);
+        drawTextWrapped(drawContext, "负责人可以管理材料的认领与分配。主负责人拥有全部管理权限，可转让负责人、添加/移除副负责人。副负责人可以批量分配材料和踢出玩家。开启「自行认领」后，所有玩家可以自行认领材料。", leftX + 8, descY + 4, MGMT_INNER_W - 12, CLR_TEXT_DIM);
+        y = descY + MGMT_DESC_H + MGMT_GAP;
 
         // 区块标题
-        drawContext.fill(leftX, y, leftX + innerWidth, y + 20, CLR_SECTION_BG);
+        drawContext.fill(leftX, y, leftX + MGMT_INNER_W, y + MGMT_SECTION_TITLE_H, CLR_SECTION_BG);
         drawContext.drawTextWithShadow(this.textRenderer, "当前负责人", leftX + 6, y + 5, CLR_TEXT_WHITE);
-        y += 24;
+        y += MGMT_SECTION_TITLE_H;
 
-        // 主负责人
+        // 主负责人行
         drawContext.drawTextWithShadow(this.textRenderer, "主负责人: " + ownerName, leftX + 6, y + 2, CLR_TEXT_GREEN);
         if (isMainOwner) {
-            int btnX = leftX + innerWidth - 50;
+            int btnX = leftX + MGMT_INNER_W - 50;
             boolean hovered = mouseX >= btnX && mouseX < btnX + 44 && mouseY >= y && mouseY < y + 18;
             drawContext.fill(btnX, y, btnX + 44, y + 18, hovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
             drawContext.drawCenteredTextWithShadow(this.textRenderer, "转让", btnX + 22, y + 5, CLR_TEXT_WHITE);
         }
-        y += 22;
+        y += MGMT_ROW_H;
 
         // 副负责人列表
         for (int i = 0; i < deputyOwners.size(); i++) {
             String deputy = deputyOwners.get(i);
             drawContext.drawTextWithShadow(this.textRenderer, "副负责人: " + deputy, leftX + 6, y + 2, CLR_TEXT_GREEN);
             if (isMainOwner) {
-                int delX = leftX + innerWidth - 22;
+                int delX = leftX + MGMT_INNER_W - 22;
                 boolean hovered = mouseX >= delX && mouseX < delX + 18 && mouseY >= y && mouseY < y + 18;
                 drawContext.fill(delX, y, delX + 18, y + 18, hovered ? CLR_TEXT_RED : 0xFF993333);
                 drawContext.drawCenteredTextWithShadow(this.textRenderer, "×", delX + 9, y + 3, CLR_TEXT_WHITE);
             }
-            y += 22;
+            y += MGMT_ROW_H;
         }
         if (deputyOwners.isEmpty()) {
             drawContext.drawTextWithShadow(this.textRenderer, "副负责人: 无", leftX + 6, y + 2, CLR_TEXT_MUTED);
-            y += 22;
+            y += MGMT_ROW_H;
         }
 
-        // 添加副负责人
+        // 添加副负责人按钮
         if (isMainOwner) {
             y += 2;
-            boolean hovered = mouseX >= leftX && mouseX < leftX + innerWidth && mouseY >= y && mouseY < y + 20;
-            drawContext.fill(leftX, y, leftX + innerWidth, y + 20, hovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
+            boolean hovered = mouseX >= leftX && mouseX < leftX + MGMT_INNER_W && mouseY >= y && mouseY < y + MGMT_ADD_DEPUTY_H;
+            drawContext.fill(leftX, y, leftX + MGMT_INNER_W, y + MGMT_ADD_DEPUTY_H, hovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
             drawContext.drawCenteredTextWithShadow(this.textRenderer, "添加副负责人", centerX, y + 6, CLR_TEXT_GREEN);
-            y += 24;
+            y += MGMT_ADD_DEPUTY_H;
         }
 
-        y += 8;
+        y += MGMT_GAP;
 
         // 自行认领区块
-        drawContext.fill(leftX, y, leftX + innerWidth, y + 40, CLR_SECTION_BG);
+        drawContext.fill(leftX, y, leftX + MGMT_INNER_W, y + MGMT_TOGGLE_H, CLR_SECTION_BG);
         drawContext.drawTextWithShadow(this.textRenderer, "自行认领: " + (allowSelfClaim ? "开启" : "关闭"), leftX + 6, y + 5, CLR_TEXT_WHITE);
-        int toggleX = leftX + innerWidth - 60;
+        int toggleX = leftX + MGMT_INNER_W - 60;
         boolean toggleHovered = mouseX >= toggleX && mouseX < toggleX + 54 && mouseY >= y + 2 && mouseY < y + 18;
         int toggleBg = allowSelfClaim
                 ? (toggleHovered ? 0xFF2A7A2A : 0xFF225522)
                 : (toggleHovered ? CLR_TEXT_RED : 0xFF993333);
         drawContext.fill(toggleX, y + 2, toggleX + 54, y + 18, toggleBg);
         drawContext.drawCenteredTextWithShadow(this.textRenderer, allowSelfClaim ? "关闭" : "开启", toggleX + 27, y + 7, CLR_TEXT_WHITE);
-        y += 48;
+        y += MGMT_TOGGLE_H;
 
         // 状态消息
         if (mgmtStatusTimer > 0) {
             mgmtStatusTimer--;
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, mgmtStatusMessage, centerX, y, mgmtStatusColor);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, mgmtStatusMessage, centerX, y + 4, mgmtStatusColor);
         }
+        y += MGMT_STATUS_H;
+
+        y += MGMT_GAP;
+
+        // 关闭按钮
+        int closeBtnW = 80;
+        int closeBtnX = centerX - closeBtnW / 2;
+        boolean closeHovered = mouseX >= closeBtnX && mouseX < closeBtnX + closeBtnW && mouseY >= y && mouseY < y + MGMT_CLOSE_BTN_H;
+        drawContext.fill(closeBtnX, y, closeBtnX + closeBtnW, y + MGMT_CLOSE_BTN_H, closeHovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, "关闭", centerX, y + 5, CLR_TEXT_WHITE);
     }
 
     private void drawTextWrapped(DrawContext drawContext, String text, int x, int y, int maxWidth, int color) {
@@ -693,65 +721,83 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     private void handleManagementClick(int mouseX, int mouseY) {
-        int panelWidth = 300;
-        int panelX = (this.width - panelWidth) / 2;
-        int leftX = panelX + 15;
-        int innerWidth = panelWidth - 30;
-
-        int panelHeight = 380;
+        int panelX = (this.width - MGMT_PANEL_W) / 2;
+        int panelHeight = calcManagementPanelHeight();
         int panelY = (this.height - panelHeight) / 2;
-        if (mouseX < panelX || mouseX > panelX + panelWidth || mouseY < panelY || mouseY > panelY + panelHeight) {
+        int centerX = this.width / 2;
+        int leftX = panelX + MGMT_LEFT_PAD;
+
+        // 点击面板外关闭
+        if (mouseX < panelX || mouseX > panelX + MGMT_PANEL_W || mouseY < panelY || mouseY > panelY + panelHeight) {
             closeOverlay();
             return;
         }
 
-        int y = panelY + 10 + 14 + 18;
-        y += 70;
-        y += 24;
+        // —— 与 renderManagementOverlay 完全一致的 Y 坐标追踪 ——
+        int y = panelY + MGMT_PAD;
+        y += MGMT_TITLE_H + MGMT_SUBTITLE_H;
+        y += MGMT_DESC_H + MGMT_GAP;
+        y += MGMT_SECTION_TITLE_H;
 
-        // 转让按钮
+        // 主负责人行 — "转让" 按钮
         if (isMainOwner) {
-            int btnX = leftX + innerWidth - 50;
+            int btnX = leftX + MGMT_INNER_W - 50;
             if (mouseX >= btnX && mouseX < btnX + 44 && mouseY >= y && mouseY < y + 18) {
                 requestPlayerList("TRANSFER");
                 return;
             }
         }
-        y += 22;
+        y += MGMT_ROW_H;
 
-        // 删除按钮
+        // 副负责人行 — "×" 按钮
         for (int i = 0; i < deputyOwners.size(); i++) {
             if (isMainOwner) {
-                int delX = leftX + innerWidth - 22;
+                int delX = leftX + MGMT_INNER_W - 22;
                 if (mouseX >= delX && mouseX < delX + 18 && mouseY >= y && mouseY < y + 18) {
                     ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "REMOVE_DEPUTY", deputyOwners.get(i)));
                     return;
                 }
             }
-            y += 22;
+            y += MGMT_ROW_H;
         }
-        if (deputyOwners.isEmpty()) y += 22;
+        if (deputyOwners.isEmpty()) y += MGMT_ROW_H;
 
-        // 添加副负责人
+        // "添加副负责人" 按钮
         if (isMainOwner) {
             y += 2;
-            if (mouseX >= leftX && mouseX < leftX + innerWidth && mouseY >= y && mouseY < y + 20) {
+            if (mouseX >= leftX && mouseX < leftX + MGMT_INNER_W && mouseY >= y && mouseY < y + MGMT_ADD_DEPUTY_H) {
                 requestPlayerList("ADD_DEPUTY");
                 return;
             }
-            y += 24;
+            y += MGMT_ADD_DEPUTY_H;
         }
 
-        y += 8;
+        y += MGMT_GAP;
 
-        // 自行认领
-        int toggleX = leftX + innerWidth - 60;
-        if (mouseX >= toggleX && mouseX < toggleX + 54 && mouseY >= y + 2 && mouseY < y + 18) {
-            ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "TOGGLE_SELF_CLAIM", ""));
-            allowSelfClaim = !allowSelfClaim;
-            mgmtStatusMessage = "请求已发送...";
-            mgmtStatusColor = CLR_TEXT_GRAY;
-            mgmtStatusTimer = 60;
+        // "自行认领" 开关
+        {
+            int toggleX = leftX + MGMT_INNER_W - 60;
+            if (mouseX >= toggleX && mouseX < toggleX + 54 && mouseY >= y + 2 && mouseY < y + 18) {
+                ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "TOGGLE_SELF_CLAIM", ""));
+                allowSelfClaim = !allowSelfClaim;
+                mgmtStatusMessage = "请求已发送...";
+                mgmtStatusColor = CLR_TEXT_GRAY;
+                mgmtStatusTimer = 60;
+                return;
+            }
+        }
+        y += MGMT_TOGGLE_H;
+        y += MGMT_STATUS_H;
+        y += MGMT_GAP;
+
+        // "关闭" 按钮
+        {
+            int closeBtnW = 80;
+            int closeBtnX = centerX - closeBtnW / 2;
+            if (mouseX >= closeBtnX && mouseX < closeBtnX + closeBtnW && mouseY >= y && mouseY < y + MGMT_CLOSE_BTN_H) {
+                closeOverlay();
+                return;
+            }
         }
     }
 
