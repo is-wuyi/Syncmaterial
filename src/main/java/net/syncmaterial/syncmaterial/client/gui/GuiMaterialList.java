@@ -105,7 +105,10 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     @Override
     protected int getBrowserHeight() {
-        int bottomMargin = isOwner ? 88 + 24 : 88;
+        // createBottomButtons 中 y = 48 + browserHeight + 4，按钮高20px，需在热键栏上方 12px
+        // 倒推：48 + browserHeight + 4 + 20 + 12 = screenHeight - 44  →  browserHeight = screenHeight - 128 → bottomMargin=128（含头部34px）
+        // 非 owner 无底部按钮，列表延伸到热键栏顶部 → bottomMargin = 44
+        int bottomMargin = isOwner ? 128 : 44;
         return this.getScreenHeight() - bottomMargin;
     }
 
