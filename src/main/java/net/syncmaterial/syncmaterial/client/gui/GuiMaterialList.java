@@ -192,9 +192,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private void createBottomButtons() {
         int listBottom = 48 + this.getBrowserHeight();
         int y = listBottom + 4;
-        int x = 10;
 
-        ButtonGeneric btnAssign = new ButtonGeneric(x, y, -1, true, "分配给...");
+        // 先计算总宽度以居中
+        ButtonGeneric tmpAssign = new ButtonGeneric(0, 0, -1, false, "分配给...");
+        ButtonGeneric tmpKick = new ButtonGeneric(0, 0, -1, false, "踢出");
+        int totalWidth = tmpAssign.getWidth() + 2 + tmpKick.getWidth();
+        int x = (this.getScreenWidth() - totalWidth) / 2;
+
+        ButtonGeneric btnAssign = new ButtonGeneric(x, y, -1, false, "分配给...");
         this.addButton(btnAssign, (btn, mouseButton) -> {
             if (selectedMaterialIds.isEmpty()) {
                 InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, "请先勾选材料");
@@ -204,7 +209,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         });
         x += btnAssign.getWidth() + 2;
 
-        ButtonGeneric btnKick = new ButtonGeneric(x, y, -1, true, "踢出");
+        ButtonGeneric btnKick = new ButtonGeneric(x, y, -1, false, "踢出");
         this.addButton(btnKick, (btn, mouseButton) -> {
             if (selectedMaterialIds.isEmpty()) {
                 InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, "请先勾选材料");
