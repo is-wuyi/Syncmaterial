@@ -5,8 +5,10 @@ import java.util.List;
 
 import net.minecraft.client.gui.DrawContext;
 import fi.dy.masa.malilib.config.HudAlignment;
+import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
+import fi.dy.masa.malilib.render.RenderUtils;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
 import net.syncmaterial.syncmaterial.network.PlayerListResponseS2CPacket.PlayerInfo;
@@ -47,25 +49,29 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private static final int OVERLAY_ROW_HEIGHT = 20;
     private static final int OVERLAY_PANEL_WIDTH = 300;
 
-    // Litematica 风格配色
+    // Litematica 风格配色（与 MaLiLib/主界面对齐）
     private static final int CLR_OVERLAY_BG     = 0xB0000000; // 全屏遮罩
-    private static final int CLR_PANEL_BG       = 0xDD101010; // 面板背景
-    private static final int CLR_SECTION_BG     = 0xDD1A1A1A; // 区块背景
-    private static final int CLR_LIST_BG        = 0xDD141414; // 列表背景
+    private static final int CLR_PANEL_BG       = 0xFF000000; // 面板背景（纯黑，与主界面 tooltip 一致）
+    private static final int CLR_PANEL_BORDER   = GuiBase.COLOR_HORIZONTAL_BAR; // 面板边框 0xFF999999
+    private static final int CLR_SECTION_BG     = 0xCC1A1A1A; // 区块背景
+    private static final int CLR_LIST_BG        = 0xFF0A0A0A; // 列表背景
+    private static final int CLR_ROW_ODD        = 0xA0101010; // 奇数行（与主列表一致）
+    private static final int CLR_ROW_EVEN       = 0xA0303030; // 偶数行（与主列表一致）
     private static final int CLR_CHECKBOX_BORDER= 0xFF555555; // 复选框边框
     private static final int CLR_CHECKBOX_UNSEL = 0xFF2A2A2A; // 复选框未选中
-    private static final int CLR_BTN_DEFAULT    = 0xFF3A3A3A; // 按钮默认
-    private static final int CLR_BTN_HOVER      = 0xFF505050; // 按钮悬停
+    private static final int CLR_BTN_DEFAULT    = 0xFF464646; // 按钮默认
+    private static final int CLR_BTN_HOVER      = 0xFF5A5A5A; // 按钮悬停
     private static final int CLR_BTN_DISABLED   = 0xFF2A2A2A; // 按钮禁用
+    private static final int CLR_BTN_BORDER     = 0xFF1A1A1A; // 按钮边框（暗色凸起感）
     private static final int CLR_SCROLLBAR_BG   = 0xFF333333; // 滚动条背景
     private static final int CLR_SCROLLBAR_THUMB= 0xFF666666; // 滚动条滑块
-    private static final int CLR_TEXT_WHITE     = 0xFFFFFFFF;
-    private static final int CLR_TEXT_GRAY      = 0xFFAAAAAA;
-    private static final int CLR_TEXT_DIM       = 0xFF888888;
-    private static final int CLR_TEXT_MUTED     = 0xFF666666;
-    private static final int CLR_TEXT_GREEN     = 0xFF55FF55;
-    private static final int CLR_TEXT_RED       = 0xFFFF5555;
-    private static final int CLR_HOVER_ROW      = 0x30FFFFFF;
+    private static final int CLR_TEXT_WHITE     = 0xFFE0E0E0; // 默认文字（与 ButtonGeneric 一致）
+    private static final int CLR_TEXT_GRAY      = 0xFFAAAAAA; // 副标题
+    private static final int CLR_TEXT_DIM       = 0xFF888888; // 说明文字
+    private static final int CLR_TEXT_MUTED     = 0xFFA0A0A0; // 禁用文字（与 ButtonGeneric 禁用色一致）
+    private static final int CLR_TEXT_GREEN     = 0xFF55FF55; // 在线/负责人名/成功
+    private static final int CLR_TEXT_RED       = 0xFFFF5555; // 失败/删除
+    private static final int CLR_HOVER_ROW      = 0xA0707070; // 行悬停（与主列表一致）
 
     public GuiMaterialList(String schematicId, String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         super(10, 44);
@@ -385,8 +391,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int panelHeight = 44 + 26 + OVERLAY_VISIBLE_ROWS * OVERLAY_ROW_HEIGHT + 10 + 24 + 10;
         int panelY = (this.height - panelHeight) / 2;
 
-        // 面板背景
-        drawContext.fill(panelX, panelY, panelX + OVERLAY_PANEL_WIDTH, panelY + panelHeight, CLR_PANEL_BG);
+        // 面板背景 + 描边
+        drawOutlinedPanel(drawContext, panelX, panelY, OVERLAY_PANEL_WIDTH, panelHeight);
 
         // 标题
         String title = switch (overlayPlayerAction != null ? overlayPlayerAction : "") {
@@ -434,7 +440,13 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             boolean selected = overlaySelectedPlayers.contains(player.name());
             boolean hovered = mouseX >= listX && mouseX < listX + listWidth && mouseY >= rowY && mouseY < rowY + OVERLAY_ROW_HEIGHT;
 
-            if (hovered) drawContext.fill(listX, rowY, listX + listWidth, rowY + OVERLAY_ROW_HEIGHT, CLR_HOVER_ROW);
+            if (hovered) {
+                drawContext.fill(listX, rowY, listX + listWidth, rowY + OVERLAY_ROW_HEIGHT, CLR_HOVER_ROW);
+            } else {
+                // 斑马纹（与主列表 WidgetMaterialListEntry 一致）
+                int rowBg = ((i - overlayScrollOffset) % 2 == 0) ? CLR_ROW_EVEN : CLR_ROW_ODD;
+                drawContext.fill(listX, rowY, listX + listWidth, rowY + OVERLAY_ROW_HEIGHT, rowBg);
+            }
 
             // 复选框
             int checkboxX = listX + 4;
@@ -479,20 +491,25 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         if (overlayConfirmTimer > 0) {
             overlayConfirmTimer--;
             drawContext.drawCenteredTextWithShadow(this.textRenderer, "已发送 ✓", this.width / 2, btnY + 4, CLR_TEXT_GREEN);
-            if (overlayConfirmTimer == 0) closeOverlay();
+            if (overlayConfirmTimer == 0) {
+                // ADD_DEPUTY / TRANSFER 完成后回到管理界面，其他操作直接关闭
+                boolean returnToMgmt = "ADD_DEPUTY".equals(overlayPlayerAction) || "TRANSFER".equals(overlayPlayerAction);
+                closeOverlay();
+                if (returnToMgmt) openManagementOverlay();
+            }
         } else {
             int btnW = 60;
             int confirmX = this.width / 2 - btnW - 10;
             int cancelX = this.width / 2 + 10;
 
             boolean confirmHovered = mouseX >= confirmX && mouseX < confirmX + btnW && mouseY >= btnY && mouseY < btnY + 20;
-            int confirmBg = overlaySelectedPlayers.isEmpty() ? CLR_BTN_DISABLED : (confirmHovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
-            drawContext.fill(confirmX, btnY, confirmX + btnW, btnY + 20, confirmBg);
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "确认", confirmX + btnW / 2, btnY + 6, overlaySelectedPlayers.isEmpty() ? CLR_TEXT_MUTED : CLR_TEXT_WHITE);
+            boolean confirmDisabled = overlaySelectedPlayers.isEmpty();
+            drawButton(drawContext, confirmX, btnY, btnW, 20, confirmHovered, confirmDisabled);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "确认", confirmX + btnW / 2, btnY + 6, confirmDisabled ? CLR_TEXT_MUTED : (confirmHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE));
 
             boolean cancelHovered = mouseX >= cancelX && mouseX < cancelX + btnW && mouseY >= btnY && mouseY < btnY + 20;
-            drawContext.fill(cancelX, btnY, cancelX + btnW, btnY + 20, cancelHovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "取消", cancelX + btnW / 2, btnY + 6, CLR_TEXT_WHITE);
+            drawButton(drawContext, cancelX, btnY, btnW, 20, cancelHovered, false);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "取消", cancelX + btnW / 2, btnY + 6, cancelHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
         }
     }
 
@@ -537,8 +554,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int centerX = this.width / 2;
         int leftX = panelX + MGMT_LEFT_PAD;
 
-        // 面板背景
-        drawContext.fill(panelX, panelY, panelX + MGMT_PANEL_W, panelY + panelHeight, CLR_PANEL_BG);
+        // 面板背景 + 描边
+        drawOutlinedPanel(drawContext, panelX, panelY, MGMT_PANEL_W, panelHeight);
 
         int y = panelY + MGMT_PAD;
 
@@ -564,8 +581,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         if (isMainOwner) {
             int btnX = leftX + MGMT_INNER_W - 50;
             boolean hovered = mouseX >= btnX && mouseX < btnX + 44 && mouseY >= y && mouseY < y + 18;
-            drawContext.fill(btnX, y, btnX + 44, y + 18, hovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "转让", btnX + 22, y + 5, CLR_TEXT_WHITE);
+            drawButton(drawContext, btnX, y, 44, 18, hovered, false);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "转让", btnX + 22, y + 5, hovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
         }
         y += MGMT_ROW_H;
 
@@ -576,7 +593,12 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             if (isMainOwner) {
                 int delX = leftX + MGMT_INNER_W - 22;
                 boolean hovered = mouseX >= delX && mouseX < delX + 18 && mouseY >= y && mouseY < y + 18;
-                drawContext.fill(delX, y, delX + 18, y + 18, hovered ? CLR_TEXT_RED : 0xFF993333);
+                int delBg = hovered ? 0xFFAA3333 : 0xFF993333;
+                drawContext.fill(delX, y, delX + 18, y + 18, delBg);
+                drawContext.fill(delX, y, delX + 18, y + 1, 0x40FFFFFF);
+                drawContext.fill(delX, y, delX + 1, y + 18, 0x40FFFFFF);
+                drawContext.fill(delX, y + 17, delX + 18, y + 18, 0xFF441111);
+                drawContext.fill(delX + 17, y, delX + 18, y + 18, 0xFF441111);
                 drawContext.drawCenteredTextWithShadow(this.textRenderer, "×", delX + 9, y + 3, CLR_TEXT_WHITE);
             }
             y += MGMT_ROW_H;
@@ -590,7 +612,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         if (isMainOwner) {
             y += 2;
             boolean hovered = mouseX >= leftX && mouseX < leftX + MGMT_INNER_W && mouseY >= y && mouseY < y + MGMT_ADD_DEPUTY_H;
-            drawContext.fill(leftX, y, leftX + MGMT_INNER_W, y + MGMT_ADD_DEPUTY_H, hovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
+            drawButton(drawContext, leftX, y, MGMT_INNER_W, MGMT_ADD_DEPUTY_H, hovered, false);
             drawContext.drawCenteredTextWithShadow(this.textRenderer, "添加副负责人", centerX, y + 6, CLR_TEXT_GREEN);
             y += MGMT_ADD_DEPUTY_H;
         }
@@ -606,7 +628,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 ? (toggleHovered ? 0xFF2A7A2A : 0xFF225522)
                 : (toggleHovered ? CLR_TEXT_RED : 0xFF993333);
         drawContext.fill(toggleX, y + 2, toggleX + 54, y + 18, toggleBg);
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, allowSelfClaim ? "关闭" : "开启", toggleX + 27, y + 7, CLR_TEXT_WHITE);
+        drawContext.fill(toggleX, y + 2, toggleX + 54, y + 3, 0x40FFFFFF);
+        drawContext.fill(toggleX, y + 2, toggleX + 1, y + 18, 0x40FFFFFF);
+        drawContext.fill(toggleX, y + 17, toggleX + 54, y + 18, 0xFF111111);
+        drawContext.fill(toggleX + 53, y + 2, toggleX + 54, y + 18, 0xFF111111);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, allowSelfClaim ? "关闭" : "开启", toggleX + 27, y + 7, toggleHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
         y += MGMT_TOGGLE_H;
 
         // 状态消息
@@ -622,8 +648,25 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int closeBtnW = 80;
         int closeBtnX = centerX - closeBtnW / 2;
         boolean closeHovered = mouseX >= closeBtnX && mouseX < closeBtnX + closeBtnW && mouseY >= y && mouseY < y + MGMT_CLOSE_BTN_H;
-        drawContext.fill(closeBtnX, y, closeBtnX + closeBtnW, y + MGMT_CLOSE_BTN_H, closeHovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, "关闭", centerX, y + 5, CLR_TEXT_WHITE);
+        drawButton(drawContext, closeBtnX, y, closeBtnW, MGMT_CLOSE_BTN_H, closeHovered, false);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, "关闭", centerX, y + 5, closeHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
+    }
+
+    /** 带描边的面板绘制（对齐 MaLiLib drawOutlinedBox 风格） */
+    private void drawOutlinedPanel(DrawContext drawContext, int x, int y, int w, int h) {
+        RenderUtils.drawRect(drawContext, x, y, w, h, CLR_PANEL_BG);
+        RenderUtils.drawOutline(drawContext, x - 1, y - 1, w + 2, h + 2, 1, CLR_PANEL_BORDER);
+    }
+
+    /** 带边框的按钮绘制（对齐 ButtonGeneric 凸起感） */
+    private void drawButton(DrawContext drawContext, int x, int y, int w, int h, boolean hovered, boolean disabled) {
+        int bg = disabled ? CLR_BTN_DISABLED : (hovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
+        drawContext.fill(x, y, x + w, y + h, bg);
+        // 1px 暗色边框：上/左亮，下/右暗，模拟 ButtonGeneric 的凸起效果
+        drawContext.fill(x, y, x + w, y + 1, 0x40FFFFFF);       // 上边亮线
+        drawContext.fill(x, y, x + 1, y + h, 0x40FFFFFF);       // 左边亮线
+        drawContext.fill(x, y + h - 1, x + w, y + h, CLR_BTN_BORDER); // 下边暗线
+        drawContext.fill(x + w - 1, y, x + w, y + h, CLR_BTN_BORDER); // 右边暗线
     }
 
     private void drawTextWrapped(DrawContext drawContext, String text, int x, int y, int maxWidth, int color) {
@@ -713,6 +756,16 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             case "KICK" -> {
                 for (String player : players) {
                     ClientPlayNetworking.send(new KickFromMaterialC2SPacket(schematicId, materialIds, player));
+                }
+            }
+            case "ADD_DEPUTY" -> {
+                for (String player : players) {
+                    ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "ADD_DEPUTY", player));
+                }
+            }
+            case "TRANSFER" -> {
+                if (!players.isEmpty()) {
+                    ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "TRANSFER", players.get(0)));
                 }
             }
         }
