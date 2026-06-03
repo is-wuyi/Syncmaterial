@@ -7,11 +7,13 @@ import net.minecraft.client.gui.DrawContext;
 import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
-import fi.dy.masa.malilib.util.StringUtils;
-import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
+import net.syncmaterial.syncmaterial.network.PlayerListResponseS2CPacket.PlayerInfo;
 import net.syncmaterial.syncmaterial.network.RescanStagingAreaC2SPacket;
+import net.syncmaterial.syncmaterial.network.BatchAssignC2SPacket;
+import net.syncmaterial.syncmaterial.network.KickFromMaterialC2SPacket;
+import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
 import net.syncmaterial.syncmaterial.network.PlayerListRequestC2SPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -20,15 +22,50 @@ import fi.dy.masa.malilib.util.InfoUtils;
 
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
     private final SyncMaterialList materialList;
-    private final boolean isOwner;
-    private final boolean isMainOwner;
-    private final String ownerName;
-    private final List<String> deputyOwners;
-    private final boolean allowSelfClaim;
+    private boolean isOwner;
+    private boolean isMainOwner;
+    private String ownerName;
+    private List<String> deputyOwners;
+    private boolean allowSelfClaim;
     private boolean filterMyMaterials = false;
     private List<Integer> selectedMaterialIds = new ArrayList<>();
-    /** 玩家列表请求的操作模式：ASSIGN 或 KICK */
-    private String pendingPlayerListAction = null;
+
+    // ========== Overlay 状态 ==========
+    private enum OverlayType { NONE, PLAYER_SELECT, MANAGEMENT }
+    private OverlayType activeOverlay = OverlayType.NONE;
+    private String overlayPlayerAction = null;
+    private List<PlayerInfo> overlayPlayers = List.of();
+    private List<String> overlaySelectedPlayers = new ArrayList<>();
+    private int overlayScrollOffset = 0;
+    private String overlaySearchText = "";
+    private int overlayConfirmTimer = 0;
+    private String mgmtStatusMessage = "";
+    private int mgmtStatusColor = 0xFFFFFFFF;
+    private int mgmtStatusTimer = 0;
+
+    private static final int OVERLAY_VISIBLE_ROWS = 10;
+    private static final int OVERLAY_ROW_HEIGHT = 20;
+    private static final int OVERLAY_PANEL_WIDTH = 300;
+
+    // Litematica 风格配色
+    private static final int CLR_OVERLAY_BG     = 0xB0000000; // 全屏遮罩
+    private static final int CLR_PANEL_BG       = 0xDD101010; // 面板背景
+    private static final int CLR_SECTION_BG     = 0xDD1A1A1A; // 区块背景
+    private static final int CLR_LIST_BG        = 0xDD141414; // 列表背景
+    private static final int CLR_CHECKBOX_BORDER= 0xFF555555; // 复选框边框
+    private static final int CLR_CHECKBOX_UNSEL = 0xFF2A2A2A; // 复选框未选中
+    private static final int CLR_BTN_DEFAULT    = 0xFF3A3A3A; // 按钮默认
+    private static final int CLR_BTN_HOVER      = 0xFF505050; // 按钮悬停
+    private static final int CLR_BTN_DISABLED   = 0xFF2A2A2A; // 按钮禁用
+    private static final int CLR_SCROLLBAR_BG   = 0xFF333333; // 滚动条背景
+    private static final int CLR_SCROLLBAR_THUMB= 0xFF666666; // 滚动条滑块
+    private static final int CLR_TEXT_WHITE     = 0xFFFFFFFF;
+    private static final int CLR_TEXT_GRAY      = 0xFFAAAAAA;
+    private static final int CLR_TEXT_DIM       = 0xFF888888;
+    private static final int CLR_TEXT_MUTED     = 0xFF666666;
+    private static final int CLR_TEXT_GREEN     = 0xFF55FF55;
+    private static final int CLR_TEXT_RED       = 0xFFFF5555;
+    private static final int CLR_HOVER_ROW      = 0x30FFFFFF;
 
     public GuiMaterialList(String schematicId, String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         super(10, 44);
@@ -36,7 +73,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.isOwner = isOwner;
         this.isMainOwner = isMainOwner;
         this.ownerName = ownerName != null ? ownerName : "";
-        this.deputyOwners = deputyOwners != null ? deputyOwners : List.of();
+        this.deputyOwners = deputyOwners != null ? new ArrayList<>(deputyOwners) : new ArrayList<>();
         this.allowSelfClaim = allowSelfClaim;
         this.materialList = new SyncMaterialList(schematicId, schematicName);
         this.materialList.setOnStatusUpdate(() -> this.getListWidget().refreshEntries());
@@ -48,10 +85,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
     }
 
-    public SyncMaterialList getMaterialList() {
-        return this.materialList;
-    }
-
+    public SyncMaterialList getMaterialList() { return this.materialList; }
     public boolean isOwner() { return isOwner; }
     public boolean isMainOwner() { return isMainOwner; }
     public String getOwnerName() { return ownerName; }
@@ -61,9 +95,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public List<Integer> getSelectedMaterialIds() { return selectedMaterialIds; }
 
     @Override
-    protected int getBrowserWidth() {
-        return this.getScreenWidth() - 20;
-    }
+    protected int getBrowserWidth() { return this.getScreenWidth() - 20; }
 
     @Override
     protected int getBrowserHeight() {
@@ -76,28 +108,24 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         return new WidgetListMaterialList(listX, listY, this.getBrowserWidth(), this.getBrowserHeight(), this);
     }
 
+    // ========== 初始化 ==========
+
     @Override
     public void initGui() {
         super.initGui();
-
         int gap = 2;
-
-        // 顶部按钮栏：从右往左排列
         int x = this.getScreenWidth() - 20;
         x -= this.createButtonClose(x, 24) + gap;
         x -= this.createButtonToggleHud(x, 24) + gap;
         x -= this.createButtonRefresh(x, 24) + gap;
         x -= this.createButtonStagingArea(x, 24) + gap;
         x -= this.createButtonFilterMyMaterials(x, 24) + gap;
-
         if (isOwner) {
             x -= this.createButtonManagement(x, 24);
         }
-
         if (isOwner) {
             this.createBottomButtons();
         }
-
         this.materialList.requestCollaborationStatus();
     }
 
@@ -135,8 +163,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         return button.getWidth();
     }
 
-    // ========== Phase 4: 负责人管理按钮 ==========
-
     private int createButtonFilterMyMaterials(int x, int y) {
         String label = filterMyMaterials ? "显示全部" : "仅显示我加入的";
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
@@ -150,15 +176,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     private int createButtonManagement(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "管理");
-        this.addButton(button, (btn, mouseButton) -> {
-            GuiManagement mgmt = new GuiManagement(
-                this.materialList.getSchematicId(),
-                this.materialList.getTitle(),
-                ownerName, deputyOwners, allowSelfClaim, isMainOwner
-            );
-            mgmt.setParent(this);
-            this.mc.setScreen(mgmt);
-        });
+        this.addButton(button, (btn, mouseButton) -> openManagementOverlay());
         return button.getWidth();
     }
 
@@ -173,8 +191,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, "请先勾选材料");
                 return;
             }
-            pendingPlayerListAction = "ASSIGN";
-            ClientPlayNetworking.send(new PlayerListRequestC2SPacket(this.materialList.getSchematicId()));
+            requestPlayerList("ASSIGN");
         });
         x += btnAssign.getWidth() + 2;
 
@@ -184,9 +201,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, "请先勾选材料");
                 return;
             }
-            pendingPlayerListAction = "KICK";
-            ClientPlayNetworking.send(new PlayerListRequestC2SPacket(this.materialList.getSchematicId()));
+            requestPlayerList("KICK");
         });
+    }
+
+    private int createButtonClose(int x, int y) {
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "关闭");
+        this.addButton(button, (btn, mouseButton) -> this.close());
+        return button.getWidth();
     }
 
     // ========== 网络回调 ==========
@@ -203,55 +225,129 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         }
     }
 
-    /** 处理负责人操作响应（当在材料列表界面时收到） */
-    public void onOwnerActionResponse(boolean success, String message) {
-        InfoUtils.showGuiOrActionBarMessage(success ? MessageType.SUCCESS : MessageType.ERROR, message);
+    public void onOwnerActionResponse(boolean success, String message, String newOwnerName, List<String> newDeputyOwners, boolean newAllowSelfClaim) {
+        this.ownerName = newOwnerName != null ? newOwnerName : this.ownerName;
+        this.deputyOwners = newDeputyOwners != null ? new ArrayList<>(newDeputyOwners) : this.deputyOwners;
+        this.allowSelfClaim = newAllowSelfClaim;
+
+        mgmtStatusMessage = message;
+        mgmtStatusColor = success ? CLR_TEXT_GREEN : CLR_TEXT_RED;
+        mgmtStatusTimer = 100;
+
+        if (success && "TRANSFER".equals(overlayPlayerAction)) {
+            closeOverlay();
+            InfoUtils.showGuiOrActionBarMessage(MessageType.SUCCESS, message);
+        }
     }
 
-    /** 处理批量分配响应 */
     public void onBatchAssignResponse(boolean success, String message) {
         InfoUtils.showGuiOrActionBarMessage(success ? MessageType.SUCCESS : MessageType.ERROR, message);
-        if (success) {
-            this.materialList.requestCollaborationStatus();
-        }
+        if (success) this.materialList.requestCollaborationStatus();
     }
 
-    /** 处理踢出响应 */
     public void onKickResponse(boolean success, String message) {
         InfoUtils.showGuiOrActionBarMessage(success ? MessageType.SUCCESS : MessageType.ERROR, message);
-        if (success) {
-            this.materialList.requestCollaborationStatus();
+        if (success) this.materialList.requestCollaborationStatus();
+    }
+
+    public void onPlayerListResponse(List<PlayerInfo> players) {
+        if (overlayPlayerAction == null) return;
+        overlayPlayers = players;
+        overlaySelectedPlayers.clear();
+        overlayScrollOffset = 0;
+        overlaySearchText = "";
+        overlayConfirmTimer = 0;
+        activeOverlay = OverlayType.PLAYER_SELECT;
+    }
+
+    // ========== Overlay 管理 ==========
+
+    private void requestPlayerList(String action) {
+        overlayPlayerAction = action;
+        ClientPlayNetworking.send(new PlayerListRequestC2SPacket(this.materialList.getSchematicId()));
+    }
+
+    private void openManagementOverlay() {
+        activeOverlay = OverlayType.MANAGEMENT;
+        mgmtStatusMessage = "";
+        mgmtStatusTimer = 0;
+    }
+
+    private void closeOverlay() {
+        activeOverlay = OverlayType.NONE;
+        overlayPlayerAction = null;
+        overlayPlayers = List.of();
+        overlaySelectedPlayers.clear();
+        overlaySearchText = "";
+        overlayScrollOffset = 0;
+        overlayConfirmTimer = 0;
+    }
+
+    private boolean isOverlayActive() {
+        return activeOverlay != OverlayType.NONE;
+    }
+
+    // ========== 输入事件拦截 ==========
+
+    @Override
+    public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton) {
+        if (isOverlayActive()) {
+            handleOverlayClick(mouseX, mouseY);
+            return true;
         }
-    }
-
-    /** 处理玩家列表响应 */
-    public void onPlayerListResponse(List<net.syncmaterial.syncmaterial.network.PlayerListResponseS2CPacket.PlayerInfo> players) {
-        if (pendingPlayerListAction == null) return;
-        String action = pendingPlayerListAction;
-        pendingPlayerListAction = null;
-
-        String schematicId = this.materialList.getSchematicId();
-        List<Integer> materialIds = new ArrayList<>(selectedMaterialIds);
-        GuiPlayerSelector selector = new GuiPlayerSelector(players, action, schematicId, materialIds, this);
-        this.mc.setScreen(selector);
-    }
-
-    private int createButtonClose(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "关闭");
-        this.addButton(button, (btn, mouseButton) -> this.close());
-        return button.getWidth();
+        return super.onMouseClicked(mouseX, mouseY, mouseButton);
     }
 
     @Override
-    public void close() {
-        net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
-        super.close();
+    public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount) {
+        if (isOverlayActive()) {
+            if (activeOverlay == OverlayType.PLAYER_SELECT) {
+                List<PlayerInfo> filtered = getFilteredPlayers();
+                if (filtered.size() > OVERLAY_VISIBLE_ROWS) {
+                    overlayScrollOffset = Math.max(0, Math.min(overlayScrollOffset - (int) Math.signum(verticalAmount), filtered.size() - OVERLAY_VISIBLE_ROWS));
+                }
+            }
+            return true;
+        }
+        return super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
     @Override
-    public boolean shouldPause() {
-        return false;
+    public boolean onKeyTyped(int keyCode, int scanCode, int modifiers) {
+        if (isOverlayActive()) {
+            if (keyCode == net.minecraft.client.util.InputUtil.GLFW_KEY_ESCAPE) {
+                closeOverlay();
+                return true;
+            }
+            if (keyCode == net.minecraft.client.util.InputUtil.GLFW_KEY_ENTER && activeOverlay == OverlayType.PLAYER_SELECT && overlayConfirmTimer == 0) {
+                handleOverlayConfirm();
+                return true;
+            }
+            return true;
+        }
+        return super.onKeyTyped(keyCode, scanCode, modifiers);
     }
+
+    @Override
+    public boolean onCharTyped(char chr, int modifiers) {
+        if (isOverlayActive()) {
+            if (activeOverlay == OverlayType.PLAYER_SELECT && overlayConfirmTimer == 0) {
+                if (chr == '\b') {
+                    if (!overlaySearchText.isEmpty()) {
+                        overlaySearchText = overlaySearchText.substring(0, overlaySearchText.length() - 1);
+                        overlayScrollOffset = 0;
+                    }
+                } else if (chr >= 32 && chr < 127 || Character.isLetterOrDigit(chr)) {
+                    overlaySearchText += chr;
+                    overlayScrollOffset = 0;
+                }
+            }
+            return true;
+        }
+        return super.onCharTyped(chr, modifiers);
+    }
+
+    // ========== Overlay 渲染 ==========
 
     @Override
     public void render(DrawContext drawContext, int mouseX, int mouseY, float partialTicks) {
@@ -260,5 +356,417 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         if (this.materialList.getHudRenderer().getShouldRender()) {
             this.materialList.getHudRenderer().render(drawContext, 10, 44, HudAlignment.TOP_LEFT);
         }
+
+        if (isOverlayActive()) {
+            renderOverlay(drawContext, mouseX, mouseY);
+        }
+    }
+
+    private void renderOverlay(DrawContext drawContext, int mouseX, int mouseY) {
+        drawContext.fill(0, 0, this.width, this.height, CLR_OVERLAY_BG);
+
+        switch (activeOverlay) {
+            case PLAYER_SELECT -> renderPlayerSelectOverlay(drawContext, mouseX, mouseY);
+            case MANAGEMENT -> renderManagementOverlay(drawContext, mouseX, mouseY);
+            default -> {}
+        }
+    }
+
+    // ========== 玩家选择 overlay ==========
+
+    private List<PlayerInfo> getFilteredPlayers() {
+        if (overlaySearchText.isEmpty()) return overlayPlayers;
+        String lower = overlaySearchText.toLowerCase();
+        return overlayPlayers.stream().filter(p -> p.name().toLowerCase().contains(lower)).toList();
+    }
+
+    private void renderPlayerSelectOverlay(DrawContext drawContext, int mouseX, int mouseY) {
+        int panelX = (this.width - OVERLAY_PANEL_WIDTH) / 2;
+        int panelHeight = 44 + 26 + OVERLAY_VISIBLE_ROWS * OVERLAY_ROW_HEIGHT + 10 + 24 + 10;
+        int panelY = (this.height - panelHeight) / 2;
+
+        // 面板背景
+        drawContext.fill(panelX, panelY, panelX + OVERLAY_PANEL_WIDTH, panelY + panelHeight, CLR_PANEL_BG);
+
+        // 标题
+        String title = switch (overlayPlayerAction != null ? overlayPlayerAction : "") {
+            case "ASSIGN" -> "选择分配玩家";
+            case "KICK" -> "选择踢出玩家";
+            default -> "选择玩家";
+        };
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, title, this.width / 2, panelY + 10, CLR_TEXT_WHITE);
+
+        // 提示
+        String hint = switch (overlayPlayerAction != null ? overlayPlayerAction : "") {
+            case "ASSIGN" -> "勾选要分配给的玩家";
+            case "KICK" -> "勾选要踢出的玩家";
+            default -> "选择玩家";
+        };
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, hint, this.width / 2, panelY + 24, CLR_TEXT_GRAY);
+
+        int listY = panelY + 40;
+
+        // 搜索框
+        int searchX = panelX + 10;
+        int searchY = listY;
+        int searchW = OVERLAY_PANEL_WIDTH - 20;
+        drawContext.fill(searchX, searchY, searchX + searchW, searchY + 18, CLR_SECTION_BG);
+        String searchText = overlaySearchText.isEmpty() ? "搜索玩家..." : overlaySearchText;
+        int searchColor = overlaySearchText.isEmpty() ? CLR_TEXT_MUTED : CLR_TEXT_WHITE;
+        drawContext.drawTextWithShadow(this.textRenderer, searchText, searchX + 4, searchY + 5, searchColor);
+        if (!overlaySearchText.isEmpty() && (System.currentTimeMillis() / 500) % 2 == 0) {
+            int cursorX = searchX + 4 + this.textRenderer.getWidth(overlaySearchText);
+            drawContext.fill(cursorX, searchY + 4, cursorX + 1, searchY + 14, CLR_TEXT_WHITE);
+        }
+        listY += 22;
+
+        // 列表
+        int listX = panelX + 10;
+        int listWidth = OVERLAY_PANEL_WIDTH - 20;
+        int listHeight = OVERLAY_VISIBLE_ROWS * OVERLAY_ROW_HEIGHT;
+        drawContext.fill(listX, listY, listX + listWidth, listY + listHeight, CLR_LIST_BG);
+
+        List<PlayerInfo> filtered = getFilteredPlayers();
+        int endIndex = Math.min(overlayScrollOffset + OVERLAY_VISIBLE_ROWS, filtered.size());
+        for (int i = overlayScrollOffset; i < endIndex; i++) {
+            int rowY = listY + (i - overlayScrollOffset) * OVERLAY_ROW_HEIGHT;
+            PlayerInfo player = filtered.get(i);
+            boolean selected = overlaySelectedPlayers.contains(player.name());
+            boolean hovered = mouseX >= listX && mouseX < listX + listWidth && mouseY >= rowY && mouseY < rowY + OVERLAY_ROW_HEIGHT;
+
+            if (hovered) drawContext.fill(listX, rowY, listX + listWidth, rowY + OVERLAY_ROW_HEIGHT, CLR_HOVER_ROW);
+
+            // 复选框
+            int checkboxX = listX + 4;
+            int checkboxY = rowY + 3;
+            drawContext.fill(checkboxX, checkboxY, checkboxX + 14, checkboxY + 14, CLR_CHECKBOX_BORDER);
+            drawContext.fill(checkboxX + 1, checkboxY + 1, checkboxX + 13, checkboxY + 13, selected ? 0xFF00AA00 : CLR_CHECKBOX_UNSEL);
+            if (selected) {
+                drawContext.drawCenteredTextWithShadow(this.textRenderer, "✓", checkboxX + 7, checkboxY + 2, CLR_TEXT_WHITE);
+            }
+
+            // 玩家名
+            int textColor = player.online() ? CLR_TEXT_GREEN : CLR_TEXT_GRAY;
+            drawContext.drawTextWithShadow(this.textRenderer, player.name(), listX + 24, rowY + 6, textColor);
+
+            // 在线状态
+            if (player.online()) {
+                String statusText = "在线";
+                int statusWidth = this.textRenderer.getWidth(statusText);
+                drawContext.drawTextWithShadow(this.textRenderer, statusText, listX + listWidth - statusWidth - 8, rowY + 6, CLR_TEXT_GREEN);
+            }
+        }
+
+        // 滚动条
+        if (filtered.size() > OVERLAY_VISIBLE_ROWS) {
+            int scrollbarX = listX + listWidth - 6;
+            int thumbHeight = Math.max(10, listHeight * OVERLAY_VISIBLE_ROWS / filtered.size());
+            int thumbY = listY + (listHeight - thumbHeight) * overlayScrollOffset / Math.max(1, filtered.size() - OVERLAY_VISIBLE_ROWS);
+            drawContext.fill(scrollbarX, listY, scrollbarX + 4, listY + listHeight, CLR_SCROLLBAR_BG);
+            drawContext.fill(scrollbarX, thumbY, scrollbarX + 4, thumbY + thumbHeight, CLR_SCROLLBAR_THUMB);
+        }
+
+        if (filtered.isEmpty()) {
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "没有匹配的玩家", this.width / 2, listY + listHeight / 2 - 6, CLR_TEXT_MUTED);
+        }
+
+        // 底部信息 + 按钮
+        int bottomY = listY + listHeight + 8;
+        String infoText = "已选择 " + overlaySelectedPlayers.size() + " 个玩家 | 材料 " + selectedMaterialIds.size() + " 个";
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, infoText, this.width / 2, bottomY, CLR_TEXT_GRAY);
+
+        int btnY = bottomY + 14;
+        if (overlayConfirmTimer > 0) {
+            overlayConfirmTimer--;
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "已发送 ✓", this.width / 2, btnY + 4, CLR_TEXT_GREEN);
+            if (overlayConfirmTimer == 0) closeOverlay();
+        } else {
+            int btnW = 60;
+            int confirmX = this.width / 2 - btnW - 10;
+            int cancelX = this.width / 2 + 10;
+
+            boolean confirmHovered = mouseX >= confirmX && mouseX < confirmX + btnW && mouseY >= btnY && mouseY < btnY + 20;
+            int confirmBg = overlaySelectedPlayers.isEmpty() ? CLR_BTN_DISABLED : (confirmHovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
+            drawContext.fill(confirmX, btnY, confirmX + btnW, btnY + 20, confirmBg);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "确认", confirmX + btnW / 2, btnY + 6, overlaySelectedPlayers.isEmpty() ? CLR_TEXT_MUTED : CLR_TEXT_WHITE);
+
+            boolean cancelHovered = mouseX >= cancelX && mouseX < cancelX + btnW && mouseY >= btnY && mouseY < btnY + 20;
+            drawContext.fill(cancelX, btnY, cancelX + btnW, btnY + 20, cancelHovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "取消", cancelX + btnW / 2, btnY + 6, CLR_TEXT_WHITE);
+        }
+    }
+
+    // ========== 管理 overlay ==========
+
+    private void renderManagementOverlay(DrawContext drawContext, int mouseX, int mouseY) {
+        int panelWidth = 300;
+        int panelX = (this.width - panelWidth) / 2;
+
+        int contentHeight = 20 + 16;
+        contentHeight += 70;
+        contentHeight += 30;
+        contentHeight += 24;
+        contentHeight += Math.max(1, deputyOwners.size()) * 22 + 4;
+        if (isMainOwner) contentHeight += 26;
+        contentHeight += 10;
+        contentHeight += 50;
+        contentHeight += 30;
+        int panelHeight = contentHeight;
+        int panelY = (this.height - panelHeight) / 2;
+
+        // 面板背景
+        drawContext.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, CLR_PANEL_BG);
+
+        int y = panelY + 10;
+        int centerX = this.width / 2;
+        int leftX = panelX + 15;
+        int innerWidth = panelWidth - 30;
+
+        // 标题
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, "负责人管理", centerX, y, CLR_TEXT_WHITE);
+        y += 14;
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, "原理图: " + this.materialList.getTitle(), centerX, y, CLR_TEXT_GRAY);
+        y += 18;
+
+        // 说明区块
+        int infoBoxY = y;
+        int infoBoxH = 66;
+        drawContext.fill(leftX, y, leftX + innerWidth, y + infoBoxH, CLR_SECTION_BG);
+        y += 4;
+        drawTextWrapped(drawContext, "负责人可以管理材料的认领与分配。主负责人拥有全部管理权限，可转让负责人、添加/移除副负责人。副负责人可以批量分配材料和踢出玩家。开启「自行认领」后，所有玩家可以自行认领材料。", leftX + 6, y, innerWidth - 12, CLR_TEXT_DIM);
+        y = infoBoxY + infoBoxH + 8;
+
+        // 区块标题
+        drawContext.fill(leftX, y, leftX + innerWidth, y + 20, CLR_SECTION_BG);
+        drawContext.drawTextWithShadow(this.textRenderer, "当前负责人", leftX + 6, y + 5, CLR_TEXT_WHITE);
+        y += 24;
+
+        // 主负责人
+        drawContext.drawTextWithShadow(this.textRenderer, "主负责人: " + ownerName, leftX + 6, y + 2, CLR_TEXT_GREEN);
+        if (isMainOwner) {
+            int btnX = leftX + innerWidth - 50;
+            boolean hovered = mouseX >= btnX && mouseX < btnX + 44 && mouseY >= y && mouseY < y + 18;
+            drawContext.fill(btnX, y, btnX + 44, y + 18, hovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "转让", btnX + 22, y + 5, CLR_TEXT_WHITE);
+        }
+        y += 22;
+
+        // 副负责人列表
+        for (int i = 0; i < deputyOwners.size(); i++) {
+            String deputy = deputyOwners.get(i);
+            drawContext.drawTextWithShadow(this.textRenderer, "副负责人: " + deputy, leftX + 6, y + 2, CLR_TEXT_GREEN);
+            if (isMainOwner) {
+                int delX = leftX + innerWidth - 22;
+                boolean hovered = mouseX >= delX && mouseX < delX + 18 && mouseY >= y && mouseY < y + 18;
+                drawContext.fill(delX, y, delX + 18, y + 18, hovered ? CLR_TEXT_RED : 0xFF993333);
+                drawContext.drawCenteredTextWithShadow(this.textRenderer, "×", delX + 9, y + 3, CLR_TEXT_WHITE);
+            }
+            y += 22;
+        }
+        if (deputyOwners.isEmpty()) {
+            drawContext.drawTextWithShadow(this.textRenderer, "副负责人: 无", leftX + 6, y + 2, CLR_TEXT_MUTED);
+            y += 22;
+        }
+
+        // 添加副负责人
+        if (isMainOwner) {
+            y += 2;
+            boolean hovered = mouseX >= leftX && mouseX < leftX + innerWidth && mouseY >= y && mouseY < y + 20;
+            drawContext.fill(leftX, y, leftX + innerWidth, y + 20, hovered ? CLR_BTN_HOVER : CLR_BTN_DEFAULT);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, "添加副负责人", centerX, y + 6, CLR_TEXT_GREEN);
+            y += 24;
+        }
+
+        y += 8;
+
+        // 自行认领区块
+        drawContext.fill(leftX, y, leftX + innerWidth, y + 40, CLR_SECTION_BG);
+        drawContext.drawTextWithShadow(this.textRenderer, "自行认领: " + (allowSelfClaim ? "开启" : "关闭"), leftX + 6, y + 5, CLR_TEXT_WHITE);
+        int toggleX = leftX + innerWidth - 60;
+        boolean toggleHovered = mouseX >= toggleX && mouseX < toggleX + 54 && mouseY >= y + 2 && mouseY < y + 18;
+        int toggleBg = allowSelfClaim
+                ? (toggleHovered ? 0xFF2A7A2A : 0xFF225522)
+                : (toggleHovered ? CLR_TEXT_RED : 0xFF993333);
+        drawContext.fill(toggleX, y + 2, toggleX + 54, y + 18, toggleBg);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, allowSelfClaim ? "关闭" : "开启", toggleX + 27, y + 7, CLR_TEXT_WHITE);
+        y += 48;
+
+        // 状态消息
+        if (mgmtStatusTimer > 0) {
+            mgmtStatusTimer--;
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, mgmtStatusMessage, centerX, y, mgmtStatusColor);
+        }
+    }
+
+    private void drawTextWrapped(DrawContext drawContext, String text, int x, int y, int maxWidth, int color) {
+        StringBuilder line = new StringBuilder();
+        int lineY = y;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '§' && i + 1 < text.length()) { i++; continue; }
+            line.append(c);
+            if (this.textRenderer.getWidth(line.toString()) > maxWidth) {
+                String drawLine = line.substring(0, line.length() - 1);
+                drawContext.drawTextWithShadow(this.textRenderer, drawLine, x, lineY, color);
+                lineY += 12;
+                line = new StringBuilder();
+                line.append(c);
+            }
+        }
+        if (!line.isEmpty()) {
+            drawContext.drawTextWithShadow(this.textRenderer, line.toString(), x, lineY, color);
+        }
+    }
+
+    // ========== Overlay 点击处理 ==========
+
+    private void handleOverlayClick(int mouseX, int mouseY) {
+        switch (activeOverlay) {
+            case PLAYER_SELECT -> handlePlayerSelectClick(mouseX, mouseY);
+            case MANAGEMENT -> handleManagementClick(mouseX, mouseY);
+            default -> {}
+        }
+    }
+
+    private void handlePlayerSelectClick(int mouseX, int mouseY) {
+        int panelX = (this.width - OVERLAY_PANEL_WIDTH) / 2;
+        int panelHeight = 44 + 26 + OVERLAY_VISIBLE_ROWS * OVERLAY_ROW_HEIGHT + 10 + 24 + 10;
+        int panelY = (this.height - panelHeight) / 2;
+
+        if (mouseX < panelX || mouseX > panelX + OVERLAY_PANEL_WIDTH || mouseY < panelY || mouseY > panelY + panelHeight) {
+            closeOverlay();
+            return;
+        }
+        if (overlayConfirmTimer > 0) return;
+
+        int listY = panelY + 62;
+        int listX = panelX + 10;
+        int listWidth = OVERLAY_PANEL_WIDTH - 20;
+
+        if (mouseX >= listX && mouseX < listX + listWidth && mouseY >= listY) {
+            List<PlayerInfo> filtered = getFilteredPlayers();
+            int row = (int) ((mouseY - listY) / OVERLAY_ROW_HEIGHT) + overlayScrollOffset;
+            if (row >= 0 && row < filtered.size()) {
+                String playerName = filtered.get(row).name();
+                if (overlaySelectedPlayers.contains(playerName)) {
+                    overlaySelectedPlayers.remove(playerName);
+                } else {
+                    overlaySelectedPlayers.add(playerName);
+                }
+                return;
+            }
+        }
+
+        int bottomY = listY + OVERLAY_VISIBLE_ROWS * OVERLAY_ROW_HEIGHT + 8 + 14;
+        int btnW = 60;
+        int centerX = this.width / 2;
+        int confirmX = centerX - btnW - 10;
+        int cancelX = centerX + 10;
+
+        if (mouseY >= bottomY && mouseY < bottomY + 20) {
+            if (mouseX >= confirmX && mouseX < confirmX + btnW && !overlaySelectedPlayers.isEmpty()) {
+                handleOverlayConfirm();
+            } else if (mouseX >= cancelX && mouseX < cancelX + btnW) {
+                closeOverlay();
+            }
+        }
+    }
+
+    private void handleOverlayConfirm() {
+        if (overlaySelectedPlayers.isEmpty() || overlayConfirmTimer > 0) return;
+
+        String action = overlayPlayerAction;
+        List<String> players = new ArrayList<>(overlaySelectedPlayers);
+        String schematicId = this.materialList.getSchematicId();
+        List<Integer> materialIds = new ArrayList<>(selectedMaterialIds);
+
+        switch (action) {
+            case "ASSIGN" -> ClientPlayNetworking.send(new BatchAssignC2SPacket(schematicId, materialIds, players));
+            case "KICK" -> {
+                for (String player : players) {
+                    ClientPlayNetworking.send(new KickFromMaterialC2SPacket(schematicId, materialIds, player));
+                }
+            }
+        }
+
+        overlayConfirmTimer = 60;
+    }
+
+    private void handleManagementClick(int mouseX, int mouseY) {
+        int panelWidth = 300;
+        int panelX = (this.width - panelWidth) / 2;
+        int leftX = panelX + 15;
+        int innerWidth = panelWidth - 30;
+
+        int panelHeight = 380;
+        int panelY = (this.height - panelHeight) / 2;
+        if (mouseX < panelX || mouseX > panelX + panelWidth || mouseY < panelY || mouseY > panelY + panelHeight) {
+            closeOverlay();
+            return;
+        }
+
+        int y = panelY + 10 + 14 + 18;
+        y += 70;
+        y += 24;
+
+        // 转让按钮
+        if (isMainOwner) {
+            int btnX = leftX + innerWidth - 50;
+            if (mouseX >= btnX && mouseX < btnX + 44 && mouseY >= y && mouseY < y + 18) {
+                requestPlayerList("TRANSFER");
+                return;
+            }
+        }
+        y += 22;
+
+        // 删除按钮
+        for (int i = 0; i < deputyOwners.size(); i++) {
+            if (isMainOwner) {
+                int delX = leftX + innerWidth - 22;
+                if (mouseX >= delX && mouseX < delX + 18 && mouseY >= y && mouseY < y + 18) {
+                    ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "REMOVE_DEPUTY", deputyOwners.get(i)));
+                    return;
+                }
+            }
+            y += 22;
+        }
+        if (deputyOwners.isEmpty()) y += 22;
+
+        // 添加副负责人
+        if (isMainOwner) {
+            y += 2;
+            if (mouseX >= leftX && mouseX < leftX + innerWidth && mouseY >= y && mouseY < y + 20) {
+                requestPlayerList("ADD_DEPUTY");
+                return;
+            }
+            y += 24;
+        }
+
+        y += 8;
+
+        // 自行认领
+        int toggleX = leftX + innerWidth - 60;
+        if (mouseX >= toggleX && mouseX < toggleX + 54 && mouseY >= y + 2 && mouseY < y + 18) {
+            ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "TOGGLE_SELF_CLAIM", ""));
+            allowSelfClaim = !allowSelfClaim;
+            mgmtStatusMessage = "请求已发送...";
+            mgmtStatusColor = CLR_TEXT_GRAY;
+            mgmtStatusTimer = 60;
+        }
+    }
+
+    @Override
+    public void close() {
+        if (isOverlayActive()) {
+            closeOverlay();
+            return;
+        }
+        net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
+        super.close();
+    }
+
+    @Override
+    public boolean shouldPause() {
+        return false;
     }
 }

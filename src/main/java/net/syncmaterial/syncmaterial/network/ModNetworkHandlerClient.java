@@ -66,10 +66,8 @@ public class ModNetworkHandlerClient {
         ClientPlayNetworking.registerGlobalReceiver(OwnerActionResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 var screen = MinecraftClient.getInstance().currentScreen;
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiManagement managementScreen) {
-                    managementScreen.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
-                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
-                    materialListScreen.onOwnerActionResponse(payload.success(), payload.message());
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                    materialListScreen.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
                 }
             });
         });
@@ -98,9 +96,7 @@ public class ModNetworkHandlerClient {
         ClientPlayNetworking.registerGlobalReceiver(PlayerListResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 var screen = MinecraftClient.getInstance().currentScreen;
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiManagement managementScreen) {
-                    managementScreen.onPlayerListResponse(payload.players());
-                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onPlayerListResponse(payload.players());
                 }
             });
