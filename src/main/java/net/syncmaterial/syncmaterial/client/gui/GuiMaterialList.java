@@ -868,6 +868,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             closeOverlay();
             return;
         }
+        ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(materialList.getSchematicId()));
         net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
         super.close();
     }

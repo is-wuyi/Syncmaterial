@@ -13,10 +13,13 @@ import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ModNetworkHandler {
     private static DatabaseQueryService queryService;
     private static CollaborationManager collaborationManager;
+    private static final Map<String, Set<net.minecraft.server.network.ServerPlayerEntity>> materialListSubscribers = new ConcurrentHashMap<>();
 
     public static void initializeServices(DatabaseQueryService queryService, CollaborationManager collaborationManager) {
         ModNetworkHandler.queryService = queryService;
@@ -42,6 +45,7 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playC2S().register(BatchAssignC2SPacket.ID, BatchAssignC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(KickFromMaterialC2SPacket.ID, KickFromMaterialC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(PlayerListRequestC2SPacket.ID, PlayerListRequestC2SPacket.CODEC);
+        PayloadTypeRegistry.playC2S().register(MaterialListCloseC2SPacket.ID, MaterialListCloseC2SPacket.CODEC);
 
         // S2C (服务端到客户端)
         PayloadTypeRegistry.playS2C().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
@@ -220,10 +224,21 @@ public class ModNetworkHandler {
 
             context.server().execute(() -> {
                 SyncMaterial.LOGGER.debug("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getGameProfile().getName(), schematicId);
+                subscribeMaterialList(player, schematicId);
                 List<Integer> materialIds = collaborationManager.getAllMaterialIds(schematicId);
                 for (int materialId : materialIds) {
                     sendStatusToPlayer(player, schematicId, materialId);
                 }
+            });
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(MaterialListCloseC2SPacket.ID, (payload, context) -> {
+            String schematicId = payload.schematicId();
+            var player = context.player();
+            if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
+
+            context.server().execute(() -> {
+                unsubscribeMaterialList(player, schematicId);
             });
         });
 
@@ -386,6 +401,8 @@ public class ModNetworkHandler {
                 rescannedCount++;
             }
 
+            broadcastAllMaterialStatus(context.server(), schematicId);
+
             SyncMaterial.LOGGER.info("[StagingArea] 手动重新扫描完成: schematicId={}, 区域数={}", schematicId, rescannedCount);
             ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(true, "成功重新扫描 " + rescannedCount + " 个备货区"));
         } catch (Exception e) {
@@ -425,7 +442,7 @@ public class ModNetworkHandler {
                         return;
                     }
                     db.transferOwnership(schematicId, targetPlayer);
-                    sendOwnerActionSuccess(player, db, schematicId, "已转让负责人给 " + targetPlayer);
+                    sendOwnerActionSuccess(server, player, db, schematicId, "已转让负责人给 " + targetPlayer);
                 }
                 case "ADD_DEPUTY" -> {
                     if (!db.isMainOwner(schematicId, playerName)) {
@@ -437,7 +454,7 @@ public class ModNetworkHandler {
                         return;
                     }
                     db.addDeputyOwner(schematicId, targetPlayer);
-                    sendOwnerActionSuccess(player, db, schematicId, "已添加副负责人 " + targetPlayer);
+                    sendOwnerActionSuccess(server, player, db, schematicId, "已添加副负责人 " + targetPlayer);
                 }
                 case "REMOVE_DEPUTY" -> {
                     if (!db.isMainOwner(schematicId, playerName)) {
@@ -449,7 +466,7 @@ public class ModNetworkHandler {
                         return;
                     }
                     db.removeDeputyOwner(schematicId, targetPlayer);
-                    sendOwnerActionSuccess(player, db, schematicId, "已移除副负责人 " + targetPlayer);
+                    sendOwnerActionSuccess(server, player, db, schematicId, "已移除副负责人 " + targetPlayer);
                 }
                 case "TOGGLE_SELF_CLAIM" -> {
                     if (!db.isOwner(schematicId, playerName)) {
@@ -458,7 +475,7 @@ public class ModNetworkHandler {
                     }
                     boolean current = db.getAllowSelfClaim(schematicId);
                     db.setAllowSelfClaim(schematicId, !current);
-                    sendOwnerActionSuccess(player, db, schematicId, "自行认领已" + (!current ? "开启" : "关闭"));
+                    sendOwnerActionSuccess(server, player, db, schematicId, "自行认领已" + (!current ? "开启" : "关闭"));
                 }
             }
         } catch (Exception e) {
@@ -467,12 +484,24 @@ public class ModNetworkHandler {
         }
     }
 
-    /** 发送带最新状态的成功响应 */
-    private static void sendOwnerActionSuccess(net.minecraft.server.network.ServerPlayerEntity player, net.syncmaterial.syncmaterial.server.SchematicDatabase db, String schematicId, String message) throws java.sql.SQLException {
+    /** 发送带最新状态的成功响应，并广播给所有正在查看该原理图材料列表的玩家 */
+    private static void sendOwnerActionSuccess(MinecraftServer server, net.minecraft.server.network.ServerPlayerEntity player, net.syncmaterial.syncmaterial.server.SchematicDatabase db, String schematicId, String message) throws java.sql.SQLException {
         String ownerName = db.getUploadedBy(schematicId);
         var deputyOwners = db.getDeputyOwners(schematicId);
         boolean allowSelfClaim = db.getAllowSelfClaim(schematicId);
-        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(true, message, ownerName, deputyOwners, allowSelfClaim));
+        var packet = new OwnerActionResponseS2CPacket(true, message, ownerName, deputyOwners, allowSelfClaim);
+
+        // 广播给所有正在查看该原理图材料列表的玩家
+        Set<net.minecraft.server.network.ServerPlayerEntity> subscribers = materialListSubscribers.get(schematicId);
+        if (subscribers != null) {
+            for (var subscriber : subscribers) {
+                if (subscriber.isAlive() && subscriber.networkHandler != null) {
+                    ServerPlayNetworking.send(subscriber, packet);
+                }
+            }
+        }
+        // 确保操作者也能收到（操作者一定在 subscribers 中，但保持防御性）
+        ServerPlayNetworking.send(player, packet);
     }
 
     private static void handleBatchAssign(BatchAssignC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
@@ -624,20 +653,66 @@ public class ModNetworkHandler {
         var status = collaborationManager.getCollaborationStatus(schematicId, materialId);
         if (status == null) return;
 
+        // 收集所有接收者：参与者 + 材料列表订阅者（去重）
+        Set<net.minecraft.server.network.ServerPlayerEntity> recipients = ConcurrentHashMap.newKeySet();
+
         List<String> participants = collaborationManager.getParticipants(schematicId, materialId);
-        SyncMaterial.LOGGER.info("广播材料 {} 的状态给 {} 位参与者", materialId, participants.size());
         for (String name : participants) {
             var player = server.getPlayerManager().getPlayer(name);
             if (player != null) {
+                recipients.add(player);
+            }
+        }
+
+        Set<net.minecraft.server.network.ServerPlayerEntity> subscribers = materialListSubscribers.get(schematicId);
+        if (subscribers != null) {
+            recipients.addAll(subscribers);
+        }
+
+        SyncMaterial.LOGGER.info("广播材料 {} 的状态给 {} 个玩家（参与者 + 订阅者）", materialId, recipients.size());
+        for (var player : recipients) {
+            if (player.isAlive() && player.networkHandler != null) {
                 ServerPlayNetworking.send(player, status);
             }
         }
+    }
+
+    // ========== 材料列表订阅管理 ==========
+
+    public static void subscribeMaterialList(net.minecraft.server.network.ServerPlayerEntity player, String schematicId) {
+        materialListSubscribers.computeIfAbsent(schematicId, k -> ConcurrentHashMap.newKeySet()).add(player);
+    }
+
+    public static void unsubscribeMaterialList(net.minecraft.server.network.ServerPlayerEntity player, String schematicId) {
+        Set<net.minecraft.server.network.ServerPlayerEntity> set = materialListSubscribers.get(schematicId);
+        if (set != null) {
+            set.remove(player);
+            if (set.isEmpty()) {
+                materialListSubscribers.remove(schematicId);
+            }
+        }
+    }
+
+    public static void unsubscribeAllMaterialList(net.minecraft.server.network.ServerPlayerEntity player) {
+        for (var entry : materialListSubscribers.entrySet()) {
+            entry.getValue().remove(player);
+        }
+        materialListSubscribers.entrySet().removeIf(e -> e.getValue().isEmpty());
     }
 
     private static void sendStatusToPlayer(net.minecraft.server.network.ServerPlayerEntity player, String schematicId, int materialId) {
         var status = collaborationManager.getCollaborationStatus(schematicId, materialId);
         if (status != null) {
             ServerPlayNetworking.send(player, status);
+        }
+    }
+
+    /** 广播某原理图所有材料的最新状态给参与者 + 订阅者（备货区/背包变动后调用） */
+    public static void broadcastAllMaterialStatus(MinecraftServer server, String schematicId) {
+        if (collaborationManager == null) return;
+        List<Integer> materialIds = collaborationManager.getAllMaterialIds(schematicId);
+        for (int materialId : materialIds) {
+            broadcastStatus(server, schematicId, materialId);
         }
     }
 }

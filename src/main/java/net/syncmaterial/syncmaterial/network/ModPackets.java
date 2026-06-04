@@ -34,4 +34,7 @@ public class ModPackets {
     public static final Identifier KICK_FROM_MATERIAL_RESPONSE = Identifier.of("syncmaterial", "kick_from_material_response");
     public static final Identifier PLAYER_LIST_REQUEST = Identifier.of("syncmaterial", "player_list_request");
     public static final Identifier PLAYER_LIST_RESPONSE = Identifier.of("syncmaterial", "player_list_response");
+
+    // Material list subscription
+    public static final Identifier MATERIAL_LIST_CLOSE_C2S = Identifier.of("syncmaterial", "material_list_close");
 }

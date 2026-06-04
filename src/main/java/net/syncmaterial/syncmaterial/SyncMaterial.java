@@ -107,6 +107,7 @@ public class SyncMaterial implements ModInitializer {
             if (sharedStagingAreaManager != null) {
                 sharedStagingAreaManager.unsubscribeAll(handler.player);
             }
+            net.syncmaterial.syncmaterial.network.ModNetworkHandler.unsubscribeAllMaterialList(handler.player);
         });
 
         // 4. 注册服务器关闭事件，释放资源

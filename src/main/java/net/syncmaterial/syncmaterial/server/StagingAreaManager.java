@@ -176,8 +176,16 @@ public class StagingAreaManager {
 
         if (!dirtyAreaIds.isEmpty() && server != null) {
             server.execute(() -> {
+                Set<String> affectedSchematics = new HashSet<>();
                 for (int areaId : dirtyAreaIds) {
                     rescanStagingArea(areaId);
+                    String schematicId = findSchematicIdByAreaId(areaId);
+                    if (schematicId != null) {
+                        affectedSchematics.add(schematicId);
+                    }
+                }
+                for (String schematicId : affectedSchematics) {
+                    net.syncmaterial.syncmaterial.network.ModNetworkHandler.broadcastAllMaterialStatus(server, schematicId);
                 }
             });
         }
@@ -262,6 +270,17 @@ public class StagingAreaManager {
             for (StagingArea area : areas) {
                 if (area.id == areaId) {
                     return area;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String findSchematicIdByAreaId(int areaId) {
+        for (var entry : stagingAreasBySchematic.entrySet()) {
+            for (StagingArea area : entry.getValue()) {
+                if (area.id == areaId) {
+                    return entry.getKey();
                 }
             }
         }
