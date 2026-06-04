@@ -16,6 +16,7 @@ public class MaterialListEntry
     private final int countMismatched;
     private int countAvailable;
     private int stagingCount;
+    private int otherPlayersCount;
     private List<ParticipantData> participants = new ArrayList<>();
 
     public record ParticipantData(String playerName, int count) {}
@@ -68,6 +69,17 @@ public class MaterialListEntry
 
     public int getStagingCount() { return stagingCount; }
     public void setStagingCount(int stagingCount) { this.stagingCount = stagingCount; }
+
+    public int getOtherPlayersCount() { return otherPlayersCount; }
+    public void setOtherPlayersCount(int otherPlayersCount) { this.otherPlayersCount = otherPlayersCount; }
+
+    public boolean isCurrentPlayerClaimed() {
+        String playerName = net.minecraft.client.MinecraftClient.getInstance().player.getGameProfile().getName();
+        for (ParticipantData p : participants) {
+            if (p.playerName().equals(playerName)) return true;
+        }
+        return false;
+    }
 
     public List<ParticipantData> getParticipants() { return Collections.unmodifiableList(participants); }
     public void setParticipants(List<ParticipantData> participants) { this.participants = new ArrayList<>(participants); }

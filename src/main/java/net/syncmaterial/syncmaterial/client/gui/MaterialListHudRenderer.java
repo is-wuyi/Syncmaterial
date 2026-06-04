@@ -20,6 +20,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
     protected final MaterialListSorter sorter;
     protected boolean shouldRender;
     protected long lastUpdateTime;
+    private List<MaterialListEntry> lastRenderedList = Collections.emptyList();
 
     public MaterialListHudRenderer(MaterialListBase materialList) {
         this.materialList = materialList;
@@ -62,12 +63,16 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         List<MaterialListEntry> list;
 
         if (currentTime - this.lastUpdateTime > 2000) {
-            MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), mc.player);
             list = this.materialList.getMaterialsMissingOnly(true);
+            // 仅显示当前玩家已认领且还有缺失的材料
+            list = list.stream()
+                .filter(e -> e.getCountMissing() > 0 && e.isCurrentPlayerClaimed())
+                .collect(java.util.stream.Collectors.toList());
             Collections.sort(list, this.sorter);
+            this.lastRenderedList = list;
             this.lastUpdateTime = currentTime;
         } else {
-            list = this.materialList.getMaterialsMissingOnly(false);
+            list = this.lastRenderedList;
         }
 
         if (list.size() == 0) {

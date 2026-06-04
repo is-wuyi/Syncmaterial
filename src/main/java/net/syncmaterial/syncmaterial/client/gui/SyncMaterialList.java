@@ -76,28 +76,39 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     private void updateEntriesWithCollaborationStatus() {
+        String myName = MinecraftClient.getInstance().player.getGameProfile().getName();
         List<MaterialListEntry> entries = this.getMaterialsAll();
         for (MaterialListEntry entry : entries) {
             CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
             if (status != null && (status.stagingCount() > 0 || !status.participants().isEmpty())) {
-                int collected = status.stagingCount();
+                // 计算所有玩家背包总量
+                int allPlayersCount = 0;
+                int myCount = 0;
                 for (var p : status.participants()) {
-                    collected += p.count();
+                    allPlayersCount += p.count();
+                    if (p.playerName().equals(myName)) {
+                        myCount = p.count();
+                    }
                 }
-                int remaining = Math.max(0, status.totalCount() - collected);
+                int otherPlayersCount = allPlayersCount - myCount;
+                int realMissing = Math.max(0, status.totalCount() - status.stagingCount() - allPlayersCount);
+
+                entry.setCountMissing(realMissing);
+                entry.setCountAvailable(myCount);
                 entry.setStagingCount(status.stagingCount());
+                entry.setOtherPlayersCount(otherPlayersCount);
                 entry.setParticipants(status.participants().stream()
                     .map(p -> new MaterialListEntry.ParticipantData(p.playerName(), p.count()))
                     .toList());
-                this.setClaimStatus(entry, "剩余: " + remaining);
             } else {
-                entry.setStagingCount(0);
+                // 无人协作，缺失 = 总数 - 备货区（可能备货区有物品但无人认领）
+                int stagingCount = status != null ? status.stagingCount() : 0;
+                int realMissing = Math.max(0, entry.getCountTotal() - stagingCount);
+                entry.setCountMissing(realMissing);
+                entry.setCountAvailable(0);
+                entry.setStagingCount(stagingCount);
+                entry.setOtherPlayersCount(0);
                 entry.setParticipants(java.util.Collections.emptyList());
-                if (status != null && status.participants().isEmpty()) {
-                    SyncMaterial.LOGGER.debug("材料 {} (dbId={}): participants 为空，显示'未认领'",
-                        entry.getStack().getName().getString(), entry.getDatabaseId());
-                }
-                this.setClaimStatus(entry, "未认领");
             }
         }
         this.updateCounts();
