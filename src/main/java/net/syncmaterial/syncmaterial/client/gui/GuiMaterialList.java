@@ -31,6 +31,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private boolean allowSelfClaim;
     private boolean filterMyMaterials = false;
     private List<Integer> selectedMaterialIds = new ArrayList<>();
+    private static boolean stagingRenderEnabled = true;
 
     // ========== Overlay 状态 ==========
     private enum OverlayType { NONE, PLAYER_SELECT, MANAGEMENT }
@@ -127,6 +128,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         x -= this.createButtonClose(x, 24) + gap;
         x -= this.createButtonToggleHud(x, 24) + gap;
         x -= this.createButtonRefresh(x, 24) + gap;
+        x -= this.createButtonToggleStagingRender(x, 24) + gap;
         x -= this.createButtonStagingArea(x, 24) + gap;
         x -= this.createButtonFilterMyMaterials(x, 24) + gap;
         if (isOwner) {
@@ -136,6 +138,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             this.createBottomButtons();
         }
         this.materialList.requestCollaborationStatus();
+        // 自动订阅备货区更新，使协作者能看到游戏内线框渲染
+        String schematicId = this.materialList.getSchematicId();
+        if (schematicId != null && !schematicId.isEmpty()) {
+            ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket(schematicId, "LIST", -1, java.util.Optional.empty()));
+        }
     }
 
     private int createButtonRefresh(int x, int y) {
@@ -158,6 +165,20 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             GuiStagingAreaEditorNormal editor = new GuiStagingAreaEditorNormal(selection, null, this.materialList.getSchematicId());
             editor.setParent(this);
             this.mc.setScreen(editor);
+        });
+        return button.getWidth();
+    }
+
+    private int createButtonToggleStagingRender(int x, int y) {
+        String label = "备货区线框：" + (stagingRenderEnabled ? "显示" : "隐藏");
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
+        this.addButton(button, (btn, mouseButton) -> {
+            stagingRenderEnabled = !stagingRenderEnabled;
+            String schematicId = this.materialList.getSchematicId();
+            if (schematicId != null) {
+                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().setRenderEnabled(schematicId, stagingRenderEnabled);
+            }
+            btn.setDisplayString("备货区线框：" + (stagingRenderEnabled ? "显示" : "隐藏"));
         });
         return button.getWidth();
     }

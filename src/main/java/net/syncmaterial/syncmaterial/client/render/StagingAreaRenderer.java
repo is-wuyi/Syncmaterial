@@ -32,6 +32,7 @@ public class StagingAreaRenderer implements IRenderer
     private final Color4f colorSelectedSide = new Color4f(1.0f, 0.8f, 0.0f, 0.18f);
 
     private final Map<String, AreaSelection> selections = new HashMap<>();
+    private final Map<String, Boolean> renderEnabled = new HashMap<>();
 
     private StagingAreaRenderer() {}
 
@@ -56,6 +57,22 @@ public class StagingAreaRenderer implements IRenderer
         return this.selections.get(schematicId);
     }
 
+    public void setRenderEnabled(String schematicId, boolean enabled)
+    {
+        this.renderEnabled.put(schematicId, enabled);
+    }
+
+    public boolean isRenderEnabled(String schematicId)
+    {
+        return this.renderEnabled.getOrDefault(schematicId, true);
+    }
+
+    public void removeRenderData(String schematicId)
+    {
+        this.selections.remove(schematicId);
+        this.renderEnabled.remove(schematicId);
+    }
+
     @Override
     public void onRenderWorldLastAdvanced(Framebuffer fb, Matrix4f posMatrix, Matrix4f projMatrix,
             Frustum frustum, Camera camera, BufferBuilderStorage buffers, Profiler profiler)
@@ -74,8 +91,13 @@ public class StagingAreaRenderer implements IRenderer
 
         profiler.push("syncmaterial_staging_areas");
 
-        for (AreaSelection selection : this.selections.values())
+        for (Map.Entry<String, AreaSelection> entry : this.selections.entrySet())
         {
+            if (!isRenderEnabled(entry.getKey()))
+            {
+                continue;
+            }
+            AreaSelection selection = entry.getValue();
             Box selectedBox = selection.getSelectedSubRegionBox();
 
             for (Box box : selection.getAllSubRegionBoxes())
