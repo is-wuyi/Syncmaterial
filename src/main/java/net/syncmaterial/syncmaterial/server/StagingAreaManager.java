@@ -270,7 +270,12 @@ public class StagingAreaManager {
 
     private void updateStagingAreaInventory(int areaId, Map<String, Integer> itemCounts) {
         if (itemCounts == null || itemCounts.isEmpty()) {
-            SyncMaterial.LOGGER.info("[StagingArea] updateStagingAreaInventory: areaId={} itemCounts is empty, skipping", areaId);
+            SyncMaterial.LOGGER.info("[StagingArea] updateStagingAreaInventory: areaId={} itemCounts is empty, clearing old records", areaId);
+            try {
+                database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id = ?", areaId);
+            } catch (SQLException e) {
+                SyncMaterial.LOGGER.error("Failed to clear staging area inventory", e);
+            }
             return;
         }
 
