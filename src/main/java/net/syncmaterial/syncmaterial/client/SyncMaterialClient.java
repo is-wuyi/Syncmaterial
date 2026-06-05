@@ -48,6 +48,19 @@ public class SyncMaterialClient implements ClientModInitializer {
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal.clearCurrentEditor();
         });
+
+        // 准星选区模式下屏蔽方块交互
+        net.fabricmc.fabric.api.event.client.player.ClientPreAttackCallback.EVENT.register((mc, player, clickCount) -> {
+            return !StagingAreaSelector.getInstance().isActive();
+        });
+        net.fabricmc.fabric.api.event.player.UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
+            return StagingAreaSelector.getInstance().isActive()
+                    ? net.minecraft.util.ActionResult.FAIL : net.minecraft.util.ActionResult.PASS;
+        });
+        net.fabricmc.fabric.api.event.player.UseItemCallback.EVENT.register((player, world, hand) -> {
+            return StagingAreaSelector.getInstance().isActive()
+                    ? net.minecraft.util.ActionResult.FAIL : net.minecraft.util.ActionResult.PASS;
+        });
     }
 
     public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {

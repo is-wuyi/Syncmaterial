@@ -277,7 +277,10 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     public void onBatchAssignResponse(boolean success, String message) {
         InfoUtils.showGuiOrActionBarMessage(success ? MessageType.SUCCESS : MessageType.ERROR, message);
-        if (success) this.materialList.requestCollaborationStatus();
+        if (success) {
+            selectedMaterialIds.clear();
+            this.materialList.requestCollaborationStatus();
+        }
     }
 
     public void onKickResponse(boolean success, String message) {

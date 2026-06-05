@@ -425,22 +425,30 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFF444444);
         }
 
-        StringBuilder sb = new StringBuilder();
-        if (stagingCount > 0) sb.append("备货区: ").append(stagingCount);
+        // 文字描述 — 分段着色
+        int textX = x;
+        int textY = barY + barHeight + 1;
+
+        if (stagingCount > 0) {
+            String s = "备货区:" + stagingCount;
+            this.drawString(drawContext, textX, textY, 0xFFFFAA00, s);
+            textX += this.getStringWidth(s) + 6;
+        }
         for (int i = 0; i < Math.min(participants.size(), 5); i++) {
-            if (sb.length() > 0) sb.append(" | ");
-            sb.append(participants.get(i).playerName()).append(": ").append(participants.get(i).count());
+            var p = participants.get(i);
+            int c = i < playerColors.length ? playerColors[i] : 0xFF666666;
+            String s = p.playerName() + ":" + p.count();
+            this.drawString(drawContext, textX, textY, c, s);
+            textX += this.getStringWidth(s) + 6;
         }
         if (participants.size() > 5) {
-            if (sb.length() > 0) sb.append(" | ");
-            sb.append("其他: ").append(otherCount);
+            String s = "其他:" + otherCount;
+            this.drawString(drawContext, textX, textY, 0xFF666666, s);
+            textX += this.getStringWidth(s) + 6;
         }
         if (remaining > 0) {
-            if (sb.length() > 0) sb.append(" | ");
-            sb.append("剩余: ").append(remaining);
+            this.drawString(drawContext, textX, textY, 0xFF444444, "剩余:" + remaining);
         }
-
-        this.drawString(drawContext, x, barY + barHeight + 1, 0xFFAAAAAA, sb.toString());
     }
 
     @Override
