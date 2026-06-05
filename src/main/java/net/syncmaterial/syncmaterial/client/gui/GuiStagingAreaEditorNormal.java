@@ -50,7 +50,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected final AreaSelection selection;
     protected final String schematicId;
     protected GuiTextFieldGeneric textFieldSelectionName;
-    protected WidgetCheckBox checkBoxOrigin;
     protected WidgetCheckBox checkBoxCorner1;
     protected WidgetCheckBox checkBoxCorner2;
     protected int xNext;
@@ -276,9 +275,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         xSave += this.createButton(xSave, ySave, -1, ButtonListener.Type.CREATE_SUB_REGION) + 4;
 
-        boolean currentlyOn = this.selection.getExplicitOrigin() != null;
-        xSave += this.createButtonOnOff(xSave, ySave, -1, currentlyOn, ButtonListener.Type.TOGGLE_ORIGIN_ENABLED) + 4;
-
         {
             String selectLabel = ButtonListener.Type.SELECT_AREA.getDisplayName();
             String selectHover = StringUtils.translate("syncmaterial.gui.button.select_area.hover");
@@ -286,17 +282,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             ButtonGeneric selectButton = new ButtonGeneric(xSave, ySave, selectWidth, 20, selectLabel, selectHover);
             this.addButton(selectButton, new ButtonListener(ButtonListener.Type.SELECT_AREA, null, null, this));
             xSave += selectWidth + 4;
-        }
-
-        if (this.selection.getExplicitOrigin() != null)
-        {
-            if ((this.xSet - xSave) > 5)
-            {
-                xSave = this.xSet + 5;
-            }
-
-            x = Math.max(xSave, this.xOrigin);
-            this.createCoordinateInputs(x, 5, width, Corner.NONE);
         }
 
         x = 12;
@@ -318,12 +303,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     {
     }
 
-    protected void createOrigin()
-    {
-        BlockPos origin = fi.dy.masa.malilib.util.position.PositionUtils.getEntityBlockPos(this.mc.player);
-        this.selection.setExplicitOrigin(origin);
-    }
-
     protected int createCoordinateInputs(int x, int y, int width, Corner corner)
     {
         String label = "";
@@ -340,11 +319,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 label = StringUtils.translate("litematica.gui.label.area_editor.corner_2");
                 widget = new WidgetCheckBox(x, y + 3, Icons.CHECKBOX_UNSELECTED, Icons.CHECKBOX_SELECTED, label);
                 this.checkBoxCorner2 = widget;
-                break;
-            case NONE:
-                label = StringUtils.translate("litematica.gui.label.area_editor.origin");
-                widget = new WidgetCheckBox(x, y + 3, Icons.CHECKBOX_UNSELECTED, Icons.CHECKBOX_SELECTED, label);
-                this.checkBoxOrigin = widget;
                 break;
         }
 
@@ -443,11 +417,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
     protected void updateCheckBoxes()
     {
-        if (this.checkBoxOrigin != null)
-        {
-            this.checkBoxOrigin.setChecked(this.selection.isOriginSelected(), false);
-        }
-
         if (this.checkBoxCorner1 != null)
         {
             boolean checked = this.selection.getSelectedSubRegionBox() != null && this.selection.getSelectedSubRegionBox().getSelectedCorner() == Corner.CORNER_1;
@@ -728,19 +697,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                     }
                     break;
 
-                case TOGGLE_ORIGIN_ENABLED:
-                    BlockPos origin = this.parent.selection.getExplicitOrigin();
-
-                    if (origin == null)
-                    {
-                        this.parent.createOrigin();
-                    }
-                    else
-                    {
-                        this.parent.selection.setExplicitOrigin(null);
-                    }
-                    break;
-
                 case SELECT_AREA:
                 {
                     Box selectedBox = this.parent.selection.getSelectedSubRegionBox();
@@ -764,7 +720,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         {
             SET_SELECTION_NAME      ("litematica.gui.button.area_editor.set_selection_name"),
             SET_BOX_NAME            ("syncmaterial.gui.button.rename_staging_area"),
-            TOGGLE_ORIGIN_ENABLED   ("litematica.gui.button.area_editor.origin_enabled"),
             CREATE_SUB_REGION       ("syncmaterial.gui.button.add_staging_area"),
             SELECT_AREA             ("syncmaterial.gui.button.select_area"),
             MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),

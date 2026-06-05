@@ -120,11 +120,6 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorNormal
     }
 
     @Override
-    protected void createOrigin()
-    {
-    }
-
-    @Override
     protected WidgetListStagingAreas getListWidget()
     {
         return null;
