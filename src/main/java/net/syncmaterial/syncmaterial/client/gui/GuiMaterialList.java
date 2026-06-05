@@ -751,10 +751,16 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             int row = (int) ((mouseY - listY) / OVERLAY_ROW_HEIGHT) + overlayScrollOffset;
             if (row >= 0 && row < filtered.size()) {
                 String playerName = filtered.get(row).name();
-                if (overlaySelectedPlayers.contains(playerName)) {
-                    overlaySelectedPlayers.remove(playerName);
-                } else {
+                // 转让负责人只允许单选
+                if ("TRANSFER".equals(overlayPlayerAction)) {
+                    overlaySelectedPlayers.clear();
                     overlaySelectedPlayers.add(playerName);
+                } else {
+                    if (overlaySelectedPlayers.contains(playerName)) {
+                        overlaySelectedPlayers.remove(playerName);
+                    } else {
+                        overlaySelectedPlayers.add(playerName);
+                    }
                 }
                 return;
             }
