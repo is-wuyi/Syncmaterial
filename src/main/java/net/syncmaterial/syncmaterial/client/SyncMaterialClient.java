@@ -51,7 +51,7 @@ public class SyncMaterialClient implements ClientModInitializer {
 
         // 准星选区模式下屏蔽方块交互
         net.fabricmc.fabric.api.event.client.player.ClientPreAttackCallback.EVENT.register((mc, player, clickCount) -> {
-            return !StagingAreaSelector.getInstance().isActive();
+            return StagingAreaSelector.getInstance().isActive();
         });
         net.fabricmc.fabric.api.event.player.UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
             return StagingAreaSelector.getInstance().isActive()

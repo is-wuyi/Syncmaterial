@@ -516,7 +516,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
         // 底部信息 + 按钮
         int bottomY = listY + listHeight + 8;
-        String infoText = "已选择 " + overlaySelectedPlayers.size() + " 个玩家 | 材料 " + selectedMaterialIds.size() + " 个";
+        String infoText;
+        if ("TRANSFER".equals(overlayPlayerAction)) {
+            infoText = overlaySelectedPlayers.isEmpty() ? "请选择一位玩家" : "转让给: " + overlaySelectedPlayers.get(0);
+        } else if ("ADD_DEPUTY".equals(overlayPlayerAction) || "REMOVE_DEPUTY".equals(overlayPlayerAction)) {
+            infoText = "已选择 " + overlaySelectedPlayers.size() + " 位玩家";
+        } else {
+            infoText = "已选择 " + overlaySelectedPlayers.size() + " 个玩家 | 材料 " + selectedMaterialIds.size() + " 个";
+        }
         drawContext.drawCenteredTextWithShadow(this.textRenderer, infoText, this.width / 2, bottomY, CLR_TEXT_GRAY);
 
         int btnY = bottomY + 14;
