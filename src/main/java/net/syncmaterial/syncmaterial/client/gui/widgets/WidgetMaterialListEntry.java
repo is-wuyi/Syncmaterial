@@ -425,29 +425,39 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFF444444);
         }
 
-        // 文字描述 — 分段着色
+        // 文字描述 — 分段着色，裁剪到进度条宽度内
         int textX = x;
         int textY = barY + barHeight + 1;
+        int textMaxX = x + totalWidth;
 
         if (stagingCount > 0) {
             String s = "备货区:" + stagingCount;
-            this.drawString(drawContext, textX, textY, 0xFFFFAA00, s);
-            textX += this.getStringWidth(s) + 6;
+            if (textX + this.getStringWidth(s) < textMaxX) {
+                this.drawString(drawContext, textX, textY, 0xFFFFAA00, s);
+                textX += this.getStringWidth(s) + 6;
+            }
         }
         for (int i = 0; i < Math.min(participants.size(), 5); i++) {
             var p = participants.get(i);
             int c = i < playerColors.length ? playerColors[i] : 0xFF666666;
             String s = p.playerName() + ":" + p.count();
-            this.drawString(drawContext, textX, textY, c, s);
-            textX += this.getStringWidth(s) + 6;
+            if (textX + this.getStringWidth(s) < textMaxX) {
+                this.drawString(drawContext, textX, textY, c, s);
+                textX += this.getStringWidth(s) + 6;
+            }
         }
         if (participants.size() > 5) {
             String s = "其他:" + otherCount;
-            this.drawString(drawContext, textX, textY, 0xFF666666, s);
-            textX += this.getStringWidth(s) + 6;
+            if (textX + this.getStringWidth(s) < textMaxX) {
+                this.drawString(drawContext, textX, textY, 0xFF666666, s);
+                textX += this.getStringWidth(s) + 6;
+            }
         }
         if (remaining > 0) {
-            this.drawString(drawContext, textX, textY, 0xFF444444, "剩余:" + remaining);
+            String s = "剩余:" + remaining;
+            if (textX + this.getStringWidth(s) < textMaxX) {
+                this.drawString(drawContext, textX, textY, 0xFF444444, s);
+            }
         }
     }
 
