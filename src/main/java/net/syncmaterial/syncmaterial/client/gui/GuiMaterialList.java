@@ -83,6 +83,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.deputyOwners = deputyOwners != null ? new ArrayList<>(deputyOwners) : new ArrayList<>();
         this.allowSelfClaim = allowSelfClaim;
         this.materialList = new SyncMaterialList(schematicId, schematicName);
+        this.materialList.setAllowSelfClaim(allowSelfClaim);
+        this.materialList.setIsOwner(isOwner);
         this.materialList.setOnStatusUpdate(() -> this.getListWidget().refreshEntries());
         this.materialList.setMaterialEntries(entries);
         this.title = this.materialList.getTitle();
@@ -264,6 +266,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.ownerName = newOwnerName != null ? newOwnerName : this.ownerName;
         this.deputyOwners = newDeputyOwners != null ? new ArrayList<>(newDeputyOwners) : this.deputyOwners;
         this.allowSelfClaim = newAllowSelfClaim;
+        this.materialList.setAllowSelfClaim(newAllowSelfClaim);
 
         mgmtStatusMessage = message;
         mgmtStatusColor = success ? CLR_TEXT_GREEN : CLR_TEXT_RED;

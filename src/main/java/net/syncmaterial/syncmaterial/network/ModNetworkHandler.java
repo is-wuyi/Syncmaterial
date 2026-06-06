@@ -174,6 +174,20 @@ public class ModNetworkHandler {
             String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
+                try {
+                    var db = SyncMaterial.getSharedDatabase();
+                    boolean allowSelfClaim = db.getAllowSelfClaim(schematicId);
+                    boolean isOwner = db.isOwner(schematicId, playerName);
+
+                    if (!allowSelfClaim && !isOwner) {
+                        // 不允许自行认领且非负责人，拒绝
+                        return;
+                    }
+                } catch (Exception e) {
+                    SyncMaterial.LOGGER.error("检查自行认领权限失败", e);
+                    return;
+                }
+
                 if (collaborationManager.joinCollaboration(schematicId, materialId, playerName)) {
                     for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
                         collaborationManager.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());

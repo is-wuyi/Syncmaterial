@@ -19,11 +19,24 @@ public class SyncMaterialList extends MaterialListBase {
     private final String title;
     private final Map<Integer, CollaborationStatusS2CPacket> collaborationStatusMap = new HashMap<>();
     private Runnable onStatusUpdate;
+    private boolean allowSelfClaim = true;
+    private boolean isOwner = false;
 
     public SyncMaterialList(String schematicId, String title) {
         this.schematicId = schematicId;
         this.title = title;
     }
+
+    public void setAllowSelfClaim(boolean allowSelfClaim) {
+        this.allowSelfClaim = allowSelfClaim;
+    }
+
+    public void setIsOwner(boolean isOwner) {
+        this.isOwner = isOwner;
+    }
+
+    public boolean isAllowSelfClaim() { return allowSelfClaim; }
+    public boolean isOwner() { return isOwner; }
 
     public void setOnStatusUpdate(Runnable callback) {
         this.onStatusUpdate = callback;
@@ -120,8 +133,15 @@ public class SyncMaterialList extends MaterialListBase {
 
         CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
         if (status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(MinecraftClient.getInstance().player.getGameProfile().getName()))) {
+            // 已认领 → 退出协作（任何时候都允许）
             ClientPlayNetworking.send(new LeaveCollaborationC2SPacket(schematicId, entry.getDatabaseId()));
         } else {
+            // 未认领 → 检查是否允许自行认领
+            if (!allowSelfClaim && !isOwner) {
+                net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
+                    new net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket(schematicId));
+                return;
+            }
             Map<Integer, Integer> inventoryCounts = net.syncmaterial.syncmaterial.client.InventoryWatcher.getCurrentCounts();
             ClientPlayNetworking.send(new JoinCollaborationC2SPacket(schematicId, entry.getDatabaseId(), inventoryCounts));
         }

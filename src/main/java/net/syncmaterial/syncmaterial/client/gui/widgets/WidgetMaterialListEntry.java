@@ -94,8 +94,14 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private int createButtonGeneric(int xRight, int y, ButtonListener.ButtonType type)
     {
         String label = type.getDisplayName();
-        if (type == ButtonListener.ButtonType.CLAIM && this.entry != null && this.materialList instanceof SyncMaterialList) {
-            label = ((SyncMaterialList) this.materialList).isCollaborating(this.entry) ? "退出协作" : "加入协作";
+        if (type == ButtonListener.ButtonType.CLAIM && this.entry != null && this.materialList instanceof SyncMaterialList syncList) {
+            if (syncList.isCollaborating(this.entry)) {
+                label = "退出协作";
+            } else if (!syncList.isAllowSelfClaim() && !syncList.isOwner()) {
+                label = "不可认领";
+            } else {
+                label = "加入协作";
+            }
         }
         ButtonListener listener = new ButtonListener(type, this.materialList, this.entry, this.listWidget);
         return this.addButton(new ButtonGeneric(xRight, y, -1, true, label), listener).getX();
