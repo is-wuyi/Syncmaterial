@@ -84,8 +84,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.header7 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[6]) + GuiBase.TXT_RST;
         }
 
-        // 按钮左移 9px，为滚动条腾出空间
-        int posX = x + width - 9;
+        int posX = x + width;
         int posY = y + 1;
 
         posX = this.createButtonGeneric(posX, posY, ButtonListener.ButtonType.CLAIM);
@@ -370,7 +369,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
             drawContext.drawItem(this.entry.getStack(), x1, y);
 
-            this.renderProgressBar(drawContext, x1, this.y + 22, this.width - 17);
+            // 宽度 = widget宽度 + 3px，刚好止于滚动条左边缘（滚动条在 browserWidth-9 处）
+            this.renderProgressBar(drawContext, x1, this.y + 22, this.width + 3);
 
 //            RenderUtils.disableDiffuseLighting();
 //            drawContext.getMatrices().pop();
