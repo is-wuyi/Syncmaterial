@@ -369,8 +369,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
             drawContext.drawItem(this.entry.getStack(), x1, y);
 
-            // 宽度 = widget宽度 + 3px，刚好止于滚动条左边缘（滚动条在 browserWidth-9 处）
-            this.renderProgressBar(drawContext, x1, this.y + 22, this.width + 3);
+            // 动态计算宽度：从 x1 到滚动条左边缘（this.x + this.width + 3），负责人复选框偏移自动扣除
+            int progressWidth = this.x + this.width + 3 - x1;
+            this.renderProgressBar(drawContext, x1, this.y + 22, progressWidth);
 
 //            RenderUtils.disableDiffuseLighting();
 //            drawContext.getMatrices().pop();
