@@ -84,7 +84,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.header7 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[6]) + GuiBase.TXT_RST;
         }
 
-        int posX = x + width;
+        // 按钮左移 9px，为滚动条腾出空间
+        int posX = x + width - 9;
         int posY = y + 1;
 
         posX = this.createButtonGeneric(posX, posY, ButtonListener.ButtonType.CLAIM);
@@ -94,17 +95,23 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private int createButtonGeneric(int xRight, int y, ButtonListener.ButtonType type)
     {
         String label = type.getDisplayName();
+        boolean disabled = false;
         if (type == ButtonListener.ButtonType.CLAIM && this.entry != null && this.materialList instanceof SyncMaterialList syncList) {
             if (syncList.isCollaborating(this.entry)) {
                 label = "退出协作";
             } else if (!syncList.isAllowSelfClaim() && !syncList.isOwner()) {
-                label = "不可认领";
+                label = "加入协作";
+                disabled = true;
             } else {
                 label = "加入协作";
             }
         }
         ButtonListener listener = new ButtonListener(type, this.materialList, this.entry, this.listWidget);
-        return this.addButton(new ButtonGeneric(xRight, y, -1, true, label), listener).getX();
+        ButtonGeneric btn = this.addButton(new ButtonGeneric(xRight, y, -1, true, label), listener);
+        if (disabled) {
+            btn.setEnabled(false);
+        }
+        return btn.getX();
     }
 
     public static void setMaxNameLength(List<MaterialListEntry> materials, int multiplier)
@@ -363,7 +370,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
             drawContext.drawItem(this.entry.getStack(), x1, y);
 
-            this.renderProgressBar(drawContext, x1, this.y + 22, this.width - 8);
+            this.renderProgressBar(drawContext, x1, this.y + 22, this.width - 17);
 
 //            RenderUtils.disableDiffuseLighting();
 //            drawContext.getMatrices().pop();
