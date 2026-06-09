@@ -240,21 +240,19 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     @Override
     public void render(DrawContext drawContext, int mouseX, int mouseY, boolean selected)
     {
-        // 高亮/背景矩形宽度减少 3px，避免覆盖到滚动条区域
-        int bgWidth = this.width - 3;
         // Draw a lighter background for the hovered and the selected entry
         if (this.header1 == null && (selected || this.isMouseOver(mouseX, mouseY)))
         {
-            RenderUtils.drawRect(drawContext, this.x, this.y, bgWidth, this.height, 0xA0707070);
+            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0707070);
         }
         else if (this.isOdd)
         {
-            RenderUtils.drawRect(drawContext, this.x, this.y, bgWidth, this.height, 0xA0101010);
+            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0101010);
         }
         // Draw a slightly lighter background for even entries
         else
         {
-            RenderUtils.drawRect(drawContext, this.x, this.y, bgWidth, this.height, 0xA0303030);
+            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0303030);
         }
 
         int x1 = this.getColumnPosX(0);
@@ -371,8 +369,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
             drawContext.drawItem(this.entry.getStack(), x1, y);
 
-            // 动态计算宽度：从 x1 到滚动条左边缘（this.x + this.width + 3），负责人复选框偏移自动扣除
-            int progressWidth = this.x + this.width + 3 - x1;
+            // 进度条止于行高亮框右边缘（this.x + this.width），起点 x1 已含复选框偏移
+            int progressWidth = this.x + this.width - x1;
             this.renderProgressBar(drawContext, x1, this.y + 22, progressWidth);
 
 //            RenderUtils.disableDiffuseLighting();
