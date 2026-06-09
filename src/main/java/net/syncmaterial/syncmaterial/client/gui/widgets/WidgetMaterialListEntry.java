@@ -240,19 +240,21 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     @Override
     public void render(DrawContext drawContext, int mouseX, int mouseY, boolean selected)
     {
+        // 高亮/背景矩形宽度减少 3px，避免覆盖到滚动条区域
+        int bgWidth = this.width - 3;
         // Draw a lighter background for the hovered and the selected entry
         if (this.header1 == null && (selected || this.isMouseOver(mouseX, mouseY)))
         {
-            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0707070);
+            RenderUtils.drawRect(drawContext, this.x, this.y, bgWidth, this.height, 0xA0707070);
         }
         else if (this.isOdd)
         {
-            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0101010);
+            RenderUtils.drawRect(drawContext, this.x, this.y, bgWidth, this.height, 0xA0101010);
         }
         // Draw a slightly lighter background for even entries
         else
         {
-            RenderUtils.drawRect(drawContext, this.x, this.y, this.width, this.height, 0xA0303030);
+            RenderUtils.drawRect(drawContext, this.x, this.y, bgWidth, this.height, 0xA0303030);
         }
 
         int x1 = this.getColumnPosX(0);
