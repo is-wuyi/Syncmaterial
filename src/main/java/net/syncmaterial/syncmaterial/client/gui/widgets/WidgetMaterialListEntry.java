@@ -88,7 +88,6 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         int posY = y + 1;
 
         posX = this.createButtonGeneric(posX, posY, ButtonListener.ButtonType.CLAIM);
-        posX = this.createButtonGeneric(posX, posY, ButtonListener.ButtonType.IGNORE);
     }
 
     private int createButtonGeneric(int xRight, int y, ButtonListener.ButtonType type)
@@ -610,12 +609,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         {
             if (this.entry == null) return;
 
-            if (this.type == ButtonType.IGNORE)
-            {
-                this.materialList.ignoreEntry(this.entry);
-                this.listWidget.refreshEntries();
-            }
-            else if (this.type == ButtonType.CLAIM)
+            if (this.type == ButtonType.CLAIM)
             {
                 this.materialList.claimEntry(this.entry);
             }
@@ -623,7 +617,6 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
         public enum ButtonType
         {
-            IGNORE  ("litematica.gui.button.material_list.ignore"),
             CLAIM   ("syncmaterial.gui.button.material_list.claim");
 
             private final String translationKey;

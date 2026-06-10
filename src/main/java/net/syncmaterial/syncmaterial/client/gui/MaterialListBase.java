@@ -2,10 +2,8 @@ package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import com.google.common.collect.ImmutableList;
 import fi.dy.masa.malilib.interfaces.ICompletionListener;
 import net.minecraft.util.math.MathHelper;
@@ -13,7 +11,6 @@ import net.minecraft.util.math.MathHelper;
 public abstract class MaterialListBase
 {
     protected final MaterialListHudRenderer hudRenderer = new MaterialListHudRenderer(this);
-    protected final Set<MaterialListEntry> ignored = new HashSet<>();
     protected final List<MaterialListEntry> materialListPreFiltered = new ArrayList<>();
     protected final List<MaterialListEntry> materialListFiltered = new ArrayList<>();
     protected ImmutableList<MaterialListEntry> materialListAll = ImmutableList.of();
@@ -94,20 +91,6 @@ public abstract class MaterialListBase
         }
     }
 
-    public void ignoreEntry(MaterialListEntry entry)
-    {
-        this.ignored.add(entry);
-        this.materialListPreFiltered.remove(entry);
-        this.recreateFilteredList();
-    }
-
-    public void clearIgnored()
-    {
-        this.ignored.clear();
-        this.refreshPreFilteredList();
-        this.recreateFilteredList();
-    }
-
     /**
      * Re-creates the all-materials list from the schematic or placement or area
      * by starting a new task, if applicable.
@@ -134,7 +117,6 @@ public abstract class MaterialListBase
     {
         this.materialListPreFiltered.clear();
         this.materialListPreFiltered.addAll(this.materialListAll);
-        this.materialListPreFiltered.removeAll(this.ignored);
     }
 
     public SortCriteria getSortCriteria()
