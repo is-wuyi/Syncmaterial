@@ -66,11 +66,52 @@ public class SchematicUploadListener implements Consumer<Object> {
 
     /**
      * Consumer接口实现
+     * 区分新增和删除：如果原理图已存在于数据库中，说明是删除事件
      */
     @Override
     public void accept(Object placement) {
-        SyncMaterial.LOGGER.info("SchematicUploadListener.accept() 被调用，placement: {}", placement);
-        onSchematicUploaded(placement);
+        try {
+            Class<?> placementClass = placement.getClass();
+            Object id = placementClass.getMethod("getId").invoke(placement);
+            String schematicId = id.toString();
+
+            if (queryService.schematicExists(schematicId)) {
+                SyncMaterial.LOGGER.info("检测到原理图删除: {}", schematicId);
+                onSchematicRemoved(schematicId);
+                return;
+            }
+
+            SyncMaterial.LOGGER.info("SchematicUploadListener.accept() 被调用，placement: {}", placement);
+            onSchematicUploaded(placement);
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("处理placement事件失败", e);
+        }
+    }
+
+    /**
+     * 原理图被删除时清理渲染数据
+     */
+    private void onSchematicRemoved(String schematicId) {
+        // 清理客户端渲染数据
+        try {
+            net.minecraft.client.MinecraftClient.getInstance().execute(() -> {
+                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
+                    .removeRenderData(schematicId);
+            });
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.warn("清理客户端渲染数据失败（可能在服务端环境）: {}", e.getMessage());
+        }
+
+        // 清理数据库记录
+        try {
+            database.executeUpdate("DELETE FROM staging_area_inventory WHERE area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
+            database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
+            database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
+            database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
+            SyncMaterial.LOGGER.info("已清理数据库中的原理图记录: {}", schematicId);
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("清理数据库记录失败: {}", schematicId, e);
+        }
     }
 
     /**

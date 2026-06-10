@@ -1,5 +1,6 @@
 package net.syncmaterial.syncmaterial.client.render;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -12,6 +13,7 @@ import net.minecraft.client.render.BufferBuilderStorage;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.Frustum;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.profiler.Profiler;
 
 import fi.dy.masa.malilib.interfaces.IRenderer;
@@ -33,6 +35,7 @@ public class StagingAreaRenderer implements IRenderer
 
     private final Map<String, AreaSelection> selections = new HashMap<>();
     private final Map<String, Boolean> renderEnabled = new HashMap<>();
+    private final Map<String, String> schematicNames = new HashMap<>();
 
     private StagingAreaRenderer() {}
 
@@ -71,6 +74,18 @@ public class StagingAreaRenderer implements IRenderer
     {
         this.selections.remove(schematicId);
         this.renderEnabled.remove(schematicId);
+        this.schematicNames.remove(schematicId);
+    }
+
+    public void setSchematicName(String schematicId, String name)
+    {
+        this.schematicNames.put(schematicId, name);
+    }
+
+    @Nullable
+    public String getSchematicName(String schematicId)
+    {
+        return this.schematicNames.get(schematicId);
     }
 
     @Override
@@ -116,6 +131,16 @@ public class StagingAreaRenderer implements IRenderer
 
                 RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, lineColor, lineColor, lineColor);
                 RenderUtils.renderAreaSides(pos1, pos2, sideColor, posMatrix);
+
+                // 标注名称：原理图名称 - 备货区名称
+                String schematicName = this.schematicNames.getOrDefault(entry.getKey(), "");
+                String label = schematicName.isEmpty()
+                    ? box.getName()
+                    : schematicName + " - " + box.getName();
+                double cx = (pos1.getX() + pos2.getX()) / 2.0 + 0.5;
+                double cy = Math.max(pos1.getY(), pos2.getY()) + 1.5;
+                double cz = (pos1.getZ() + pos2.getZ()) / 2.0 + 0.5;
+                RenderUtils.drawTextPlate(Collections.singletonList(label), cx, cy, cz, 0.7f);
             }
         }
 

@@ -90,6 +90,10 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.title = this.materialList.getTitle();
         this.useTitleHierarchy = false;
 
+        // 设置原理图名称，用于备货区线框标注
+        net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
+            .setSchematicName(schematicId, schematicName);
+
         MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
         WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
     }
