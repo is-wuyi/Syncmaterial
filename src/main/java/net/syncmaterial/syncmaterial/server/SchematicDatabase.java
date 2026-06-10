@@ -437,23 +437,4 @@ public class SchematicDatabase implements AutoCloseable {
             }
         }
     }
-
-    /**
-     * 获取数据库统计信息
-     */
-    public String getStats() {
-        final int[] counts = new int[2];
-        try {
-            executeQueryAndProcess("SELECT COUNT(*) as schematics FROM schematics", rs -> {
-                if (rs.next()) counts[0] = rs.getInt("schematics");
-            });
-            executeQueryAndProcess("SELECT COUNT(*) as entries FROM material_entries", rs -> {
-                if (rs.next()) counts[1] = rs.getInt("entries");
-            });
-            return String.format("原理图: %d, 材料条目: %d", counts[0], counts[1]);
-        } catch (SQLException e) {
-            SyncMaterial.LOGGER.error("获取数据库统计信息失败", e);
-            return "统计信息获取失败";
-        }
-    }
 }

@@ -198,15 +198,4 @@ public class CollaborationManager {
         }
         return participants;
     }
-
-    /**
-     * 玩家离线处理。
-     * 
-     * 离线玩家的背包数据已在 updatePlayerInventory() 中实时持久化到 
-     * player_inventories 表，因此这里不需要额外操作。
-     * 服务端重启后，loadAllInventories() 会自动从数据库恢复所有缓存。
-     * 玩家重新上线后，客户端会重新上报背包数据，自动覆盖旧缓存。
-     */
-    public void onPlayerDisconnect(String playerName) {
-    }
 }

@@ -359,11 +359,6 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                 this.drawString(drawContext, x7, y, 0xFF888888, "未认领");
             }
 
-//            drawContext.getMatrices().push();
-            //TODO: RenderSystem.disableLighting();
-//            RenderUtils.enableDiffuseLightingGui3D();
-
-            //mc.getRenderItem().zLevel -= 110;
             y = this.y + 3;
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
             drawContext.drawItem(this.entry.getStack(), x1, y);
@@ -371,9 +366,6 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             // 进度条止于行高亮框右边缘（this.x + this.width），起点 x1 已含复选框偏移
             int progressWidth = this.x + this.width - x1;
             this.renderProgressBar(drawContext, x1, this.y + 22, progressWidth);
-
-//            RenderUtils.disableDiffuseLighting();
-//            drawContext.getMatrices().pop();
 
             super.render(drawContext, mouseX, mouseY, selected);
         }
