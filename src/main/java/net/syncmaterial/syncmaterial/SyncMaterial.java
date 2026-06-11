@@ -151,6 +151,7 @@ public class SyncMaterial implements ModInitializer {
 
                 SchematicFolderWatcher watcher = new SchematicFolderWatcher(
                     syncamaticaFolder, syncmaticsRootFolder, sharedDatabase, sharedQueryService, sharedParser);
+                watcher.setServer(server);
                 watcher.start();
 
                 LOGGER.info("原理图监控已启动 (placements: {}, files: {})", syncamaticaFolder, syncmaticsRootFolder);

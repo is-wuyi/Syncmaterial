@@ -140,7 +140,7 @@ public class StagingAreaRenderer implements IRenderer
                 double cx = (pos1.getX() + pos2.getX()) / 2.0 + 0.5;
                 double cy = Math.max(pos1.getY(), pos2.getY()) + 1.5;
                 double cz = (pos1.getZ() + pos2.getZ()) / 2.0 + 0.5;
-                RenderUtils.drawTextPlate(Collections.singletonList(label), cx, cy, cz, 0.7f);
+                RenderUtils.drawTextPlate(Collections.singletonList(label), cx, cy, cz, 0.3f);
             }
         }
 

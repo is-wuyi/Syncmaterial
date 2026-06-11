@@ -33,20 +33,29 @@ public class ModNetworkHandlerClient {
                 else
                 {
                     var renderer = StagingAreaRenderer.getInstance();
-                    var selection = renderer.getSelection(payload.schematicId());
-                    if (selection == null)
+
+                    // 空 areas 列表表示该原理图的备货区已被删除
+                    if (payload.areas().isEmpty())
                     {
-                        selection = new net.syncmaterial.syncmaterial.selection.AreaSelection();
-                        renderer.updateSelection(payload.schematicId(), selection);
+                        renderer.removeRenderData(payload.schematicId());
                     }
-                    for (var area : payload.areas())
+                    else
                     {
-                        var box = new net.syncmaterial.syncmaterial.selection.Box(
-                            new net.minecraft.util.math.BlockPos(area.x1(), area.y1(), area.z1()),
-                            new net.minecraft.util.math.BlockPos(area.x2(), area.y2(), area.z2()),
-                            area.name());
-                        selection.addSubRegionBox(box, true);
-                        selection.setServerId(area.name(), area.areaId());
+                        var selection = renderer.getSelection(payload.schematicId());
+                        if (selection == null)
+                        {
+                            selection = new net.syncmaterial.syncmaterial.selection.AreaSelection();
+                            renderer.updateSelection(payload.schematicId(), selection);
+                        }
+                        for (var area : payload.areas())
+                        {
+                            var box = new net.syncmaterial.syncmaterial.selection.Box(
+                                new net.minecraft.util.math.BlockPos(area.x1(), area.y1(), area.z1()),
+                                new net.minecraft.util.math.BlockPos(area.x2(), area.y2(), area.z2()),
+                                area.name());
+                            selection.addSubRegionBox(box, true);
+                            selection.setServerId(area.name(), area.areaId());
+                        }
                     }
                 }
             });

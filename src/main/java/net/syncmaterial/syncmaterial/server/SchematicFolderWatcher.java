@@ -3,6 +3,7 @@ package net.syncmaterial.syncmaterial.server;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import net.minecraft.server.MinecraftServer;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.engine.LitematicaParser;
 
@@ -22,6 +23,7 @@ public class SchematicFolderWatcher {
     private final SchematicDatabase database;
     private final DatabaseQueryService queryService;
     private final LitematicaParser parser;
+    private MinecraftServer server;
     private final Gson gson = new Gson();
     private final Set<String> processedHashes = ConcurrentHashMap.newKeySet();
     public static final Map<String, String> placementNames = new ConcurrentHashMap<>();
@@ -37,6 +39,10 @@ public class SchematicFolderWatcher {
         this.parser = parser;
         this.watchExecutor = Executors.newSingleThreadExecutor();
         this.parseExecutor = Executors.newSingleThreadExecutor();
+    }
+
+    public void setServer(MinecraftServer server) {
+        this.server = server;
     }
 
     public void start() {
@@ -183,9 +189,14 @@ public class SchematicFolderWatcher {
                 )) {
                     if (results.next()) {
                         String schematicId = results.getString("id");
+                        database.executeUpdate("DELETE FROM staging_area_inventory WHERE area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
+                        database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
                         database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
                         database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
                         SyncMaterial.LOGGER.info("已删除原理图材料记录: {} (hash: {})", schematicId, removedHash);
+
+                        // 通知所有客户端清理对应的备货区渲染数据
+                        notifyClientsStagingAreaRemoved(schematicId);
                     }
                 }
                 processedHashes.remove(removedHash);
@@ -276,6 +287,25 @@ public class SchematicFolderWatcher {
                 SyncMaterial.LOGGER.error("处理原理图失败: {}", displayName, t);
             }
         });
+    }
+
+    /**
+     * 向所有在线客户端广播备货区移除通知
+     */
+    private void notifyClientsStagingAreaRemoved(String schematicId) {
+        if (this.server == null) {
+            return;
+        }
+        try {
+            var packet = new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(
+                schematicId, true, "", java.util.List.of());
+            for (var player : this.server.getPlayerManager().getPlayerList()) {
+                net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, packet);
+            }
+            SyncMaterial.LOGGER.info("已通知客户端清理备货区渲染: {}", schematicId);
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("通知客户端失败: {}", schematicId, e);
+        }
     }
 
     public void stop() {
