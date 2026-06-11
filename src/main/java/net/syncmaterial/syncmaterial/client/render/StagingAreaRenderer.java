@@ -1,13 +1,14 @@
 package net.syncmaterial.syncmaterial.client.render;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
 
 import org.joml.Matrix4f;
+import org.joml.Matrix4fStack;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.render.BufferBuilderStorage;
 import net.minecraft.client.render.Camera;
@@ -15,6 +16,8 @@ import net.minecraft.client.render.Frustum;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.profiler.Profiler;
+
+import com.mojang.blaze3d.systems.RenderSystem;
 
 import fi.dy.masa.malilib.interfaces.IRenderer;
 import fi.dy.masa.malilib.render.RenderUtils;
@@ -138,14 +141,50 @@ public class StagingAreaRenderer implements IRenderer
                     ? box.getName()
                     : schematicName + " - " + box.getName();
                 double cx = (pos1.getX() + pos2.getX()) / 2.0 + 0.5;
-                double cy = Math.max(pos1.getY(), pos2.getY()) + 1.5;
+                double cy = Math.max(pos1.getY(), pos2.getY()) + 0.5;
                 double cz = (pos1.getZ() + pos2.getZ()) / 2.0 + 0.5;
-                RenderUtils.drawTextPlate(Collections.singletonList(label), cx, cy, cz, 0.3f);
+                renderLabel(camera, label, cx, cy, cz);
             }
         }
 
         StagingAreaSelector.getInstance().onRenderWorld(this, posMatrix);
 
         profiler.pop();
+    }
+
+    /**
+     * 在世界坐标中渲染小文字标签（无背景板，仅阴影）
+     */
+    private void renderLabel(Camera camera, String text, double x, double y, double z) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        TextRenderer textRenderer = mc.textRenderer;
+        Vec3d camPos = camera.getPos();
+
+        float scale = 0.02f; // 文字约 0.18 blocks 高
+
+        Matrix4fStack modelStack = RenderSystem.getModelViewStack();
+        modelStack.pushMatrix();
+        modelStack.translate((float) (x - camPos.x), (float) (y - camPos.y), (float) (z - camPos.z));
+        modelStack.rotateYXZ(
+            -camera.getYaw() * ((float) (Math.PI / 180.0)),
+            camera.getPitch() * ((float) (Math.PI / 180.0)),
+            0.0F);
+        modelStack.scale(-scale, -scale, scale);
+
+        int textWidth = textRenderer.getWidth(text);
+        Matrix4f identityMatrix = new Matrix4f().identity();
+
+        var allocator = new net.minecraft.client.util.BufferAllocator(4096);
+        var immediate = net.minecraft.client.render.VertexConsumerProvider.immediate(allocator);
+        // 阴影层
+        textRenderer.draw(text, -textWidth / 2f + 1, 1, 0x40000000, false,
+            identityMatrix, immediate, TextRenderer.TextLayerType.NORMAL, 0, 15728880);
+        // 正文层
+        textRenderer.draw(text, -textWidth / 2f, 0, 0xFFFFFFFF, false,
+            identityMatrix, immediate, TextRenderer.TextLayerType.NORMAL, 0, 15728880);
+        immediate.draw();
+        allocator.close();
+
+        modelStack.popMatrix();
     }
 }

@@ -26,6 +26,7 @@ public class SchematicFolderWatcher {
     private MinecraftServer server;
     private final Gson gson = new Gson();
     private final Set<String> processedHashes = ConcurrentHashMap.newKeySet();
+    private final Map<String, String> hashToSchematicId = new ConcurrentHashMap<>();
     public static final Map<String, String> placementNames = new ConcurrentHashMap<>();
 
     public SchematicFolderWatcher(Path syncamaticaFolder, Path syncmaticsRootFolder,
@@ -152,6 +153,7 @@ public class SchematicFolderWatcher {
 
                 currentHashes.add(hash);
                 placementNames.put(id, displayName);
+                hashToSchematicId.put(hash, id);
                 SyncMaterial.LOGGER.debug("发现 placement: id={}, hash={}, name={}", id, hash, displayName);
 
                 // 检查数据库中是否已存在该原理图的材料记录
@@ -182,23 +184,21 @@ public class SchematicFolderWatcher {
             SyncMaterial.LOGGER.debug("removedHashes: {}", removedHashes);
             
             for (String removedHash : removedHashes) {
-                // 根据 hash 查找对应的 schematic id - 使用精确匹配避免 SQL 通配符问题
-                try (var results = database.executeQuery(
-                    "SELECT id FROM schematics WHERE file_path = ? OR file_path LIKE ? OR file_path LIKE ?",
-                    removedHash, removedHash + "/%", "%/" + removedHash
-                )) {
-                    if (results.next()) {
-                        String schematicId = results.getString("id");
-                        database.executeUpdate("DELETE FROM staging_area_inventory WHERE area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
-                        database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
-                        database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
-                        database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
-                        SyncMaterial.LOGGER.info("已删除原理图材料记录: {} (hash: {})", schematicId, removedHash);
+                String schematicId = hashToSchematicId.get(removedHash);
+                if (schematicId != null) {
+                    database.executeUpdate("DELETE FROM staging_area_inventory WHERE area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
+                    database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
+                    database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
+                    database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
+                    SyncMaterial.LOGGER.info("已删除原理图材料记录: {} (hash: {})", schematicId, removedHash);
 
-                        // 通知所有客户端清理对应的备货区渲染数据
-                        notifyClientsStagingAreaRemoved(schematicId);
-                    }
+                    // 通知所有客户端清理对应的备货区渲染数据
+                    notifyClientsStagingAreaRemoved(schematicId);
+                    placementNames.remove(schematicId);
+                } else {
+                    SyncMaterial.LOGGER.warn("未找到 hash={} 对应的 schematicId，跳过清理", removedHash);
                 }
+                hashToSchematicId.remove(removedHash);
                 processedHashes.remove(removedHash);
             }
 
@@ -242,6 +242,7 @@ public class SchematicFolderWatcher {
 
         SyncMaterial.LOGGER.debug("开始解析并存储新原理图: {}", id);
         processedHashes.add(hash);
+        hashToSchematicId.put(hash, id);
 
         SyncMaterial.LOGGER.debug("准备提交异步任务...");
         parseExecutor.submit(() -> {
