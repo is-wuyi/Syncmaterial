@@ -28,9 +28,7 @@ public class StagingAreaRenderer implements IRenderer
     private static final StagingAreaRenderer INSTANCE = new StagingAreaRenderer();
 
     private final Color4f colorArea = new Color4f(0.0f, 1.0f, 0.0f, 1.0f);
-    private final Color4f colorSelected = new Color4f(1.0f, 0.8f, 0.0f, 1.0f);
     private final Color4f colorSide = new Color4f(0.0f, 1.0f, 0.0f, 0.18f);
-    private final Color4f colorSelectedSide = new Color4f(1.0f, 0.8f, 0.0f, 0.18f);
 
     private final Map<String, AreaSelection> selections = new HashMap<>();
     private final Map<String, Boolean> renderEnabled = new HashMap<>();
@@ -112,8 +110,6 @@ public class StagingAreaRenderer implements IRenderer
                 continue;
             }
             AreaSelection selection = entry.getValue();
-            Box selectedBox = selection.getSelectedSubRegionBox();
-
             for (Box box : selection.getAllSubRegionBoxes())
             {
                 BlockPos pos1 = box.getPos1();
@@ -124,12 +120,8 @@ public class StagingAreaRenderer implements IRenderer
                     continue;
                 }
 
-                boolean isSelected = box == selectedBox;
-                Color4f lineColor = isSelected ? this.colorSelected : this.colorArea;
-                Color4f sideColor = isSelected ? this.colorSelectedSide : this.colorSide;
-
-                RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, lineColor, lineColor, lineColor);
-                RenderUtils.renderAreaSides(pos1, pos2, sideColor, posMatrix);
+                RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, this.colorArea, this.colorArea, this.colorArea);
+                RenderUtils.renderAreaSides(pos1, pos2, this.colorSide, posMatrix);
 
                 // 标注名称：原理图名称 - 备货区名称
                 String schematicName = this.schematicNames.getOrDefault(entry.getKey(), "");
