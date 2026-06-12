@@ -237,6 +237,8 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     public void removed()
     {
         super.removed();
+        // 关闭编辑器时清除游戏内黄色高亮
+        net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearHighlightedBox();
         // 不清除 currentEditor，让木棍交互在关闭 GUI 后仍能工作
         // currentEditor 会在玩家断开连接或打开其他编辑器时被清除
     }
@@ -615,6 +617,8 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         if (entry != null)
         {
             this.selection.setSelectedSubRegionBox(entry.name());
+            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
+                .setHighlightedBox(this.schematicId, entry.name());
         }
     }
 

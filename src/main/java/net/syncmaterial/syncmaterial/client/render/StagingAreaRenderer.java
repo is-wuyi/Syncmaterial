@@ -28,11 +28,16 @@ public class StagingAreaRenderer implements IRenderer
     private static final StagingAreaRenderer INSTANCE = new StagingAreaRenderer();
 
     private final Color4f colorArea = new Color4f(0.0f, 1.0f, 0.0f, 1.0f);
+    private final Color4f colorSelected = new Color4f(1.0f, 0.8f, 0.0f, 1.0f);
     private final Color4f colorSide = new Color4f(0.0f, 1.0f, 0.0f, 0.18f);
+    private final Color4f colorSelectedSide = new Color4f(1.0f, 0.8f, 0.0f, 0.18f);
 
     private final Map<String, AreaSelection> selections = new HashMap<>();
     private final Map<String, Boolean> renderEnabled = new HashMap<>();
     private final Map<String, String> schematicNames = new HashMap<>();
+    // 编辑器打开时，标记当前选中的 box 名称（仅用于视觉高亮）
+    @Nullable private String highlightedSchematicId;
+    @Nullable private String highlightedBoxName;
 
     private StagingAreaRenderer() {}
 
@@ -72,6 +77,23 @@ public class StagingAreaRenderer implements IRenderer
         this.selections.remove(schematicId);
         this.renderEnabled.remove(schematicId);
         this.schematicNames.remove(schematicId);
+        if (schematicId.equals(this.highlightedSchematicId))
+        {
+            this.highlightedSchematicId = null;
+            this.highlightedBoxName = null;
+        }
+    }
+
+    public void setHighlightedBox(String schematicId, @Nullable String boxName)
+    {
+        this.highlightedSchematicId = schematicId;
+        this.highlightedBoxName = boxName;
+    }
+
+    public void clearHighlightedBox()
+    {
+        this.highlightedSchematicId = null;
+        this.highlightedBoxName = null;
     }
 
     public void setSchematicName(String schematicId, String name)
@@ -120,8 +142,13 @@ public class StagingAreaRenderer implements IRenderer
                     continue;
                 }
 
-                RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, this.colorArea, this.colorArea, this.colorArea);
-                RenderUtils.renderAreaSides(pos1, pos2, this.colorSide, posMatrix);
+                boolean isHighlighted = java.util.Objects.equals(entry.getKey(), this.highlightedSchematicId)
+                    && java.util.Objects.equals(box.getName(), this.highlightedBoxName);
+                Color4f lineColor = isHighlighted ? this.colorSelected : this.colorArea;
+                Color4f sideColor = isHighlighted ? this.colorSelectedSide : this.colorSide;
+
+                RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, lineColor, lineColor, lineColor);
+                RenderUtils.renderAreaSides(pos1, pos2, sideColor, posMatrix);
 
                 // 标注名称：原理图名称 - 备货区名称
                 String schematicName = this.schematicNames.getOrDefault(entry.getKey(), "");
