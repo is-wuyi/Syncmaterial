@@ -3,7 +3,7 @@ plugins {
     id 'fabric-loom' version '1.14.10'
 }
 
-version = "1.21.7-0.3.0-alpha.27"
+version = "1.21.7-0.3.0-alpha.28"
 group = "net.syncmaterial"
 
 repositories {

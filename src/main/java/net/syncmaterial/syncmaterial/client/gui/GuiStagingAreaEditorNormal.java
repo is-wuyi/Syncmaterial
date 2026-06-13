@@ -139,6 +139,12 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             return;
         }
 
+        // 设置原理图名称，用于框线文字标注
+        if (packet.schematicName() != null && !packet.schematicName().isEmpty()) {
+            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
+                .setSchematicName(this.schematicId, packet.schematicName());
+        }
+
         SyncMaterial.LOGGER.info("[StagingArea] onServerResponse: loadingFromServer={}, areas={}", 
                 this.loadingFromServer, packet.areas().size());
         for (var a : packet.areas())
