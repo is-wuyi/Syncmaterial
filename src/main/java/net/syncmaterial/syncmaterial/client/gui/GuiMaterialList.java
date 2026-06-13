@@ -751,7 +751,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int panelY = (this.height - panelHeight) / 2;
 
         if (mouseX < panelX || mouseX > panelX + OVERLAY_PANEL_WIDTH || mouseY < panelY || mouseY > panelY + panelHeight) {
-            closeOverlay();
+            // 点击面板外部不再关闭，防止误操作丢失已选玩家
             return;
         }
         if (overlayConfirmTimer > 0) return;

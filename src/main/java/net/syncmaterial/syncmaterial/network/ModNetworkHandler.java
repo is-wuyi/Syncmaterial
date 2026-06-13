@@ -444,15 +444,16 @@ public class ModNetworkHandler {
             validateOwnerAction(action);
 
             var db = SyncMaterial.getSharedDatabase();
+            boolean currentAllowSelfClaim = db.getAllowSelfClaim(schematicId);
 
             switch (action) {
                 case "TRANSFER" -> {
                     if (!db.isMainOwner(schematicId, playerName)) {
-                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "只有主负责人才能转让", "", List.of(), true));
+                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "只有主负责人才能转让", "", List.of(), currentAllowSelfClaim));
                         return;
                     }
                     if (targetPlayer == null || targetPlayer.isBlank()) {
-                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "目标玩家不能为空", "", List.of(), true));
+                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "目标玩家不能为空", "", List.of(), currentAllowSelfClaim));
                         return;
                     }
                     db.transferOwnership(schematicId, targetPlayer);
@@ -460,11 +461,11 @@ public class ModNetworkHandler {
                 }
                 case "ADD_DEPUTY" -> {
                     if (!db.isMainOwner(schematicId, playerName)) {
-                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "只有主负责人才能添加副负责人", "", List.of(), true));
+                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "只有主负责人才能添加副负责人", "", List.of(), currentAllowSelfClaim));
                         return;
                     }
                     if (targetPlayer == null || targetPlayer.isBlank()) {
-                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "目标玩家不能为空", "", List.of(), true));
+                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "目标玩家不能为空", "", List.of(), currentAllowSelfClaim));
                         return;
                     }
                     db.addDeputyOwner(schematicId, targetPlayer);
@@ -472,29 +473,35 @@ public class ModNetworkHandler {
                 }
                 case "REMOVE_DEPUTY" -> {
                     if (!db.isMainOwner(schematicId, playerName)) {
-                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "只有主负责人才能移除副负责人", "", List.of(), true));
+                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "只有主负责人才能移除副负责人", "", List.of(), currentAllowSelfClaim));
                         return;
                     }
                     if (targetPlayer == null || targetPlayer.isBlank()) {
-                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "目标玩家不能为空", "", List.of(), true));
+                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "目标玩家不能为空", "", List.of(), currentAllowSelfClaim));
                         return;
                     }
                     db.removeDeputyOwner(schematicId, targetPlayer);
                     sendOwnerActionSuccess(server, player, db, schematicId, "已移除副负责人 " + targetPlayer);
                 }
                 case "TOGGLE_SELF_CLAIM" -> {
+                    boolean currentAllow = db.getAllowSelfClaim(schematicId);
                     if (!db.isOwner(schematicId, playerName)) {
-                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "没有权限", "", List.of(), true));
+                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "没有权限", "", List.of(), currentAllow));
                         return;
                     }
-                    boolean current = db.getAllowSelfClaim(schematicId);
-                    db.setAllowSelfClaim(schematicId, !current);
-                    sendOwnerActionSuccess(server, player, db, schematicId, "自行认领已" + (!current ? "开启" : "关闭"));
+                    db.setAllowSelfClaim(schematicId, !currentAllow);
+                    sendOwnerActionSuccess(server, player, db, schematicId, "自行认领已" + (!currentAllow ? "开启" : "关闭"));
                 }
             }
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("处理负责人操作失败", e);
-            ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "操作失败: " + e.getMessage(), "", List.of(), true));
+            try {
+                var db2 = SyncMaterial.getSharedDatabase();
+                boolean fallbackAllow = db2 != null ? db2.getAllowSelfClaim(schematicId) : true;
+                ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "操作失败: " + e.getMessage(), "", List.of(), fallbackAllow));
+            } catch (Exception ignored) {
+                ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "操作失败: " + e.getMessage(), "", List.of(), true));
+            }
         }
     }
 

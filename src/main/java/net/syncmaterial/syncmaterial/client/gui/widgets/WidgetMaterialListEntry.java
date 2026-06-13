@@ -49,6 +49,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private final String shulkerBoxAbbr;
     private final boolean isOdd;
     private final boolean isOwner;
+    private final boolean claimDisabled;
 
     public WidgetMaterialListEntry(int x, int y, int width, int height, boolean isOdd,
             MaterialListBase materialList, MaterialListEntry entry, int listIndex, WidgetListMaterialList listWidget)
@@ -61,6 +62,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         this.listWidget = listWidget;
         this.materialList = materialList;
         this.isOwner = listWidget.getGui().isOwner();
+        boolean allowSelfClaim = materialList instanceof SyncMaterialList syncList && syncList.isAllowSelfClaim();
+        boolean isCollaborating = materialList instanceof SyncMaterialList sl && this.entry != null && sl.isCollaborating(this.entry);
+        this.claimDisabled = !isCollaborating && !allowSelfClaim && !this.isOwner;
         this.shulkerBoxAbbr = StringUtils.translate("litematica.gui.label.material_list.abbr.shulker_box");
 
         if (this.entry != null)
@@ -545,6 +549,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                     y += 14;
                 }
             }
+        }
+        // 禁用按钮悬停提示
+        if (this.claimDisabled && mouseX >= this.x + this.width - 80) {
+            java.util.List<String> lines = java.util.List.of("自行认领已关闭，无法加入协作");
+            fi.dy.masa.malilib.render.RenderUtils.drawHoverText(drawContext, mouseX, mouseY, lines);
         }
     }
 

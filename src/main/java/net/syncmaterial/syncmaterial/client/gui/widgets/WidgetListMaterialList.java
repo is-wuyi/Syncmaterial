@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import com.google.common.collect.ImmutableList;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
@@ -42,6 +43,15 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     {
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
         lastScrollbarPosition = this.scrollBar.getValue();
+
+        if (this.listWidgets.isEmpty()) {
+            String hint = "暂无材料数据";
+            MinecraftClient mc = MinecraftClient.getInstance();
+            int textWidth = mc.textRenderer.getWidth(hint);
+            int x = this.posX + (this.browserWidth - textWidth) / 2;
+            int y = this.posY + this.browserHeight / 2 - 4;
+            drawContext.drawText(mc.textRenderer, hint, x, y, 0xFFAAAAAA, false);
+        }
     }
 
     @Override

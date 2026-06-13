@@ -3,7 +3,6 @@ package net.syncmaterial.syncmaterial.server;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.ChestBlockEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.Identifier;
@@ -11,7 +10,9 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 
 import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -20,6 +21,7 @@ import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 public class StagingAreaManager {
     private final SchematicDatabase database;
     private final Map<String, List<StagingArea>> stagingAreasBySchematic = new ConcurrentHashMap<>();
+    private final Map<String, List<StagingArea>> stagingAreasByWorld = new ConcurrentHashMap<>();
     private final Map<BlockPos, ServerWorld> dirtyContainers = new ConcurrentHashMap<>();
     private final Map<String, Set<ServerPlayerEntity>> subscribers = new ConcurrentHashMap<>();
     private MinecraftServer server;
@@ -135,11 +137,11 @@ public class StagingAreaManager {
 
     public boolean isInAnyStagingArea(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
-        for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
-            for (StagingArea area : areas) {
-                if (area.world.equals(worldId) && isPosInArea(pos, area)) {
-                    return true;
-                }
+        List<StagingArea> areas = stagingAreasByWorld.get(worldId);
+        if (areas == null) return false;
+        for (StagingArea area : areas) {
+            if (isPosInArea(pos, area)) {
+                return true;
             }
         }
         return false;
@@ -175,17 +177,21 @@ public class StagingAreaManager {
         SyncMaterial.LOGGER.info("[StagingArea] dirtyAreaIds: {}", dirtyAreaIds);
 
         if (!dirtyAreaIds.isEmpty() && server != null) {
-            server.execute(() -> {
-                Set<String> affectedSchematics = new HashSet<>();
+            // 异步扫描备货区内容（纯读取，不修改世界状态）
+            CompletableFuture.runAsync(() -> {
                 for (int areaId : dirtyAreaIds) {
-                    rescanStagingArea(areaId);
-                    String schematicId = findSchematicIdByAreaId(areaId);
-                    if (schematicId != null) {
-                        affectedSchematics.add(schematicId);
+                    Map<String, Integer> result = scanAreaContents(areaId);
+                    if (result != null) {
+                        // 写库和广播回到主线程
+                        int finalAreaId = areaId;
+                        server.execute(() -> {
+                            updateStagingAreaInventory(finalAreaId, result);
+                            String schematicId = findSchematicIdByAreaId(finalAreaId);
+                            if (schematicId != null) {
+                                net.syncmaterial.syncmaterial.network.ModNetworkHandler.broadcastAllMaterialStatus(server, schematicId);
+                            }
+                        });
                     }
-                }
-                for (String schematicId : affectedSchematics) {
-                    net.syncmaterial.syncmaterial.network.ModNetworkHandler.broadcastAllMaterialStatus(server, schematicId);
                 }
             });
         }
@@ -193,14 +199,69 @@ public class StagingAreaManager {
 
     private Integer findAreaId(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
-        for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
-            for (StagingArea area : areas) {
-                if (area.world.equals(worldId) && isPosInArea(pos, area)) {
-                    return area.id;
-                }
+        List<StagingArea> areas = stagingAreasByWorld.get(worldId);
+        if (areas == null) return null;
+        for (StagingArea area : areas) {
+            if (isPosInArea(pos, area)) {
+                return area.id;
             }
         }
         return null;
+    }
+
+    /**
+     * 异步安全扫描备货区内容（纯读取，不访问数据库，不修改世界状态）。
+     * 返回 null 表示找不到区域或世界。
+     */
+    @Nullable
+    private Map<String, Integer> scanAreaContents(int areaId) {
+        StagingArea area = findStagingAreaById(areaId);
+        if (area == null) return null;
+
+        ServerWorld world = server.getWorld(net.minecraft.registry.RegistryKey.of(
+                net.minecraft.registry.RegistryKeys.WORLD, Identifier.of(area.world)));
+        if (world == null) return null;
+
+        Map<String, Integer> totalItems = new HashMap<>();
+        int minX = Math.min(area.x1, area.x2);
+        int maxX = Math.max(area.x1, area.x2);
+        int minY = Math.min(area.y1, area.y2);
+        int maxY = Math.max(area.y1, area.y2);
+        int minZ = Math.min(area.z1, area.z2);
+        int maxZ = Math.max(area.z1, area.z2);
+
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    BlockPos pos = new BlockPos(x, y, z);
+                    BlockEntity be = world.getBlockEntity(pos);
+                    if (be instanceof Inventory inventory) {
+                        for (int i = 0; i < inventory.size(); i++) {
+                            var stack = inventory.getStack(i);
+                            if (!stack.isEmpty()) {
+                                String itemId = stack.getItem().toString();
+                                totalItems.merge(itemId, stack.getCount(), Integer::sum);
+
+                                if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
+                                    blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
+                                    var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
+                                    if (container != null) {
+                                        for (var stored : container.streamNonEmpty().toList()) {
+                                            if (stored.isEmpty()) continue;
+                                            String storedId = stored.getItem().toString();
+                                            totalItems.merge(storedId, stored.getCount(), Integer::sum);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        SyncMaterial.LOGGER.info("[StagingArea] scanAreaContents: areaId={} found {} item types", areaId, totalItems.size());
+        return totalItems;
     }
 
     public void rescanStagingArea(int areaId) {
@@ -387,6 +448,18 @@ public class StagingAreaManager {
 
     private void refreshCache(String schematicId) {
         stagingAreasBySchematic.put(schematicId, loadStagingAreasFromDb(schematicId));
+        rebuildWorldIndex();
+    }
+
+    private void rebuildWorldIndex() {
+        Map<String, List<StagingArea>> byWorld = new HashMap<>();
+        for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
+            for (StagingArea area : areas) {
+                byWorld.computeIfAbsent(area.world, k -> new ArrayList<>()).add(area);
+            }
+        }
+        stagingAreasByWorld.clear();
+        stagingAreasByWorld.putAll(byWorld);
     }
 
     private void broadcastMaterialChanges(Map<String, Map<String, Integer>> materialChanges) {

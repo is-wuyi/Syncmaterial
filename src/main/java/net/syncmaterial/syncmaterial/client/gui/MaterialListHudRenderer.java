@@ -76,7 +76,16 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         if (list.size() == 0) {
-            return 0;
+            TextRenderer font = mc.textRenderer;
+            String hint = "请先在材料清单中认领材料";
+            int textWidth = font.getWidth(hint);
+            int boxWidth = textWidth + 10;
+            int boxHeight = 18;
+            int x = xOffset + 2;
+            int y = yOffset + 2;
+            fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, 0xA0000000);
+            drawContext.drawText(font, hint, x + 5, y + 4, 0xFFAAAAAA, false);
+            return boxHeight + 4;
         }
 
         TextRenderer font = mc.textRenderer;

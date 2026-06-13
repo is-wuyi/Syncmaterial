@@ -10,7 +10,6 @@ package net.syncmaterial.syncmaterial.client.gui.widgets;
 import java.util.List;
 
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.math.BlockPos;
 
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSubRegion;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
@@ -27,8 +26,6 @@ import fi.dy.masa.malilib.gui.button.IButtonActionListener;
 import fi.dy.masa.malilib.gui.widgets.WidgetListEntryBase;
 import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
 import fi.dy.masa.malilib.render.RenderUtils;
-import fi.dy.masa.malilib.util.GuiUtils;
-import fi.dy.masa.malilib.util.StringUtils;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 import java.util.Optional;
@@ -61,7 +58,11 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
 
     private int createButton(int x, int y, ButtonListener.ButtonType type)
     {
-        return this.addButton(new ButtonGeneric(x, y, -1, true, type.getDisplayName()), new ButtonListener(type, this)).getX() - 1;
+        String label = type.getDisplayName();
+        if (type == ButtonListener.ButtonType.REMOVE && ButtonListener.isPendingConfirm(this.entryData.areaId())) {
+            label = GuiBase.TXT_RED + "确认?";
+        }
+        return this.addButton(new ButtonGeneric(x, y, -1, true, label), new ButtonListener(type, this)).getX() - 1;
     }
 
     @Override
@@ -126,6 +127,13 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
 
     private static class ButtonListener implements IButtonActionListener
     {
+        private static int lastDeleteAreaId = -1;
+        private static long lastDeleteTime = 0;
+
+        static boolean isPendingConfirm(int areaId) {
+            return areaId == lastDeleteAreaId && System.currentTimeMillis() - lastDeleteTime < 3000;
+        }
+
         private final WidgetStagingAreaEntry widget;
         private final ButtonType type;
 
@@ -160,7 +168,15 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
             }
             else if (this.type == ButtonType.REMOVE)
             {
-                this.widget.parent.getEditorGui().deleteArea(this.widget.entryData.areaId());
+                long now = System.currentTimeMillis();
+                if (this.widget.entryData.areaId() == lastDeleteAreaId && now - lastDeleteTime < 3000) {
+                    this.widget.parent.getEditorGui().deleteArea(this.widget.entryData.areaId());
+                    lastDeleteAreaId = -1;
+                    lastDeleteTime = 0;
+                } else {
+                    lastDeleteAreaId = this.widget.entryData.areaId();
+                    lastDeleteTime = now;
+                }
             }
         }
 
