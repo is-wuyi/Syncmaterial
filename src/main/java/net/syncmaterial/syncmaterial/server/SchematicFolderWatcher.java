@@ -158,11 +158,18 @@ public class SchematicFolderWatcher {
 
                 // 检查数据库中是否已存在该原理图的材料记录
                 boolean existsInDb = queryService.schematicExists(id);
-                
-                // 如果数据库中已有记录，跳过
+
                 if (existsInDb) {
-                    processedHashes.add(hash);  // 添加到已处理集合
-                    continue;
+                    // 检查文件是否已更新（hash 变化）
+                    String storedHash = getStoredHash(id);
+                    if (storedHash != null && !storedHash.equals(hash)) {
+                        SyncMaterial.LOGGER.info("原理图文件已更新: {} (hash: {} → {})", displayName, storedHash, hash);
+                        deleteSchematicRecords(id);
+                        // 继续下方的解析流程
+                    } else {
+                        processedHashes.add(hash);
+                        continue;
+                    }
                 }
 
                 // 查找实际的 litematic 文件
@@ -204,6 +211,29 @@ public class SchematicFolderWatcher {
 
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("解析 placements.json 失败", e);
+        }
+    }
+
+    private String getStoredHash(String schematicId) {
+        try (var rs = database.executeQuery("SELECT file_hash FROM schematics WHERE id = ?", schematicId)) {
+            if (rs.next()) {
+                String h = rs.getString("file_hash");
+                return (h != null && !h.isEmpty()) ? h : null;
+            }
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.warn("获取原理图 hash 失败: {}", schematicId);
+        }
+        return null;
+    }
+
+    private void deleteSchematicRecords(String schematicId) {
+        try {
+            database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
+            database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
+            database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
+            database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("删除旧原理图记录失败: {}", schematicId, e);
         }
     }
 
@@ -253,11 +283,12 @@ public class SchematicFolderWatcher {
                 SyncMaterial.LOGGER.debug("解析完成, 材料数量: {}", materials.size());
 
                 database.executeUpdate(
-                    "INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO schematics (id, name, file_path, uploaded_by, file_hash) VALUES (?, ?, ?, ?, ?)",
                     id,
                     displayName,
                     filePath.toString(),
-                    owner
+                    owner,
+                    hash
                 );
 
                 // 聚合相同材料

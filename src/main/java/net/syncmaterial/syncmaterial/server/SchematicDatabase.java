@@ -142,6 +142,25 @@ public class SchematicDatabase implements AutoCloseable {
             SyncMaterial.LOGGER.warn("数据库迁移：检查 staging_areas.name 列时出错", e);
         }
 
+        // 安全迁移：给 schematics 表添加 file_hash 列（用于检测文件更新）
+        try {
+            boolean hasHash = false;
+            try (var rs = executeQuery("PRAGMA table_info(schematics)")) {
+                while (rs.next()) {
+                    if ("file_hash".equals(rs.getString("name"))) {
+                        hasHash = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasHash) {
+                executeUpdate("ALTER TABLE schematics ADD COLUMN file_hash TEXT DEFAULT ''");
+                SyncMaterial.LOGGER.info("数据库迁移：schematics 表已添加 file_hash 列");
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.warn("数据库迁移：检查 schematics.file_hash 列时出错", e);
+        }
+
         // 备货区内容物实时统计表 (Phase 2: 备货区集成)
         executeUpdate("""
             CREATE TABLE IF NOT EXISTS staging_area_inventory (
