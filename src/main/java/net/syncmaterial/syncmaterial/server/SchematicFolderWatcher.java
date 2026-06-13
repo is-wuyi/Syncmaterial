@@ -186,7 +186,7 @@ public class SchematicFolderWatcher {
             for (String removedHash : removedHashes) {
                 String schematicId = hashToSchematicId.get(removedHash);
                 if (schematicId != null) {
-                    database.executeUpdate("DELETE FROM staging_area_inventory WHERE area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
+                    database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
                     database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
                     database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
                     database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);

@@ -62,12 +62,13 @@ public class StagingAreaManager {
             return;
         }
 
+        String schematicName = getSchematicNameFromDb(schematicId);
         List<StagingArea> areas = getStagingAreas(schematicId);
         List<StagingAreaConfigResponseS2CPacket.AreaInfo> areaInfos = areas.stream()
                 .map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
                         a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()))
                 .toList();
-        StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "", areaInfos);
+        StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket(schematicId, schematicName, true, "", areaInfos);
 
         for (ServerPlayerEntity player : set) {
             if (player.isAlive() && player.networkHandler != null) {
@@ -460,6 +461,15 @@ public class StagingAreaManager {
         }
         stagingAreasByWorld.clear();
         stagingAreasByWorld.putAll(byWorld);
+    }
+
+    private String getSchematicNameFromDb(String schematicId) {
+        try (var rs = database.executeQuery("SELECT name FROM schematics WHERE id = ?", schematicId)) {
+            if (rs.next()) return rs.getString("name");
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.warn("获取原理图名称失败: {}", schematicId);
+        }
+        return "";
     }
 
     private void broadcastMaterialChanges(Map<String, Map<String, Integer>> materialChanges) {
