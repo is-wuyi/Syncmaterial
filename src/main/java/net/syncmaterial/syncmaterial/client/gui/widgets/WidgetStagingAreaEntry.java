@@ -90,7 +90,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         }
 
         // Display: "备货区名称  [x1,y1,z1]~[x2,y2,z2]"
-        String display = String.format("%s  [%d,%d,%d]~[%d,%d,%d]",
+        String display = String.format(fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.label.area_entry_display"),
                 this.entryData.name(),
                 this.entryData.x1(), this.entryData.y1(), this.entryData.z1(),
                 this.entryData.x2(), this.entryData.y2(), this.entryData.z2());
@@ -105,14 +105,14 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         List<String> text = new java.util.ArrayList<>();
 
         text.add(String.format("§l%s", this.entryData.name()));
-        text.add(String.format("§7[%d,%d,%d] ~ [%d,%d,%d]",
+        text.add(String.format(fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.label.area_coords"),
                 this.entryData.x1(), this.entryData.y1(), this.entryData.z1(),
                 this.entryData.x2(), this.entryData.y2(), this.entryData.z2()));
 
         int sizeX = Math.abs(this.entryData.x2() - this.entryData.x1()) + 1;
         int sizeY = Math.abs(this.entryData.y2() - this.entryData.y1()) + 1;
         int sizeZ = Math.abs(this.entryData.z2() - this.entryData.z1()) + 1;
-        text.add(String.format("§7尺寸: %d x %d x %d", sizeX, sizeY, sizeZ));
+        text.add(String.format("§7" + fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.label.size"), sizeX, sizeY, sizeZ));
 
         int offset = 12;
         if (GuiBase.isMouseOver(mouseX, mouseY, this.x, this.y, this.buttonsStartX - offset, this.height))
@@ -143,7 +143,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         {
             if (this.type == ButtonType.RENAME)
             {
-                String title = "重命名备货区";
+                String title = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.title.rename_area");
                 String name = this.widget.entryData.name();
                 AreaRenamer renamer = new AreaRenamer(this.widget.entryData, this.widget.parent.getEditorGui());
                 GuiBase.openGui(new GuiTextInputFeedback(160, title, name, (net.minecraft.client.gui.screen.Screen) this.widget.parent.getEditorGui(), renamer));
@@ -171,9 +171,9 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
 
         public enum ButtonType
         {
-            RENAME          ("重命名"),
-            CONFIGURE       ("配置"),
-            REMOVE          (GuiBase.TXT_RED + "Shift+删除");
+            RENAME          (fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.button.rename")),
+            CONFIGURE       (fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.button.configure")),
+            REMOVE          (GuiBase.TXT_RED + fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.button.shift_delete"));
 
             private final String labelKey;
 

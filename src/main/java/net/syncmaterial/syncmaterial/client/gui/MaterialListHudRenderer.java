@@ -77,7 +77,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
 
         if (list.size() == 0) {
             TextRenderer font = mc.textRenderer;
-            String hint = "请先在材料清单中认领材料";
+            String hint = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.hint.claim_materials");
             int textWidth = font.getWidth(hint);
             int boxWidth = textWidth + 10;
             int boxHeight = 18;
@@ -140,7 +140,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             y += lineHeight;
         }
 
-        String title = GuiBase.TXT_BOLD + "材料清单" + GuiBase.TXT_RST;
+        String title = GuiBase.TXT_BOLD + fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.title.material_list") + GuiBase.TXT_RST;
         drawContext.drawText(font, title, posX + 2, posY + 2, textColor, false);
 
         x = posX + 18;

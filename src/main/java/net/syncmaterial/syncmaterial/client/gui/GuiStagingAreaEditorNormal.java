@@ -521,7 +521,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     {
         if (boxName == null)
         {
-            String newName = "备货区 " + (this.selection.getAllSubRegionNames().size() + 1);
+            String newName = StringUtils.translate("syncmaterial.gui.label.staging_area_default", this.selection.getAllSubRegionNames().size() + 1);
             Box newBox = new Box(pos1, pos2, newName);
             this.selection.addSubRegionBox(newBox, true);
             this.selection.setSelectedSubRegionBox(newName);

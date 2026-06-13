@@ -60,7 +60,7 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
         lastScrollbarPosition = this.scrollBar.getValue();
 
         if (this.listWidgets.isEmpty()) {
-            String hint = "暂无材料数据";
+            String hint = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.hint.no_materials");
             MinecraftClient mc = MinecraftClient.getInstance();
             int textWidth = mc.textRenderer.getWidth(hint);
             int x = this.posX + (this.browserWidth - textWidth) / 2;

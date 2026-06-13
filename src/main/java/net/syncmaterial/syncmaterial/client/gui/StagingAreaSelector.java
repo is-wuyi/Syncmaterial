@@ -13,6 +13,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
 import fi.dy.masa.malilib.render.RenderUtils;
+import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
 
 import net.syncmaterial.syncmaterial.SyncMaterial;
@@ -194,11 +195,12 @@ public class StagingAreaSelector {
         int centerX = drawContext.getScaledWindowWidth() / 2;
         int centerY = drawContext.getScaledWindowHeight() / 2;
 
-        String line1 = "左键: 设置 pos1" + (this.pos1 != null ? " ✓" : "");
-        String line2 = "右键: 设置 pos2" + (this.pos2 != null ? " ✓" : "");
-        String line3 = "Enter: 确认 | Esc: 取消";
+        String line1 = StringUtils.translate("syncmaterial.gui.hud.left_click_set_pos1") + (this.pos1 != null ? " ✓" : "");
+        String line2 = StringUtils.translate("syncmaterial.gui.hud.right_click_set_pos2") + (this.pos2 != null ? " ✓" : "");
+        String line3 = StringUtils.translate("syncmaterial.gui.hud.confirm_or_cancel");
         String lineCrosshair = this.posLookingAt != null
-                ? "准星: " + this.posLookingAt.getX() + ", " + this.posLookingAt.getY() + ", " + this.posLookingAt.getZ()
+                ? StringUtils.translate("syncmaterial.gui.hud.crosshair",
+                        this.posLookingAt.getX(), this.posLookingAt.getY(), this.posLookingAt.getZ())
                 : "";
 
         int textY = centerY - 30;

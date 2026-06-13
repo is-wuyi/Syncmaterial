@@ -100,12 +100,12 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         boolean disabled = false;
         if (type == ButtonListener.ButtonType.CLAIM && this.entry != null && this.materialList instanceof SyncMaterialList syncList) {
             if (syncList.isCollaborating(this.entry)) {
-                label = "退出协作";
+                label = StringUtils.translate("syncmaterial.gui.button.leave_collaboration");
             } else if (!syncList.isAllowSelfClaim() && !syncList.isOwner()) {
-                label = "加入协作";
+                label = StringUtils.translate("syncmaterial.gui.button.join_collaboration");
                 disabled = true;
             } else {
-                label = "加入协作";
+                label = StringUtils.translate("syncmaterial.gui.button.join_collaboration");
             }
         }
         ButtonListener listener = new ButtonListener(type, this.materialList, this.entry, this.listWidget);
@@ -137,7 +137,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             maxCountLength3 = Math.max(maxCountLength3, StringUtils.getStringWidth(String.valueOf(entry.getCountAvailable())));
             maxCountLength4 = Math.max(maxCountLength4, StringUtils.getStringWidth(String.valueOf(entry.getOtherPlayersCount())));
             maxCountLength5 = Math.max(maxCountLength5, StringUtils.getStringWidth(String.valueOf(entry.getStagingCount())));
-            maxClaimLength  = Math.max(maxClaimLength, StringUtils.getStringWidth("未认领"));
+            maxClaimLength  = Math.max(maxClaimLength, StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.label.unclaimed")));
         }
     }
 
@@ -360,7 +360,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                     .orElse("");
                 this.drawString(drawContext, x7, y, 0xFF55FF55, names);
             } else {
-                this.drawString(drawContext, x7, y, 0xFF888888, "未认领");
+                this.drawString(drawContext, x7, y, 0xFF888888, StringUtils.translate("syncmaterial.gui.label.unclaimed"));
             }
 
             y = this.y + 3;
@@ -393,14 +393,14 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
         if (isComplete) {
             RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF006600);
-            this.drawString(drawContext, x, barY + barHeight + 1, 0xFF00CC00, "已完成 ✓");
+            this.drawString(drawContext, x, barY + barHeight + 1, 0xFF00CC00, StringUtils.translate("syncmaterial.gui.label.progress_done"));
             return;
         }
 
         RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF333333);
 
         if (isUnclaimed) {
-            this.drawString(drawContext, x, barY + barHeight + 1, 0xFF888888, "未认领");
+            this.drawString(drawContext, x, barY + barHeight + 1, 0xFF888888, StringUtils.translate("syncmaterial.gui.label.unclaimed"));
             return;
         }
 
@@ -440,7 +440,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         int textMaxX = x + totalWidth;
 
         if (stagingCount > 0) {
-            String s = "备货区:" + stagingCount;
+            String s = StringUtils.translate("syncmaterial.gui.label.progress_staging", stagingCount);
             if (textX + this.getStringWidth(s) < textMaxX) {
                 this.drawString(drawContext, textX, textY, 0xFFFFAA00, s);
                 textX += this.getStringWidth(s) + 6;
@@ -456,14 +456,14 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             }
         }
         if (participants.size() > 5) {
-            String s = "其他:" + otherCount;
+            String s = StringUtils.translate("syncmaterial.gui.label.progress_other", otherCount);
             if (textX + this.getStringWidth(s) < textMaxX) {
                 this.drawString(drawContext, textX, textY, 0xFF666666, s);
                 textX += this.getStringWidth(s) + 6;
             }
         }
         if (remaining > 0) {
-            String s = "剩余:" + remaining;
+            String s = StringUtils.translate("syncmaterial.gui.label.progress_remaining", remaining);
             if (textX + this.getStringWidth(s) < textMaxX) {
                 this.drawString(drawContext, textX, textY, 0xFF444444, s);
             }
@@ -535,7 +535,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             y += 18;
             if (stagingCount > 0 || !participants.isEmpty()) {
-                this.drawString(drawContext, x1, y, 0xFFAAAAAA, GuiBase.TXT_BOLD + "备货区: " + stagingCount);
+                this.drawString(drawContext, x1, y, 0xFFAAAAAA, GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.label.progress_staging_hover", stagingCount));
                 y += 14;
                 for (int i = 0; i < Math.min(participants.size(), 5); i++) {
                     var p = participants.get(i);
@@ -545,14 +545,14 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                 if (participants.size() > 5) {
                     int otherCount = 0;
                     for (int i = 5; i < participants.size(); i++) otherCount += participants.get(i).count();
-                    this.drawString(drawContext, x1, y, 0xFFAAAAAA, "其他: " + otherCount);
+                    this.drawString(drawContext, x1, y, 0xFFAAAAAA, StringUtils.translate("syncmaterial.gui.label.progress_other_hover", otherCount));
                     y += 14;
                 }
             }
         }
         // 禁用按钮悬停提示
         if (this.claimDisabled && mouseX >= this.x + this.width - 80) {
-            java.util.List<String> lines = java.util.List.of("自行认领已关闭，无法加入协作");
+            java.util.List<String> lines = java.util.List.of(StringUtils.translate("syncmaterial.gui.tooltip.self_claim_disabled"));
             fi.dy.masa.malilib.render.RenderUtils.drawHoverText(drawContext, mouseX, mouseY, lines);
         }
     }

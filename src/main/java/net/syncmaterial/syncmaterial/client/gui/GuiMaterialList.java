@@ -21,6 +21,7 @@ import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.util.InfoUtils;
+import fi.dy.masa.malilib.util.StringUtils;
 
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
     private final SyncMaterialList materialList;
@@ -152,12 +153,12 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     private int createButtonRefresh(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "刷新列表");
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, StringUtils.translate("syncmaterial.gui.button.refresh"));
         this.addButton(button, (btn, mouseButton) -> {
             String schematicId = this.materialList.getSchematicId();
             if (schematicId != null && !schematicId.isEmpty()) {
                 ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(schematicId));
-                btn.setDisplayString("刷新中...");
+                btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.refreshing"));
                 btn.setEnabled(false);
             }
         });
@@ -165,7 +166,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     private int createButtonStagingArea(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "备货区配置");
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, StringUtils.translate("syncmaterial.gui.button.staging_area_config"));
         this.addButton(button, (btn, mouseButton) -> {
             AreaSelection selection = new AreaSelection();
             GuiStagingAreaEditorNormal editor = new GuiStagingAreaEditorNormal(selection, null, this.materialList.getSchematicId());
@@ -176,7 +177,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     private int createButtonToggleStagingRender(int x, int y) {
-        String label = "备货区线框：" + (stagingRenderEnabled ? "显示" : "隐藏");
+        String label = StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
+                StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide"));
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
         this.addButton(button, (btn, mouseButton) -> {
             stagingRenderEnabled = !stagingRenderEnabled;
@@ -184,34 +186,37 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             if (schematicId != null) {
                 net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().setRenderEnabled(schematicId, stagingRenderEnabled);
             }
-            btn.setDisplayString("备货区线框：" + (stagingRenderEnabled ? "显示" : "隐藏"));
+            btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
+                    StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide")));
         });
         return button.getWidth();
     }
 
     private int createButtonToggleHud(int x, int y) {
-        String label = "HUD信息显示：" + (this.materialList.getHudRenderer().getShouldRender() ? "开启" : "关闭");
+        String label = StringUtils.translate("syncmaterial.gui.button.hud_toggle",
+                StringUtils.translate(this.materialList.getHudRenderer().getShouldRender() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"));
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
         this.addButton(button, (btn, mouseButton) -> {
             this.materialList.getHudRenderer().toggleShouldRender();
-            btn.setDisplayString("HUD信息显示：" + (this.materialList.getHudRenderer().getShouldRender() ? "开启" : "关闭"));
+            btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.hud_toggle",
+                    StringUtils.translate(this.materialList.getHudRenderer().getShouldRender() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
         });
         return button.getWidth();
     }
 
     private int createButtonFilterMyMaterials(int x, int y) {
-        String label = filterMyMaterials ? "显示全部" : "仅显示我加入的";
+        String label = filterMyMaterials ? StringUtils.translate("syncmaterial.gui.button.show_all") : StringUtils.translate("syncmaterial.gui.button.show_my_materials");
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
         this.addButton(button, (btn, mouseButton) -> {
             filterMyMaterials = !filterMyMaterials;
-            btn.setDisplayString(filterMyMaterials ? "显示全部" : "仅显示我加入的");
+            btn.setDisplayString(filterMyMaterials ? StringUtils.translate("syncmaterial.gui.button.show_all") : StringUtils.translate("syncmaterial.gui.button.show_my_materials"));
             this.getListWidget().refreshEntries();
         });
         return button.getWidth();
     }
 
     private int createButtonManagement(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "管理");
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, StringUtils.translate("syncmaterial.gui.button.manage"));
         this.addButton(button, (btn, mouseButton) -> openManagementOverlay());
         return button.getWidth();
     }
@@ -221,25 +226,25 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int y = listBottom + 4;
 
         // 先计算总宽度以居中
-        ButtonGeneric tmpAssign = new ButtonGeneric(0, 0, -1, false, "分配给...");
-        ButtonGeneric tmpKick = new ButtonGeneric(0, 0, -1, false, "踢出");
+        ButtonGeneric tmpAssign = new ButtonGeneric(0, 0, -1, false, StringUtils.translate("syncmaterial.gui.button.assign_to"));
+        ButtonGeneric tmpKick = new ButtonGeneric(0, 0, -1, false, StringUtils.translate("syncmaterial.gui.button.kick"));
         int totalWidth = tmpAssign.getWidth() + 2 + tmpKick.getWidth();
         int x = (this.getScreenWidth() - totalWidth) / 2;
 
-        ButtonGeneric btnAssign = new ButtonGeneric(x, y, -1, false, "分配给...");
-        this.addButton(btnAssign, (btn, mouseButton) -> {
+        ButtonGeneric btnAssign = new ButtonGeneric(x, y, -1, false, StringUtils.translate("syncmaterial.gui.button.assign_to"));
+this.addButton(btnAssign, (btn, mouseButton) -> {
             if (selectedMaterialIds.isEmpty()) {
-                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, "请先勾选材料");
+                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
                 return;
             }
             requestPlayerList("ASSIGN");
         });
         x += btnAssign.getWidth() + 2;
 
-        ButtonGeneric btnKick = new ButtonGeneric(x, y, -1, false, "踢出");
+        ButtonGeneric btnKick = new ButtonGeneric(x, y, -1, false, StringUtils.translate("syncmaterial.gui.button.kick"));
         this.addButton(btnKick, (btn, mouseButton) -> {
             if (selectedMaterialIds.isEmpty()) {
-                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, "请先勾选材料");
+                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
                 return;
             }
             requestPlayerList("KICK");
@@ -247,7 +252,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     private int createButtonClose(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, "关闭");
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, StringUtils.translate("syncmaterial.gui.button.close"));
         this.addButton(button, (btn, mouseButton) -> this.close());
         return button.getWidth();
     }
@@ -435,17 +440,17 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
         // 标题
         String title = switch (overlayPlayerAction != null ? overlayPlayerAction : "") {
-            case "ASSIGN" -> "选择分配玩家";
-            case "KICK" -> "选择踢出玩家";
-            default -> "选择玩家";
+            case "ASSIGN" -> StringUtils.translate("syncmaterial.gui.title.select_assign_player");
+            case "KICK" -> StringUtils.translate("syncmaterial.gui.title.select_kick_player");
+            default -> StringUtils.translate("syncmaterial.gui.label.select_player");
         };
         drawContext.drawCenteredTextWithShadow(this.textRenderer, title, this.width / 2, panelY + 10, CLR_TEXT_WHITE);
 
         // 提示
         String hint = switch (overlayPlayerAction != null ? overlayPlayerAction : "") {
-            case "ASSIGN" -> "勾选要分配给的玩家";
-            case "KICK" -> "勾选要踢出的玩家";
-            default -> "选择玩家";
+            case "ASSIGN" -> StringUtils.translate("syncmaterial.gui.hint.assign_to_player");
+            case "KICK" -> StringUtils.translate("syncmaterial.gui.hint.kick_from_player");
+            default -> StringUtils.translate("syncmaterial.gui.hint.select_player");
         };
         drawContext.drawCenteredTextWithShadow(this.textRenderer, hint, this.width / 2, panelY + 24, CLR_TEXT_GRAY);
 
@@ -456,7 +461,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int searchY = listY;
         int searchW = OVERLAY_PANEL_WIDTH - 20;
         drawContext.fill(searchX, searchY, searchX + searchW, searchY + 18, CLR_SECTION_BG);
-        String searchText = overlaySearchText.isEmpty() ? "搜索玩家..." : overlaySearchText;
+        String searchText = overlaySearchText.isEmpty() ? StringUtils.translate("syncmaterial.gui.hint.search_player") : overlaySearchText;
         int searchColor = overlaySearchText.isEmpty() ? CLR_TEXT_MUTED : CLR_TEXT_WHITE;
         drawContext.drawTextWithShadow(this.textRenderer, searchText, searchX + 4, searchY + 5, searchColor);
         if (!overlaySearchText.isEmpty() && (System.currentTimeMillis() / 500) % 2 == 0) {
@@ -502,7 +507,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
             // 在线状态
             if (player.online()) {
-                String statusText = "在线";
+                String statusText = StringUtils.translate("syncmaterial.gui.label.online");
                 int statusWidth = this.textRenderer.getWidth(statusText);
                 drawContext.drawTextWithShadow(this.textRenderer, statusText, listX + listWidth - statusWidth - 8, rowY + 6, CLR_TEXT_GREEN);
             }
@@ -518,25 +523,25 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         }
 
         if (filtered.isEmpty()) {
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "没有匹配的玩家", this.width / 2, listY + listHeight / 2 - 6, CLR_TEXT_MUTED);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.label.no_matching_player"), this.width / 2, listY + listHeight / 2 - 6, CLR_TEXT_MUTED);
         }
 
         // 底部信息 + 按钮
         int bottomY = listY + listHeight + 8;
         String infoText;
         if ("TRANSFER".equals(overlayPlayerAction)) {
-            infoText = overlaySelectedPlayers.isEmpty() ? "请选择一位玩家" : "转让给: " + overlaySelectedPlayers.get(0);
+            infoText = overlaySelectedPlayers.isEmpty() ? StringUtils.translate("syncmaterial.gui.label.please_select_player") : StringUtils.translate("syncmaterial.gui.button.transfer_to", overlaySelectedPlayers.get(0));
         } else if ("ADD_DEPUTY".equals(overlayPlayerAction) || "REMOVE_DEPUTY".equals(overlayPlayerAction)) {
-            infoText = "已选择 " + overlaySelectedPlayers.size() + " 位玩家";
+            infoText = StringUtils.translate("syncmaterial.gui.label.players_selected_count", overlaySelectedPlayers.size());
         } else {
-            infoText = "已选择 " + overlaySelectedPlayers.size() + " 个玩家 | 材料 " + selectedMaterialIds.size() + " 个";
+            infoText = StringUtils.translate("syncmaterial.gui.label.players_and_materials_count", overlaySelectedPlayers.size(), selectedMaterialIds.size());
         }
         drawContext.drawCenteredTextWithShadow(this.textRenderer, infoText, this.width / 2, bottomY, CLR_TEXT_GRAY);
 
         int btnY = bottomY + 14;
         if (overlayConfirmTimer > 0) {
             overlayConfirmTimer--;
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "已发送 ✓", this.width / 2, btnY + 4, CLR_TEXT_GREEN);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.hint.sent"), this.width / 2, btnY + 4, CLR_TEXT_GREEN);
             if (overlayConfirmTimer == 0) {
                 // ADD_DEPUTY / TRANSFER 完成后回到管理界面，其他操作直接关闭
                 boolean returnToMgmt = "ADD_DEPUTY".equals(overlayPlayerAction) || "TRANSFER".equals(overlayPlayerAction);
@@ -551,11 +556,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             boolean confirmHovered = mouseX >= confirmX && mouseX < confirmX + btnW && mouseY >= btnY && mouseY < btnY + 20;
             boolean confirmDisabled = overlaySelectedPlayers.isEmpty();
             drawButton(drawContext, confirmX, btnY, btnW, 20, confirmHovered, confirmDisabled);
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "确认", confirmX + btnW / 2, btnY + 6, confirmDisabled ? CLR_TEXT_MUTED : (confirmHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE));
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.button.confirm"), confirmX + btnW / 2, btnY + 6, confirmDisabled ? CLR_TEXT_MUTED : (confirmHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE));
 
             boolean cancelHovered = mouseX >= cancelX && mouseX < cancelX + btnW && mouseY >= btnY && mouseY < btnY + 20;
             drawButton(drawContext, cancelX, btnY, btnW, 20, cancelHovered, false);
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "取消", cancelX + btnW / 2, btnY + 6, cancelHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.button.cancel"), cancelX + btnW / 2, btnY + 6, cancelHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
         }
     }
 
@@ -606,36 +611,36 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int y = panelY + MGMT_PAD;
 
         // 标题
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, "负责人管理", centerX, y, CLR_TEXT_WHITE);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.title.management"), centerX, y, CLR_TEXT_WHITE);
         y += MGMT_TITLE_H;
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, "原理图: " + this.materialList.getTitle(), centerX, y, CLR_TEXT_GRAY);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.label.schematic", this.materialList.getTitle()), centerX, y, CLR_TEXT_GRAY);
         y += MGMT_SUBTITLE_H;
 
         // 说明区块 — 用左侧竖线装饰，避免像输入框
         int descY = y;
         drawContext.fill(leftX, descY, leftX + 3, descY + MGMT_DESC_H, CLR_TEXT_DIM);
-        drawTextWrapped(drawContext, "负责人可以管理材料的认领与分配。主负责人拥有全部管理权限，可转让负责人、添加/移除副负责人。副负责人可以批量分配材料和踢出玩家。开启「自行认领」后，所有玩家可以自行认领材料。", leftX + 8, descY + 4, MGMT_INNER_W - 12, CLR_TEXT_DIM);
+        drawTextWrapped(drawContext, StringUtils.translate("syncmaterial.gui.label.management_desc"), leftX + 8, descY + 4, MGMT_INNER_W - 12, CLR_TEXT_DIM);
         y = descY + MGMT_DESC_H + MGMT_GAP;
 
         // 区块标题
         drawContext.fill(leftX, y, leftX + MGMT_INNER_W, y + MGMT_SECTION_TITLE_H, CLR_SECTION_BG);
-        drawContext.drawTextWithShadow(this.textRenderer, "当前负责人", leftX + 6, y + 5, CLR_TEXT_WHITE);
+        drawContext.drawTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.label.owner"), leftX + 6, y + 5, CLR_TEXT_WHITE);
         y += MGMT_SECTION_TITLE_H;
 
         // 主负责人行
-        drawContext.drawTextWithShadow(this.textRenderer, "主负责人: " + ownerName, leftX + 6, y + 2, CLR_TEXT_GREEN);
+        drawContext.drawTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.label.main_owner", ownerName), leftX + 6, y + 2, CLR_TEXT_GREEN);
         if (isMainOwner) {
             int btnX = leftX + MGMT_INNER_W - 50;
             boolean hovered = mouseX >= btnX && mouseX < btnX + 44 && mouseY >= y && mouseY < y + 18;
             drawButton(drawContext, btnX, y, 44, 18, hovered, false);
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "转让", btnX + 22, y + 5, hovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.button.transfer"), btnX + 22, y + 5, hovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
         }
         y += MGMT_ROW_H;
 
         // 副负责人列表
         for (int i = 0; i < deputyOwners.size(); i++) {
             String deputy = deputyOwners.get(i);
-            drawContext.drawTextWithShadow(this.textRenderer, "副负责人: " + deputy, leftX + 6, y + 2, CLR_TEXT_GREEN);
+            drawContext.drawTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.label.deputy_owner", deputy), leftX + 6, y + 2, CLR_TEXT_GREEN);
             if (isMainOwner) {
                 int delX = leftX + MGMT_INNER_W - 22;
                 boolean hovered = mouseX >= delX && mouseX < delX + 18 && mouseY >= y && mouseY < y + 18;
@@ -650,7 +655,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             y += MGMT_ROW_H;
         }
         if (deputyOwners.isEmpty()) {
-            drawContext.drawTextWithShadow(this.textRenderer, "副负责人: 无", leftX + 6, y + 2, CLR_TEXT_MUTED);
+            drawContext.drawTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.label.deputy_owner_none"), leftX + 6, y + 2, CLR_TEXT_MUTED);
             y += MGMT_ROW_H;
         }
 
@@ -659,7 +664,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             y += 2;
             boolean hovered = mouseX >= leftX && mouseX < leftX + MGMT_INNER_W && mouseY >= y && mouseY < y + MGMT_ADD_DEPUTY_H;
             drawButton(drawContext, leftX, y, MGMT_INNER_W, MGMT_ADD_DEPUTY_H, hovered, false);
-            drawContext.drawCenteredTextWithShadow(this.textRenderer, "添加副负责人", centerX, y + 6, CLR_TEXT_GREEN);
+            drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.button.add_deputy"), centerX, y + 6, CLR_TEXT_GREEN);
             y += MGMT_ADD_DEPUTY_H;
         }
 
@@ -667,7 +672,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
         // 自行认领区块
         drawContext.fill(leftX, y, leftX + MGMT_INNER_W, y + MGMT_TOGGLE_H, CLR_SECTION_BG);
-        drawContext.drawTextWithShadow(this.textRenderer, "自行认领: " + (allowSelfClaim ? "开启" : "关闭"), leftX + 6, y + 5, CLR_TEXT_WHITE);
+        drawContext.drawTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.label.self_claim", StringUtils.translate(allowSelfClaim ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")), leftX + 6, y + 5, CLR_TEXT_WHITE);
         int toggleX = leftX + MGMT_INNER_W - 60;
         boolean toggleHovered = mouseX >= toggleX && mouseX < toggleX + 54 && mouseY >= y + 2 && mouseY < y + 18;
         int toggleBg = allowSelfClaim
@@ -678,7 +683,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         drawContext.fill(toggleX, y + 2, toggleX + 1, y + 18, 0x40FFFFFF);
         drawContext.fill(toggleX, y + 17, toggleX + 54, y + 18, 0xFF111111);
         drawContext.fill(toggleX + 53, y + 2, toggleX + 54, y + 18, 0xFF111111);
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, allowSelfClaim ? "关闭" : "开启", toggleX + 27, y + 7, toggleHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate(allowSelfClaim ? "syncmaterial.gui.label.toggle_off" : "syncmaterial.gui.label.toggle_on"), toggleX + 27, y + 7, toggleHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
         y += MGMT_TOGGLE_H;
 
         // 状态消息
@@ -695,7 +700,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int closeBtnX = centerX - closeBtnW / 2;
         boolean closeHovered = mouseX >= closeBtnX && mouseX < closeBtnX + closeBtnW && mouseY >= y && mouseY < y + MGMT_CLOSE_BTN_H;
         drawButton(drawContext, closeBtnX, y, closeBtnW, MGMT_CLOSE_BTN_H, closeHovered, false);
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, "关闭", centerX, y + 5, closeHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate("syncmaterial.gui.button.close"), centerX, y + 5, closeHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
     }
 
     /** 带描边的面板绘制（对齐 MaLiLib drawOutlinedBox 风格） */
@@ -885,7 +890,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             if (mouseX >= toggleX && mouseX < toggleX + 54 && mouseY >= y + 2 && mouseY < y + 18) {
                 ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "TOGGLE_SELF_CLAIM", ""));
                 allowSelfClaim = !allowSelfClaim;
-                mgmtStatusMessage = "请求已发送...";
+                mgmtStatusMessage = StringUtils.translate("syncmaterial.gui.hint.request_sent");
                 mgmtStatusColor = CLR_TEXT_GRAY;
                 mgmtStatusTimer = 60;
                 return;

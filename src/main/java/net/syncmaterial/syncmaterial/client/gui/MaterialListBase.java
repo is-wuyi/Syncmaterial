@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import com.google.common.collect.ImmutableList;
 import fi.dy.masa.malilib.interfaces.ICompletionListener;
+import fi.dy.masa.malilib.util.StringUtils;
 import net.minecraft.util.math.MathHelper;
 
 public abstract class MaterialListBase
@@ -197,7 +198,7 @@ public abstract class MaterialListBase
 
     public String getClaimStatus(MaterialListEntry entry)
     {
-        return this.claimStatusMap.getOrDefault(entry, "未认领");
+        return this.claimStatusMap.getOrDefault(entry, StringUtils.translate("syncmaterial.gui.label.unclaimed"));
     }
 
     public void setClaimStatus(MaterialListEntry entry, String status)
