@@ -89,18 +89,18 @@ public class SchematicUploadListener implements Consumer<Object> {
     }
 
     /**
-     * 原理图被删除时清理渲染数据
+     * 原理图被删除时清理渲染数据和数据库记录。
+     * 注意：此方法通过 SyncmaticaIntegrationMixin 注册，该 Mixin 目标为客户端类 LitematicManager，
+     * 因此只在客户端执行，MinecraftClient 是安全的。
+     * 客户端渲染清理通过 MinecraftClient.execute() 调度到渲染线程。
+     * （SchematicFolderWatcher 也会通过网络包通知客户端，这里是直接响应 Syncmatica 事件的快速路径）
      */
     private void onSchematicRemoved(String schematicId) {
-        // 清理客户端渲染数据
-        try {
-            net.minecraft.client.MinecraftClient.getInstance().execute(() -> {
-                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
-                    .removeRenderData(schematicId);
-            });
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.warn("清理客户端渲染数据失败（可能在服务端环境）: {}", e.getMessage());
-        }
+        // 清理客户端渲染数据（调度到渲染线程）
+        net.minecraft.client.MinecraftClient.getInstance().execute(() -> {
+            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
+                .removeRenderData(schematicId);
+        });
 
         // 清理数据库记录
         try {
