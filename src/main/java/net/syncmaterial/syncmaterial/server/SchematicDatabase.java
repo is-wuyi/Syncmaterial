@@ -241,12 +241,55 @@ public class SchematicDatabase implements AutoCloseable {
     }
 
     /**
-     * 执行查询并返回结果
+     * 执行查询并返回结果。
+     * 返回的 QueryResult 实现 AutoCloseable，关闭时同时释放 ResultSet 和 PreparedStatement。
      */
-    public ResultSet executeQuery(String sql, Object... params) throws SQLException {
+    public QueryResult executeQuery(String sql, Object... params) throws SQLException {
         PreparedStatement stmt = connection.prepareStatement(sql);
         setParameters(stmt, params);
-        return stmt.executeQuery(); // 注意：调用者需要负责关闭ResultSet和Statement
+        try {
+            ResultSet rs = stmt.executeQuery();
+            return new QueryResult(rs, stmt);
+        } catch (SQLException e) {
+            stmt.close();
+            throw e;
+        }
+    }
+
+    /**
+     * 查询结果封装，持有 ResultSet 和其背后的 PreparedStatement，
+     * 关闭时同时释放两者，防止 Statement 资源泄漏。
+     */
+    public static class QueryResult implements AutoCloseable {
+        private final ResultSet resultSet;
+        private final PreparedStatement statement;
+
+        QueryResult(ResultSet resultSet, PreparedStatement statement) {
+            this.resultSet = resultSet;
+            this.statement = statement;
+        }
+
+        public ResultSet getResultSet() {
+            return resultSet;
+        }
+
+        // 代理 ResultSet 常用方法
+        public boolean next() throws SQLException { return resultSet.next(); }
+        public String getString(String columnLabel) throws SQLException { return resultSet.getString(columnLabel); }
+        public String getString(int columnIndex) throws SQLException { return resultSet.getString(columnIndex); }
+        public int getInt(String columnLabel) throws SQLException { return resultSet.getInt(columnLabel); }
+        public int getInt(int columnIndex) throws SQLException { return resultSet.getInt(columnIndex); }
+        public long getLong(String columnLabel) throws SQLException { return resultSet.getLong(columnLabel); }
+        public long getLong(int columnIndex) throws SQLException { return resultSet.getLong(columnIndex); }
+
+        @Override
+        public void close() throws SQLException {
+            try {
+                resultSet.close();
+            } finally {
+                statement.close();
+            }
+        }
     }
 
     /**
