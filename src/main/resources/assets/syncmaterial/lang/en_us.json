@@ -38,6 +38,7 @@
   "syncmaterial.gui.button.rename": "Rename",
   "syncmaterial.gui.button.configure": "Configure",
   "syncmaterial.gui.button.shift_delete": "Shift+Delete",
+  "syncmaterial.gui.hint.hold_shift_delete": "Hold Shift and click to delete",
   "syncmaterial.gui.tooltip.self_claim_disabled": "Self claim is disabled, cannot join",
   "syncmaterial.gui.hint.claim_materials": "Claim materials in the material list first",
   "syncmaterial.gui.hint.no_materials": "No materials available",
@@ -88,5 +89,13 @@
   "syncmaterial.gui.label.select_area.title": "Crosshair Select",
   "syncmaterial.gui.hint.select_area": "Crosshair Selection Mode",
   "syncmaterial.gui.label.area_entry_display": "%s  [%d,%d,%d]~[%d,%d,%d]",
-  "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]"
+  "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]",
+  "syncmaterial.gui.button.staging_area_config": "Staging Area Config",
+  "syncmaterial.gui.title.area_editor_normal": "Staging Area Editor",
+  "syncmaterial.gui.title.area_editor_sub_region": "Sub Region Editor",
+  "syncmaterial.gui.error.no_selection": "No Selection",
+  "syncmaterial.gui.label.corner_1": "Corner 1",
+  "syncmaterial.gui.label.corner_2": "Corner 2",
+  "syncmaterial.gui.label.selection_name": "Selection Name",
+  "syncmaterial.gui.button.hover.plus_minus_tip": "Ctrl+Click: ±10 | Shift+Click: ±100 | Alt+Click: ±1000"
 }

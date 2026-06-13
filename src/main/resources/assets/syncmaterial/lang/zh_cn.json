@@ -38,6 +38,7 @@
   "syncmaterial.gui.button.rename": "重命名",
   "syncmaterial.gui.button.configure": "配置",
   "syncmaterial.gui.button.shift_delete": "Shift+删除",
+  "syncmaterial.gui.hint.hold_shift_delete": "请按住 Shift 再点击删除",
   "syncmaterial.gui.tooltip.self_claim_disabled": "自行认领已关闭，无法加入协作",
   "syncmaterial.gui.hint.claim_materials": "请先在材料清单中认领材料",
   "syncmaterial.gui.hint.no_materials": "暂无材料数据",
@@ -88,5 +89,13 @@
   "syncmaterial.gui.label.select_area.title": "准星选区",
   "syncmaterial.gui.hint.select_area": "准星选区模式",
   "syncmaterial.gui.label.area_entry_display": "%s  [%d,%d,%d]~[%d,%d,%d]",
-  "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]"
+  "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]",
+  "syncmaterial.gui.button.staging_area_config": "备货区配置",
+  "syncmaterial.gui.title.area_editor_normal": "备货区编辑器",
+  "syncmaterial.gui.title.area_editor_sub_region": "子区域编辑",
+  "syncmaterial.gui.error.no_selection": "未选择区域",
+  "syncmaterial.gui.label.corner_1": "角点 1",
+  "syncmaterial.gui.label.corner_2": "角点 2",
+  "syncmaterial.gui.label.selection_name": "选区名称",
+  "syncmaterial.gui.button.hover.plus_minus_tip": "Ctrl+点击: ±10 | Shift+点击: ±100 | Alt+点击: ±1000"
 }

@@ -90,7 +90,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         this.schematicId = schematicId;
         this.needsServerLoad = schematicId != null && !schematicId.isEmpty();
         this.useTitleHierarchy = false;
-        this.title = StringUtils.translate("litematica.gui.title.area_editor_normal");
+        this.title = StringUtils.translate("syncmaterial.gui.title.area_editor_normal");
     }
 
     public void setSelectionId(@Nullable String selectionId)
@@ -226,7 +226,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         }
         else
         {
-            this.addLabel(20, 30, 120, 12, 0xFFFFAA00, StringUtils.translate("litematica.error.area_editor.no_selection"));
+            this.addLabel(20, 30, 120, 12, 0xFFFFAA00, StringUtils.translate("syncmaterial.gui.error.no_selection"));
         }
 
         // 首次打开时从服务端加载备货区数据
@@ -260,7 +260,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         x = xLeft;
         y += 20;
 
-        this.addLabel(x, y, -1, 16, 0xFFFFFFFF, StringUtils.translate("litematica.gui.label.area_editor.selection_name"));
+        this.addLabel(x, y, -1, 16, 0xFFFFFFFF, StringUtils.translate("syncmaterial.gui.label.selection_name"));
         y += 13;
 
         int width = 202;
@@ -319,12 +319,12 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         switch (corner)
         {
             case CORNER_1:
-                label = StringUtils.translate("litematica.gui.label.area_editor.corner_1");
+                label = StringUtils.translate("syncmaterial.gui.label.corner_1");
                 widget = new WidgetCheckBox(x, y + 3, Icons.CHECKBOX_UNSELECTED, Icons.CHECKBOX_SELECTED, label);
                 this.checkBoxCorner1 = widget;
                 break;
             case CORNER_2:
-                label = StringUtils.translate("litematica.gui.label.area_editor.corner_2");
+                label = StringUtils.translate("syncmaterial.gui.label.corner_2");
                 widget = new WidgetCheckBox(x, y + 3, Icons.CHECKBOX_UNSELECTED, Icons.CHECKBOX_SELECTED, label);
                 this.checkBoxCorner2 = widget;
                 break;
@@ -417,7 +417,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
     protected void createCoordinateButton(int x, int y, Corner corner, CoordinateType coordType, ButtonListener.Type type)
     {
-        String hover = StringUtils.translate("litematica.gui.button.hover.plus_minus_tip_ctrl_alt_shift");
+        String hover = StringUtils.translate("syncmaterial.gui.button.hover.plus_minus_tip");
         ButtonGeneric button = new ButtonGeneric(x, y, Icons.BUTTON_PLUS_MINUS_16, hover);
         ButtonListener listener = new ButtonListener(type, corner, coordType, this);
         this.addButton(button, listener);

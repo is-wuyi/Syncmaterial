@@ -165,6 +165,11 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
             {
                 if (hasShiftDown()) {
                     this.widget.parent.getEditorGui().deleteArea(this.widget.entryData.areaId());
+                } else {
+                    // 显示提示：需要按住 Shift
+                    fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                        fi.dy.masa.malilib.gui.Message.MessageType.WARNING,
+                        fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.hint.hold_shift_delete"));
                 }
             }
         }

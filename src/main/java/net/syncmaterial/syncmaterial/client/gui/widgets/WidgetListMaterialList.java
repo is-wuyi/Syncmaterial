@@ -46,6 +46,7 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
             public Identifier getTexture() { return Identifier.of("minecraft", "textures/gui/widgets.png"); }
         };
         this.widgetSearchBar = new WidgetSearchBar(x + 2, y + 4, width - 14, 14, 0, dummyIcon, LeftRight.LEFT);
+        this.widgetSearchBar.setSearchOpen(true);
         this.browserEntriesOffsetY = this.widgetSearchBar.getHeight() + 3;
     }
 
