@@ -58,11 +58,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
 
     private int createButton(int x, int y, ButtonListener.ButtonType type)
     {
-        String label = type.getDisplayName();
-        if (type == ButtonListener.ButtonType.REMOVE && ButtonListener.isPendingConfirm(this.entryData.areaId())) {
-            label = GuiBase.TXT_RED + "确认?";
-        }
-        return this.addButton(new ButtonGeneric(x, y, -1, true, label), new ButtonListener(type, this)).getX() - 1;
+        return this.addButton(new ButtonGeneric(x, y, -1, true, type.getDisplayName()), new ButtonListener(type, this)).getX() - 1;
     }
 
     @Override
@@ -127,11 +123,10 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
 
     private static class ButtonListener implements IButtonActionListener
     {
-        private static int lastDeleteAreaId = -1;
-        private static long lastDeleteTime = 0;
-
-        static boolean isPendingConfirm(int areaId) {
-            return areaId == lastDeleteAreaId && System.currentTimeMillis() - lastDeleteTime < 3000;
+        private static boolean hasShiftDown() {
+            return org.lwjgl.glfw.GLFW.glfwGetKey(
+                net.minecraft.client.MinecraftClient.getInstance().getWindow().getHandle(),
+                org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
         }
 
         private final WidgetStagingAreaEntry widget;
@@ -168,14 +163,8 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
             }
             else if (this.type == ButtonType.REMOVE)
             {
-                long now = System.currentTimeMillis();
-                if (this.widget.entryData.areaId() == lastDeleteAreaId && now - lastDeleteTime < 3000) {
+                if (hasShiftDown()) {
                     this.widget.parent.getEditorGui().deleteArea(this.widget.entryData.areaId());
-                    lastDeleteAreaId = -1;
-                    lastDeleteTime = 0;
-                } else {
-                    lastDeleteAreaId = this.widget.entryData.areaId();
-                    lastDeleteTime = now;
                 }
             }
         }
@@ -184,7 +173,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         {
             RENAME          ("重命名"),
             CONFIGURE       ("配置"),
-            REMOVE          (GuiBase.TXT_RED + "-");
+            REMOVE          (GuiBase.TXT_RED + "Shift+删除");
 
             private final String labelKey;
 

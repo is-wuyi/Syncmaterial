@@ -67,7 +67,7 @@ public class StagingAreaManager {
                 .map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
                         a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()))
                 .toList();
-        StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket(schematicId, true, "", areaInfos);
+        StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "", areaInfos);
 
         for (ServerPlayerEntity player : set) {
             if (player.isAlive() && player.networkHandler != null) {

@@ -34,6 +34,11 @@ public class ModNetworkHandlerClient {
                 {
                     var renderer = StagingAreaRenderer.getInstance();
 
+                    // 设置原理图名称（用于框线文字标注）
+                    if (payload.schematicName() != null && !payload.schematicName().isEmpty()) {
+                        renderer.setSchematicName(payload.schematicId(), payload.schematicName());
+                    }
+
                     // 空 areas 列表表示该原理图的备货区已被删除
                     if (payload.areas().isEmpty())
                     {

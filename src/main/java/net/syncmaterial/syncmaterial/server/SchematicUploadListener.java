@@ -19,13 +19,16 @@ public class SchematicUploadListener implements Consumer<Object> {
     private final SchematicDatabase database;
     private final DatabaseQueryService queryService;
     private final LitematicaParser parser;
+    private final Object syncManager;  // SyncmaticManager 引用，用于判断 placement 是新增还是删除
 
     public SchematicUploadListener(SchematicDatabase database,
                                    DatabaseQueryService queryService,
-                                   LitematicaParser parser) {
+                                   LitematicaParser parser,
+                                   Object syncManager) {
         this.database = database;
         this.queryService = queryService;
         this.parser = parser;
+        this.syncManager = syncManager;
     }
 
     /**
@@ -66,7 +69,9 @@ public class SchematicUploadListener implements Consumer<Object> {
 
     /**
      * Consumer接口实现
-     * 区分新增和删除：如果原理图已存在于数据库中，说明是删除事件
+     * 通过 SyncmaticManager.getPlacement() 判断 placement 是新增还是删除：
+     * - 新增：placement 仍在管理器中 → 处理上传
+     * - 删除：placement 已从管理器移除 → 清理渲染和数据库
      */
     @Override
     public void accept(Object placement) {
@@ -75,13 +80,20 @@ public class SchematicUploadListener implements Consumer<Object> {
             Object id = placementClass.getMethod("getId").invoke(placement);
             String schematicId = id.toString();
 
-            if (queryService.schematicExists(schematicId)) {
+            // 反射检查 placement 是否仍在 SyncmaticManager 中
+            // removePlacement() 先从 Map 移除，再通知 Consumer
+            // 所以此时如果 getPlacement() 返回 null，说明是删除事件
+            Object existing = syncManager.getClass()
+                .getMethod("getPlacement", java.util.UUID.class)
+                .invoke(syncManager, id);
+
+            if (existing == null) {
                 SyncMaterial.LOGGER.info("检测到原理图删除: {}", schematicId);
                 onSchematicRemoved(schematicId);
                 return;
             }
 
-            SyncMaterial.LOGGER.info("SchematicUploadListener.accept() 被调用，placement: {}", placement);
+            SyncMaterial.LOGGER.info("检测到原理图新增/更新: {}", schematicId);
             onSchematicUploaded(placement);
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("处理placement事件失败", e);
