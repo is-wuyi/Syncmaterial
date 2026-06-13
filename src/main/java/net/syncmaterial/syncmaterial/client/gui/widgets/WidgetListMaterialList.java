@@ -11,6 +11,9 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
 
+import fi.dy.masa.malilib.gui.LeftRight;
+import fi.dy.masa.malilib.gui.interfaces.IGuiIcon;
+import fi.dy.masa.malilib.gui.widgets.WidgetSearchBar;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListSorter;
@@ -32,6 +35,18 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
         this.gui = parent;
         this.sorter = new MaterialListSorter(parent.getMaterialList());
         this.shouldSortList = true;
+
+        // 搜索栏：无图标模式
+        IGuiIcon dummyIcon = new IGuiIcon() {
+            public int getWidth() { return 0; }
+            public int getHeight() { return 0; }
+            public int getU() { return 0; }
+            public int getV() { return 0; }
+            public void renderAt(DrawContext ctx, int ix, int iy, float z, boolean en, boolean sel) {}
+            public Identifier getTexture() { return Identifier.of("minecraft", "textures/gui/widgets.png"); }
+        };
+        this.widgetSearchBar = new WidgetSearchBar(x + 2, y + 4, width - 14, 14, 0, dummyIcon, LeftRight.LEFT);
+        this.browserEntriesOffsetY = this.widgetSearchBar.getHeight() + 3;
     }
 
     public GuiMaterialList getGui() {

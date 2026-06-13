@@ -116,7 +116,7 @@ public class SyncMaterial implements ModInitializer {
             net.syncmaterial.syncmaterial.network.ModNetworkHandler.unsubscribeAllMaterialList(handler.player);
         });
 
-        // 4. 注册服务器关闭事件，释放资源
+        // 5. 注册服务器关闭事件，释放资源
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             LOGGER.info("SyncMaterial 服务端组件正在关闭...");
             try {
@@ -142,7 +142,7 @@ public class SyncMaterial implements ModInitializer {
             }
         });
 
-        // 4. 服务端启动完成后，监控 placements.json
+        // 6. 服务端启动完成后，监控 placements.json
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             try {
                 // 服务端根目录 (FabricLoader.getInstance().getGameDir())
