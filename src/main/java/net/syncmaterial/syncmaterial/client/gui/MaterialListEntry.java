@@ -74,7 +74,9 @@ public class MaterialListEntry
     public void setOtherPlayersCount(int otherPlayersCount) { this.otherPlayersCount = otherPlayersCount; }
 
     public boolean isCurrentPlayerClaimed() {
-        String playerName = net.minecraft.client.MinecraftClient.getInstance().player.getGameProfile().getName();
+        var player = net.minecraft.client.MinecraftClient.getInstance().player;
+        if (player == null) return false;
+        String playerName = player.getGameProfile().getName();
         for (ParticipantData p : participants) {
             if (p.playerName().equals(playerName)) return true;
         }

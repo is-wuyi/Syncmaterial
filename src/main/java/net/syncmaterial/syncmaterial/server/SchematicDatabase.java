@@ -36,6 +36,7 @@ public class SchematicDatabase implements AutoCloseable {
             // 启用WAL模式提升并发性能
             executePragma("PRAGMA journal_mode=WAL;");
             executePragma("PRAGMA synchronous=NORMAL;");
+            executePragma("PRAGMA foreign_keys=ON;");
 
             // 创建表结构
             createTables();
@@ -189,7 +190,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 执行UPDATE/INSERT/DELETE语句
      */
-    public void executeUpdate(String sql, Object... params) throws SQLException {
+    public synchronized void executeUpdate(String sql, Object... params) throws SQLException {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             setParameters(stmt, params);
             stmt.executeUpdate();
@@ -199,14 +200,14 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 开始事务
      */
-    public void beginTransaction() throws SQLException {
+    public synchronized void beginTransaction() throws SQLException {
         connection.setAutoCommit(false);
     }
 
     /**
      * 提交事务
      */
-    public void commitTransaction() throws SQLException {
+    public synchronized void commitTransaction() throws SQLException {
         connection.commit();
         connection.setAutoCommit(true);
     }
@@ -214,7 +215,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 回滚事务
      */
-    public void rollbackTransaction() throws SQLException {
+    public synchronized void rollbackTransaction() throws SQLException {
         try {
             connection.rollback();
         } finally {
@@ -225,7 +226,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 执行PRAGMA语句（可能返回结果）
      */
-    public void executePragma(String sql) throws SQLException {
+    public synchronized void executePragma(String sql) throws SQLException {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             boolean hasResultSet = stmt.execute();
             if (hasResultSet) {
@@ -244,7 +245,7 @@ public class SchematicDatabase implements AutoCloseable {
      * 执行查询并返回结果。
      * 返回的 QueryResult 实现 AutoCloseable，关闭时同时释放 ResultSet 和 PreparedStatement。
      */
-    public QueryResult executeQuery(String sql, Object... params) throws SQLException {
+    public synchronized QueryResult executeQuery(String sql, Object... params) throws SQLException {
         PreparedStatement stmt = connection.prepareStatement(sql);
         setParameters(stmt, params);
         try {
@@ -295,7 +296,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 执行查询并使用Consumer处理结果（自动管理资源）
      */
-    public void executeQueryAndProcess(String sql, ResultSetConsumer consumer, Object... params) throws SQLException {
+    public synchronized void executeQueryAndProcess(String sql, ResultSetConsumer consumer, Object... params) throws SQLException {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             setParameters(stmt, params);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -321,7 +322,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 加载指定原理图的所有玩家背包数据
      */
-    public Map<String, Map<Integer, Integer>> loadPlayerInventories(String schematicId) throws SQLException {
+    public synchronized Map<String, Map<Integer, Integer>> loadPlayerInventories(String schematicId) throws SQLException {
         Map<String, Map<Integer, Integer>> result = new java.util.HashMap<>();
         try (var rs = executeQuery(
             "SELECT player_name, material_id, count FROM player_inventories WHERE schematic_id = ?",
@@ -340,7 +341,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 插入或更新玩家背包数据
      */
-    public void upsertPlayerInventory(String schematicId, String playerName, int materialId, int count) throws SQLException {
+    public synchronized void upsertPlayerInventory(String schematicId, String playerName, int materialId, int count) throws SQLException {
         executeUpdate(
             "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) VALUES (?, ?, ?, ?) " +
             "ON CONFLICT(schematic_id, player_name, material_id) DO UPDATE SET count = ?, updated_at = (strftime('%s', 'now') * 1000)",
@@ -353,7 +354,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 获取主负责人名称
      */
-    public String getUploadedBy(String schematicId) throws SQLException {
+    public synchronized String getUploadedBy(String schematicId) throws SQLException {
         try (var rs = executeQuery(
             "SELECT uploaded_by FROM schematics WHERE id = ?",
             schematicId
@@ -369,7 +370,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 检查是否是主负责人
      */
-    public boolean isMainOwner(String schematicId, String playerName) throws SQLException {
+    public synchronized boolean isMainOwner(String schematicId, String playerName) throws SQLException {
         try (var rs = executeQuery(
             "SELECT 1 FROM schematics WHERE id = ? AND uploaded_by = ?",
             schematicId, playerName
@@ -381,7 +382,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 检查是否是负责人（主负责人或副负责人）
      */
-    public boolean isOwner(String schematicId, String playerName) throws SQLException {
+    public synchronized boolean isOwner(String schematicId, String playerName) throws SQLException {
         if (isMainOwner(schematicId, playerName)) return true;
         return isDeputyOwner(schematicId, playerName);
     }
@@ -389,7 +390,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 添加副负责人
      */
-    public void addDeputyOwner(String schematicId, String playerName) throws SQLException {
+    public synchronized void addDeputyOwner(String schematicId, String playerName) throws SQLException {
         executeUpdate(
             "INSERT OR IGNORE INTO deputy_owners (schematic_id, player_name) VALUES (?, ?)",
             schematicId, playerName
@@ -399,7 +400,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 移除副负责人
      */
-    public void removeDeputyOwner(String schematicId, String playerName) throws SQLException {
+    public synchronized void removeDeputyOwner(String schematicId, String playerName) throws SQLException {
         executeUpdate(
             "DELETE FROM deputy_owners WHERE schematic_id = ? AND player_name = ?",
             schematicId, playerName
@@ -409,7 +410,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 检查是否是副负责人
      */
-    public boolean isDeputyOwner(String schematicId, String playerName) throws SQLException {
+    public synchronized boolean isDeputyOwner(String schematicId, String playerName) throws SQLException {
         try (var rs = executeQuery(
             "SELECT 1 FROM deputy_owners WHERE schematic_id = ? AND player_name = ?",
             schematicId, playerName
@@ -421,7 +422,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 获取所有副负责人
      */
-    public java.util.List<String> getDeputyOwners(String schematicId) throws SQLException {
+    public synchronized java.util.List<String> getDeputyOwners(String schematicId) throws SQLException {
         java.util.List<String> result = new java.util.ArrayList<>();
         executeQueryAndProcess(
             "SELECT player_name FROM deputy_owners WHERE schematic_id = ?",
@@ -438,7 +439,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 转让主负责人
      */
-    public void transferOwnership(String schematicId, String newOwnerName) throws SQLException {
+    public synchronized void transferOwnership(String schematicId, String newOwnerName) throws SQLException {
         executeUpdate(
             "UPDATE schematics SET uploaded_by = ? WHERE id = ?",
             newOwnerName, schematicId
@@ -448,7 +449,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 设置自行认领开关
      */
-    public void setAllowSelfClaim(String schematicId, boolean allow) throws SQLException {
+    public synchronized void setAllowSelfClaim(String schematicId, boolean allow) throws SQLException {
         executeUpdate(
             "UPDATE schematics SET allow_self_claim = ? WHERE id = ?",
             allow ? 1 : 0, schematicId
@@ -458,7 +459,7 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 获取自行认领开关状态
      */
-    public boolean getAllowSelfClaim(String schematicId) throws SQLException {
+    public synchronized boolean getAllowSelfClaim(String schematicId) throws SQLException {
         try (var rs = executeQuery(
             "SELECT allow_self_claim FROM schematics WHERE id = ?",
             schematicId
