@@ -14,7 +14,7 @@ import java.nio.file.Path;
 
 public class Configs implements IConfigHandler {
     private static final String CONFIG_FILE_NAME = SyncMaterial.MOD_ID + ".json";
-    private static final String PREFIX = "syncmaterial.config.";
+    private static final String PREFIX = "syncmaterial.config";
 
     // Tab 1: 通用
     public static class Generic {
