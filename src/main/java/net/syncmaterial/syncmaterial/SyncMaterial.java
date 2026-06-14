@@ -161,6 +161,28 @@ public class SyncMaterial implements ModInitializer {
                 watcher.start();
 
                 LOGGER.info("原理图监控已启动 (placements: {}, files: {})", syncamaticaFolder, syncmaticsRootFolder);
+
+                // 延迟 5 秒后全量扫描所有备货区，确保 watcher 已完成初始解析
+                server.execute(() -> {
+                    // 延迟到下一个 tick 再用 scheduledExecutor
+                    java.util.concurrent.CompletableFuture.runAsync(() -> {
+                        try { Thread.sleep(5000); } catch (InterruptedException e) { return; }
+                        server.execute(() -> {
+                            if (sharedStagingAreaManager != null) {
+                                int count = 0;
+                                for (var entry : SchematicFolderWatcher.placementNames.entrySet()) {
+                                    String schematicId = entry.getKey();
+                                    var areas = sharedStagingAreaManager.getStagingAreas(schematicId);
+                                    for (var area : areas) {
+                                        sharedStagingAreaManager.rescanStagingArea(area.id());
+                                        count++;
+                                    }
+                                }
+                                LOGGER.info("启动时全量扫描完成: {} 个备货区", count);
+                            }
+                        });
+                    });
+                });
             } catch (Exception e) {
                 LOGGER.error("启动原理图监控失败", e);
             }
