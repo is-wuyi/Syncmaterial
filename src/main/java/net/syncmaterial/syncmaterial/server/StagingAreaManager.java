@@ -10,7 +10,6 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 
 import java.sql.SQLException;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 
@@ -178,20 +177,15 @@ public class StagingAreaManager {
         SyncMaterial.LOGGER.info("[StagingArea] dirtyAreaIds: {}", dirtyAreaIds);
 
         if (!dirtyAreaIds.isEmpty() && server != null) {
-            // 异步扫描备货区内容（纯读取，不修改世界状态）
-            CompletableFuture.runAsync(() -> {
+            server.execute(() -> {
                 for (int areaId : dirtyAreaIds) {
                     Map<String, Integer> result = scanAreaContents(areaId);
                     if (result != null) {
-                        // 写库和广播回到主线程
-                        int finalAreaId = areaId;
-                        server.execute(() -> {
-                            updateStagingAreaInventory(finalAreaId, result);
-                            String schematicId = findSchematicIdByAreaId(finalAreaId);
-                            if (schematicId != null) {
-                                net.syncmaterial.syncmaterial.network.ModNetworkHandler.broadcastAllMaterialStatus(server, schematicId);
-                            }
-                        });
+                        updateStagingAreaInventory(areaId, result);
+                        String schematicId = findSchematicIdByAreaId(areaId);
+                        if (schematicId != null) {
+                            net.syncmaterial.syncmaterial.network.ModNetworkHandler.broadcastAllMaterialStatus(server, schematicId);
+                        }
                     }
                 }
             });
@@ -470,11 +464,6 @@ public class StagingAreaManager {
             SyncMaterial.LOGGER.warn("获取原理图名称失败: {}", schematicId);
         }
         return "";
-    }
-
-    private void broadcastMaterialChanges(Map<String, Map<String, Integer>> materialChanges) {
-        // This will be called from CollaborationManager to broadcast updates
-        // The actual broadcasting logic is in CollaborationManager
     }
 
     public record StagingArea(int id, String world, String name, int x1, int y1, int z1, int x2, int y2, int z2) {}
