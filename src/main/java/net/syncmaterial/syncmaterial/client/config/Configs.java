@@ -19,7 +19,7 @@ public class Configs implements IConfigHandler {
     // Tab 1: 通用
     public static class Generic {
         public static final ConfigBooleanHotkeyed HUD_ENABLED =
-                new ConfigBooleanHotkeyed("hudEnabled", true, "", PREFIX + "hudEnabled");
+                new ConfigBooleanHotkeyed("hudEnabled", true, "").apply(PREFIX);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 HUD_ENABLED
@@ -29,7 +29,7 @@ public class Configs implements IConfigHandler {
     // Tab 2: HUD 样式
     public static class Hud {
         public static final ConfigOptionList HUD_ALIGNMENT =
-                new ConfigOptionList("hudAlignment", HudAlignmentOption.TOP_LEFT, PREFIX + "hudAlignment");
+                new ConfigOptionList("hudAlignment", HudAlignmentOption.TOP_LEFT).apply(PREFIX);
         public static final ConfigInteger HUD_X_OFFSET =
                 new ConfigInteger("hudXOffset", 10, 0, 500).apply(PREFIX);
         public static final ConfigInteger HUD_Y_OFFSET =
@@ -39,9 +39,9 @@ public class Configs implements IConfigHandler {
         public static final ConfigInteger HUD_MAX_LINES =
                 new ConfigInteger("hudMaxLines", 20, 1, 50).apply(PREFIX);
         public static final ConfigColor HUD_BG_COLOR =
-                new ConfigColor("hudBgColor", "#A0000000", PREFIX + "hudBgColor");
+                new ConfigColor("hudBgColor", "#A0000000").apply(PREFIX);
         public static final ConfigColor HUD_TEXT_COLOR =
-                new ConfigColor("hudTextColor", "#FFFFFFFF", PREFIX + "hudTextColor");
+                new ConfigColor("hudTextColor", "#FFFFFFFF").apply(PREFIX);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 HUD_ALIGNMENT, HUD_X_OFFSET, HUD_Y_OFFSET, HUD_SCALE,
@@ -52,15 +52,15 @@ public class Configs implements IConfigHandler {
     // Tab 3: 线框渲染
     public static class Render {
         public static final ConfigColor AREA_LINE_COLOR =
-                new ConfigColor("areaLineColor", "#FF00FF00", PREFIX + "areaLineColor");
+                new ConfigColor("areaLineColor", "#FF00FF00").apply(PREFIX);
         public static final ConfigColor AREA_SIDE_COLOR =
-                new ConfigColor("areaSideColor", "#2E00FF00", PREFIX + "areaSideColor");
+                new ConfigColor("areaSideColor", "#2E00FF00").apply(PREFIX);
         public static final ConfigColor AREA_HIGHLIGHT_LINE_COLOR =
-                new ConfigColor("areaHighlightLineColor", "#FFFFAA00", PREFIX + "areaHighlightLineColor");
+                new ConfigColor("areaHighlightLineColor", "#FFFFAA00").apply(PREFIX);
         public static final ConfigDouble AREA_LINE_WIDTH =
                 new ConfigDouble("areaLineWidth", 2.0, 1.0, 5.0).apply(PREFIX);
         public static final ConfigBoolean LABEL_ENABLED =
-                new ConfigBoolean("labelEnabled", true, PREFIX + "labelEnabled");
+                new ConfigBoolean("labelEnabled", true).apply(PREFIX);
         public static final ConfigDouble LABEL_SCALE =
                 new ConfigDouble("labelScale", 0.05, 0.02, 0.1).apply(PREFIX);
 
