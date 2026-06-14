@@ -123,8 +123,9 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             default:
         }
 
-        posY = RenderUtils.getHudPosY(posY, yOffset, contentHeight, 1.0, alignment);
-        posY += RenderUtils.getHudOffsetForPotions(alignment, 1.0, mc.player);
+        double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
+        posY = RenderUtils.getHudPosY(posY, yOffset, contentHeight, scale, alignment);
+        posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
 
         int x1 = posX - 2;
         int y1 = posY - 2;

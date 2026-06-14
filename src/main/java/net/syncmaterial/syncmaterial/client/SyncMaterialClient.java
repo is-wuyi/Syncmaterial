@@ -31,6 +31,11 @@ public class SyncMaterialClient implements ClientModInitializer {
         fi.dy.masa.malilib.config.ConfigManager.getInstance()
                 .registerConfigHandler(SyncMaterial.MOD_ID, new Configs());
 
+        // 注册热键（HUD 总开关快捷键）
+        fi.dy.masa.malilib.event.InputEventHandler.getKeybindManager()
+                .addHotkeysForCategory(SyncMaterial.MOD_ID, "syncmaterial.hotkeys",
+                        com.google.common.collect.ImmutableList.of(Configs.Generic.HUD_ENABLED));
+
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
         InventoryWatcher.register();
 
