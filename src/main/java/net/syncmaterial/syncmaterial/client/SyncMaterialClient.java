@@ -31,7 +31,16 @@ public class SyncMaterialClient implements ClientModInitializer {
         fi.dy.masa.malilib.config.ConfigManager.getInstance()
                 .registerConfigHandler(SyncMaterial.MOD_ID, new Configs());
 
-        // 注册热键（HUD 总开关快捷键）
+        // 注册热键（HUD 总开关快捷键）— 直接切换 HUD 的 shouldRender 状态
+        Configs.Generic.HUD_ENABLED.getKeybind().setCallback(new fi.dy.masa.malilib.hotkeys.IHotkeyCallback() {
+            @Override
+            public boolean onKeyAction(fi.dy.masa.malilib.hotkeys.KeyAction action, fi.dy.masa.malilib.hotkeys.IKeybind key) {
+                if (activeMaterialList != null) {
+                    activeMaterialList.getHudRenderer().toggleShouldRender();
+                }
+                return true;
+            }
+        });
         fi.dy.masa.malilib.event.InputEventHandler.getKeybindManager()
                 .addHotkeysForCategory(SyncMaterial.MOD_ID, "syncmaterial.hotkeys",
                         com.google.common.collect.ImmutableList.of(Configs.Generic.HUD_ENABLED));
@@ -40,8 +49,7 @@ public class SyncMaterialClient implements ClientModInitializer {
         InventoryWatcher.register();
 
         HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
-            if (activeMaterialList != null && Configs.Generic.HUD_ENABLED.getBooleanValue()
-                    && activeMaterialList.getHudRenderer().getShouldRender()) {
+            if (activeMaterialList != null && activeMaterialList.getHudRenderer().getShouldRender()) {
                 fi.dy.masa.malilib.config.HudAlignment alignment =
                         ((HudAlignmentOption) Configs.Hud.HUD_ALIGNMENT.getOptionListValue()).toMalilib();
                 int x = Configs.Hud.HUD_X_OFFSET.getIntegerValue();
