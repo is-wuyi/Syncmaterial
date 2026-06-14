@@ -21,7 +21,7 @@ public enum HudAlignmentOption implements IConfigOptionListEntry {
 
     @Override
     public String getDisplayName() {
-        return this.name;
+        return fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.config.name.hudAlignment." + this.name);
     }
 
     @Override
