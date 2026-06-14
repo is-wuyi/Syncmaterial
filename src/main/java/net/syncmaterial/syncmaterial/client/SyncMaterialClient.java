@@ -65,8 +65,13 @@ public class SyncMaterialClient implements ClientModInitializer {
 
     public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         LOGGER.info("收到材料清单响应，准备打开 UI。共 {} 项。isOwner={}, isMainOwner={}", materials.size(), isOwner, isMainOwner);
+        // 继承旧 HUD 的开关状态，避免每次打开界面都重置
+        boolean oldHudState = activeMaterialList != null && activeMaterialList.getHudRenderer().getShouldRender();
         GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim);
         activeMaterialList = gui.getMaterialList();
+        if (oldHudState) {
+            activeMaterialList.getHudRenderer().toggleShouldRender();
+        }
         MinecraftClient.getInstance().setScreen(gui);
     }
 
