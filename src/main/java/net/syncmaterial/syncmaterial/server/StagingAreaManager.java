@@ -132,7 +132,13 @@ public class StagingAreaManager {
     }
 
     public List<StagingArea> getStagingAreas(String schematicId) {
-        return stagingAreasBySchematic.computeIfAbsent(schematicId, this::loadStagingAreasFromDb);
+        boolean needsRebuild = !stagingAreasBySchematic.containsKey(schematicId);
+        List<StagingArea> areas = stagingAreasBySchematic.computeIfAbsent(schematicId, this::loadStagingAreasFromDb);
+        // computeIfAbsent 首次加载时不经过 refreshCache，需要重建世界索引
+        if (needsRebuild && !areas.isEmpty()) {
+            rebuildWorldIndex();
+        }
+        return areas;
     }
 
     public boolean isInAnyStagingArea(BlockPos pos, ServerWorld world) {
