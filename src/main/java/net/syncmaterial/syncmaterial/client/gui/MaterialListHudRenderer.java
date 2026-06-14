@@ -50,6 +50,10 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         return this.shouldRender;
     }
 
+    public void setShouldRender(boolean value) {
+        this.shouldRender = value;
+    }
+
     @Override
     public List<String> getText(RenderPhase phase) {
         return Collections.emptyList();
