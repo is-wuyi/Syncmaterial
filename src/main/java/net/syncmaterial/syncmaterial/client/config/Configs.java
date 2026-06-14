@@ -31,13 +31,13 @@ public class Configs implements IConfigHandler {
         public static final ConfigOptionList HUD_ALIGNMENT =
                 new ConfigOptionList("hudAlignment", HudAlignmentOption.TOP_LEFT, PREFIX + "hud_alignment");
         public static final ConfigInteger HUD_X_OFFSET =
-                new ConfigInteger("hudXOffset", 10, 0, 500, PREFIX + "hud_x_offset").apply(PREFIX);
+                new ConfigInteger("hudXOffset", 10, 0, 500, false, PREFIX + "hud_x_offset");
         public static final ConfigInteger HUD_Y_OFFSET =
-                new ConfigInteger("hudYOffset", 44, 0, 500, PREFIX + "hud_y_offset").apply(PREFIX);
+                new ConfigInteger("hudYOffset", 44, 0, 500, false, PREFIX + "hud_y_offset");
         public static final ConfigDouble HUD_SCALE =
                 new ConfigDouble("hudScale", 1.0, 0.5, 2.0, true, PREFIX + "hud_scale");
         public static final ConfigInteger HUD_MAX_LINES =
-                new ConfigInteger("hudMaxLines", 20, 1, 50, true, PREFIX + "hud_max_lines").apply(PREFIX);
+                new ConfigInteger("hudMaxLines", 20, 1, 50, true, PREFIX + "hud_max_lines");
         public static final ConfigColor HUD_BG_COLOR =
                 new ConfigColor("hudBgColor", "#A0000000", PREFIX + "hud_bg_color");
         public static final ConfigColor HUD_TEXT_COLOR =
