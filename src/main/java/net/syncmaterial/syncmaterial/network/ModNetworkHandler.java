@@ -484,13 +484,12 @@ public class ModNetworkHandler {
                     sendOwnerActionSuccess(server, player, db, schematicId, "已移除副负责人 " + targetPlayer);
                 }
                 case "TOGGLE_SELF_CLAIM" -> {
-                    boolean currentAllow = db.getAllowSelfClaim(schematicId);
                     if (!db.isOwner(schematicId, playerName)) {
-                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "没有权限", "", List.of(), currentAllow));
+                        ServerPlayNetworking.send(player, new OwnerActionResponseS2CPacket(false, "没有权限", "", List.of(), currentAllowSelfClaim));
                         return;
                     }
-                    db.setAllowSelfClaim(schematicId, !currentAllow);
-                    sendOwnerActionSuccess(server, player, db, schematicId, "自行认领已" + (!currentAllow ? "开启" : "关闭"));
+                    db.setAllowSelfClaim(schematicId, !currentAllowSelfClaim);
+                    sendOwnerActionSuccess(server, player, db, schematicId, "自行认领已" + (!currentAllowSelfClaim ? "开启" : "关闭"));
                 }
             }
         } catch (Exception e) {
