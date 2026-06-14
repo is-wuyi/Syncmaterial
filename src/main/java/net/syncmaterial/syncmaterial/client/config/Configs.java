@@ -29,11 +29,11 @@ public class Configs implements IConfigHandler {
     // Tab 2: HUD 样式
     public static class Hud {
         public static final ConfigOptionList HUD_ALIGNMENT =
-                new ConfigOptionList("hudAlignment", HudAlignmentOption.TOP_LEFT).apply(PREFIX);
+                new ConfigOptionList("hudAlignment", HudAlignmentOption.BOTTOM_RIGHT).apply(PREFIX);
         public static final ConfigInteger HUD_X_OFFSET =
-                new ConfigInteger("hudXOffset", 10, 0, 500).apply(PREFIX);
+                new ConfigInteger("hudXOffset", 1, 0, 500).apply(PREFIX);
         public static final ConfigInteger HUD_Y_OFFSET =
-                new ConfigInteger("hudYOffset", 44, 0, 500).apply(PREFIX);
+                new ConfigInteger("hudYOffset", 1, 0, 500).apply(PREFIX);
         public static final ConfigDouble HUD_SCALE =
                 new ConfigDouble("hudScale", 1.0, 0.5, 2.0).apply(PREFIX);
         public static final ConfigInteger HUD_MAX_LINES =
