@@ -124,7 +124,10 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
-        posY = RenderUtils.getHudPosY(posY, yOffset, contentHeight, scale, alignment);
+        // 底部对齐时 yOffset 需要取反（MaLiLib 的 getHudPosY 对底部是减去 yOffset）
+        int adjustedY = (alignment == HudAlignment.BOTTOM_LEFT || alignment == HudAlignment.BOTTOM_RIGHT)
+                ? -yOffset : yOffset;
+        posY = RenderUtils.getHudPosY(posY, adjustedY, contentHeight, scale, alignment);
         posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
 
         int x1 = posX - 2;
