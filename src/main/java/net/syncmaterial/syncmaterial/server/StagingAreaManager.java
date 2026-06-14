@@ -20,7 +20,8 @@ import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 public class StagingAreaManager {
     private final SchematicDatabase database;
     private final Map<String, List<StagingArea>> stagingAreasBySchematic = new ConcurrentHashMap<>();
-    private final Map<String, List<StagingArea>> stagingAreasByWorld = new ConcurrentHashMap<>();
+    // volatile 保证读线程立即看到新的 Map 引用（原子替换，无 clear/putAll 窗口期）
+    private volatile Map<String, List<StagingArea>> stagingAreasByWorld = new ConcurrentHashMap<>();
     private final Map<BlockPos, ServerWorld> dirtyContainers = new ConcurrentHashMap<>();
     private final Map<String, Set<ServerPlayerEntity>> subscribers = new ConcurrentHashMap<>();
     private MinecraftServer server;
@@ -429,14 +430,14 @@ public class StagingAreaManager {
     }
 
     private void rebuildWorldIndex() {
-        Map<String, List<StagingArea>> byWorld = new HashMap<>();
+        Map<String, List<StagingArea>> byWorld = new ConcurrentHashMap<>();
         for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
             for (StagingArea area : areas) {
                 byWorld.computeIfAbsent(area.world, k -> new ArrayList<>()).add(area);
             }
         }
-        stagingAreasByWorld.clear();
-        stagingAreasByWorld.putAll(byWorld);
+        // 原子替换引用，读线程看到的要么是旧 map 要么是新 map，不会看到空状态
+        this.stagingAreasByWorld = byWorld;
     }
 
     private String getSchematicNameFromDb(String schematicId) {

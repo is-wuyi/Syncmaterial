@@ -297,6 +297,7 @@ public class SchematicFolderWatcher {
                     if (entry.getStack().isEmpty()) {
                         continue;
                     }
+                    // 安全：注册表在游戏启动后冻结为只读，可在任意线程读取
                     String itemId = net.minecraft.registry.Registries.ITEM.getId(entry.getStack().getItem()).toString();
                     long count = entry.getCountTotal();
                     aggregatedMaterials.merge(itemId, count, Long::sum);
@@ -322,22 +323,25 @@ public class SchematicFolderWatcher {
     }
 
     /**
-     * 向所有在线客户端广播备货区移除通知
+     * 向所有在线客户端广播备货区移除通知（确保在主线程发送网络包）
      */
     private void notifyClientsStagingAreaRemoved(String schematicId) {
         if (this.server == null) {
             return;
         }
-        try {
-            var packet = new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(
-                schematicId, "", true, "", java.util.List.of());
-            for (var player : this.server.getPlayerManager().getPlayerList()) {
-                net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, packet);
+        // 在后台线程调用，必须切到主线程发送网络包
+        this.server.execute(() -> {
+            try {
+                var packet = new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(
+                    schematicId, "", true, "", java.util.List.of());
+                for (var player : this.server.getPlayerManager().getPlayerList()) {
+                    net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, packet);
+                }
+                SyncMaterial.LOGGER.info("已通知客户端清理备货区渲染: {}", schematicId);
+            } catch (Exception e) {
+                SyncMaterial.LOGGER.error("通知客户端失败: {}", schematicId, e);
             }
-            SyncMaterial.LOGGER.info("已通知客户端清理备货区渲染: {}", schematicId);
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("通知客户端失败: {}", schematicId, e);
-        }
+        });
     }
 
     public void stop() {

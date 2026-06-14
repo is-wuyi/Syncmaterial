@@ -267,6 +267,7 @@ public class DefaultLitematicaParser extends AbstractLitematicaParser {
         LOGGER.debug("处理了 {} 个 TileEntity", globalMap.size());
     }
 
+    // 安全：注册表在游戏启动后冻结为只读，可在任意线程读取
     private BlockState parseBlockStateFromNbt(NbtCompound nbt) {
         try {
             return net.minecraft.nbt.NbtHelper.toBlockState(
