@@ -85,10 +85,38 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             int textWidth = font.getWidth(hint);
             int boxWidth = textWidth + 10;
             int boxHeight = 18;
-            int x = xOffset + 2;
-            int y = yOffset + 2;
+            double scaleX = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE_X.getDoubleValue();
+            double scaleY = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE_Y.getDoubleValue();
+            net.syncmaterial.syncmaterial.client.config.HudAlignmentOption alignOpt =
+                    (net.syncmaterial.syncmaterial.client.config.HudAlignmentOption) net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_ALIGNMENT.getOptionListValue();
+            int scaledWidth = GuiUtils.getScaledWindowWidth();
+            int scaledHeight = GuiUtils.getScaledWindowHeight();
+            int x, y;
+            if (alignOpt.isLeft()) {
+                x = xOffset + 2;
+            } else if (alignOpt.isRight()) {
+                x = (int)(scaledWidth / scaleX) - boxWidth - xOffset + 2;
+            } else {
+                x = (int)((scaledWidth / scaleX) / 2) - boxWidth / 2 + xOffset;
+            }
+            if (alignOpt.isTop()) {
+                y = yOffset + 2;
+            } else if (alignOpt.isBottom()) {
+                y = (int)(scaledHeight / scaleY) - boxHeight - yOffset + 2;
+            } else {
+                y = (int)((scaledHeight / scaleY) / 2) - boxHeight / 2 + yOffset;
+            }
+            y += RenderUtils.getHudOffsetForPotions(alignment, scaleY, mc.player);
+            boolean scaled = scaleX != 1.0 || scaleY != 1.0;
+            if (scaled) {
+                drawContext.getMatrices().pushMatrix();
+                drawContext.getMatrices().scale((float) scaleX, (float) scaleY);
+            }
             fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue());
             drawContext.drawText(font, hint, x + 5, y + 4, 0xFFAAAAAA, false);
+            if (scaled) {
+                drawContext.getMatrices().popMatrix();
+            }
             return boxHeight + 4;
         }
 
@@ -113,37 +141,37 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         final int maxLineLength = maxTextLength + maxCountLength + 30;
-        double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
+        double scaleX = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE_X.getDoubleValue();
+        double scaleY = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE_Y.getDoubleValue();
         int scaledWidth = GuiUtils.getScaledWindowWidth();
         int scaledHeight = GuiUtils.getScaledWindowHeight();
-        boolean scaled = scale != 1.0;
+        boolean scaled = scaleX != 1.0 || scaleY != 1.0;
+
+        net.syncmaterial.syncmaterial.client.config.HudAlignmentOption alignOpt =
+                (net.syncmaterial.syncmaterial.client.config.HudAlignmentOption) net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_ALIGNMENT.getOptionListValue();
 
         // 参照 MaLiLib renderText：缩放后用 scaledWidth/scale 和 scaledHeight/scale 定位
         int posX, posY;
-        switch (alignment) {
-            case TOP_LEFT:
-                posX = xOffset;
-                posY = yOffset;
-                break;
-            case TOP_RIGHT:
-                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
-                posY = yOffset;
-                break;
-            case BOTTOM_LEFT:
-                posX = xOffset;
-                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
-                break;
-            case BOTTOM_RIGHT:
-            default:
-                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
-                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
-                break;
+        if (alignOpt.isLeft()) {
+            posX = xOffset;
+        } else if (alignOpt.isRight()) {
+            posX = (int)(scaledWidth / scaleX) - maxLineLength - xOffset;
+        } else {
+            posX = (int)((scaledWidth / scaleX) / 2) - maxLineLength / 2 + xOffset;
         }
-        posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
+
+        if (alignOpt.isTop()) {
+            posY = yOffset;
+        } else if (alignOpt.isBottom()) {
+            posY = (int)(scaledHeight / scaleY) - contentHeight - yOffset;
+        } else {
+            posY = (int)((scaledHeight / scaleY) / 2) - contentHeight / 2 + yOffset;
+        }
+        posY += RenderUtils.getHudOffsetForPotions(alignment, scaleY, mc.player);
 
         if (scaled) {
             drawContext.getMatrices().pushMatrix();
-            drawContext.getMatrices().scale((float) scale, (float) scale);
+            drawContext.getMatrices().scale((float) scaleX, (float) scaleY);
         }
 
         int x1 = posX - 2;

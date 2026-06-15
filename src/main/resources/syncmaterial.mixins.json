@@ -9,6 +9,7 @@
     "WidgetSyncmaticaServerPlacementEntryMixin",
     "ButtonListenerMixin",
     "MixinKeyCallbacks",
-    "MixinLitematicaMainMenu"
+    "MixinLitematicaMainMenu",
+    "MixinMouseInput"
   ]
 }

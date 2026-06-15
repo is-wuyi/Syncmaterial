@@ -138,7 +138,20 @@
   "syncmaterial.config.name.labelScale": "文字标签缩放",
   "syncmaterial.config.comment.labelScale": "备货区名称标签的缩放比例",
   "syncmaterial.config.name.top_left": "左上",
+  "syncmaterial.config.name.top_center": "上中",
   "syncmaterial.config.name.top_right": "右上",
+  "syncmaterial.config.name.center_left": "左中",
+  "syncmaterial.config.name.center": "居中",
+  "syncmaterial.config.name.center_right": "右中",
   "syncmaterial.config.name.bottom_left": "左下",
-  "syncmaterial.config.name.bottom_right": "右下"
+  "syncmaterial.config.name.bottom_center": "下中",
+  "syncmaterial.config.name.bottom_right": "右下",
+  "syncmaterial.config.name.hudEditMode": "HUD 编辑模式",
+  "syncmaterial.config.comment.hudEditMode": "切换 HUD 可视化编辑模式，支持绑定快捷键",
+  "syncmaterial.config.prettyName.hudEditMode": "HUD 编辑模式",
+  "syncmaterial.config.name.hudScaleX": "HUD 水平缩放",
+  "syncmaterial.config.comment.hudScaleX": "HUD 水平方向缩放比例",
+  "syncmaterial.config.name.hudScaleY": "HUD 垂直缩放",
+  "syncmaterial.config.comment.hudScaleY": "HUD 垂直方向缩放比例",
+  "syncmaterial.hud.edit.hint": "编辑模式：拖拽移动 / 手柄缩放 / 底部调整行数"
 }

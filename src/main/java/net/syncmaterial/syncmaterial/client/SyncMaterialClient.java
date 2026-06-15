@@ -44,10 +44,12 @@ public class SyncMaterialClient implements ClientModInitializer {
                     @Override
                     public void addKeysToMap(fi.dy.masa.malilib.hotkeys.IKeybindManager manager) {
                         manager.addKeybindToMap(Configs.Generic.HUD_ENABLED.getKeybind());
+                        manager.addKeybindToMap(Configs.Generic.HUD_EDIT_MODE.getKeybind());
                     }
                     @Override
                     public void addHotkeys(fi.dy.masa.malilib.hotkeys.IKeybindManager manager) {
                         manager.addKeybindToMap(Configs.Generic.HUD_ENABLED.getKeybind());
+                        manager.addKeybindToMap(Configs.Generic.HUD_EDIT_MODE.getKeybind());
                     }
                 });
 
@@ -65,11 +67,29 @@ public class SyncMaterialClient implements ClientModInitializer {
             }
         });
 
+        // HUD 编辑模式渲染与鼠标事件
+        net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
+            if (Configs.Generic.HUD_EDIT_MODE.getBooleanValue()) {
+                MinecraftClient mc = MinecraftClient.getInstance();
+                HudEditOverlay.getInstance().render(drawContext, mc.mouse.getX() / mc.getWindow().getScaleFactor(), mc.mouse.getY() / mc.getWindow().getScaleFactor());
+            }
+        });
+
         fi.dy.masa.malilib.event.RenderEventHandler.getInstance().registerWorldLastRenderer(
                 StagingAreaRenderer.getInstance());
 
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
             StagingAreaSelector.getInstance().onTick();
+            if (Configs.Generic.HUD_EDIT_MODE.getBooleanValue() && client.currentScreen == null) {
+                // 在游戏内无 GUI 时处理编辑模式鼠标事件
+                HudEditOverlay overlay = HudEditOverlay.getInstance();
+                double mouseX = client.mouse.getX() / client.getWindow().getScaleFactor();
+                double mouseY = client.mouse.getY() / client.getWindow().getScaleFactor();
+                while (org.lwjgl.glfw.GLFW.glfwGetMouseButton(client.getWindow().getHandle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS) {
+                    // 使用 Fabric 事件处理鼠标，这里仅做占位；实际通过 Mixin 或 InputEventHandler 处理更可靠
+                    break;
+                }
+            }
         });
 
         net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
@@ -115,5 +135,9 @@ public class SyncMaterialClient implements ClientModInitializer {
         if (activeMaterialList != null) {
             activeMaterialList.onCollaborationStatus(status);
         }
+    }
+
+    public static MaterialListBase getActiveMaterialList() {
+        return activeMaterialList;
     }
 }

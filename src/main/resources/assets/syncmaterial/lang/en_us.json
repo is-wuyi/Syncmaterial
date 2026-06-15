@@ -137,7 +137,20 @@
   "syncmaterial.config.name.labelScale": "Label Scale",
   "syncmaterial.config.comment.labelScale": "Scale factor for staging area name labels",
   "syncmaterial.config.name.top_left": "Top Left",
+  "syncmaterial.config.name.top_center": "Top Center",
   "syncmaterial.config.name.top_right": "Top Right",
+  "syncmaterial.config.name.center_left": "Center Left",
+  "syncmaterial.config.name.center": "Center",
+  "syncmaterial.config.name.center_right": "Center Right",
   "syncmaterial.config.name.bottom_left": "Bottom Left",
-  "syncmaterial.config.name.bottom_right": "Bottom Right"
+  "syncmaterial.config.name.bottom_center": "Bottom Center",
+  "syncmaterial.config.name.bottom_right": "Bottom Right",
+  "syncmaterial.config.name.hudEditMode": "HUD Edit Mode",
+  "syncmaterial.config.comment.hudEditMode": "Toggle HUD visual edit mode, supports hotkey binding",
+  "syncmaterial.config.prettyName.hudEditMode": "HUD Edit Mode",
+  "syncmaterial.config.name.hudScaleX": "HUD Scale X",
+  "syncmaterial.config.comment.hudScaleX": "Horizontal scale factor for HUD",
+  "syncmaterial.config.name.hudScaleY": "HUD Scale Y",
+  "syncmaterial.config.comment.hudScaleY": "Vertical scale factor for HUD",
+  "syncmaterial.hud.edit.hint": "Edit: drag to move / handles to resize / bottom to adjust lines"
 }
