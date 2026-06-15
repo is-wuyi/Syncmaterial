@@ -104,6 +104,7 @@
   "syncmaterial.gui.tab.hud": "HUD Style",
   "syncmaterial.gui.tab.render": "Rendering",
   "syncmaterial.config.name.hudEnabled": "HUD Toggle",
+  "syncmaterial.config.prettyName.hudEnabled": "HUD Toggle",
   "syncmaterial.config.comment.hudEnabled": "Enable or disable HUD overlay, supports hotkey binding",
   "syncmaterial.config.name.hudAlignment": "HUD Alignment",
   "syncmaterial.config.comment.hudAlignment": "HUD position on screen",
