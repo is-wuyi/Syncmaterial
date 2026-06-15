@@ -31,25 +31,14 @@ public class SyncMaterialClient implements ClientModInitializer {
         fi.dy.masa.malilib.config.ConfigManager.getInstance()
                 .registerConfigHandler(SyncMaterial.MOD_ID, new Configs());
 
-        // HUD_ENABLED 值变更时同步到 shouldRender
+        // HUD_ENABLED 值变更时同步到 shouldRender（设置 GUI 或热键触发）
         Configs.Generic.HUD_ENABLED.setValueChangeCallback(config -> {
             if (activeMaterialList != null) {
                 activeMaterialList.getHudRenderer().setShouldRender(config.getBooleanValue());
             }
         });
 
-        // 热键切换 shouldRender 并同步到 HUD_ENABLED
-        Configs.Generic.HUD_ENABLED.getKeybind().setCallback(new fi.dy.masa.malilib.hotkeys.IHotkeyCallback() {
-            @Override
-            public boolean onKeyAction(fi.dy.masa.malilib.hotkeys.KeyAction action, fi.dy.masa.malilib.hotkeys.IKeybind key) {
-                if (activeMaterialList != null) {
-                    activeMaterialList.getHudRenderer().toggleShouldRender();
-                    Configs.Generic.HUD_ENABLED.setBooleanValue(
-                            !Configs.Generic.HUD_ENABLED.getBooleanValue());
-                }
-                return true;
-            }
-        });
+        // 注册热键到 MaLiLib 输入系统（ConfigBooleanHotkeyed 自带 KeyCallbackToggleBooleanConfigWithMessage 回调）
         fi.dy.masa.malilib.event.InputEventHandler.getKeybindManager()
                 .addHotkeysForCategory(SyncMaterial.MOD_ID, "syncmaterial.hotkeys",
                         com.google.common.collect.ImmutableList.of(Configs.Generic.HUD_ENABLED));
