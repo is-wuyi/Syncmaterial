@@ -118,25 +118,25 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         int windowH = GuiUtils.getScaledWindowHeight();
         boolean scaled = scale != 1.0;
 
-        // 用未缩放的内容尺寸算屏幕位置（锚点固定不动，内容向屏幕内侧缩放）
+        // 用屏幕坐标直接算左上角，矩阵缩放后锚点自动对齐屏幕边缘
         int posX, posY;
         switch (alignment) {
             case TOP_LEFT:
-                posX = xOffset;
-                posY = yOffset;
+                posX = (int)((xOffset) / scale);
+                posY = (int)((yOffset) / scale);
                 break;
             case TOP_RIGHT:
-                posX = windowW - maxLineLength - xOffset;
-                posY = yOffset;
+                posX = (int)((windowW - xOffset) / scale) - maxLineLength;
+                posY = (int)((yOffset) / scale);
                 break;
             case BOTTOM_LEFT:
-                posX = xOffset;
-                posY = windowH - contentHeight - yOffset;
+                posX = (int)((xOffset) / scale);
+                posY = (int)((windowH - yOffset) / scale) - contentHeight;
                 break;
             case BOTTOM_RIGHT:
             default:
-                posX = windowW - maxLineLength - xOffset;
-                posY = windowH - contentHeight - yOffset;
+                posX = (int)((windowW - xOffset) / scale) - maxLineLength;
+                posY = (int)((windowH - yOffset) / scale) - contentHeight;
                 break;
         }
         posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
