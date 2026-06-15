@@ -40,12 +40,16 @@ public class Configs implements IConfigHandler {
                 new ConfigInteger("hudMaxLines", 20, 1, 50).apply(PREFIX);
         public static final ConfigColor HUD_BG_COLOR =
                 new ConfigColor("hudBgColor", "#A0000000").apply(PREFIX);
+        public static final ConfigDouble HUD_BG_OPACITY =
+                new ConfigDouble("hudBgOpacity", 1.0, 0.0, 1.0).apply(PREFIX);
         public static final ConfigColor HUD_TEXT_COLOR =
                 new ConfigColor("hudTextColor", "#FFFFFFFF").apply(PREFIX);
+        public static final ConfigDouble HUD_TEXT_OPACITY =
+                new ConfigDouble("hudTextOpacity", 1.0, 0.0, 1.0).apply(PREFIX);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 HUD_ALIGNMENT, HUD_X_OFFSET, HUD_Y_OFFSET, HUD_SCALE,
-                HUD_MAX_LINES, HUD_BG_COLOR, HUD_TEXT_COLOR
+                HUD_MAX_LINES, HUD_BG_COLOR, HUD_BG_OPACITY, HUD_TEXT_COLOR, HUD_TEXT_OPACITY
         );
     }
 

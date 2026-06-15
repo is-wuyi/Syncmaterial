@@ -87,8 +87,14 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             int boxHeight = 18;
             int x = xOffset + 2;
             int y = yOffset + 2;
-            fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue());
-            drawContext.drawText(font, hint, x + 5, y + 4, 0xFFAAAAAA, false);
+            int bgColor = applyOpacity(
+                    net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue(),
+                    net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_OPACITY.getDoubleValue());
+            int textColor = applyOpacity(
+                    0xFFAAAAAA,
+                    net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_OPACITY.getDoubleValue());
+            fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, bgColor);
+            drawContext.drawText(font, hint, x + 5, y + 4, textColor, false);
             return boxHeight + 4;
         }
 
@@ -100,8 +106,12 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         int maxCountLength = 0;
         int posX = xOffset + 2;
         int posY = yOffset + 2;
-        int bgColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue();
-        int textColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_COLOR.getIntegerValue();
+        int bgColor = applyOpacity(
+                net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue(),
+                net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_OPACITY.getDoubleValue());
+        int textColor = applyOpacity(
+                net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_COLOR.getIntegerValue(),
+                net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_OPACITY.getDoubleValue());
 
         final int size = Math.min(list.size(), maxLines);
 
@@ -173,6 +183,22 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         return contentHeight;
+    }
+
+    /**
+     * 将指定颜色（ARGB 格式整数）与一个额外的不透明度系数（0.0 ~ 1.0）相乘，
+     * 得到新的 ARGB 颜色。这样可以在不改变原始颜色的前提下动态调整透明度。
+     */
+    protected static int applyOpacity(int argb, double opacity) {
+        if (opacity >= 1.0) {
+            return argb;
+        }
+        if (opacity <= 0.0) {
+            return argb & 0x00FFFFFF;
+        }
+        int alpha = (argb >> 24) & 0xFF;
+        int newAlpha = (int) Math.round(alpha * opacity);
+        return (argb & 0x00FFFFFF) | (newAlpha << 24);
     }
 
     protected String getFormattedCountString(int count, int maxStackSize) {
