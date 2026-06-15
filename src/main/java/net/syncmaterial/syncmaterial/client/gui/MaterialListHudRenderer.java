@@ -12,6 +12,8 @@ import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.GuiUtils;
 import fi.dy.masa.malilib.util.StringUtils;
+import net.syncmaterial.syncmaterial.client.config.Configs;
+import net.syncmaterial.syncmaterial.client.config.HudAlignmentOption;
 import net.syncmaterial.syncmaterial.client.infohud.IInfoHudRenderer;
 import net.syncmaterial.syncmaterial.client.infohud.RenderPhase;
 
@@ -21,6 +23,15 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
     protected boolean shouldRender;
     protected long lastUpdateTime;
     private List<MaterialListEntry> lastRenderedList = Collections.emptyList();
+
+    // 缓存渲染后的HUD边界（屏幕坐标），供编辑器使用
+    private int cachedScreenX;
+    private int cachedScreenY;
+    private int cachedScreenWidth;
+    private int cachedScreenHeight;
+    // 缓存未缩放的内容尺寸，供编辑器计算缩放
+    private int cachedUnscaledWidth;
+    private int cachedUnscaledHeight;
 
     public MaterialListHudRenderer(MaterialListBase materialList) {
         this.materialList = materialList;
@@ -59,6 +70,46 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         return Collections.emptyList();
     }
 
+    // ---- 缓存边界访问器 ----
+
+    public int getCachedScreenX() { return cachedScreenX; }
+    public int getCachedScreenY() { return cachedScreenY; }
+    public int getCachedScreenWidth() { return cachedScreenWidth; }
+    public int getCachedScreenHeight() { return cachedScreenHeight; }
+    public int getCachedUnscaledWidth() { return cachedUnscaledWidth; }
+    public int getCachedUnscaledHeight() { return cachedUnscaledHeight; }
+
+    /**
+     * 根据对齐方式、偏移和缩放计算HUD在屏幕上的位置（未缩放坐标系）
+     */
+    public static int[] computePosition(HudAlignmentOption alignment, int xOffset, int yOffset,
+                                         double scaleX, double scaleY,
+                                         int unscaledWidth, int unscaledHeight) {
+        int scaledWidth = GuiUtils.getScaledWindowWidth();
+        int scaledHeight = GuiUtils.getScaledWindowHeight();
+        int posX, posY;
+
+        if (alignment.isLeft()) {
+            posX = xOffset;
+        } else if (alignment.isCenterHorizontal()) {
+            posX = (int)((scaledWidth / scaleX - unscaledWidth) / 2.0) + xOffset;
+        } else {
+            posX = (int)(scaledWidth / scaleX) - unscaledWidth - xOffset;
+        }
+
+        if (alignment.isTop()) {
+            posY = yOffset;
+        } else if (alignment.isCenterVertical()) {
+            posY = (int)((scaledHeight / scaleY - unscaledHeight) / 2.0) + yOffset;
+        } else {
+            posY = (int)(scaledHeight / scaleY) - unscaledHeight - yOffset;
+        }
+
+        posY += RenderUtils.getHudOffsetForPotions(alignment.toMalilib(), Math.min(scaleX, scaleY), MinecraftClient.getInstance().player);
+
+        return new int[]{posX, posY};
+    }
+
     @Override
     public int render(DrawContext drawContext, int xOffset, int yOffset, HudAlignment alignment) {
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -68,7 +119,6 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
 
         if (currentTime - this.lastUpdateTime > 2000) {
             list = this.materialList.getMaterialsMissingOnly(true);
-            // 仅显示当前玩家已认领且还有缺失的材料
             list = list.stream()
                 .filter(e -> e.getCountMissing() > 0 && e.isCurrentPlayerClaimed())
                 .collect(java.util.stream.Collectors.toList());
@@ -79,27 +129,51 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             list = this.lastRenderedList;
         }
 
+        HudAlignmentOption alignmentOption = (HudAlignmentOption) Configs.Hud.HUD_ALIGNMENT.getOptionListValue();
+        double scaleX = Configs.Hud.HUD_SCALE_X.getDoubleValue();
+        double scaleY = Configs.Hud.HUD_SCALE_Y.getDoubleValue();
+
         if (list.size() == 0) {
             TextRenderer font = mc.textRenderer;
-            String hint = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.hint.claim_materials");
+            String hint = StringUtils.translate("syncmaterial.gui.hint.claim_materials");
             int textWidth = font.getWidth(hint);
             int boxWidth = textWidth + 10;
             int boxHeight = 18;
-            int x = xOffset + 2;
-            int y = yOffset + 2;
-            fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue());
+            int[] pos = computePosition(alignmentOption, xOffset, yOffset, scaleX, scaleY, boxWidth, boxHeight);
+            int x = pos[0] + 2;
+            int y = pos[1] + 2;
+
+            boolean scaled = scaleX != 1.0 || scaleY != 1.0;
+            if (scaled) {
+                drawContext.getMatrices().pushMatrix();
+                drawContext.getMatrices().scale((float) scaleX, (float) scaleY);
+            }
+
+            fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, Configs.Hud.HUD_BG_COLOR.getIntegerValue());
             drawContext.drawText(font, hint, x + 5, y + 4, 0xFFAAAAAA, false);
+
+            if (scaled) {
+                drawContext.getMatrices().popMatrix();
+            }
+
+            // 缓存边界
+            cachedUnscaledWidth = boxWidth;
+            cachedUnscaledHeight = boxHeight;
+            cachedScreenX = (int)(x * scaleX);
+            cachedScreenY = (int)(y * scaleY);
+            cachedScreenWidth = (int)(boxWidth * scaleX);
+            cachedScreenHeight = (int)(boxHeight * scaleY);
             return boxHeight + 4;
         }
 
         TextRenderer font = mc.textRenderer;
-        int maxLines = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_MAX_LINES.getIntegerValue();
+        int maxLines = Configs.Hud.HUD_MAX_LINES.getIntegerValue();
         int lineHeight = 16;
         int contentHeight = (Math.min(list.size(), maxLines) * lineHeight) + 14;
         int maxTextLength = 0;
         int maxCountLength = 0;
-        int bgColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue();
-        int textColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_COLOR.getIntegerValue();
+        int bgColor = Configs.Hud.HUD_BG_COLOR.getIntegerValue();
+        int textColor = Configs.Hud.HUD_TEXT_COLOR.getIntegerValue();
 
         final int size = Math.min(list.size(), maxLines);
 
@@ -113,37 +187,15 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         final int maxLineLength = maxTextLength + maxCountLength + 30;
-        double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
-        int scaledWidth = GuiUtils.getScaledWindowWidth();
-        int scaledHeight = GuiUtils.getScaledWindowHeight();
-        boolean scaled = scale != 1.0;
+        boolean scaled = scaleX != 1.0 || scaleY != 1.0;
 
-        // 参照 MaLiLib renderText：缩放后用 scaledWidth/scale 和 scaledHeight/scale 定位
-        int posX, posY;
-        switch (alignment) {
-            case TOP_LEFT:
-                posX = xOffset;
-                posY = yOffset;
-                break;
-            case TOP_RIGHT:
-                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
-                posY = yOffset;
-                break;
-            case BOTTOM_LEFT:
-                posX = xOffset;
-                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
-                break;
-            case BOTTOM_RIGHT:
-            default:
-                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
-                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
-                break;
-        }
-        posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
+        int[] pos = computePosition(alignmentOption, xOffset, yOffset, scaleX, scaleY, maxLineLength, contentHeight);
+        int posX = pos[0];
+        int posY = pos[1];
 
         if (scaled) {
             drawContext.getMatrices().pushMatrix();
-            drawContext.getMatrices().scale((float) scale, (float) scale);
+            drawContext.getMatrices().scale((float) scaleX, (float) scaleY);
         }
 
         int x1 = posX - 2;
@@ -160,7 +212,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             y += lineHeight;
         }
 
-        String title = GuiBase.TXT_BOLD + fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.title.material_list") + GuiBase.TXT_RST;
+        String title = GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.title.material_list") + GuiBase.TXT_RST;
         drawContext.drawText(font, title, posX + 2, posY + 2, textColor, false);
 
         x = posX + 18;
@@ -183,6 +235,19 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         if (scaled) {
             drawContext.getMatrices().popMatrix();
         }
+
+        // 缓存边界（屏幕坐标）
+        cachedUnscaledWidth = maxLineLength;
+        cachedUnscaledHeight = contentHeight;
+        // 背景框尺寸（与 fill 绘制区域一致）
+        int bgX = posX - 2;
+        int bgY = posY - 2;
+        int bgW = maxLineLength + 4;
+        int bgH = contentHeight + 2;
+        cachedScreenX = (int)(bgX * scaleX);
+        cachedScreenY = (int)(bgY * scaleY);
+        cachedScreenWidth = (int)(bgW * scaleX);
+        cachedScreenHeight = (int)(bgH * scaleY);
 
         return contentHeight;
     }

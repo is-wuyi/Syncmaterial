@@ -20,9 +20,12 @@ public class Configs implements IConfigHandler {
     public static class Generic {
         public static final ConfigBooleanHotkeyed HUD_ENABLED =
                 new ConfigBooleanHotkeyed("hudEnabled", true, "").apply(PREFIX);
+        public static final ConfigBooleanHotkeyed HUD_EDIT_MODE =
+                new ConfigBooleanHotkeyed("hudEditMode", false, "").apply(PREFIX);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
-                HUD_ENABLED
+                HUD_ENABLED,
+                HUD_EDIT_MODE
         );
     }
 
@@ -34,8 +37,10 @@ public class Configs implements IConfigHandler {
                 new ConfigInteger("hudXOffset", 1, 0, 500).apply(PREFIX);
         public static final ConfigInteger HUD_Y_OFFSET =
                 new ConfigInteger("hudYOffset", 1, 0, 500).apply(PREFIX);
-        public static final ConfigDouble HUD_SCALE =
-                new ConfigDouble("hudScale", 1.0, 0.5, 2.0).apply(PREFIX);
+        public static final ConfigDouble HUD_SCALE_X =
+                new ConfigDouble("hudScaleX", 1.0, 0.3, 3.0).apply(PREFIX);
+        public static final ConfigDouble HUD_SCALE_Y =
+                new ConfigDouble("hudScaleY", 1.0, 0.3, 3.0).apply(PREFIX);
         public static final ConfigInteger HUD_MAX_LINES =
                 new ConfigInteger("hudMaxLines", 20, 1, 50).apply(PREFIX);
         public static final ConfigColor HUD_BG_COLOR =
@@ -44,7 +49,7 @@ public class Configs implements IConfigHandler {
                 new ConfigColor("hudTextColor", "#FFFFFFFF").apply(PREFIX);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
-                HUD_ALIGNMENT, HUD_X_OFFSET, HUD_Y_OFFSET, HUD_SCALE,
+                HUD_ALIGNMENT, HUD_X_OFFSET, HUD_Y_OFFSET, HUD_SCALE_X, HUD_SCALE_Y,
                 HUD_MAX_LINES, HUD_BG_COLOR, HUD_TEXT_COLOR
         );
     }
@@ -90,6 +95,19 @@ public class Configs implements IConfigHandler {
                 ConfigUtils.readConfigBase(root, "Generic", Generic.OPTIONS);
                 ConfigUtils.readConfigBase(root, "Hud", Hud.OPTIONS);
                 ConfigUtils.readConfigBase(root, "Render", Render.OPTIONS);
+
+                // 旧版兼容：如果存在旧的 hudScale 但不存在新的 hudScaleX/hudScaleY，
+                // 则将旧值同时赋给两个新参数
+                if (root.has("Hud") && root.get("Hud").isJsonObject()) {
+                    var hudObj = root.getAsJsonObject("Hud");
+                    if (hudObj.has("hudScale") && !hudObj.has("hudScaleX") && !hudObj.has("hudScaleY")) {
+                        try {
+                            double oldScale = hudObj.get("hudScale").getAsDouble();
+                            Hud.HUD_SCALE_X.setDoubleValue(oldScale);
+                            Hud.HUD_SCALE_Y.setDoubleValue(oldScale);
+                        } catch (Exception ignored) {}
+                    }
+                }
             }
         } else {
             saveToFile();
