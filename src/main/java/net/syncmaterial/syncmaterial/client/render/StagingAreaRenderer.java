@@ -27,11 +27,6 @@ public class StagingAreaRenderer implements IRenderer
 {
     private static final StagingAreaRenderer INSTANCE = new StagingAreaRenderer();
 
-    private final Color4f colorArea = new Color4f(0.0f, 1.0f, 0.0f, 1.0f);
-    private final Color4f colorSelected = new Color4f(1.0f, 0.8f, 0.0f, 1.0f);
-    private final Color4f colorSide = new Color4f(0.0f, 1.0f, 0.0f, 0.18f);
-    private final Color4f colorSelectedSide = new Color4f(1.0f, 0.8f, 0.0f, 0.18f);
-
     private final Map<String, AreaSelection> selections = new HashMap<>();
     private final Map<String, Boolean> renderEnabled = new HashMap<>();
     private final Map<String, String> schematicNames = new HashMap<>();
@@ -144,21 +139,29 @@ public class StagingAreaRenderer implements IRenderer
 
                 boolean isHighlighted = java.util.Objects.equals(entry.getKey(), this.highlightedSchematicId)
                     && java.util.Objects.equals(box.getName(), this.highlightedBoxName);
-                Color4f lineColor = isHighlighted ? this.colorSelected : this.colorArea;
-                Color4f sideColor = isHighlighted ? this.colorSelectedSide : this.colorSide;
+                Color4f lineColor = isHighlighted
+                    ? net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_HIGHLIGHT_LINE_COLOR.getColor()
+                    : net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_LINE_COLOR.getColor();
+                Color4f sideColor = isHighlighted
+                    ? net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_HIGHLIGHT_LINE_COLOR.getColor().withAlpha(0.18f)
+                    : net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_SIDE_COLOR.getColor();
+                float lineWidth = (float) net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_LINE_WIDTH.getDoubleValue();
 
-                RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, lineColor, lineColor, lineColor);
+                RenderUtils.renderAreaOutline(pos1, pos2, lineWidth, lineColor, lineColor, lineColor);
                 RenderUtils.renderAreaSides(pos1, pos2, sideColor, posMatrix);
 
                 // 标注名称：原理图名称 - 备货区名称
-                String schematicName = this.schematicNames.getOrDefault(entry.getKey(), "");
-                String label = schematicName.isEmpty()
-                    ? box.getName()
-                    : schematicName + " - " + box.getName();
-                double cx = (pos1.getX() + pos2.getX()) / 2.0 + 0.5;
-                double cy = Math.max(pos1.getY(), pos2.getY()) + 0.5;
-                double cz = (pos1.getZ() + pos2.getZ()) / 2.0 + 0.5;
-                RenderUtils.drawTextPlate(Collections.singletonList(label), cx, cy, cz, 0.05f);
+                if (net.syncmaterial.syncmaterial.client.config.Configs.Render.LABEL_ENABLED.getBooleanValue()) {
+                    String schematicName = this.schematicNames.getOrDefault(entry.getKey(), "");
+                    String label = schematicName.isEmpty()
+                        ? box.getName()
+                        : schematicName + " - " + box.getName();
+                    double cx = (pos1.getX() + pos2.getX()) / 2.0 + 0.5;
+                    double cy = Math.max(pos1.getY(), pos2.getY()) + 0.5;
+                    double cz = (pos1.getZ() + pos2.getZ()) / 2.0 + 0.5;
+                    float labelScale = (float) net.syncmaterial.syncmaterial.client.config.Configs.Render.LABEL_SCALE.getDoubleValue();
+                    RenderUtils.drawTextPlate(Collections.singletonList(label), cx, cy, cz, labelScale);
+                }
             }
         }
 

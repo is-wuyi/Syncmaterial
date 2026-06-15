@@ -6,6 +6,8 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
+import net.syncmaterial.syncmaterial.client.config.Configs;
+import net.syncmaterial.syncmaterial.client.config.HudAlignmentOption;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListHudRenderer;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
@@ -23,13 +25,23 @@ public class SyncMaterialClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         LOGGER.info("SyncMaterial Client initialized!");
+
+        // 加载配置
+        Configs.loadFromFile();
+        fi.dy.masa.malilib.config.ConfigManager.getInstance()
+                .registerConfigHandler(SyncMaterial.MOD_ID, new Configs());
+
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
         InventoryWatcher.register();
 
         HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
-            if (activeMaterialList != null && activeMaterialList.getHudRenderer().getShouldRender()) {
-                activeMaterialList.getHudRenderer().render(drawContext, 10, 44,
-                        fi.dy.masa.malilib.config.HudAlignment.TOP_LEFT);
+            if (activeMaterialList != null && Configs.Generic.HUD_ENABLED.getBooleanValue()
+                    && activeMaterialList.getHudRenderer().getShouldRender()) {
+                fi.dy.masa.malilib.config.HudAlignment alignment =
+                        ((HudAlignmentOption) Configs.Hud.HUD_ALIGNMENT.getOptionListValue()).toMalilib();
+                int x = Configs.Hud.HUD_X_OFFSET.getIntegerValue();
+                int y = Configs.Hud.HUD_Y_OFFSET.getIntegerValue();
+                activeMaterialList.getHudRenderer().render(drawContext, x, y, alignment);
             }
         });
 

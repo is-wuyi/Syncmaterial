@@ -83,21 +83,21 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             int boxHeight = 18;
             int x = xOffset + 2;
             int y = yOffset + 2;
-            fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, 0xA0000000);
+            fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue());
             drawContext.drawText(font, hint, x + 5, y + 4, 0xFFAAAAAA, false);
             return boxHeight + 4;
         }
 
         TextRenderer font = mc.textRenderer;
-        int maxLines = 20;
+        int maxLines = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_MAX_LINES.getIntegerValue();
         int lineHeight = 16;
         int contentHeight = (Math.min(list.size(), maxLines) * lineHeight) + 14;
         int maxTextLength = 0;
         int maxCountLength = 0;
         int posX = xOffset + 2;
         int posY = yOffset + 2;
-        int bgColor = 0xA0000000;
-        int textColor = 0xFFFFFFFF;
+        int bgColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue();
+        int textColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_COLOR.getIntegerValue();
 
         final int size = Math.min(list.size(), maxLines);
 
