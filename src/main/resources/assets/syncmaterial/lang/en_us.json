@@ -128,6 +128,8 @@
   "syncmaterial.config.comment.areaLineColor": "Staging area wireframe line color",
   "syncmaterial.config.name.areaSideColor": "Area Side Color",
   "syncmaterial.config.comment.areaSideColor": "Staging area semi-transparent face color",
+  "syncmaterial.config.name.areaSideAlpha": "Area Side Alpha",
+  "syncmaterial.config.comment.areaSideAlpha": "Alpha value of the staging area semi-transparent faces (0.0=fully transparent, 1.0=fully opaque)",
   "syncmaterial.config.name.areaHighlightLineColor": "Highlight Line Color",
   "syncmaterial.config.comment.areaHighlightLineColor": "Highlight color for selected staging area in editor",
   "syncmaterial.config.name.areaLineWidth": "Line Width",

@@ -142,9 +142,11 @@ public class StagingAreaRenderer implements IRenderer
                 Color4f lineColor = isHighlighted
                     ? net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_HIGHLIGHT_LINE_COLOR.getColor()
                     : net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_LINE_COLOR.getColor();
-                Color4f sideColor = isHighlighted
-                    ? net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_HIGHLIGHT_LINE_COLOR.getColor().withAlpha(0.18f)
-                    : net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_SIDE_COLOR.getColor();
+                float sideAlpha = (float) net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_SIDE_ALPHA.getDoubleValue();
+                Color4f sideColor = (isHighlighted
+                    ? net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_HIGHLIGHT_LINE_COLOR.getColor()
+                    : net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_SIDE_COLOR.getColor())
+                    .withAlpha(sideAlpha);
                 float lineWidth = (float) net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_LINE_WIDTH.getDoubleValue();
 
                 RenderUtils.renderAreaOutline(pos1, pos2, lineWidth, lineColor, lineColor, lineColor);
