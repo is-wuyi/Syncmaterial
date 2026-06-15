@@ -114,29 +114,29 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
 
         final int maxLineLength = maxTextLength + maxCountLength + 30;
         double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
-        int windowW = GuiUtils.getScaledWindowWidth();
-        int windowH = GuiUtils.getScaledWindowHeight();
+        int scaledWidth = GuiUtils.getScaledWindowWidth();
+        int scaledHeight = GuiUtils.getScaledWindowHeight();
         boolean scaled = scale != 1.0;
 
-        // 用屏幕坐标直接算左上角，矩阵缩放后锚点自动对齐屏幕边缘
+        // 参照 MaLiLib renderText：缩放后用 scaledWidth/scale 和 scaledHeight/scale 定位
         int posX, posY;
         switch (alignment) {
             case TOP_LEFT:
-                posX = (int)((xOffset) / scale);
-                posY = (int)((yOffset) / scale);
+                posX = xOffset;
+                posY = yOffset;
                 break;
             case TOP_RIGHT:
-                posX = (int)((windowW - xOffset) / scale) - maxLineLength;
-                posY = (int)((yOffset) / scale);
+                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
+                posY = yOffset;
                 break;
             case BOTTOM_LEFT:
-                posX = (int)((xOffset) / scale);
-                posY = (int)((windowH - yOffset) / scale) - contentHeight;
+                posX = xOffset;
+                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
                 break;
             case BOTTOM_RIGHT:
             default:
-                posX = (int)((windowW - xOffset) / scale) - maxLineLength;
-                posY = (int)((windowH - yOffset) / scale) - contentHeight;
+                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
+                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
                 break;
         }
         posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
