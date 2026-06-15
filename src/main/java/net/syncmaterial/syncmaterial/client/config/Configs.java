@@ -20,9 +20,11 @@ public class Configs implements IConfigHandler {
     public static class Generic {
         public static final ConfigBooleanHotkeyed HUD_ENABLED =
                 new ConfigBooleanHotkeyed("hudEnabled", true, "").apply(PREFIX);
+        public static final ConfigBooleanHotkeyed HUD_EDIT_MODE =
+                new ConfigBooleanHotkeyed("hudEditMode", false, "").apply(PREFIX);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
-                HUD_ENABLED
+                HUD_ENABLED, HUD_EDIT_MODE
         );
     }
 
@@ -36,6 +38,10 @@ public class Configs implements IConfigHandler {
                 new ConfigInteger("hudYOffset", 1, 0, 500).apply(PREFIX);
         public static final ConfigDouble HUD_SCALE =
                 new ConfigDouble("hudScale", 1.0, 0.5, 2.0).apply(PREFIX);
+        public static final ConfigDouble HUD_SCALE_X =
+                new ConfigDouble("hudScaleX", 1.0, 0.3, 3.0).apply(PREFIX);
+        public static final ConfigDouble HUD_SCALE_Y =
+                new ConfigDouble("hudScaleY", 1.0, 0.3, 3.0).apply(PREFIX);
         public static final ConfigInteger HUD_MAX_LINES =
                 new ConfigInteger("hudMaxLines", 20, 1, 50).apply(PREFIX);
         public static final ConfigColor HUD_BG_COLOR =
@@ -45,6 +51,7 @@ public class Configs implements IConfigHandler {
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 HUD_ALIGNMENT, HUD_X_OFFSET, HUD_Y_OFFSET, HUD_SCALE,
+                HUD_SCALE_X, HUD_SCALE_Y,
                 HUD_MAX_LINES, HUD_BG_COLOR, HUD_TEXT_COLOR
         );
     }
@@ -90,9 +97,24 @@ public class Configs implements IConfigHandler {
                 ConfigUtils.readConfigBase(root, "Generic", Generic.OPTIONS);
                 ConfigUtils.readConfigBase(root, "Hud", Hud.OPTIONS);
                 ConfigUtils.readConfigBase(root, "Render", Render.OPTIONS);
+                migrateOldScaleConfig(root);
             }
         } else {
             saveToFile();
+        }
+    }
+
+    private static void migrateOldScaleConfig(com.google.gson.JsonObject root) {
+        if (root.has("Hud") && root.get("Hud").isJsonObject()) {
+            var hud = root.getAsJsonObject("Hud");
+            if (hud.has("hudScale") && !hud.has("hudScaleX") && !hud.has("hudScaleY")) {
+                var old = hud.get("hudScale");
+                if (old != null && old.isJsonPrimitive() && old.getAsJsonPrimitive().isNumber()) {
+                    double v = old.getAsDouble();
+                    Hud.HUD_SCALE_X.setDoubleValue(v);
+                    Hud.HUD_SCALE_Y.setDoubleValue(v);
+                }
+            }
         }
     }
 

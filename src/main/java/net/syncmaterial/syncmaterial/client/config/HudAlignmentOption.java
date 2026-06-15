@@ -4,8 +4,13 @@ import fi.dy.masa.malilib.config.IConfigOptionListEntry;
 
 public enum HudAlignmentOption implements IConfigOptionListEntry {
     TOP_LEFT("top_left"),
+    TOP_CENTER("top_center"),
     TOP_RIGHT("top_right"),
+    CENTER_LEFT("center_left"),
+    CENTER("center"),
+    CENTER_RIGHT("center_right"),
     BOTTOM_LEFT("bottom_left"),
+    BOTTOM_CENTER("bottom_center"),
     BOTTOM_RIGHT("bottom_right");
 
     private final String name;
@@ -48,6 +53,31 @@ public enum HudAlignmentOption implements IConfigOptionListEntry {
             case TOP_RIGHT -> fi.dy.masa.malilib.config.HudAlignment.TOP_RIGHT;
             case BOTTOM_LEFT -> fi.dy.masa.malilib.config.HudAlignment.BOTTOM_LEFT;
             case BOTTOM_RIGHT -> fi.dy.masa.malilib.config.HudAlignment.BOTTOM_RIGHT;
+            default -> fi.dy.masa.malilib.config.HudAlignment.TOP_LEFT;
         };
+    }
+
+    public boolean isTop() {
+        return this == TOP_LEFT || this == TOP_CENTER || this == TOP_RIGHT;
+    }
+
+    public boolean isBottom() {
+        return this == BOTTOM_LEFT || this == BOTTOM_CENTER || this == BOTTOM_RIGHT;
+    }
+
+    public boolean isLeft() {
+        return this == TOP_LEFT || this == CENTER_LEFT || this == BOTTOM_LEFT;
+    }
+
+    public boolean isRight() {
+        return this == TOP_RIGHT || this == CENTER_RIGHT || this == BOTTOM_RIGHT;
+    }
+
+    public boolean isCenterHorizontal() {
+        return this == TOP_CENTER || this == CENTER || this == BOTTOM_CENTER;
+    }
+
+    public boolean isCenterVertical() {
+        return this == CENTER_LEFT || this == CENTER || this == CENTER_RIGHT;
     }
 }

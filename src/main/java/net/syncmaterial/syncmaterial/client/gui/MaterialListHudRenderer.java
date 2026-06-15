@@ -7,11 +7,11 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 
-import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.GuiUtils;
 import fi.dy.masa.malilib.util.StringUtils;
+import net.syncmaterial.syncmaterial.client.config.HudAlignmentOption;
 import net.syncmaterial.syncmaterial.client.infohud.IInfoHudRenderer;
 import net.syncmaterial.syncmaterial.client.infohud.RenderPhase;
 
@@ -21,6 +21,10 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
     protected boolean shouldRender;
     protected long lastUpdateTime;
     private List<MaterialListEntry> lastRenderedList = Collections.emptyList();
+
+    public List<MaterialListEntry> getLastRenderedList() {
+        return this.lastRenderedList;
+    }
 
     public MaterialListHudRenderer(MaterialListBase materialList) {
         this.materialList = materialList;
@@ -60,7 +64,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
     }
 
     @Override
-    public int render(DrawContext drawContext, int xOffset, int yOffset, HudAlignment alignment) {
+    public int render(DrawContext drawContext, int xOffset, int yOffset, fi.dy.masa.malilib.config.HudAlignment alignment) {
         MinecraftClient mc = MinecraftClient.getInstance();
         long currentTime = System.currentTimeMillis();
 
@@ -113,37 +117,37 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         final int maxLineLength = maxTextLength + maxCountLength + 30;
-        double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
+        double scaleX = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE_X.getDoubleValue();
+        double scaleY = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE_Y.getDoubleValue();
         int scaledWidth = GuiUtils.getScaledWindowWidth();
         int scaledHeight = GuiUtils.getScaledWindowHeight();
-        boolean scaled = scale != 1.0;
+        boolean scaled = scaleX != 1.0 || scaleY != 1.0;
+        HudAlignmentOption alignOpt = (HudAlignmentOption) net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_ALIGNMENT.getOptionListValue();
 
         // 参照 MaLiLib renderText：缩放后用 scaledWidth/scale 和 scaledHeight/scale 定位
         int posX, posY;
-        switch (alignment) {
-            case TOP_LEFT:
-                posX = xOffset;
-                posY = yOffset;
-                break;
-            case TOP_RIGHT:
-                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
-                posY = yOffset;
-                break;
-            case BOTTOM_LEFT:
-                posX = xOffset;
-                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
-                break;
-            case BOTTOM_RIGHT:
-            default:
-                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
-                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
-                break;
+        int unscaledW = maxLineLength + 4;
+        int unscaledH = contentHeight + 4;
+        if (alignOpt.isLeft()) {
+            posX = xOffset;
+        } else if (alignOpt.isRight()) {
+            posX = (int)(scaledWidth / scaleX) - unscaledW - xOffset;
+        } else {
+            posX = (int)((scaledWidth / scaleX) - unscaledW) / 2 + xOffset;
         }
-        posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
+
+        if (alignOpt.isTop()) {
+            posY = yOffset;
+        } else if (alignOpt.isBottom()) {
+            posY = (int)(scaledHeight / scaleY) - unscaledH - yOffset;
+        } else {
+            posY = (int)((scaledHeight / scaleY) - unscaledH) / 2 + yOffset;
+        }
+        posY += RenderUtils.getHudOffsetForPotions(alignment, scaleY, mc.player);
 
         if (scaled) {
             drawContext.getMatrices().pushMatrix();
-            drawContext.getMatrices().scale((float) scale, (float) scale);
+            drawContext.getMatrices().scale((float) scaleX, (float) scaleY);
         }
 
         int x1 = posX - 2;
