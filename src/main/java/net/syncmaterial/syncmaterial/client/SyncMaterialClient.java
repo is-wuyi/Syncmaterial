@@ -38,16 +38,25 @@ public class SyncMaterialClient implements ClientModInitializer {
             }
         });
 
-        // 注册热键到 MaLiLib 输入系统（ConfigBooleanHotkeyed 自带 KeyCallbackToggleBooleanConfigWithMessage 回调）
-        fi.dy.masa.malilib.event.InputEventHandler.getKeybindManager()
-                .addHotkeysForCategory(SyncMaterial.MOD_ID, "syncmaterial.hotkeys",
-                        com.google.common.collect.ImmutableList.of(Configs.Generic.HUD_ENABLED));
+        // 注册热键到 MaLiLib 输入系统（必须用 IKeybindProvider，addHotkeysForCategory 只做展示）
+        fi.dy.masa.malilib.event.InputEventHandler.getKeybindManager().registerKeybindProvider(
+                new fi.dy.masa.malilib.hotkeys.IKeybindProvider() {
+                    @Override
+                    public void addKeysToMap(fi.dy.masa.malilib.hotkeys.IKeybindManager manager) {
+                        manager.addKeybindToMap(Configs.Generic.HUD_ENABLED.getKeybind());
+                    }
+                    @Override
+                    public void addHotkeys(fi.dy.masa.malilib.hotkeys.IKeybindManager manager) {
+                        manager.addKeybindToMap(Configs.Generic.HUD_ENABLED.getKeybind());
+                    }
+                });
 
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
         InventoryWatcher.register();
 
         HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
-            if (activeMaterialList != null && activeMaterialList.getHudRenderer().getShouldRender()) {
+            if (activeMaterialList != null && Configs.Generic.HUD_ENABLED.getBooleanValue()
+                    && activeMaterialList.getHudRenderer().getShouldRender()) {
                 fi.dy.masa.malilib.config.HudAlignment alignment =
                         ((HudAlignmentOption) Configs.Hud.HUD_ALIGNMENT.getOptionListValue()).toMalilib();
                 int x = Configs.Hud.HUD_X_OFFSET.getIntegerValue();
