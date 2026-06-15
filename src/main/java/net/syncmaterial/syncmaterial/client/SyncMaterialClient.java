@@ -31,6 +31,26 @@ public class SyncMaterialClient implements ClientModInitializer {
         fi.dy.masa.malilib.config.ConfigManager.getInstance()
                 .registerConfigHandler(SyncMaterial.MOD_ID, new Configs());
 
+        // HUD_ENABLED 值变更时同步到 shouldRender（设置 GUI 或热键触发）
+        Configs.Generic.HUD_ENABLED.setValueChangeCallback(config -> {
+            if (activeMaterialList != null) {
+                activeMaterialList.getHudRenderer().setShouldRender(config.getBooleanValue());
+            }
+        });
+
+        // 注册热键到 MaLiLib 输入系统（必须用 IKeybindProvider，addHotkeysForCategory 只做展示）
+        fi.dy.masa.malilib.event.InputEventHandler.getKeybindManager().registerKeybindProvider(
+                new fi.dy.masa.malilib.hotkeys.IKeybindProvider() {
+                    @Override
+                    public void addKeysToMap(fi.dy.masa.malilib.hotkeys.IKeybindManager manager) {
+                        manager.addKeybindToMap(Configs.Generic.HUD_ENABLED.getKeybind());
+                    }
+                    @Override
+                    public void addHotkeys(fi.dy.masa.malilib.hotkeys.IKeybindManager manager) {
+                        manager.addKeybindToMap(Configs.Generic.HUD_ENABLED.getKeybind());
+                    }
+                });
+
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
         InventoryWatcher.register();
 
@@ -77,13 +97,16 @@ public class SyncMaterialClient implements ClientModInitializer {
 
     public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         LOGGER.info("收到材料清单响应，准备打开 UI。共 {} 项。isOwner={}, isMainOwner={}", materials.size(), isOwner, isMainOwner);
-        // 继承旧 HUD 的开关状态，避免每次打开界面都重置
-        boolean oldHudState = activeMaterialList != null && activeMaterialList.getHudRenderer().getShouldRender();
+        // 继承旧 HUD 状态，首次打开时使用 HUD_ENABLED 配置值
+        boolean hudState;
+        if (activeMaterialList != null) {
+            hudState = activeMaterialList.getHudRenderer().getShouldRender();
+        } else {
+            hudState = Configs.Generic.HUD_ENABLED.getBooleanValue();
+        }
         GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim);
         activeMaterialList = gui.getMaterialList();
-        if (oldHudState) {
-            activeMaterialList.getHudRenderer().toggleShouldRender();
-        }
+        activeMaterialList.getHudRenderer().setShouldRender(hudState);
         MinecraftClient.getInstance().setScreen(gui);
     }
 

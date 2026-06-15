@@ -50,6 +50,10 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         return this.shouldRender;
     }
 
+    public void setShouldRender(boolean value) {
+        this.shouldRender = value;
+    }
+
     @Override
     public List<String> getText(RenderPhase phase) {
         return Collections.emptyList();
@@ -123,8 +127,16 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             default:
         }
 
-        posY = RenderUtils.getHudPosY(posY, yOffset, contentHeight, 1.0, alignment);
-        posY += RenderUtils.getHudOffsetForPotions(alignment, 1.0, mc.player);
+        double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
+        int scaledHeight = GuiUtils.getScaledWindowHeight();
+
+        if (alignment == HudAlignment.BOTTOM_LEFT || alignment == HudAlignment.BOTTOM_RIGHT) {
+            // 底部对齐：yOffset 是从屏幕底部边缘向上的边距，HUD 向上生长
+            posY = scaledHeight - contentHeight - yOffset;
+        } else {
+            posY = RenderUtils.getHudPosY(posY, yOffset, contentHeight, scale, alignment);
+        }
+        posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
 
         int x1 = posX - 2;
         int y1 = posY - 2;
