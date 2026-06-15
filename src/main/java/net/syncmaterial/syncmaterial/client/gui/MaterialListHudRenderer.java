@@ -114,46 +114,37 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
 
         final int maxLineLength = maxTextLength + maxCountLength + 30;
         double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
-        int scaledContentWidth = (int) (maxLineLength * scale);
-        int scaledContentHeight = (int) (contentHeight * scale);
         int windowW = GuiUtils.getScaledWindowWidth();
         int windowH = GuiUtils.getScaledWindowHeight();
         boolean scaled = scale != 1.0;
 
-        // 先算锚点（屏幕坐标），再根据缩放后的内容尺寸反推左上角，锚点始终固定不动
+        // 用未缩放的内容尺寸算屏幕位置（锚点固定不动，内容向屏幕内侧缩放）
         int posX, posY;
-        int anchorX, anchorY;
         switch (alignment) {
             case TOP_LEFT:
-                anchorX = xOffset;
-                anchorY = yOffset;
-                posX = anchorX;
-                posY = anchorY;
+                posX = xOffset;
+                posY = yOffset;
                 break;
             case TOP_RIGHT:
-                anchorX = windowW - xOffset;
-                anchorY = yOffset;
-                posX = anchorX - scaledContentWidth;
-                posY = anchorY;
+                posX = windowW - maxLineLength - xOffset;
+                posY = yOffset;
                 break;
             case BOTTOM_LEFT:
-                anchorX = xOffset;
-                anchorY = windowH - yOffset;
-                posX = anchorX;
-                posY = anchorY - scaledContentHeight;
+                posX = xOffset;
+                posY = windowH - contentHeight - yOffset;
                 break;
             case BOTTOM_RIGHT:
             default:
-                anchorX = windowW - xOffset;
-                anchorY = windowH - yOffset;
-                posX = anchorX - scaledContentWidth;
-                posY = anchorY - scaledContentHeight;
+                posX = windowW - maxLineLength - xOffset;
+                posY = windowH - contentHeight - yOffset;
                 break;
         }
         posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
 
-        // 应用缩放到渲染上下文
+        // 缩放矩阵从 (0,0) 变换，所以将屏幕坐标除以 scale 得到缩放坐标系中的位置
         if (scaled) {
+            posX = (int) (posX / scale);
+            posY = (int) (posY / scale);
             drawContext.getMatrices().pushMatrix();
             drawContext.getMatrices().scale((float) scale, (float) scale);
         }
