@@ -56,7 +56,7 @@ public class Configs implements IConfigHandler {
         public static final ConfigColor AREA_SIDE_COLOR =
                 new ConfigColor("areaSideColor", "#2E00FF00").apply(PREFIX);
         public static final ConfigColor AREA_HIGHLIGHT_LINE_COLOR =
-                new ConfigColor("areaHighlightLineColor", "#FFFFAA00").apply(PREFIX);
+                new ConfigColor("areaHighlightLineColor", "#2EFFAA00").apply(PREFIX);
         public static final ConfigDouble AREA_LINE_WIDTH =
                 new ConfigDouble("areaLineWidth", 2.0, 1.0, 5.0).apply(PREFIX);
         public static final ConfigBoolean LABEL_ENABLED =
