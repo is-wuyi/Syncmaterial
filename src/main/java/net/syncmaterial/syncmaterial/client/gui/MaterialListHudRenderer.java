@@ -98,8 +98,6 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         int contentHeight = (Math.min(list.size(), maxLines) * lineHeight) + 14;
         int maxTextLength = 0;
         int maxCountLength = 0;
-        int posX = xOffset + 2;
-        int posY = yOffset + 2;
         int bgColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue();
         int textColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_COLOR.getIntegerValue();
 
@@ -115,26 +113,42 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         final int maxLineLength = maxTextLength + maxCountLength + 30;
-
-        switch (alignment) {
-            case TOP_RIGHT:
-            case BOTTOM_RIGHT:
-                posX = (int) ((GuiUtils.getScaledWindowWidth()) - maxLineLength - xOffset - 2);
-                break;
-            case CENTER:
-                posX = (int) ((GuiUtils.getScaledWindowWidth() / 2) - (maxLineLength / 2) - xOffset);
-                break;
-            default:
-        }
-
         double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
-        int scaledHeight = GuiUtils.getScaledWindowHeight();
+        int scaledContentWidth = (int) (maxLineLength * scale);
+        int scaledContentHeight = (int) (contentHeight * scale);
+        int windowW = GuiUtils.getScaledWindowWidth();
+        int windowH = GuiUtils.getScaledWindowHeight();
         boolean scaled = scale != 1.0;
 
-        if (alignment == HudAlignment.BOTTOM_LEFT || alignment == HudAlignment.BOTTOM_RIGHT) {
-            posY = (int) (scaledHeight / scale - contentHeight - yOffset);
-        } else {
-            posY = RenderUtils.getHudPosY(posY, yOffset, contentHeight, scale, alignment);
+        // 先算锚点（屏幕坐标），再根据缩放后的内容尺寸反推左上角，锚点始终固定不动
+        int posX, posY;
+        int anchorX, anchorY;
+        switch (alignment) {
+            case TOP_LEFT:
+                anchorX = xOffset;
+                anchorY = yOffset;
+                posX = anchorX;
+                posY = anchorY;
+                break;
+            case TOP_RIGHT:
+                anchorX = windowW - xOffset;
+                anchorY = yOffset;
+                posX = anchorX - scaledContentWidth;
+                posY = anchorY;
+                break;
+            case BOTTOM_LEFT:
+                anchorX = xOffset;
+                anchorY = windowH - yOffset;
+                posX = anchorX;
+                posY = anchorY - scaledContentHeight;
+                break;
+            case BOTTOM_RIGHT:
+            default:
+                anchorX = windowW - xOffset;
+                anchorY = windowH - yOffset;
+                posX = anchorX - scaledContentWidth;
+                posY = anchorY - scaledContentHeight;
+                break;
         }
         posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
 
