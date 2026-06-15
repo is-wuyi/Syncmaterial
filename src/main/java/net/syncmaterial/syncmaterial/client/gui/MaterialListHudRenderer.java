@@ -141,10 +141,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
         posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
 
-        // 缩放矩阵从 (0,0) 变换，所以将屏幕坐标除以 scale 得到缩放坐标系中的位置
         if (scaled) {
-            posX = (int) (posX / scale);
-            posY = (int) (posY / scale);
             drawContext.getMatrices().pushMatrix();
             drawContext.getMatrices().scale((float) scale, (float) scale);
         }
