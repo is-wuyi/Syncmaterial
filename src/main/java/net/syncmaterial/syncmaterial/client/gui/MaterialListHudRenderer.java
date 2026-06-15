@@ -98,8 +98,6 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         int contentHeight = (Math.min(list.size(), maxLines) * lineHeight) + 14;
         int maxTextLength = 0;
         int maxCountLength = 0;
-        int posX = xOffset + 2;
-        int posY = yOffset + 2;
         int bgColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue();
         int textColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_COLOR.getIntegerValue();
 
@@ -115,28 +113,38 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         final int maxLineLength = maxTextLength + maxCountLength + 30;
-
-        switch (alignment) {
-            case TOP_RIGHT:
-            case BOTTOM_RIGHT:
-                posX = (int) ((GuiUtils.getScaledWindowWidth()) - maxLineLength - xOffset - 2);
-                break;
-            case CENTER:
-                posX = (int) ((GuiUtils.getScaledWindowWidth() / 2) - (maxLineLength / 2) - xOffset);
-                break;
-            default:
-        }
-
         double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
+        int scaledWidth = GuiUtils.getScaledWindowWidth();
         int scaledHeight = GuiUtils.getScaledWindowHeight();
+        boolean scaled = scale != 1.0;
 
-        if (alignment == HudAlignment.BOTTOM_LEFT || alignment == HudAlignment.BOTTOM_RIGHT) {
-            // 底部对齐：yOffset 是从屏幕底部边缘向上的边距，HUD 向上生长
-            posY = scaledHeight - contentHeight - yOffset;
-        } else {
-            posY = RenderUtils.getHudPosY(posY, yOffset, contentHeight, scale, alignment);
+        // 参照 MaLiLib renderText：缩放后用 scaledWidth/scale 和 scaledHeight/scale 定位
+        int posX, posY;
+        switch (alignment) {
+            case TOP_LEFT:
+                posX = xOffset;
+                posY = yOffset;
+                break;
+            case TOP_RIGHT:
+                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
+                posY = yOffset;
+                break;
+            case BOTTOM_LEFT:
+                posX = xOffset;
+                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
+                break;
+            case BOTTOM_RIGHT:
+            default:
+                posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
+                posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
+                break;
         }
         posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
+
+        if (scaled) {
+            drawContext.getMatrices().pushMatrix();
+            drawContext.getMatrices().scale((float) scale, (float) scale);
+        }
 
         int x1 = posX - 2;
         int y1 = posY - 2;
@@ -170,6 +178,10 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             drawContext.drawText(font, text, x, y, textColor, false);
             drawContext.drawText(font, strCount, cntPosX, y, textColor, false);
             y += lineHeight;
+        }
+
+        if (scaled) {
+            drawContext.getMatrices().popMatrix();
         }
 
         return contentHeight;
