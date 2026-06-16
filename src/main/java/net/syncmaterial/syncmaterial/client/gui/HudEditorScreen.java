@@ -676,7 +676,7 @@ public class HudEditorScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         // 编辑模式快捷键可切换退出
-        if (Configs.Generic.HUD_EDIT_MODE.getKeybind().matchesKey(keyCode, scanCode)) {
+        if (Configs.Generic.HUD_EDIT_MODE.getKeybind().matches(keyCode)) {
             this.close();
             return true;
         }

@@ -24,8 +24,7 @@ public class Configs implements IConfigHandler {
                 new ConfigBooleanHotkeyed("hudEditMode", false, "").apply(PREFIX);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
-                HUD_ENABLED,
-                HUD_EDIT_MODE
+                HUD_ENABLED
         );
     }
 
