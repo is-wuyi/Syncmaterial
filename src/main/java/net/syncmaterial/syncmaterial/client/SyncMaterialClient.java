@@ -9,6 +9,7 @@ import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.config.Configs;
 import net.syncmaterial.syncmaterial.client.config.HudAlignmentOption;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
+import net.syncmaterial.syncmaterial.client.gui.HudEditorScreen;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListHudRenderer;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
@@ -44,12 +45,34 @@ public class SyncMaterialClient implements ClientModInitializer {
                     @Override
                     public void addKeysToMap(fi.dy.masa.malilib.hotkeys.IKeybindManager manager) {
                         manager.addKeybindToMap(Configs.Generic.HUD_ENABLED.getKeybind());
+                        manager.addKeybindToMap(Configs.Generic.HUD_EDIT_MODE.getKeybind());
                     }
                     @Override
                     public void addHotkeys(fi.dy.masa.malilib.hotkeys.IKeybindManager manager) {
                         manager.addKeybindToMap(Configs.Generic.HUD_ENABLED.getKeybind());
+                        manager.addKeybindToMap(Configs.Generic.HUD_EDIT_MODE.getKeybind());
                     }
                 });
+
+        // HUD_EDIT_MODE 值变更时切换编辑屏幕
+        Configs.Generic.HUD_EDIT_MODE.setValueChangeCallback(config -> {
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (config.getBooleanValue()) {
+                // 进入编辑模式：需要 HUD 已启用且有活跃材料列表
+                if (activeMaterialList != null && Configs.Generic.HUD_ENABLED.getBooleanValue()
+                        && activeMaterialList.getHudRenderer().getShouldRender()) {
+                    mc.setScreen(new HudEditorScreen(activeMaterialList.getHudRenderer()));
+                } else {
+                    // 条件不满足，回退
+                    Configs.Generic.HUD_EDIT_MODE.setBooleanValue(false);
+                }
+            } else {
+                // 退出编辑模式
+                if (mc.currentScreen instanceof HudEditorScreen) {
+                    mc.setScreen(null);
+                }
+            }
+        });
 
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
         InventoryWatcher.register();
