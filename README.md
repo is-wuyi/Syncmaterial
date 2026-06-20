@@ -12,16 +12,29 @@
   </a>
 </p>
 
-A Minecraft Fabric mod that activates the "Material List" button in Syncmatica menu to display material requirements for server-shared schematics.
+A Minecraft Fabric mod that enhances Syncmatica with material statistics and team collaboration features for server-shared schematics.
 
 > **Note:** This project is a Vibe Coding product, developed primarily through AI-assisted programming. Unexpected bugs may occur during use. I am well aware of this and will continue to monitor code quality. Issues and PRs are welcome.
 
+## Features
+
+- **Material List** — Displays material requirements for server-shared schematics
+- **Collaboration** — Players can claim materials and track collection progress via backpack syncing
+- **Staging Areas** — Define warehouse/staging areas with automatic container inventory scanning
+- **Progress Tracking** — Per-material progress bars showing staging area + player contributions
+- **Owner System** — Main owner + deputy owners with batch assignment and kick management
+- **Crosshair Selection** — Point-and-click area selection mode (inspired by Wurst's ExcavatorHack)
+- **In-Game Rendering** — Staging area wireframes, labels, and selection highlights rendered in-world
+- **Configurable HUD** — Position, scale, colors, and hotkey support
+- **Customizable Rendering** — Line colors, side colors, label toggle — all configurable
+- **Multi-language** — 8 languages (Chinese, English, Japanese, German, Spanish, French, Korean, Russian)
+
 ## Requirements
 
-- Minecraft 1.21.7
+- Minecraft 1.21.7 ~ 1.21.8
 - Fabric Loader 0.16.13+
 - [Fabric API](https://modrinth.com/mod/fabric-api)
-- [Litematica](https://modrinth.com/mod/litematica) 0.23.5+
+- [Litematica](https://modrinth.com/mod/litematica) 0.23.6+
 - [Syncmatica](https://modrinth.com/mod/syncmatica) 0.3.15+
 
 ## Installation
@@ -44,7 +57,7 @@ This mod requires **BOTH server and client** to have the mod installed.
 ./gradlew build
 ```
 
-Output: `build/libs/Syncmaterial-1-1.21.7-0.1.0-alpha.2.jar`
+Output: `build/libs/Syncmaterial-1-<version>.jar`
 
 ## License
 
@@ -57,7 +70,6 @@ This project includes code from [Litematica](https://github.com/sakura-kyoko/lit
 - `selection/SelectionMode.java` - Selection mode enum
 - `selection/CornerSelectionMode.java` - Corner mode enum
 - `client/gui/GuiStagingAreaEditorNormal.java` - Staging area editor (normal mode)
-- `client/gui/GuiStagingAreaEditorSimple.java` - Staging area editor (simple mode)
 - `client/gui/GuiStagingAreaEditorSubRegion.java` - Staging area editor (sub-region)
 - `client/gui/widgets/WidgetListStagingAreas.java` - Staging area list widget
 - `client/gui/widgets/WidgetStagingAreaEntry.java` - Staging area entry widget

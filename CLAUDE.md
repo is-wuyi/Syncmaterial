@@ -59,6 +59,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 | C2S 包 | 用途 |
 |---|---|
 | MaterialStatsRequestC2SPacket | 请求材料清单 |
+| MaterialListCloseC2SPacket | 材料列表关闭通知 |
 | JoinCollaborationC2SPacket | 加入协作（schematicId, materialId, inventoryCounts） |
 | LeaveCollaborationC2SPacket | 退出协作 |
 | InventoryUpdateC2SPacket | 背包更新上报 |
@@ -73,6 +74,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 | S2C 包 | 用途 |
 |---|---|
 | MaterialStatsResponseS2CPacket | 材料清单响应 |
+| MaterialStatusS2CPacket | 材料状态（认领数 + 认领者） |
 | CollaborationStatusS2CPacket | 协作状态（含参与者列表） |
 | StagingAreaConfigResponseS2CPacket | 备货区配置响应（含完整区域列表） |
 | RescanStagingAreaResponseS2CPacket | 刷新结果（success + message） |
@@ -88,7 +90,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 
 ### 关键实现细节
 
-- `countMissing` = `max(0, countTotal - countAvailable)`，HUD/GUI 直接使用，不再减 `countAvailable`
+- `countMissing` = `max(0, countTotal - stagingCount - allPlayersCount)`，HUD/GUI 直接使用
 - `StagingAreaSelector` 使用 `isPressed()` 而非 `wasPressed()` 检测鼠标点击（避免被游戏输入系统消耗）
 - HUD 颜色使用 ARGB 格式（`0xFFFFFFFF` 完全不透明白色）
 - `ModNetworkHandler` 所有 C2S handler 都有输入验证
@@ -102,11 +104,14 @@ SQLite（`SchematicDatabase.java`，AutoCloseable）：
 ## 核心模块
 
 - **StagingAreaSelector** — 准星选区模式：进入后关闭 GUI，左键设 pos1（红），右键设 pos2（蓝），Enter 确认，Esc 取消，HUD 显示操作提示和准星坐标
-- **StagingAreaRenderer** — 备货区游戏内渲染（绿色/黄色线框 + 选区预览），实现 MaLiLib IRenderer 接口
-- **GuiMaterialList** — 材料清单 GUI，含刷新按钮（触发服务端重新扫描，带成功/失败提示）
-- **GuiStagingAreaEditorNormal** — 备货区编辑器，含"准星选区"按钮（带悬浮提示说明两种模式）
+- **StagingAreaRenderer** — 备货区游戏内渲染（绿色/黄色线框 + 选区预览 + 名称标注），实现 MaLiLib IRenderer 接口
+- **GuiMaterialList** — 材料清单 GUI（7 列布局 + 进度条 + 悬停详情 + 搜索 + 管理弹窗），含刷新、显示/隐藏线框、HUD 开关
+- **GuiStagingAreaEditorNormal** — 备货区编辑器，含准星选区按钮（带悬浮提示说明两种模式）
+- **GuiStagingAreaEditorSubRegion** — 子区域编辑器（坐标编辑 + 准星选角点）
 - **InventoryWatcher** — 背包监控，含潜影盒扫描，通过白名单过滤只上报相关材料
 - **CollaborationManager** — 服务端协作管理，每材料独立协作组，参与者背包计入进度
+- **StagingAreaManager** — 服务端备货区管理，脏容器延迟扫描 + 容器库存统计
+- **Configs** — 配置系统（通用/HUD/渲染三标签页），MaLiLib ConfigDouble/ConfigColor 等
 
 ## 当前开发阶段
 
