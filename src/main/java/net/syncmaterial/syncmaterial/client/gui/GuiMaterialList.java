@@ -678,7 +678,7 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
         drawContext.fill(toggleX, y + 2, toggleX + 1, y + 18, 0x40FFFFFF);
         drawContext.fill(toggleX, y + 17, toggleX + 54, y + 18, 0xFF111111);
         drawContext.fill(toggleX + 53, y + 2, toggleX + 54, y + 18, 0xFF111111);
-        drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate(allowSelfClaim ? "syncmaterial.gui.label.toggle_off" : "syncmaterial.gui.label.toggle_on"), toggleX + 27, y + 7, toggleHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
+        drawContext.drawCenteredTextWithShadow(this.textRenderer, StringUtils.translate(allowSelfClaim ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"), toggleX + 27, y + 7, toggleHovered ? 0xFFFFFFFF : CLR_TEXT_WHITE);
         y += MGMT_TOGGLE_H;
 
         // 状态消息
