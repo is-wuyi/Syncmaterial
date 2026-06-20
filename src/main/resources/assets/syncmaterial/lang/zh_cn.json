@@ -37,7 +37,7 @@
   "syncmaterial.gui.button.cancel": "取消",
   "syncmaterial.gui.button.rename": "重命名",
   "syncmaterial.gui.button.configure": "配置",
-  "syncmaterial.gui.button.shift_delete": "Shift+删除",
+  "syncmaterial.gui.button.shift_delete": "删除",
   "syncmaterial.gui.hint.hold_shift_delete": "请按住 Shift 再点击删除",
   "syncmaterial.gui.tooltip.self_claim_disabled": "自行认领已关闭，无法加入协作",
   "syncmaterial.gui.hint.claim_materials": "请先在材料清单中认领材料",
