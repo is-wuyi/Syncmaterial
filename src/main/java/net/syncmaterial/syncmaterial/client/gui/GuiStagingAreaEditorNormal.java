@@ -81,7 +81,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
     public GuiStagingAreaEditorNormal(AreaSelection selection, @Nullable String selectionId, String schematicId)
     {
-        super(8, 116);
+        super(8, 48);
 
         this.selection = selection;
         this.selectionId = selectionId;
@@ -249,19 +249,15 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
     protected void createSelectionEditFields()
     {
-        int x = 12;
-        int y = 24;
-
-        this.xOrigin = x;
-        this.xSet = x;
-        this.yNext = y + 20;
+        this.xOrigin = 12;
+        this.xSet = this.xOrigin;
+        this.yNext = 26;
     }
 
     protected int addSubRegionFields(int x, int y)
     {
-        int width = 68;
         int xSave = 10;
-        int ySave = y + 4;
+        int ySave = y;
 
         xSave += this.createButton(xSave, ySave, -1, ButtonListener.Type.CREATE_SUB_REGION) + 4;
 
@@ -271,22 +267,28 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             int selectWidth = this.getStringWidth(selectLabel) + 10;
             ButtonGeneric selectButton = new ButtonGeneric(xSave, ySave, selectWidth, 20, selectLabel, selectHover);
             this.addButton(selectButton, new ButtonListener(ButtonListener.Type.SELECT_AREA, null, null, this));
-            xSave += selectWidth + 4;
+            xSave += selectWidth + 12;
         }
 
-        x = 12;
-        y = this.getListY() - 12;
+        // 备货区数量显示在按钮右侧
         String str = String.valueOf(this.selection.getAllSubRegionNames().size());
-        this.addLabel(x, y, -1, 16, 0xFFFFFFFF, GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.label.staging_areas", str));
+        this.addLabel(xSave, ySave + 4, -1, 16, 0xFFFFFFFF,
+                GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.label.staging_areas", str));
 
-        y = this.getScreenHeight() - 26;
-
+        int yBottom = this.getScreenHeight() - 26;
         String label = GuiBase.TXT_RED + StringUtils.translate("gui.back");
         int buttonWidth = this.getStringWidth(label) + 10;
-        x = this.getScreenWidth() - buttonWidth - 10;
-        this.addButton(new ButtonGeneric(x, y, buttonWidth, 20, label), new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
+        int xClose = this.getScreenWidth() - buttonWidth - 10;
+        this.addButton(new ButtonGeneric(xClose, yBottom, buttonWidth, 20, label),
+                new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
 
-        return y;
+        return yBottom;
+    }
+
+    @Override
+    protected int getBrowserHeight()
+    {
+        return this.getScreenHeight() - 78;
     }
 
     protected void renameSubRegion()
@@ -567,12 +569,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected int getBrowserWidth()
     {
         return this.getScreenWidth() - 20;
-    }
-
-    @Override
-    protected int getBrowserHeight()
-    {
-        return this.getScreenHeight() - 146;
     }
 
     @Override

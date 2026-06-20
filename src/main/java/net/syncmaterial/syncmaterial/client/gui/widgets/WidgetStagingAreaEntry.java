@@ -90,7 +90,8 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         }
 
         // Display: "备货区名称  [x1,y1,z1]~[x2,y2,z2]"
-        String display = String.format(fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.label.area_entry_display"),
+        String display = fi.dy.masa.malilib.util.StringUtils.translate(
+                "syncmaterial.gui.label.area_entry_display",
                 this.entryData.name(),
                 this.entryData.x1(), this.entryData.y1(), this.entryData.z1(),
                 this.entryData.x2(), this.entryData.y2(), this.entryData.z2());
@@ -105,14 +106,16 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         List<String> text = new java.util.ArrayList<>();
 
         text.add(String.format("§l%s", this.entryData.name()));
-        text.add(String.format(fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.label.area_coords"),
+        text.add(fi.dy.masa.malilib.util.StringUtils.translate(
+                "syncmaterial.gui.label.area_coords",
                 this.entryData.x1(), this.entryData.y1(), this.entryData.z1(),
                 this.entryData.x2(), this.entryData.y2(), this.entryData.z2()));
 
         int sizeX = Math.abs(this.entryData.x2() - this.entryData.x1()) + 1;
         int sizeY = Math.abs(this.entryData.y2() - this.entryData.y1()) + 1;
         int sizeZ = Math.abs(this.entryData.z2() - this.entryData.z1()) + 1;
-        text.add(String.format("§7" + fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.label.size"), sizeX, sizeY, sizeZ));
+        text.add("§7" + fi.dy.masa.malilib.util.StringUtils.translate(
+                "syncmaterial.gui.label.size", sizeX, sizeY, sizeZ));
 
         int offset = 12;
         if (GuiBase.isMouseOver(mouseX, mouseY, this.x, this.y, this.buttonsStartX - offset, this.height))
