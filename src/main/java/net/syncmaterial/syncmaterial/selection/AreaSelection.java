@@ -11,48 +11,15 @@ import java.util.*;
 import javax.annotation.Nullable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
-
-import com.mojang.serialization.Codec;
-import com.mojang.serialization.codecs.PrimitiveCodec;
-import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
 
-import fi.dy.masa.malilib.gui.Message.MessageType;
-import fi.dy.masa.malilib.gui.interfaces.IMessageConsumer;
-import fi.dy.masa.malilib.util.InfoUtils;
-import fi.dy.masa.malilib.util.JsonUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
 public class AreaSelection
 {
-    public static final Codec<SubRegionBox> SUB_REGION_BOX_CODEC = RecordCodecBuilder.create(
-            inst ->
-                    inst.group(
-                            PrimitiveCodec.STRING.fieldOf("name").forGetter(get -> get.name),
-                            Box.CODEC.fieldOf("box").forGetter(get -> get.box)
-                    ).apply(inst, SubRegionBox::new)
-    );
-    public static final Codec<AreaSelection> CODEC = RecordCodecBuilder.create(
-            inst ->
-                    inst.group(
-                            PrimitiveCodec.STRING.fieldOf("name").forGetter(get -> get.name),
-                            Codec.list(SUB_REGION_BOX_CODEC).fieldOf("sub_region_boxes").forGetter(AreaSelection::boxesToList),
-                            PrimitiveCodec.BOOL.fieldOf("origin_selected").forGetter(get -> get.originSelected),
-                            BlockPos.CODEC.fieldOf("calculated_origin").forGetter(get -> get.calculatedOrigin),
-                            BlockPos.CODEC.optionalFieldOf("explicit_origin", null).forGetter(get -> get.explicitOrigin),
-                            PrimitiveCodec.STRING.optionalFieldOf("current_box", null).forGetter(get -> get.currentBox)
-                    ).apply(inst, AreaSelection::new)
-    );
-
     protected final Map<String, Box> subRegionBoxes;
     protected final Map<String, Integer> serverIdMap;
-    protected String name;
     protected boolean originSelected;
     protected BlockPos calculatedOrigin;
     protected boolean calculatedOriginDirty;
@@ -63,55 +30,9 @@ public class AreaSelection
     {
         this.subRegionBoxes = new HashMap<>();
         this.serverIdMap = new HashMap<>();
-        this.name = "Unnamed";
         this.calculatedOrigin = BlockPos.ORIGIN;
         this.calculatedOriginDirty = true;
         this.explicitOrigin = null;
-    }
-
-    private AreaSelection(String name, List<SubRegionBox> boxes, boolean originSelected, BlockPos calcOrigin, @Nullable BlockPos explicitOrigin, @Nullable String currentBox)
-    {
-        this.subRegionBoxes = new HashMap<>();
-        this.serverIdMap = new HashMap<>();
-        this.name = name;
-        this.originSelected = originSelected;
-        this.calculatedOrigin = calcOrigin;
-        this.calculatedOriginDirty = true;
-        this.explicitOrigin = explicitOrigin;
-        this.currentBox = currentBox;
-
-        for (SubRegionBox subBox : boxes)
-        {
-            this.subRegionBoxes.put(subBox.name(), subBox.box());
-        }
-    }
-
-    public record SubRegionBox(String name, Box box) {}
-
-    private List<SubRegionBox> boxesToList()
-    {
-        if (this.subRegionBoxes.isEmpty())
-        {
-            return List.of();
-        }
-
-        List<SubRegionBox> list = new ArrayList<>();
-        this.subRegionBoxes.forEach(
-                (name, box) ->
-                        list.add(new SubRegionBox(name, box))
-        );
-
-        return list;
-    }
-
-    public String getName()
-    {
-        return this.name;
-    }
-
-    public void setName(String name)
-    {
-        this.name = name;
     }
 
     public Integer getServerId(String boxName)
@@ -156,11 +77,6 @@ public class AreaSelection
         return false;
     }
 
-    public boolean isOriginSelected()
-    {
-        return this.originSelected;
-    }
-
     public void setOriginSelected(boolean selected)
     {
         this.originSelected = selected;
@@ -187,16 +103,6 @@ public class AreaSelection
 
             return this.calculatedOrigin;
         }
-    }
-
-    /**
-     * Get the explicitly defined origin point, if any.
-     * @return ()
-     */
-    @Nullable
-    public BlockPos getExplicitOrigin()
-    {
-        return this.explicitOrigin;
     }
 
     public void setExplicitOrigin(@Nullable BlockPos origin)
@@ -303,12 +209,6 @@ public class AreaSelection
         return false;
     }
 
-    public void removeAllSubRegionBoxes()
-    {
-        this.subRegionBoxes.clear();
-        this.markDirty();
-    }
-
     public boolean removeSubRegionBox(String name)
     {
         boolean success = this.subRegionBoxes.remove(name) != null;
@@ -322,20 +222,7 @@ public class AreaSelection
         return success;
     }
 
-    public boolean removeSelectedSubRegionBox()
-    {
-        boolean success = this.currentBox != null ? this.subRegionBoxes.remove(this.currentBox) != null : false;
-        this.currentBox = null;
-        this.markDirty();
-        return success;
-    }
-
     public boolean renameSubRegionBox(String oldName, String newName)
-    {
-        return this.renameSubRegionBox(oldName, newName, null);
-    }
-
-    public boolean renameSubRegionBox(String oldName, String newName, @Nullable IMessageConsumer feedback)
     {
         Box box = this.subRegionBoxes.get(oldName);
 
@@ -343,11 +230,6 @@ public class AreaSelection
         {
             if (this.subRegionBoxes.containsKey(newName))
             {
-                if (feedback != null)
-                {
-                    feedback.addMessage(MessageType.ERROR, "litematica.error.area_editor.rename_sub_region.exists", newName);
-                }
-
                 return false;
             }
 
@@ -364,66 +246,6 @@ public class AreaSelection
         }
 
         return false;
-    }
-
-    public void moveEntireSelectionTo(BlockPos newOrigin, boolean printMessage)
-    {
-        BlockPos old = this.getEffectiveOrigin();
-        BlockPos diff = newOrigin.subtract(old);
-
-        for (Box box : this.subRegionBoxes.values())
-        {
-            if (box.getPos1() != null)
-            {
-                this.setSubRegionCornerPos(box, Corner.CORNER_1, box.getPos1().add(diff));
-            }
-
-            if (box.getPos2() != null)
-            {
-                this.setSubRegionCornerPos(box, Corner.CORNER_2, box.getPos2().add(diff));
-            }
-        }
-
-        if (this.getExplicitOrigin() != null)
-        {
-            this.setExplicitOrigin(newOrigin);
-        }
-
-        if (printMessage)
-        {
-            String oldStr = String.format("x: %d, y: %d, z: %d", old.getX(), old.getY(), old.getZ());
-            String newStr = String.format("x: %d, y: %d, z: %d", newOrigin.getX(), newOrigin.getY(), newOrigin.getZ());
-            InfoUtils.showGuiOrActionBarMessage(MessageType.SUCCESS, "litematica.message.moved_selection", oldStr, newStr);
-        }
-    }
-
-    public void moveSelectedElement(Direction direction, int amount)
-    {
-        Box box = this.getSelectedSubRegionBox();
-
-        if (this.isOriginSelected())
-        {
-            if (this.getExplicitOrigin() != null)
-            {
-                this.setExplicitOrigin(this.getExplicitOrigin().offset(direction, amount));
-            }
-        }
-        else if (box != null)
-        {
-            Corner corner = box.getSelectedCorner();
-
-            if ((corner == Corner.NONE || corner == Corner.CORNER_1) && box.getPos1() != null)
-            {
-                BlockPos pos = this.getSubRegionCornerPos(box, Corner.CORNER_1).offset(direction, amount);
-                this.setSubRegionCornerPos(box, Corner.CORNER_1, pos);
-            }
-
-            if ((corner == Corner.NONE || corner == Corner.CORNER_2) && box.getPos2() != null)
-            {
-                BlockPos pos = this.getSubRegionCornerPos(box, Corner.CORNER_2).offset(direction, amount);
-                this.setSubRegionCornerPos(box, Corner.CORNER_2, pos);
-            }
-        }
     }
 
     public void setSelectedSubRegionCornerPos(BlockPos pos, Corner corner)
@@ -471,94 +293,5 @@ public class AreaSelection
     public BlockPos getSubRegionCornerPos(Box box, Corner corner)
     {
         return corner == Corner.CORNER_2 ? box.getPos2() : box.getPos1();
-    }
-
-    public AreaSelection copy()
-    {
-        return fromJson(this.toJson());
-    }
-
-    public static AreaSelection fromJson(JsonObject obj)
-    {
-        AreaSelection area = new AreaSelection();
-
-        if (JsonUtils.hasArray(obj, "boxes"))
-        {
-            JsonArray arr = obj.get("boxes").getAsJsonArray();
-            final int size = arr.size();
-
-            for (int i = 0; i < size; i++)
-            {
-                JsonElement el = arr.get(i);
-
-                if (el.isJsonObject())
-                {
-                    Box box = Box.fromJson(el.getAsJsonObject());
-
-                    if (box != null)
-                    {
-                        area.subRegionBoxes.put(box.getName(), box);
-                    }
-                }
-            }
-        }
-
-        if (JsonUtils.hasString(obj, "name"))
-        {
-            area.name = obj.get("name").getAsString();
-        }
-
-        if (JsonUtils.hasString(obj, "current"))
-        {
-            area.currentBox = obj.get("current").getAsString();
-        }
-
-        BlockPos pos = JsonUtils.blockPosFromJson(obj, "origin");
-
-        if (pos != null)
-        {
-            area.setExplicitOrigin(pos);
-        }
-        else
-        {
-            area.updateCalculatedOrigin();
-        }
-
-        return area;
-    }
-
-    public JsonObject toJson()
-    {
-        JsonObject obj = new JsonObject();
-        JsonArray arr = new JsonArray();
-
-        for (Box box : this.subRegionBoxes.values())
-        {
-            JsonObject o = box.toJson();
-
-            if (o != null)
-            {
-                arr.add(o);
-            }
-        }
-
-        obj.add("name", new JsonPrimitive(this.name));
-
-        if (arr.size() > 0)
-        {
-            if (this.currentBox != null)
-            {
-                obj.add("current", new JsonPrimitive(this.currentBox));
-            }
-
-            obj.add("boxes", arr);
-        }
-
-        if (this.getExplicitOrigin() != null)
-        {
-            obj.add("origin", JsonUtils.blockPosToJson(this.getExplicitOrigin()));
-        }
-
-        return obj;
     }
 }

@@ -96,6 +96,5 @@
   "syncmaterial.gui.error.no_selection": "Keine Auswahl",
   "syncmaterial.gui.label.corner_1": "Ecke 1",
   "syncmaterial.gui.label.corner_2": "Ecke 2",
-  "syncmaterial.gui.label.selection_name": "Name der Auswahl",
   "syncmaterial.gui.button.hover.plus_minus_tip": "Strg+Klick: ±10 | Umschalt+Klick: ±100 | Alt+Klick: ±1000"
 }

@@ -96,6 +96,5 @@
   "syncmaterial.gui.error.no_selection": "Зона не выбрана",
   "syncmaterial.gui.label.corner_1": "Угол 1",
   "syncmaterial.gui.label.corner_2": "Угол 2",
-  "syncmaterial.gui.label.selection_name": "Название выделения",
   "syncmaterial.gui.button.hover.plus_minus_tip": "Ctrl+клик: ±10 | Shift+клик: ±100 | Alt+клик: ±1000"
 }

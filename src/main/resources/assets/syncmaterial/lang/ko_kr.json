@@ -96,6 +96,5 @@
   "syncmaterial.gui.error.no_selection": "선택되지 않음",
   "syncmaterial.gui.label.corner_1": "코너 1",
   "syncmaterial.gui.label.corner_2": "코너 2",
-  "syncmaterial.gui.label.selection_name": "선택 이름",
   "syncmaterial.gui.button.hover.plus_minus_tip": "Ctrl+클릭: ±10 | Shift+클릭: ±100 | Alt+클릭: ±1000"
 }

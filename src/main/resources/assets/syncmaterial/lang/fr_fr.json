@@ -96,6 +96,5 @@
   "syncmaterial.gui.error.no_selection": "Aucune zone sélectionnée",
   "syncmaterial.gui.label.corner_1": "Coin 1",
   "syncmaterial.gui.label.corner_2": "Coin 2",
-  "syncmaterial.gui.label.selection_name": "Nom de la sélection",
   "syncmaterial.gui.button.hover.plus_minus_tip": "Ctrl+Clic : ±10 | Maj+Clic : ±100 | Alt+Clic : ±1000"
 }

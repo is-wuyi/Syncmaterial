@@ -18,7 +18,6 @@ import fi.dy.masa.malilib.gui.*;
 import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.gui.button.ButtonBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
-import fi.dy.masa.malilib.gui.button.ButtonOnOff;
 import fi.dy.masa.malilib.gui.button.IButtonActionListener;
 import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
 import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
@@ -49,7 +48,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
     protected final AreaSelection selection;
     protected final String schematicId;
-    protected GuiTextFieldGeneric textFieldSelectionName;
     protected WidgetCheckBox checkBoxCorner1;
     protected WidgetCheckBox checkBoxCorner2;
     protected int xNext;
@@ -251,28 +249,12 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
     protected void createSelectionEditFields()
     {
-        int xLeft = 12;
-        int x = xLeft - 2;
+        int x = 12;
         int y = 24;
 
         this.xOrigin = x;
-
-        x = xLeft;
-        y += 20;
-
-        this.addLabel(x, y, -1, 16, 0xFFFFFFFF, StringUtils.translate("syncmaterial.gui.label.selection_name"));
-        y += 13;
-
-        int width = 202;
-        this.textFieldSelectionName = new GuiTextFieldGeneric(x, y + 2, width, 16, this.textRenderer);
-        this.textFieldSelectionName.setTextWrapper(this.selection.getName());
-        this.addTextField(this.textFieldSelectionName, new TextFieldListenerDummy());
-        x += width + 4;
-        x += this.createButton(x, y, -1, ButtonListener.Type.SET_SELECTION_NAME) + 10;
-        y += 20;
-
         this.xSet = x;
-        this.yNext = y;
+        this.yNext = y + 20;
     }
 
     protected int addSubRegionFields(int x, int y)
@@ -385,13 +367,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         this.addTextField(textField, listener);
 
         this.createCoordinateButton(x + offset + width + 4, y, corner, coordType, type);
-    }
-
-    protected int createButtonOnOff(int x, int y, int width, boolean isCurrentlyOn, ButtonListener.Type type)
-    {
-        ButtonOnOff button = new ButtonOnOff(x, y, width, false, type.getTranslationKey(), isCurrentlyOn);
-        this.addButton(button, new ButtonListener(type, null, null, this));
-        return button.getWidth();
     }
 
     protected int createButton(int x, int y, int width, ButtonListener.Type type)
@@ -558,17 +533,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
     }
 
-    protected void renameSelection()
-    {
-        String newName = this.textFieldSelectionName.getTextWrapper();
-        this.renameSelection(newName);
-    }
-
-    protected void renameSelection(String newName)
-    {
-        this.selection.setName(newName);
-    }
-
     @Override
     protected WidgetListStagingAreas createListWidget(int listX, int listY)
     {
@@ -678,12 +642,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                     break;
                 }
 
-                case SET_SELECTION_NAME:
-                {
-                    this.parent.renameSelection();
-                    break;
-                }
-
                 case SET_BOX_NAME:
                 {
                     this.parent.renameSubRegion();
@@ -728,7 +686,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         public enum Type
         {
-            SET_SELECTION_NAME      ("litematica.gui.button.area_editor.set_selection_name"),
             SET_BOX_NAME            ("syncmaterial.gui.button.rename_staging_area"),
             CREATE_SUB_REGION       ("syncmaterial.gui.button.add_staging_area"),
             SELECT_AREA             ("syncmaterial.gui.button.select_area"),
@@ -739,17 +696,10 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             NUDGE_COORD_Z           ("");
 
             private final String translationKey;
-            @Nullable private final String hoverText;
 
             private Type(String translationKey)
             {
-                this(translationKey, null);
-            }
-
-            private Type(String translationKey, @Nullable String hoverText)
-            {
                 this.translationKey = translationKey;
-                this.hoverText = hoverText;
             }
 
             public String getTranslationKey()
