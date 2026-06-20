@@ -57,8 +57,6 @@ public class Configs implements IConfigHandler {
                 new ConfigColor("areaSideColor", "#2E00FF00").apply(PREFIX);
         public static final ConfigColor AREA_HIGHLIGHT_LINE_COLOR =
                 new ConfigColor("areaHighlightLineColor", "#2EFFAA00").apply(PREFIX);
-        public static final ConfigDouble AREA_LINE_WIDTH =
-                new ConfigDouble("areaLineWidth", 2.0, 1.0, 5.0).apply(PREFIX);
         public static final ConfigBoolean LABEL_ENABLED =
                 new ConfigBoolean("labelEnabled", true).apply(PREFIX);
         public static final ConfigDouble LABEL_SCALE =
@@ -66,7 +64,7 @@ public class Configs implements IConfigHandler {
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 AREA_LINE_COLOR, AREA_SIDE_COLOR, AREA_HIGHLIGHT_LINE_COLOR,
-                AREA_LINE_WIDTH, LABEL_ENABLED, LABEL_SCALE
+                LABEL_ENABLED, LABEL_SCALE
         );
     }
 

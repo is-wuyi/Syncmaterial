@@ -145,9 +145,7 @@ public class StagingAreaRenderer implements IRenderer
                 Color4f sideColor = isHighlighted
                     ? net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_HIGHLIGHT_LINE_COLOR.getColor()
                     : net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_SIDE_COLOR.getColor();
-                float lineWidth = (float) net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_LINE_WIDTH.getDoubleValue();
-
-                RenderUtils.renderAreaOutline(pos1, pos2, lineWidth, lineColor, lineColor, lineColor);
+                RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, lineColor, lineColor, lineColor);
                 RenderUtils.renderAreaSides(pos1, pos2, sideColor, posMatrix);
 
                 // 标注名称：原理图名称 - 备货区名称
