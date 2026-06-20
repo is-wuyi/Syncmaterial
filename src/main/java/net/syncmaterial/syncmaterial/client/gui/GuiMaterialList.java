@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import net.minecraft.client.gui.DrawContext;
-import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
@@ -402,10 +401,6 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
     @Override
     public void render(DrawContext drawContext, int mouseX, int mouseY, float partialTicks) {
         super.render(drawContext, mouseX, mouseY, partialTicks);
-
-        if (this.materialList.getHudRenderer().getShouldRender()) {
-            this.materialList.getHudRenderer().render(drawContext, 10, 44, HudAlignment.TOP_LEFT);
-        }
 
         if (isOverlayActive()) {
             renderOverlay(drawContext, mouseX, mouseY);
