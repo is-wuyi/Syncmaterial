@@ -32,7 +32,7 @@ jobs:
       - name: Detect pre-release
         id: prerelease
         run: |
-          if [[ "${{ github.ref_name }}" =~ -(alpha|beta|rc) ]]; then
+          if [[ "${{ github.ref_name }}" =~ -(alpha|rc) ]]; then
             echo "pre_release=true" >> $GITHUB_OUTPUT
           else
             echo "pre_release=false" >> $GITHUB_OUTPUT
