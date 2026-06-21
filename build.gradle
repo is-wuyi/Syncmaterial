@@ -35,6 +35,12 @@ dependencies {
 
     // SQLite 数据库驱动 - 包含在模组 jar 中
     include "org.xerial:sqlite-jdbc:3.45.1.0"
+
+    // 测试依赖
+    testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testImplementation "org.mockito:mockito-core:5.11.0"
+    testImplementation "org.xerial:sqlite-jdbc:3.45.1.0"
 }
 
 processResources {
@@ -46,6 +52,10 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
 }
 
 java {
