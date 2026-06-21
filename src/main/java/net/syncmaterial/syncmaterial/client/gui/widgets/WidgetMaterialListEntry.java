@@ -323,10 +323,23 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                 }
 
                 this.drawString(drawContext, x5, y, color, this.header5);
+                if (currentSort == MaterialListBase.SortCriteria.COUNT_OTHER) {
+                    int indicatorX = x5 + this.getStringWidth(this.header5) + 2;
+                    this.drawString(drawContext, indicatorX, y, grayColor, indicator);
+                }
+
                 this.drawString(drawContext, x6, y, color, this.header6);
+                if (currentSort == MaterialListBase.SortCriteria.COUNT_STAGING) {
+                    int indicatorX = x6 + this.getStringWidth(this.header6) + 2;
+                    this.drawString(drawContext, indicatorX, y, grayColor, indicator);
+                }
 
                 int x7 = this.getColumnPosX(6);
                 this.drawString(drawContext, x7, y, color, this.header7);
+                if (currentSort == MaterialListBase.SortCriteria.COUNT_CLAIM) {
+                    int indicatorX = x7 + this.getStringWidth(this.header7) + 2;
+                    this.drawString(drawContext, indicatorX, y, grayColor, indicator);
+                }
             }
         }
         else if (this.entry != null)
