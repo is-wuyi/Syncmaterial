@@ -58,6 +58,12 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
 
+    protected static StagingAreaConfigC2SPacket.AreaData toAreaData(String name, BlockPos pos1, BlockPos pos2) {
+        return new StagingAreaConfigC2SPacket.AreaData(name,
+            pos1.getX(), pos1.getY(), pos1.getZ(),
+            pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
+    }
+
     @Nullable
     public static GuiStagingAreaEditorNormal getCurrentEditor()
     {
@@ -143,7 +149,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 .setSchematicName(this.schematicId, packet.schematicName());
         }
 
-        SyncMaterial.LOGGER.info("[StagingArea] onServerResponse: loadingFromServer={}, areas={}", 
+        SyncMaterial.LOGGER.info("[StagingArea] onServerResponse: loadingFromServer={}, areas={}",
                 this.loadingFromServer, packet.areas().size());
         for (var a : packet.areas())
         {
@@ -474,7 +480,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
         if (serverId == null)
         {
-            SyncMaterial.LOGGER.warn("[StagingArea] sendCoordinateUpdate: serverId null for '{}' (UUID: {})", 
+            SyncMaterial.LOGGER.warn("[StagingArea] sendCoordinateUpdate: serverId null for '{}' (UUID: {})",
                     box.getName(), System.identityHashCode(this.selection));
             return;
         }
@@ -487,9 +493,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 pos1.getX(), pos1.getY(), pos1.getZ(),
                 pos2.getX(), pos2.getY(), pos2.getZ());
 
-        AreaData areaData = new AreaData(box.getName(),
-                pos1.getX(), pos1.getY(), pos1.getZ(),
-                pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
+        AreaData areaData = toAreaData(box.getName(), pos1, pos2);
         ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                 this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
     }
@@ -505,9 +509,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
             if (this.schematicId != null && !this.schematicId.isEmpty())
             {
-                AreaData areaData = new AreaData(newName,
-                        pos1.getX(), pos1.getY(), pos1.getZ(),
-                        pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
+                AreaData areaData = toAreaData(newName, pos1, pos2);
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                         this.schematicId, "ADD", -1, Optional.of(areaData)));
             }
@@ -523,9 +525,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 Integer serverId = this.selection.getServerId(boxName);
                 if (serverId != null && this.schematicId != null && !this.schematicId.isEmpty())
                 {
-                    AreaData areaData = new AreaData(boxName,
-                            pos1.getX(), pos1.getY(), pos1.getZ(),
-                            pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
+                    AreaData areaData = toAreaData(boxName, pos1, pos2);
                     ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                             this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
                 }
@@ -761,9 +761,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             {
                 BlockPos p1 = box.getPos1();
                 BlockPos p2 = box.getPos2();
-                AreaData areaData = new AreaData(string,
-                        p1.getX(), p1.getY(), p1.getZ(),
-                        p2.getX(), p2.getY(), p2.getZ(), Optional.empty());
+                AreaData areaData = toAreaData(string, p1, p2);
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                         this.gui.schematicId, "ADD", -1, Optional.of(areaData)));
             }

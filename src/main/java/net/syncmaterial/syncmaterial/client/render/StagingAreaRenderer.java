@@ -1,8 +1,8 @@
 package net.syncmaterial.syncmaterial.client.render;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 
 import org.joml.Matrix4f;
@@ -27,9 +27,9 @@ public class StagingAreaRenderer implements IRenderer
 {
     private static final StagingAreaRenderer INSTANCE = new StagingAreaRenderer();
 
-    private final Map<String, AreaSelection> selections = new HashMap<>();
-    private final Map<String, Boolean> renderEnabled = new HashMap<>();
-    private final Map<String, String> schematicNames = new HashMap<>();
+    private final Map<String, AreaSelection> selections = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> renderEnabled = new ConcurrentHashMap<>();
+    private final Map<String, String> schematicNames = new ConcurrentHashMap<>();
     // 编辑器打开时，标记当前选中的 box 名称（仅用于视觉高亮）
     @Nullable private String highlightedSchematicId;
     @Nullable private String highlightedBoxName;

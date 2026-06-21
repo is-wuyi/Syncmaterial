@@ -76,7 +76,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorNormal
         x += width + 42;
 
         y = this.getScreenHeight() - 26;
-        String backLabel = "\u2190 返回";
+        String backLabel = "← 返回";
         int backWidth = this.getStringWidth(backLabel) + 10;
         x = 12;
         this.addButton(new ButtonGeneric(x, y, backWidth, 20, backLabel),
@@ -107,9 +107,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiStagingAreaEditorNormal
             {
                 BlockPos pos1 = this.box.getPos1();
                 BlockPos pos2 = this.box.getPos2();
-                AreaData areaData = new AreaData(newName,
-                        pos1.getX(), pos1.getY(), pos1.getZ(),
-                        pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
+                AreaData areaData = toAreaData(newName, pos1, pos2);
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                         this.schematicId, "RENAME", serverId, Optional.of(areaData)));
 
