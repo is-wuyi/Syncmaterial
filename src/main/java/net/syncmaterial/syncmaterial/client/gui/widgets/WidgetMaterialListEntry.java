@@ -237,6 +237,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             case 5:
                 this.materialList.setSortCriteria(SortCriteria.COUNT_STAGING);
                 break;
+            case 6:
+                this.materialList.setSortCriteria(SortCriteria.COUNT_CLAIM);
+                break;
             default:
                 return false;
         }

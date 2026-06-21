@@ -286,7 +286,8 @@ public abstract class MaterialListBase
         COUNT_MISSING,
         COUNT_AVAILABLE,
         COUNT_OTHER,
-        COUNT_STAGING;
+        COUNT_STAGING,
+        COUNT_CLAIM;
 
         public static SortCriteria fromStringStatic(String name)
         {
