@@ -55,13 +55,8 @@ jobs:
             else
               CHANGELOG=$(git log --pretty=format:"- %s" --no-merges)
             fi
-            cat > release_body.md << EOF
-            ## 更新内容
-            $CHANGELOG
-
-            ---
-            **完整变更记录**: https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}
-            EOF
+            printf '## 更新内容\n%s\n\n---\n**完整变更记录**: https://github.com/%s/commits/%s\n' \
+              "$CHANGELOG" "${{ github.repository }}" "${{ github.ref_name }}" > release_body.md
           fi
 
           gh release create "${{ github.ref_name }}" \
