@@ -96,10 +96,7 @@ public class SyncMaterial implements ModInitializer {
                                     if (rs.next()) schematicName = rs.getString("name");
                                 } catch (Exception ignored) {}
                             }
-                            var areaInfos = areas.stream()
-                                .map(a -> new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket.AreaInfo(
-                                    a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()))
-                                .toList();
+                            var areaInfos = StagingAreaManager.buildAreaInfos(areas);
                             net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(handler.player,
                                 new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(schematicId, schematicName, true, "", areaInfos));
                         }
@@ -113,7 +110,7 @@ public class SyncMaterial implements ModInitializer {
             if (sharedStagingAreaManager != null) {
                 sharedStagingAreaManager.unsubscribeAll(handler.player);
             }
-            net.syncmaterial.syncmaterial.network.ModNetworkHandler.unsubscribeAllMaterialList(handler.player);
+            net.syncmaterial.syncmaterial.network.Phase4Handler.unsubscribeAllMaterialList(handler.player);
         });
 
         // 5. 注册服务器关闭事件，释放资源

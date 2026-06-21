@@ -13,8 +13,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.syncmaterial.syncmaterial.network.ModNetworkHandler;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 
 public class StagingAreaManager {
@@ -64,17 +64,10 @@ public class StagingAreaManager {
 
         String schematicName = getSchematicNameFromDb(schematicId);
         List<StagingArea> areas = getStagingAreas(schematicId);
-        List<StagingAreaConfigResponseS2CPacket.AreaInfo> areaInfos = areas.stream()
-                .map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()))
-                .toList();
+        List<StagingAreaConfigResponseS2CPacket.AreaInfo> areaInfos = buildAreaInfos(areas);
         StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket(schematicId, schematicName, true, "", areaInfos);
 
-        for (ServerPlayerEntity player : set) {
-            if (player.isAlive() && player.networkHandler != null) {
-                ServerPlayNetworking.send(player, packet);
-            }
-        }
+        ModNetworkHandler.sendToPlayers(set, packet);
         SyncMaterial.LOGGER.info("[StagingArea] 广播原理图 {} 的备货区更新给 {} 个玩家", schematicId, set.size());
     }
 
@@ -191,7 +184,7 @@ public class StagingAreaManager {
                         updateStagingAreaInventory(areaId, result);
                         String schematicId = findSchematicIdByAreaId(areaId);
                         if (schematicId != null) {
-                            net.syncmaterial.syncmaterial.network.ModNetworkHandler.broadcastAllMaterialStatus(server, schematicId);
+                            net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
                         }
                     }
                 }
@@ -450,4 +443,9 @@ public class StagingAreaManager {
     }
 
     public record StagingArea(int id, String world, String name, int x1, int y1, int z1, int x2, int y2, int z2) {}
+
+    public static List<StagingAreaConfigResponseS2CPacket.AreaInfo> buildAreaInfos(List<StagingArea> areas) {
+        return areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+            a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world())).toList();
+    }
 }
