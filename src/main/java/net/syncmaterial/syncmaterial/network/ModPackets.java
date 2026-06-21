@@ -7,7 +7,6 @@ public class ModPackets {
     public static final Identifier MATERIAL_LIST_RESPONSE = Identifier.of("syncmaterial", "material_list_response");
 
     public static final Identifier QUERY_MATERIAL_STATUS = Identifier.of("syncmaterial", "query_material_status");
-    public static final Identifier MATERIAL_STATUS_RESPONSE = Identifier.of("syncmaterial", "material_status_response");
 
     // Collaboration packets (Phase 1)
     public static final Identifier JOIN_COLLABORATION = Identifier.of("syncmaterial", "join_collaboration");

@@ -1,7 +1,8 @@
 package net.syncmaterial.syncmaterial.network;
 
-import net.minecraft.network.PacketByteBuf;
+import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.network.codec.PacketCodec;
+import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.network.packet.CustomPayload;
 
 /**
@@ -15,13 +16,11 @@ public record OwnerActionC2SPacket(
 ) implements CustomPayload {
 
     public static final CustomPayload.Id<OwnerActionC2SPacket> ID = new CustomPayload.Id<>(ModPackets.OWNER_ACTION);
-    public static final PacketCodec<PacketByteBuf, OwnerActionC2SPacket> CODEC = PacketCodec.of(
-            (value, buf) -> {
-                buf.writeString(value.schematicId());
-                buf.writeString(value.action());
-                buf.writeString(value.targetPlayerName());
-            },
-            buf -> new OwnerActionC2SPacket(buf.readString(), buf.readString(), buf.readString())
+    public static final PacketCodec<RegistryByteBuf, OwnerActionC2SPacket> CODEC = PacketCodec.tuple(
+            PacketCodecs.STRING, OwnerActionC2SPacket::schematicId,
+            PacketCodecs.STRING, OwnerActionC2SPacket::action,
+            PacketCodecs.STRING, OwnerActionC2SPacket::targetPlayerName,
+            OwnerActionC2SPacket::new
     );
 
     @Override

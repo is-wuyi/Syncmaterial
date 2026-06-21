@@ -1,7 +1,8 @@
 package net.syncmaterial.syncmaterial.network;
 
-import net.minecraft.network.PacketByteBuf;
+import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.network.codec.PacketCodec;
+import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.network.packet.CustomPayload;
 
 import java.util.List;
@@ -19,21 +20,13 @@ public record OwnerActionResponseS2CPacket(
 ) implements CustomPayload {
 
     public static final CustomPayload.Id<OwnerActionResponseS2CPacket> ID = new CustomPayload.Id<>(ModPackets.OWNER_ACTION_RESPONSE);
-    public static final PacketCodec<PacketByteBuf, OwnerActionResponseS2CPacket> CODEC = PacketCodec.of(
-            (value, buf) -> {
-                buf.writeBoolean(value.success());
-                buf.writeString(value.message());
-                buf.writeString(value.ownerName());
-                buf.writeCollection(value.deputyOwners(), PacketByteBuf::writeString);
-                buf.writeBoolean(value.allowSelfClaim());
-            },
-            buf -> new OwnerActionResponseS2CPacket(
-                    buf.readBoolean(),
-                    buf.readString(),
-                    buf.readString(),
-                    buf.readList(PacketByteBuf::readString),
-                    buf.readBoolean()
-            )
+    public static final PacketCodec<RegistryByteBuf, OwnerActionResponseS2CPacket> CODEC = PacketCodec.tuple(
+            PacketCodecs.BOOLEAN, OwnerActionResponseS2CPacket::success,
+            PacketCodecs.STRING, OwnerActionResponseS2CPacket::message,
+            PacketCodecs.STRING, OwnerActionResponseS2CPacket::ownerName,
+            PacketCodecs.STRING.collect(PacketCodecs.toList()), OwnerActionResponseS2CPacket::deputyOwners,
+            PacketCodecs.BOOLEAN, OwnerActionResponseS2CPacket::allowSelfClaim,
+            OwnerActionResponseS2CPacket::new
     );
 
     @Override

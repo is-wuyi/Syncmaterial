@@ -1,7 +1,8 @@
 package net.syncmaterial.syncmaterial.network;
 
-import net.minecraft.network.PacketByteBuf;
+import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.network.codec.PacketCodec;
+import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.network.packet.CustomPayload;
 
 /**
@@ -12,11 +13,9 @@ public record PlayerListRequestC2SPacket(
 ) implements CustomPayload {
 
     public static final CustomPayload.Id<PlayerListRequestC2SPacket> ID = new CustomPayload.Id<>(ModPackets.PLAYER_LIST_REQUEST);
-    public static final PacketCodec<PacketByteBuf, PlayerListRequestC2SPacket> CODEC = PacketCodec.of(
-            (value, buf) -> {
-                buf.writeString(value.schematicId());
-            },
-            buf -> new PlayerListRequestC2SPacket(buf.readString())
+    public static final PacketCodec<RegistryByteBuf, PlayerListRequestC2SPacket> CODEC = PacketCodec.tuple(
+            PacketCodecs.STRING, PlayerListRequestC2SPacket::schematicId,
+            PlayerListRequestC2SPacket::new
     );
 
     @Override
