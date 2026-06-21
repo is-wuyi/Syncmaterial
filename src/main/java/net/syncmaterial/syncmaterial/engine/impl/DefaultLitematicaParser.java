@@ -9,7 +9,6 @@ import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtSizeTracker;
 import net.minecraft.util.math.BlockPos;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
-import net.syncmaterial.syncmaterial.engine.AbstractLitematicaParser;
 import net.syncmaterial.syncmaterial.engine.LitematicaParser;
 import net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool;
 import org.slf4j.Logger;
@@ -19,7 +18,7 @@ import java.io.File;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
-public class DefaultLitematicaParser extends AbstractLitematicaParser {
+public class DefaultLitematicaParser implements LitematicaParser {
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultLitematicaParser.class);
 
     private final ParsingThreadPool threadPool;

@@ -29,11 +29,6 @@ public abstract class MaterialListBase
 
     public abstract String getTitle();
 
-    public boolean supportsRenderLayers()
-    {
-        return false;
-    }
-
     public MaterialListHudRenderer getHudRenderer()
     {
         return this.hudRenderer;
