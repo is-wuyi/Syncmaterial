@@ -205,8 +205,48 @@ public abstract class MaterialListBase
     {
     }
 
+    /**
+     * 格式化物品数量字符串，显示堆叠数和潜影盒数量。
+     * 例：130 = 2 x 64 + 2 = 0.20 [shulker]
+     *
+     * @param count         物品总数
+     * @param maxStackSize  最大堆叠数（若 <= 0 则按 64 处理）
+     * @param shulkerBoxAbbr 潜影盒缩写（由 StringUtils.translate 获取）
+     */
+    protected static String getFormattedCountString(int count, int maxStackSize, String shulkerBoxAbbr)
+    {
+        if (maxStackSize <= 0) maxStackSize = 64;
 
+        int stacks = count / maxStackSize;
+        int remainder = count % maxStackSize;
+        double boxCount = (double) count / (27D * maxStackSize);
+        String strCount;
 
+        if (count > maxStackSize)
+        {
+            if (maxStackSize > 1)
+            {
+                if (remainder > 0)
+                {
+                    strCount = String.format("%d = %d x %d + %d = %.2f %s", count, stacks, maxStackSize, remainder, boxCount, shulkerBoxAbbr);
+                }
+                else
+                {
+                    strCount = String.format("%d = %d x %d = %.2f %s", count, stacks, maxStackSize, boxCount, shulkerBoxAbbr);
+                }
+            }
+            else
+            {
+                strCount = String.format("%d = %.2f %s", count, boxCount, shulkerBoxAbbr);
+            }
+        }
+        else
+        {
+            strCount = String.format("%d", count);
+        }
+
+        return strCount;
+    }
 
     public enum SortCriteria
     {

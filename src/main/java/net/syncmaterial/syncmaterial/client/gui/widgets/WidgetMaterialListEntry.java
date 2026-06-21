@@ -487,8 +487,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int multiplier = this.materialList.getMultiplier();
             int total = this.entry.getCountTotal() * multiplier;
             int missing = multiplier == 1 ? this.entry.getCountMissing() : total;
-            String strCountTotal = this.getFormattedCountString(total, stack.getMaxCount());
-            String strCountMissing = this.getFormattedCountString(missing, stack.getMaxCount());
+            String strCountTotal = MaterialListBase.getFormattedCountString(total, stack.getMaxCount(), this.shulkerBoxAbbr);
+            String strCountMissing = MaterialListBase.getFormattedCountString(missing, stack.getMaxCount(), this.shulkerBoxAbbr);
 
             var participants = this.entry.getParticipants();
             int stagingCount = this.entry.getStagingCount();
@@ -555,39 +555,6 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             java.util.List<String> lines = java.util.List.of(StringUtils.translate("syncmaterial.gui.tooltip.self_claim_disabled"));
             fi.dy.masa.malilib.render.RenderUtils.drawHoverText(drawContext, mouseX, mouseY, lines);
         }
-    }
-
-    private String getFormattedCountString(int total, int maxStackSize)
-    {
-        int stacks = total / maxStackSize;
-        int remainder = total % maxStackSize;
-        double boxCount = (double) total / (27D * maxStackSize);
-        String strCount;
-
-        if (total > maxStackSize)
-        {
-            if (maxStackSize > 1)
-            {
-                if (remainder > 0)
-                {
-                    strCount = String.format("%d = %d x %d + %d = %.2f %s", total, stacks, maxStackSize, remainder, boxCount, this.shulkerBoxAbbr);
-                }
-                else
-                {
-                    strCount = String.format("%d = %d x %d = %.2f %s", total, stacks, maxStackSize, boxCount, this.shulkerBoxAbbr);
-                }
-            }
-            else
-            {
-                strCount = String.format("%d = %.2f %s", total, boxCount, this.shulkerBoxAbbr);
-            }
-        }
-        else
-        {
-            strCount = String.format("%d", total);
-        }
-
-        return strCount;
     }
 
     static class ButtonListener implements IButtonActionListener

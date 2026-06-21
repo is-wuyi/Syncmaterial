@@ -93,6 +93,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         TextRenderer font = mc.textRenderer;
+        String shulkerBoxAbbr = StringUtils.translate("litematica.gui.label.material_list.abbr.shulker_box");
         int maxLines = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_MAX_LINES.getIntegerValue();
         int lineHeight = 16;
         int contentHeight = (Math.min(list.size(), maxLines) * lineHeight) + 14;
@@ -108,7 +109,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             maxTextLength = Math.max(maxTextLength, font.getWidth(entry.getStack().getName().getString()));
             int count = entry.getCountMissing();
             if (count < 0) count = 0;
-            String strCount = GuiBase.TXT_RED + this.getFormattedCountString(count, entry.getStack().getMaxCount()) + GuiBase.TXT_RST;
+            String strCount = GuiBase.TXT_RED + MaterialListBase.getFormattedCountString(count, entry.getStack().getMaxCount(), shulkerBoxAbbr) + GuiBase.TXT_RST;
             maxCountLength = Math.max(maxCountLength, font.getWidth(strCount));
         }
 
@@ -171,7 +172,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             String text = entry.getStack().getName().getString();
             int count = entry.getCountMissing();
             if (count < 0) count = 0;
-            String strCount = this.getFormattedCountString(count, entry.getStack().getMaxCount());
+            String strCount = MaterialListBase.getFormattedCountString(count, entry.getStack().getMaxCount(), shulkerBoxAbbr);
             int cntLen = font.getWidth(strCount);
             int cntPosX = posX + maxLineLength - cntLen - 2;
 
@@ -185,23 +186,5 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         return contentHeight;
-    }
-
-    protected String getFormattedCountString(int count, int maxStackSize) {
-        int stacks = count / maxStackSize;
-        int remainder = count % maxStackSize;
-        double boxCount = (double) count / (27D * maxStackSize);
-
-        if (count > maxStackSize) {
-            if (boxCount >= 1.0) {
-                return String.format("%d (%.2f %s)", count, boxCount, StringUtils.translate("litematica.gui.label.material_list.abbr.shulker_box"));
-            } else if (remainder > 0) {
-                return String.format("%d (%d x %d + %d)", count, stacks, maxStackSize, remainder);
-            } else {
-                return String.format("%d (%d x %d)", count, stacks, maxStackSize);
-            }
-        } else {
-            return String.format("%d", count);
-        }
     }
 }
