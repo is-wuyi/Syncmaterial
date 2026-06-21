@@ -116,10 +116,7 @@ public class SchematicUploadListener implements Consumer<Object> {
 
         // 清理数据库记录
         try {
-            database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
-            database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
-            database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
-            database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
+            database.deleteSchematicRecords(schematicId);
             SyncMaterial.LOGGER.info("已清理数据库中的原理图记录: {}", schematicId);
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("清理数据库记录失败: {}", schematicId, e);

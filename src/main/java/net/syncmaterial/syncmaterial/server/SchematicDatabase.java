@@ -201,6 +201,10 @@ public class SchematicDatabase implements AutoCloseable {
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_schematic ON claims(schematic_id);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_claims_player ON claims(player_name);");
 
+        // Staging area inventory indexes
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_staging_inventory_area ON staging_area_inventory(staging_area_id)");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_staging_inventory_item ON staging_area_inventory(item_id)");
+
         // Deputy owners indexes (Phase 4)
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_deputy_owners_schematic ON deputy_owners(schematic_id);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_deputy_owners_player ON deputy_owners(player_name);");
@@ -484,6 +488,24 @@ public class SchematicDatabase implements AutoCloseable {
             schematicId
         )) {
             return rs.next() && rs.getInt("allow_self_claim") == 1;
+        }
+    }
+
+    /**
+     * 级联删除原理图的所有关联记录（事务保护）
+     * 删除顺序：staging_area_inventory → staging_areas → material_entries → schematics
+     */
+    public synchronized void deleteSchematicRecords(String schematicId) throws SQLException {
+        beginTransaction();
+        try {
+            executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
+            executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
+            executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
+            executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
+            commitTransaction();
+        } catch (SQLException e) {
+            rollbackTransaction();
+            throw e;
         }
     }
 

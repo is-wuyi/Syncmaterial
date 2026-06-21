@@ -98,6 +98,12 @@ public class SchematicFolderWatcher {
                     
                     // placements.json.new 是 syncmatica 写入的临时文件
                     if (filenameStr.equals("placements.json") || filenameStr.equals("placements.json.new")) {
+                        // 等待文件写入完成（在 synchronized 块外，避免持锁 200ms）
+                        try {
+                            Thread.sleep(200);
+                        } catch (InterruptedException ie) {
+                            break;
+                        }
                         processPlacementsJson();
                     }
                 }
@@ -113,13 +119,6 @@ public class SchematicFolderWatcher {
 
     private synchronized void processPlacementsJson() {
         SyncMaterial.LOGGER.debug("开始处理 placements.json...");
-        
-        // 等待文件写入完成
-        try {
-            Thread.sleep(200);
-        } catch (InterruptedException e) {
-            return;
-        }
 
         // 优先读取 placements.json，如果不存在则读取 placements.json.new
         Path actualFile = Files.exists(placementsFile) ? placementsFile : syncamaticaFolder.resolve("placements.json.new");
@@ -193,10 +192,11 @@ public class SchematicFolderWatcher {
             for (String removedHash : removedHashes) {
                 String schematicId = hashToSchematicId.get(removedHash);
                 if (schematicId != null) {
-                    database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
-                    database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
-                    database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
-                    database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
+                    try {
+                        database.deleteSchematicRecords(schematicId);
+                    } catch (Exception e) {
+                        SyncMaterial.LOGGER.error("删除原理图记录失败: {}", schematicId, e);
+                    }
                     SyncMaterial.LOGGER.info("已删除原理图材料记录: {} (hash: {})", schematicId, removedHash);
 
                     // 通知所有客户端清理对应的备货区渲染数据
@@ -228,10 +228,7 @@ public class SchematicFolderWatcher {
 
     private void deleteSchematicRecords(String schematicId) {
         try {
-            database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id IN (SELECT id FROM staging_areas WHERE schematic_id = ?)", schematicId);
-            database.executeUpdate("DELETE FROM staging_areas WHERE schematic_id = ?", schematicId);
-            database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", schematicId);
-            database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
+            database.deleteSchematicRecords(schematicId);
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("删除旧原理图记录失败: {}", schematicId, e);
         }
