@@ -280,9 +280,13 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
         mgmtStatusColor = success ? CLR_TEXT_GREEN : CLR_TEXT_RED;
         mgmtStatusTimer = 100;
 
-        if (success && "TRANSFER".equals(overlayPlayerAction)) {
+        if (success && ("TRANSFER".equals(overlayPlayerAction) || "ADD_DEPUTY".equals(overlayPlayerAction) || "REMOVE_DEPUTY".equals(overlayPlayerAction))) {
             closeOverlay();
-            InfoUtils.showGuiOrActionBarMessage(MessageType.SUCCESS, message);
+            if ("TRANSFER".equals(overlayPlayerAction)) {
+                InfoUtils.showGuiOrActionBarMessage(MessageType.SUCCESS, message);
+            } else {
+                openManagementOverlay(); // 回到管理界面
+            }
         }
     }
 
@@ -291,12 +295,16 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
         if (success) {
             selectedMaterialIds.clear();
             this.materialList.requestCollaborationStatus();
+            overlayConfirmTimer = 1; // 立即关闭 overlay
         }
     }
 
     public void onKickResponse(boolean success, String message) {
         InfoUtils.showGuiOrActionBarMessage(success ? MessageType.SUCCESS : MessageType.ERROR, message);
-        if (success) this.materialList.requestCollaborationStatus();
+        if (success) {
+            this.materialList.requestCollaborationStatus();
+            overlayConfirmTimer = 1; // 立即关闭 overlay
+        }
     }
 
     public void onPlayerListResponse(List<PlayerInfo> players) {
