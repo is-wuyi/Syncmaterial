@@ -213,7 +213,7 @@ public abstract class MaterialListBase
      * @param maxStackSize  最大堆叠数（若 <= 0 则按 64 处理）
      * @param shulkerBoxAbbr 潜影盒缩写（由 StringUtils.translate 获取）
      */
-    protected static String getFormattedCountString(int count, int maxStackSize, String shulkerBoxAbbr)
+    public static String getFormattedCountString(int count, int maxStackSize, String shulkerBoxAbbr)
     {
         if (maxStackSize <= 0) maxStackSize = 64;
 
