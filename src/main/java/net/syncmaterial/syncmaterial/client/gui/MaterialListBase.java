@@ -248,6 +248,37 @@ public abstract class MaterialListBase
         return strCount;
     }
 
+    /**
+     * HUD 专用格式：简洁的 Litematica 风格
+     * 261 (4 x 64 + 5) 或 256 (4 x 64) 或 261 (0.16 潜影盒)
+     */
+    public static String getFormattedCountStringHud(int count, int maxStackSize, String shulkerBoxAbbr)
+    {
+        if (maxStackSize <= 0) maxStackSize = 64;
+
+        int stacks = count / maxStackSize;
+        int remainder = count % maxStackSize;
+        double boxCount = (double) count / (27D * maxStackSize);
+
+        if (count > maxStackSize)
+        {
+            if (boxCount >= 1.0)
+            {
+                return String.format("%d (%.2f %s)", count, boxCount, shulkerBoxAbbr);
+            }
+            else if (remainder > 0)
+            {
+                return String.format("%d (%d x %d + %d)", count, stacks, maxStackSize, remainder);
+            }
+            else
+            {
+                return String.format("%d (%d x %d)", count, stacks, maxStackSize);
+            }
+        }
+
+        return String.valueOf(count);
+    }
+
     public enum SortCriteria
     {
         NAME,

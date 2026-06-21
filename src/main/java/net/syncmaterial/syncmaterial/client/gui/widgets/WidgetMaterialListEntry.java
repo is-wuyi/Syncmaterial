@@ -181,6 +181,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             case 4 -> x5;
             case 5 -> x6;
             case 6 -> x7;
+            case 7 -> x7 + maxClaimLength + 20;
             default -> x1;
         };
     }
