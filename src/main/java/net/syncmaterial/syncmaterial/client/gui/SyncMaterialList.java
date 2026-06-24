@@ -83,6 +83,10 @@ public class SyncMaterialList extends MaterialListBase {
             SyncMaterial.LOGGER.info("  参与者 {} 持有 {} 个", p.playerName(), p.count());
         }
         updateEntriesWithCollaborationStatus();
+        // Phase 5: 更新数据新鲜度警告（取最新的 freshnessInfo，所有材料共享同一份）
+        if (!status.freshnessInfo().isEmpty() && MinecraftClient.getInstance().currentScreen instanceof GuiMaterialList gui) {
+            gui.updateFreshnessWarnings(status.freshnessInfo());
+        }
         if (onStatusUpdate != null) {
             onStatusUpdate.run();
         }

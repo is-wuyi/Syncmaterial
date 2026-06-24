@@ -33,6 +33,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private static boolean pickupMode = false; // Phase 5: 取货模式（纯客户端状态）
     private static java.util.Set<String> pickupModeNeededItemIds = java.util.Collections.emptySet(); // 取货模式需要的物品 ID
     private static java.util.Map<String, Integer> pickupModeMissingCounts = java.util.Collections.emptyMap(); // 取货模式缺失数量
+    private List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessWarnings = java.util.Collections.emptyList();
     private List<Integer> selectedMaterialIds = new ArrayList<>();
     private static boolean stagingRenderEnabled = true;
 
@@ -107,6 +108,13 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public static boolean isPickupModeStatic() { return pickupMode; }
     public static java.util.Set<String> getPickupModeNeededItemIds() { return pickupModeNeededItemIds; }
     public static java.util.Map<String, Integer> getPickupModeMissingCounts() { return pickupModeMissingCounts; }
+
+    /**
+     * 更新数据新鲜度警告（从协作状态包接收）
+     */
+    public void updateFreshnessWarnings(List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> info) {
+        this.freshnessWarnings = info != null ? info : java.util.Collections.emptyList();
+    }
     public boolean isMainOwner() { return isMainOwner; }
     public String getOwnerName() { return ownerName; }
     public List<String> getDeputyOwners() { return deputyOwners; }
@@ -456,9 +464,41 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
     public void render(DrawContext drawContext, int mouseX, int mouseY, float partialTicks) {
         super.render(drawContext, mouseX, mouseY, partialTicks);
 
+        // Phase 5: 数据新鲜度警告
+        if (!freshnessWarnings.isEmpty() && !isOverlayActive()) {
+            renderFreshnessWarnings(drawContext);
+        }
+
         if (isOverlayActive()) {
             renderOverlay(drawContext, mouseX, mouseY);
         }
+    }
+
+    /**
+     * 在列表上方显示数据新鲜度警告
+     */
+    private void renderFreshnessWarnings(DrawContext drawContext) {
+        int y = 46; // 按钮行下方
+        int x = 12;
+        int bgColor = 0xA0FF8800; // 橙色半透明背景
+        int textColor = 0xFFFFFF00; // 黄色文字
+
+        // 构建警告文本
+        StringBuilder sb = new StringBuilder();
+        sb.append(StringUtils.translate("syncmaterial.gui.label.freshness_warning"));
+        sb.append(" ");
+        for (int i = 0; i < freshnessWarnings.size(); i++) {
+            var info = freshnessWarnings.get(i);
+            if (i > 0) sb.append(", ");
+            sb.append(info.areaName()).append(" — ").append(info.status());
+        }
+        String text = sb.toString();
+
+        int textWidth = this.textRenderer.getWidth(text);
+        int boxWidth = textWidth + 10;
+        int boxHeight = 16;
+        drawContext.fill(x, y, x + boxWidth, y + boxHeight, bgColor);
+        drawContext.drawText(this.textRenderer, "⚠ " + text, x + 4, y + 3, textColor, false);
     }
 
     private void renderOverlay(DrawContext drawContext, int mouseX, int mouseY) {
