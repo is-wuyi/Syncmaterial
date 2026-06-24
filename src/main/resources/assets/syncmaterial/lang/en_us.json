@@ -53,6 +53,8 @@
   "syncmaterial.gui.label.material_list.title.backpack": "My Backpack",
   "syncmaterial.gui.label.material_list.title.other": "Other",
   "syncmaterial.gui.label.material_list.title.staging": "Staging",
+  "syncmaterial.gui.label.material_list.title.warehouse": "Warehouse",
+  "syncmaterial.gui.label.material_list.title.pickup_needed": "To Pickup",
   "syncmaterial.gui.label.material_list.title.claim": "Claim",
   "syncmaterial.gui.button.staging_wireframe": "Staging Wireframe: %s",
   "syncmaterial.gui.button.pickup_mode": "Pickup Mode: %s",

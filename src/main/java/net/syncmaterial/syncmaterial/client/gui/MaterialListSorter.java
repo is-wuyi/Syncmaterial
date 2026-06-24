@@ -39,6 +39,10 @@ public class MaterialListSorter implements Comparator<MaterialListEntry>
         {
             return entry1.getStagingCount() == entry2.getStagingCount() ? nameCompare : ((entry1.getStagingCount() > entry2.getStagingCount()) != reverse ? -1 : 1);
         }
+        else if (sortCriteria == SortCriteria.COUNT_WAREHOUSE)
+        {
+            return entry1.getWarehouseCount() == entry2.getWarehouseCount() ? nameCompare : ((entry1.getWarehouseCount() > entry2.getWarehouseCount()) != reverse ? -1 : 1);
+        }
         else if (sortCriteria == SortCriteria.COUNT_CLAIM)
         {
             int c1 = entry1.getParticipants().size();

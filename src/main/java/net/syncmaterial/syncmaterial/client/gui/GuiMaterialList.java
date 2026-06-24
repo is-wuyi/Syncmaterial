@@ -101,6 +101,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     public SyncMaterialList getMaterialList() { return this.materialList; }
     public boolean isOwner() { return isOwner; }
+    public boolean isPickupMode() { return pickupMode; }
     public boolean isMainOwner() { return isMainOwner; }
     public String getOwnerName() { return ownerName; }
     public List<String> getDeputyOwners() { return deputyOwners; }

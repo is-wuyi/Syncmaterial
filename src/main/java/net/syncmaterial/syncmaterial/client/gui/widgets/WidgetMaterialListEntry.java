@@ -23,17 +23,19 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private static final String[] HEADERS = new String[] {
             "litematica.gui.label.material_list.title.item",        // 物品
             "litematica.gui.label.material_list.title.total",       // 总数
-            "litematica.gui.label.material_list.title.missing",     // 缺失
+            "litematica.gui.label.material_list.title.missing",     // 缺失/还需收集/取货
             "syncmaterial.gui.label.material_list.title.backpack",  // 我的背包
             "syncmaterial.gui.label.material_list.title.other",     // 其他背包
             "syncmaterial.gui.label.material_list.title.staging",   // 备货区
+            "syncmaterial.gui.label.material_list.title.warehouse", // 仓库
             "syncmaterial.gui.label.material_list.title.claim" };   // 认领
     private static int maxNameLength;
     private static int maxCountLength1;  // 总数
-    private static int maxCountLength2;  // 缺失
+    private static int maxCountLength2;  // 缺失/还需收集/取货
     private static int maxCountLength3;  // 我的背包
     private static int maxCountLength4;  // 其他背包
     private static int maxCountLength5;  // 备货区
+    private static int maxCountLength6;  // 仓库
     private static int maxClaimLength;
 
     private final MaterialListBase materialList;
@@ -46,6 +48,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private final String header5;
     private final String header6;
     private final String header7;
+    private final String header8;
     private final String shulkerBoxAbbr;
     private final boolean isOdd;
     private final boolean isOwner;
@@ -56,7 +59,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     {
         super(x, y, width, height, entry, listIndex);
 
-        this.columnCount = 7;
+        this.columnCount = 8;
         this.entry = entry;
         this.isOdd = isOdd;
         this.listWidget = listWidget;
@@ -76,16 +79,20 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.header5 = null;
             this.header6 = null;
             this.header7 = null;
+            this.header8 = null;
         }
         else
         {
             this.header1 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[0]) + GuiBase.TXT_RST;
             this.header2 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[1]) + GuiBase.TXT_RST;
-            this.header3 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[2]) + GuiBase.TXT_RST;
+            // 取货模式切换列头：还需收集 / 还需取货
+            String missingKey = listWidget.getGui().isPickupMode() ? "syncmaterial.gui.label.material_list.title.pickup_needed" : HEADERS[2];
+            this.header3 = GuiBase.TXT_BOLD + StringUtils.translate(missingKey) + GuiBase.TXT_RST;
             this.header4 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[3]) + GuiBase.TXT_RST;
             this.header5 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[4]) + GuiBase.TXT_RST;
             this.header6 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[5]) + GuiBase.TXT_RST;
             this.header7 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[6]) + GuiBase.TXT_RST;
+            this.header8 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[7]) + GuiBase.TXT_RST;
         }
 
         int posX = x + width;
@@ -124,7 +131,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         maxCountLength3 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[3]) + GuiBase.TXT_RST);
         maxCountLength4 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[4]) + GuiBase.TXT_RST);
         maxCountLength5 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[5]) + GuiBase.TXT_RST);
-        maxClaimLength  = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[6]) + GuiBase.TXT_RST);
+        maxCountLength6 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[6]) + GuiBase.TXT_RST);
+        maxClaimLength  = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[7]) + GuiBase.TXT_RST);
 
         for (MaterialListEntry entry : materials)
         {
@@ -137,6 +145,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             maxCountLength3 = Math.max(maxCountLength3, StringUtils.getStringWidth(String.valueOf(entry.getCountAvailable())));
             maxCountLength4 = Math.max(maxCountLength4, StringUtils.getStringWidth(String.valueOf(entry.getOtherPlayersCount())));
             maxCountLength5 = Math.max(maxCountLength5, StringUtils.getStringWidth(String.valueOf(entry.getStagingCount())));
+            maxCountLength6 = Math.max(maxCountLength6, StringUtils.getStringWidth(String.valueOf(entry.getWarehouseCount())));
             maxClaimLength  = Math.max(maxClaimLength, StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.label.unclaimed")));
         }
     }
@@ -171,6 +180,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         int x5 = x4 + maxCountLength3 + 20;
         int x6 = x5 + maxCountLength4 + 20;
         int x7 = x6 + maxCountLength5 + 20;
+        int x8 = x7 + maxCountLength6 + 20;
 
         return switch (column)
         {
@@ -181,7 +191,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             case 4 -> x5;
             case 5 -> x6;
             case 6 -> x7;
-            case 7 -> x7 + maxClaimLength + 20;
+            case 7 -> x8;
+            case 8 -> x8 + maxClaimLength + 20;
             default -> x1;
         };
     }
@@ -238,6 +249,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                 this.materialList.setSortCriteria(SortCriteria.COUNT_STAGING);
                 break;
             case 6:
+                this.materialList.setSortCriteria(SortCriteria.COUNT_WAREHOUSE);
+                break;
+            case 7:
                 this.materialList.setSortCriteria(SortCriteria.COUNT_CLAIM);
                 break;
             default:
@@ -334,10 +348,19 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                     this.drawString(drawContext, indicatorX, y, grayColor, indicator);
                 }
 
+                // 仓库列
                 int x7 = this.getColumnPosX(6);
                 this.drawString(drawContext, x7, y, color, this.header7);
-                if (currentSort == MaterialListBase.SortCriteria.COUNT_CLAIM) {
+                if (currentSort == MaterialListBase.SortCriteria.COUNT_WAREHOUSE) {
                     int indicatorX = x7 + this.getStringWidth(this.header7) + 2;
+                    this.drawString(drawContext, indicatorX, y, grayColor, indicator);
+                }
+
+                // 认领列
+                int x8 = this.getColumnPosX(7);
+                this.drawString(drawContext, x8, y, color, this.header8);
+                if (currentSort == MaterialListBase.SortCriteria.COUNT_CLAIM) {
+                    int indicatorX = x8 + this.getStringWidth(this.header8) + 2;
                     this.drawString(drawContext, indicatorX, y, grayColor, indicator);
                 }
             }
@@ -373,17 +396,22 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             // 备货区
             this.drawString(drawContext, x6, y, stagingCount > 0 ? 0xFFFFAA00 : 0xFFAAAAAA, String.valueOf(stagingCount));
 
-            // 认领状态 — 统一显示参与者名称
+            // 仓库
+            int warehouseCount = this.entry.getWarehouseCount();
             int x7 = this.getColumnPosX(6);
+            this.drawString(drawContext, x7, y, warehouseCount > 0 ? 0xFF55AAFF : 0xFFAAAAAA, String.valueOf(warehouseCount));
+
+            // 认领状态 — 统一显示参与者名称
+            int x8 = this.getColumnPosX(7);
             var participants = this.entry.getParticipants();
             if (!participants.isEmpty()) {
                 String names = participants.stream()
                     .map(p -> p.playerName())
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("");
-                this.drawString(drawContext, x7, y, 0xFF55FF55, names);
+                this.drawString(drawContext, x8, y, 0xFF55FF55, names);
             } else {
-                this.drawString(drawContext, x7, y, 0xFF888888, StringUtils.translate("syncmaterial.gui.label.unclaimed"));
+                this.drawString(drawContext, x8, y, 0xFF888888, StringUtils.translate("syncmaterial.gui.label.unclaimed"));
             }
 
             y = this.y + 3;
