@@ -4,9 +4,11 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.server.MinecraftServer;
 import net.syncmaterial.syncmaterial.api.MaterialStatisticsEngine;
 import net.syncmaterial.syncmaterial.engine.DefaultMaterialStatisticsEngine;
 import net.syncmaterial.syncmaterial.engine.LitematicaParser;
@@ -176,6 +178,10 @@ public class SyncMaterial implements ModInitializer {
                                     }
                                 }
                                 LOGGER.info("启动时全量扫描完成: {} 个备货区", count);
+
+                                // Phase 5: 加载全局仓库 + 全量扫描
+                                sharedStagingAreaManager.loadWarehousesFromDb();
+                                LOGGER.info("启动时全局仓库加载完成: {} 个仓库", sharedStagingAreaManager.getAllWarehouses().size());
                             }
                         });
                     });
@@ -183,6 +189,15 @@ public class SyncMaterial implements ModInitializer {
             } catch (Exception e) {
                 LOGGER.error("启动原理图监控失败", e);
             }
+        });
+
+        // Phase 5: 区块加载时扫描仓库/备货区箱子
+        ServerChunkEvents.CHUNK_LOAD.register((serverWorld, chunk) -> {
+            if (sharedStagingAreaManager == null) return;
+            MinecraftServer srv = serverWorld.getServer();
+            srv.execute(() -> {
+                sharedStagingAreaManager.scanChunkForInventoryAreas(chunk, serverWorld);
+            });
         });
 
         LOGGER.info("SyncMaterial 初始化完成！");

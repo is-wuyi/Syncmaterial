@@ -2,6 +2,7 @@ package net.syncmaterial.syncmaterial.server;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.util.math.BlockPos;
@@ -27,6 +28,11 @@ public class StagingAreaManager {
     private volatile Map<String, List<Warehouse>> warehousesByWorld = new ConcurrentHashMap<>();
     private final Map<BlockPos, ServerWorld> dirtyContainers = new ConcurrentHashMap<>();
     private final Map<String, Set<ServerPlayerEntity>> subscribers = new ConcurrentHashMap<>();
+    // Phase 5: 取货模式推送冷却（避免高频变动网络风暴）
+    private volatile long lastPushTime = 0;
+    private static final long PUSH_COOLDOWN_MS = 1000;
+    // Phase 5: 数据新鲜度跟踪（区块级）
+    private final Map<String, Set<Long>> areaScannedChunks = new ConcurrentHashMap<>();
     private MinecraftServer server;
 
     public StagingAreaManager(SchematicDatabase database) {
@@ -176,46 +182,85 @@ public class StagingAreaManager {
 
         SyncMaterial.LOGGER.info("[StagingArea] processDirtyContainers: {} dirty containers", dirtyContainers.size());
 
-        Set<Integer> dirtyAreaIds = new HashSet<>();
+        Set<Integer> dirtyStagingAreaIds = new HashSet<>();
+        Set<Integer> dirtyWarehouseIds = new HashSet<>();
 
         for (Map.Entry<BlockPos, ServerWorld> entry : dirtyContainers.entrySet()) {
             BlockPos pos = entry.getKey();
             ServerWorld world = entry.getValue();
 
-            Integer areaId = findAreaId(pos, world);
-            SyncMaterial.LOGGER.info("[StagingArea] findAreaId: pos={},{},{} areaId={}", pos.getX(), pos.getY(), pos.getZ(), areaId);
-            if (areaId != null) {
-                dirtyAreaIds.add(areaId);
+            Integer stagingAreaId = findAreaId(pos, world);
+            if (stagingAreaId != null) {
+                dirtyStagingAreaIds.add(stagingAreaId);
+            }
+            Integer warehouseId = findWarehouseId(pos, world);
+            if (warehouseId != null) {
+                dirtyWarehouseIds.add(warehouseId);
             }
         }
 
         dirtyContainers.clear();
 
-        SyncMaterial.LOGGER.info("[StagingArea] dirtyAreaIds: {}", dirtyAreaIds);
-
-        if (!dirtyAreaIds.isEmpty() && server != null) {
+        if ((!dirtyStagingAreaIds.isEmpty() || !dirtyWarehouseIds.isEmpty()) && server != null) {
             server.execute(() -> {
-                for (int areaId : dirtyAreaIds) {
+                // 备货区：全量重扫 + 更新 container_inventory
+                for (int areaId : dirtyStagingAreaIds) {
                     Map<String, Integer> result = scanAreaContents(areaId);
                     if (result != null) {
                         updateStagingAreaInventory(areaId, result);
-                        String schematicId = findSchematicIdByAreaId(areaId);
-                        if (schematicId != null) {
-                            net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
-                        }
+                        updateContainerInventoryForArea(areaId, "staging_area");
                     }
                 }
+                // 仓库：全量重扫 warehouse_inventory + 更新 container_inventory
+                for (int warehouseId : dirtyWarehouseIds) {
+                    Map<String, Integer> result = scanWarehouseContents(warehouseId);
+                    if (result != null) {
+                        updateWarehouseInventory(warehouseId, result);
+                        updateContainerInventoryForArea(warehouseId, "warehouse");
+                    }
+                }
+                // 推送更新（含冷却）
+                pushDirtyUpdateWithCooldown();
             });
         }
+    }
+
+    /**
+     * 推送更新给取货模式玩家（带 1 秒冷却合并）
+     */
+    private void pushDirtyUpdateWithCooldown() {
+        long now = System.currentTimeMillis();
+        if (now - lastPushTime < PUSH_COOLDOWN_MS) {
+            return;
+        }
+        lastPushTime = now;
+        // TODO P5-9: 推送给取货模式中的玩家
+        SyncMaterial.LOGGER.info("[StagingArea] 推送容器数据更新给取货模式玩家（冷却合并）");
     }
 
     private Integer findAreaId(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
         List<StagingArea> areas = stagingAreasByWorld.get(worldId);
-        if (areas == null) return null;
-        for (StagingArea area : areas) {
-            if (isPosInArea(pos, area)) {
-                return area.id;
+        if (areas != null) {
+            for (StagingArea area : areas) {
+                if (isPosInArea(pos, area)) {
+                    return area.id;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 查找位置所在的仓库 ID
+     */
+    private Integer findWarehouseId(BlockPos pos, ServerWorld world) {
+        String worldId = world.getRegistryKey().getValue().toString();
+        List<Warehouse> warehouses = warehousesByWorld.get(worldId);
+        if (warehouses == null) return null;
+        for (Warehouse wh : warehouses) {
+            if (isPosInWarehouse(pos, wh)) {
+                return wh.id();
             }
         }
         return null;
@@ -379,6 +424,32 @@ public class StagingAreaManager {
         return 0;
     }
 
+    /**
+     * 仅统计备货区库存（不含仓库）
+     */
+    public int getStagingOnlyCountForMaterial(String schematicId, String itemId) {
+        return getStagingCountForMaterial(schematicId, itemId);
+    }
+
+    /**
+     * 统计原理图引用的仓库库存
+     */
+    public int getWarehouseCountForMaterial(String schematicId, String itemId) {
+        try (var rs = database.executeQuery(
+            "SELECT COALESCE(SUM(wi.count), 0) FROM warehouse_inventory wi " +
+            "JOIN schematic_warehouses sw ON wi.warehouse_id = sw.warehouse_id " +
+            "WHERE sw.schematic_id = ? AND wi.item_id = ?",
+            schematicId, itemId
+        )) {
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("Failed to get warehouse count for material", e);
+        }
+        return 0;
+    }
+
     public void onContainerRemoved(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
 
@@ -457,6 +528,296 @@ public class StagingAreaManager {
             SyncMaterial.LOGGER.warn("获取原理图名称失败: {}", schematicId);
         }
         return "";
+    }
+
+    // ========== Phase 5: 仓库扫描 + container_inventory 维护 ==========
+
+    /**
+     * 扫描仓库内容物（复用 scanAreaContents 的逻辑，针对仓库坐标）
+     */
+    private Map<String, Integer> scanWarehouseContents(int warehouseId) {
+        Warehouse wh = warehousesById.get(warehouseId);
+        if (wh == null) return null;
+
+        ServerWorld world = server.getWorld(net.minecraft.registry.RegistryKey.of(
+                net.minecraft.registry.RegistryKeys.WORLD, Identifier.of(wh.world())));
+        if (world == null) return null;
+
+        Map<String, Integer> totalItems = new HashMap<>();
+        int minX = Math.min(wh.x1(), wh.x2());
+        int maxX = Math.max(wh.x1(), wh.x2());
+        int minY = Math.min(wh.y1(), wh.y2());
+        int maxY = Math.max(wh.y1(), wh.y2());
+        int minZ = Math.min(wh.z1(), wh.z2());
+        int maxZ = Math.max(wh.z1(), wh.z2());
+
+        int minChunkX = minX >> 4;
+        int maxChunkX = maxX >> 4;
+        int minChunkZ = minZ >> 4;
+        int maxChunkZ = maxZ >> 4;
+
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                if (world.getChunkManager().getWorldChunk(chunkX, chunkZ) == null) continue;
+
+                int startX = Math.max(chunkX << 4, minX);
+                int endX = Math.min((chunkX << 4) + 15, maxX);
+                int startZ = Math.max(chunkZ << 4, minZ);
+                int endZ = Math.min((chunkZ << 4) + 15, maxZ);
+
+                for (int x = startX; x <= endX; x++) {
+                    for (int y = minY; y <= maxY; y++) {
+                        for (int z = startZ; z <= endZ; z++) {
+                            BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
+                            if (be instanceof Inventory inventory) {
+                                countInventoryItems(inventory, totalItems);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return totalItems;
+    }
+
+    /**
+     * 更新仓库库存总数表
+     */
+    private void updateWarehouseInventory(int warehouseId, Map<String, Integer> itemCounts) {
+        try {
+            database.executeUpdate("DELETE FROM warehouse_inventory WHERE warehouse_id = ?", warehouseId);
+            for (Map.Entry<String, Integer> entry : itemCounts.entrySet()) {
+                database.executeUpdate(
+                    "INSERT INTO warehouse_inventory (warehouse_id, item_id, count) VALUES (?, ?, ?)",
+                    warehouseId, entry.getKey(), entry.getValue());
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("Failed to update warehouse inventory", e);
+        }
+    }
+
+    /**
+     * 更新容器明细表（全量重写指定区域的 container_inventory）
+     */
+    private void updateContainerInventoryForArea(int areaId, String areaType) {
+        try {
+            // 清空旧数据
+            database.executeUpdate("DELETE FROM container_inventory WHERE area_id = ? AND area_type = ?", areaId, areaType);
+
+            // 获取区域坐标
+            int x1, y1, z1, x2, y2, z2;
+            String worldId;
+            if ("warehouse".equals(areaType)) {
+                Warehouse wh = warehousesById.get(areaId);
+                if (wh == null) return;
+                x1 = wh.x1(); y1 = wh.y1(); z1 = wh.z1();
+                x2 = wh.x2(); y2 = wh.y2(); z2 = wh.z2();
+                worldId = wh.world();
+            } else {
+                StagingArea area = findStagingAreaById(areaId);
+                if (area == null) return;
+                x1 = area.x1; y1 = area.y1; z1 = area.z1;
+                x2 = area.x2; y2 = area.y2; z2 = area.z2;
+                worldId = area.world;
+            }
+
+            ServerWorld world = server.getWorld(net.minecraft.registry.RegistryKey.of(
+                    net.minecraft.registry.RegistryKeys.WORLD, Identifier.of(worldId)));
+            if (world == null) return;
+
+            int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+            int minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+            int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+
+            int minChunkX = minX >> 4, maxChunkX = maxX >> 4;
+            int minChunkZ = minZ >> 4, maxChunkZ = maxZ >> 4;
+
+            for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                    if (world.getChunkManager().getWorldChunk(chunkX, chunkZ) == null) continue;
+
+                    int startX = Math.max(chunkX << 4, minX);
+                    int endX = Math.min((chunkX << 4) + 15, maxX);
+                    int startZ = Math.max(chunkZ << 4, minZ);
+                    int endZ = Math.min((chunkZ << 4) + 15, maxZ);
+
+                    for (int x = startX; x <= endX; x++) {
+                        for (int y = minY; y <= maxY; y++) {
+                            for (int z = startZ; z <= endZ; z++) {
+                                BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
+                                if (be instanceof Inventory inventory) {
+                                    writeContainerInventory(areaId, areaType, x, y, z, inventory);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("Failed to update container inventory for area {} type {}", areaId, areaType, e);
+        }
+    }
+
+    /**
+     * 写入单个箱子的容器明细（含潜影盒，不存数量）
+     */
+    private void writeContainerInventory(int areaId, String areaType, int x, int y, int z, Inventory inventory) {
+        Set<String> itemIds = new HashSet<>();
+        for (int i = 0; i < inventory.size(); i++) {
+            var stack = inventory.getStack(i);
+            if (stack.isEmpty()) continue;
+            itemIds.add(stack.getItem().toString());
+
+            // 潜影盒内容物
+            if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
+                blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
+                var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
+                if (container != null) {
+                    for (var stored : container.streamNonEmpty().toList()) {
+                        if (!stored.isEmpty()) {
+                            itemIds.add(stored.getItem().toString());
+                        }
+                    }
+                }
+            }
+        }
+
+        for (String itemId : itemIds) {
+            try {
+                database.executeUpdate(
+                    "INSERT OR IGNORE INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    areaId, areaType, x, y, z, itemId);
+            } catch (SQLException e) {
+                SyncMaterial.LOGGER.error("Failed to write container inventory", e);
+            }
+        }
+    }
+
+    /**
+     * 数据新鲜度：标记区块为已扫描
+     */
+    public void markChunkScanned(int areaId, long chunkPos) {
+        areaScannedChunks.computeIfAbsent(String.valueOf(areaId), k -> ConcurrentHashMap.newKeySet()).add(chunkPos);
+    }
+
+    /**
+     * 数据新鲜度：检查区域的所有区块是否都已扫描
+     */
+    public boolean isAreaFullyScanned(int areaId, String worldId, int x1, int y1, int z1, int x2, int y2, int z2) {
+        Set<Long> scanned = areaScannedChunks.get(String.valueOf(areaId));
+        if (scanned == null) return false;
+
+        int minChunkX = Math.min(x1, x2) >> 4;
+        int maxChunkX = Math.max(x1, x2) >> 4;
+        int minChunkZ = Math.min(z1, z2) >> 4;
+        int maxChunkZ = Math.max(z1, z2) >> 4;
+
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                long chunkPos = ((long) cx << 32) | (cz & 0xFFFFFFFFL);
+                if (!scanned.contains(chunkPos)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 区块加载时扫描：检查该区块内是否有仓库/备货区的箱子，有则扫描写入数据库
+     */
+    public void scanChunkForInventoryAreas(net.minecraft.world.chunk.WorldChunk chunk, ServerWorld world) {
+        String worldId = world.getRegistryKey().getValue().toString();
+        int chunkX = chunk.getPos().x;
+        int chunkZ = chunk.getPos().z;
+        int blockMinX = chunkX << 4;
+        int blockMaxX = (chunkX << 4) + 15;
+        int blockMinZ = chunkZ << 4;
+        int blockMaxZ = (chunkZ << 4) + 15;
+
+        boolean found = false;
+
+        // 检查备货区
+        List<StagingArea> areas = stagingAreasByWorld.get(worldId);
+        if (areas != null) {
+            for (StagingArea area : areas) {
+                if (chunkIntersectsArea(chunkX, chunkZ, area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
+                    scanChunkForArea(chunk, world, area.id, "staging_area",
+                        area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
+                    found = true;
+                }
+            }
+        }
+
+        // 检查仓库
+        List<Warehouse> warehouses = warehousesByWorld.get(worldId);
+        if (warehouses != null) {
+            for (Warehouse wh : warehouses) {
+                if (chunkIntersectsArea(chunkX, chunkZ, wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
+                    scanChunkForArea(chunk, world, wh.id(), "warehouse",
+                        wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2);
+                    found = true;
+                }
+            }
+        }
+
+        if (found) {
+            // 标记区块已扫描（用于数据新鲜度）
+            long chunkPos = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+            if (areas != null) {
+                for (StagingArea area : areas) {
+                    markChunkScanned(area.id, chunkPos);
+                }
+            }
+            if (warehouses != null) {
+                for (Warehouse wh : warehouses) {
+                    markChunkScanned(wh.id(), chunkPos);
+                }
+            }
+        }
+    }
+
+    private boolean chunkIntersectsArea(int chunkX, int chunkZ, int x1, int y1, int z1, int x2, int y2, int z2) {
+        int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+        int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+        int chunkMinX = chunkX << 4, chunkMaxX = (chunkX << 4) + 15;
+        int chunkMinZ = chunkZ << 4, chunkMaxZ = (chunkZ << 4) + 15;
+        return minX <= chunkMaxX && maxX >= chunkMinX && minZ <= chunkMaxZ && maxZ >= chunkMinZ;
+    }
+
+    /**
+     * 扫描区块内属于指定区域的箱子，写入 container_inventory
+     */
+    private void scanChunkForArea(WorldChunk chunk, ServerWorld world, int areaId, String areaType,
+            int x1, int y1, int z1, int x2, int y2, int z2) {
+        int minX = Math.max(chunk.getPos().x << 4, Math.min(x1, x2));
+        int maxX = Math.min((chunk.getPos().x << 4) + 15, Math.max(x1, x2));
+        int minY = Math.min(y1, y2);
+        int maxY = Math.max(y1, y2);
+        int minZ = Math.max(chunk.getPos().z << 4, Math.min(z1, z2));
+        int maxZ = Math.min((chunk.getPos().z << 4) + 15, Math.max(z1, z2));
+
+        Map<String, Integer> items = new HashMap<>();
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
+                    if (be instanceof Inventory inventory) {
+                        writeContainerInventory(areaId, areaType, x, y, z, inventory);
+                        countInventoryItems(inventory, items);
+                    }
+                }
+            }
+        }
+
+        // 更新总数表
+        if (!items.isEmpty()) {
+            if ("warehouse".equals(areaType)) {
+                updateWarehouseInventory(areaId, items);
+            } else {
+                updateStagingAreaInventory(areaId, items);
+            }
+        }
     }
 
     public record StagingArea(int id, String world, String name, int x1, int y1, int z1, int x2, int y2, int z2) {}
