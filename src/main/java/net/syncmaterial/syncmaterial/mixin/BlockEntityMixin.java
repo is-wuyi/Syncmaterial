@@ -43,7 +43,7 @@ public abstract class BlockEntityMixin {
         ServerWorld world = (ServerWorld) self.getWorld();
         BlockPos pos = self.getPos();
 
-        if (mgr.isInAnyStagingArea(pos, world)) {
+        if (mgr.isInAnyInventoryArea(pos, world)) {
             action.accept(pos, world);
         }
     }

@@ -186,6 +186,51 @@ public class SchematicDatabase implements AutoCloseable {
             );
             """);
 
+        // 全局仓库表 (Phase 5: 仓库管理与取货模式)
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS warehouses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                world TEXT NOT NULL,
+                x1 INTEGER, y1 INTEGER, z1 INTEGER,
+                x2 INTEGER, y2 INTEGER, z2 INTEGER,
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+            );
+            """);
+
+        // 原理图引用仓库的关系表 (Phase 5)
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS schematic_warehouses (
+                schematic_id TEXT NOT NULL,
+                warehouse_id INTEGER NOT NULL,
+                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
+                FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE,
+                UNIQUE(schematic_id, warehouse_id)
+            );
+            """);
+
+        // 仓库库存总数表 (Phase 5)
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS warehouse_inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                warehouse_id INTEGER NOT NULL,
+                item_id TEXT NOT NULL,
+                count INTEGER NOT NULL,
+                FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE
+            );
+            """);
+
+        // 容器明细表 (Phase 5: 记录每个箱子有什么物品，不存数量)
+        executeUpdate("""
+            CREATE TABLE IF NOT EXISTS container_inventory (
+                area_id INTEGER NOT NULL,
+                area_type TEXT NOT NULL,
+                pos_x INTEGER, pos_y INTEGER, pos_z INTEGER,
+                item_id TEXT NOT NULL,
+                UNIQUE(area_id, pos_x, pos_y, pos_z, item_id)
+            );
+            """);
+
         // 创建索引以提升查询性能
         createIndexes();
     }
@@ -208,6 +253,14 @@ public class SchematicDatabase implements AutoCloseable {
         // Deputy owners indexes (Phase 4)
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_deputy_owners_schematic ON deputy_owners(schematic_id);");
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_deputy_owners_player ON deputy_owners(player_name);");
+
+        // Warehouse indexes (Phase 5)
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_schematic_warehouses_schematic ON schematic_warehouses(schematic_id);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_schematic_warehouses_warehouse ON schematic_warehouses(warehouse_id);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_warehouse ON warehouse_inventory(warehouse_id);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_item ON warehouse_inventory(item_id);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_container_inventory_area ON container_inventory(area_id, area_type);");
+        executeUpdate("CREATE INDEX IF NOT EXISTS idx_container_inventory_pos ON container_inventory(pos_x, pos_y, pos_z);");
     }
 
     /**
