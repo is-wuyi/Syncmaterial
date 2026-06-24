@@ -67,6 +67,37 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     {
         super.initGui();
         requestWarehouseList();
+        addTopButtons();
+    }
+
+    /**
+     * 左上角按钮（与备货区编辑器一致的布局）
+     */
+    private void addTopButtons()
+    {
+        int x = 10;
+        int y = 24;
+
+        // 添加仓库按钮
+        String label = StringUtils.translate("syncmaterial.gui.button.add_warehouse");
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
+        this.addButton(button, (btn, mouseButton) -> {
+            // 输入仓库名称后进入准星选区
+            String title = StringUtils.translate("syncmaterial.gui.title.warehouse_manager");
+            fi.dy.masa.malilib.gui.GuiTextInputFeedback gui = new fi.dy.masa.malilib.gui.GuiTextInputFeedback(
+                128, title, "仓库",
+                (net.minecraft.client.gui.screen.Screen) this,
+                (name) -> {
+                    if (name != null && !name.trim().isEmpty()) {
+                        this.pendingWarehouseName = name.trim();
+                        // 关闭 GUI 后启动准星选区（参照备货区编辑器行为）
+                        StagingAreaSelector.getInstance().start(this, this, null, null, null);
+                        net.minecraft.client.MinecraftClient.getInstance().setScreen(null);
+                    }
+                    return true;
+                });
+            net.minecraft.client.MinecraftClient.getInstance().setScreen(gui);
+        });
     }
 
     public void requestRefresh()
@@ -104,35 +135,6 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     public void drawContents(net.minecraft.client.gui.DrawContext drawContext, int mouseX, int mouseY, float partialTicks)
     {
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
-
-        // 底部按钮
-        int y = this.getScreenHeight() - 28;
-        int x = 12;
-
-        x += this.createButtonAddWarehouse(x, y) + 4;
-    }
-
-    private int createButtonAddWarehouse(int x, int y)
-    {
-        String label = StringUtils.translate("syncmaterial.gui.button.add_warehouse");
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
-        this.addButton(button, (btn, mouseButton) -> {
-            // 先输入仓库名称，然后进入准星选区
-            String title = StringUtils.translate("syncmaterial.gui.title.warehouse_manager");
-            fi.dy.masa.malilib.gui.GuiTextInputFeedback gui = new fi.dy.masa.malilib.gui.GuiTextInputFeedback(
-                128, title, "仓库",
-                (net.minecraft.client.gui.screen.Screen) this,
-                (name) -> {
-                    if (name != null && !name.trim().isEmpty()) {
-                        this.pendingWarehouseName = name.trim();
-                        // 启动准星选区
-                        StagingAreaSelector.getInstance().start(this, this, null, null, null);
-                    }
-                    return true;
-                });
-            net.minecraft.client.MinecraftClient.getInstance().setScreen(gui);
-        });
-        return button.getWidth();
     }
 
     @Override
