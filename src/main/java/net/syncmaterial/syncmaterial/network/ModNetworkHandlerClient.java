@@ -29,11 +29,7 @@ public class ModNetworkHandlerClient {
                 // Phase 5: 仓库管理界面响应
                 if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager warehouseMgr)
                 {
-                    var areas = payload.areas().stream()
-                        .map(a -> new net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager.AreaInfo(
-                            a.areaId(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world()))
-                        .toList();
-                    warehouseMgr.onWarehouseListResponse(areas);
+                    warehouseMgr.onWarehouseListResponse(payload.areas());
                     return;
                 }
 
