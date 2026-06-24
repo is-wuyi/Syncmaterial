@@ -91,7 +91,7 @@
   "syncmaterial.gui.label.area_entry_display": "%s  [%d,%d,%d]~[%d,%d,%d]",
   "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]",
   "syncmaterial.gui.button.staging_area_config": "备货区配置",
-  "syncmaterial.gui.title.area_editor_normal": "备货区编辑器",
+  "syncmaterial.gui.title.area_editor_normal": "备货区与仓库管理",
   "syncmaterial.gui.title.area_editor_sub_region": "子区域编辑",
   "syncmaterial.gui.error.no_selection": "未选择区域",
   "syncmaterial.gui.label.corner_1": "角点 1",

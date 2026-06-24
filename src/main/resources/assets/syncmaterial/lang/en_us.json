@@ -91,7 +91,7 @@
   "syncmaterial.gui.label.area_entry_display": "%s  [%d,%d,%d]~[%d,%d,%d]",
   "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]",
   "syncmaterial.gui.button.staging_area_config": "Staging Area Config",
-  "syncmaterial.gui.title.area_editor_normal": "Staging Area Editor",
+  "syncmaterial.gui.title.area_editor_normal": "Staging Areas & Warehouses",
   "syncmaterial.gui.title.area_editor_sub_region": "Sub-Region Editor",
   "syncmaterial.gui.error.no_selection": "No selection",
   "syncmaterial.gui.label.corner_1": "Corner 1",

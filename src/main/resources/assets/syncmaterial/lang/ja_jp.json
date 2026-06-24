@@ -91,7 +91,7 @@
   "syncmaterial.gui.label.area_entry_display": "%s  [%d,%d,%d]~[%d,%d,%d]",
   "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]",
   "syncmaterial.gui.button.staging_area_config": "備品エリア設定",
-  "syncmaterial.gui.title.area_editor_normal": "備品エリア エディター",
+  "syncmaterial.gui.title.area_editor_normal": "備品エリア・倉庫管理",
   "syncmaterial.gui.title.area_editor_sub_region": "サブリージョン エディター",
   "syncmaterial.gui.error.no_selection": "選択されていません",
   "syncmaterial.gui.label.corner_1": "コーナー 1",
