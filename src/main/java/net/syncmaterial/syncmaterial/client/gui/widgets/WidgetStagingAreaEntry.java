@@ -89,13 +89,19 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
             RenderUtils.drawOutline(drawContext, this.x, this.y, this.width, this.height, 0xFFE0E0E0);
         }
 
+        // Phase 5: 来源标签
+        String sourceTag = "[备货区] ";
+        int sourceColor = 0xFF55FF55; // 绿色
+        int tagWidth = fi.dy.masa.malilib.util.StringUtils.getStringWidth(sourceTag);
+        this.drawString(drawContext, this.x + 2, this.y + 7, sourceColor, sourceTag);
+
         // Display: "备货区名称  [x1,y1,z1]~[x2,y2,z2]"
         String display = fi.dy.masa.malilib.util.StringUtils.translate(
                 "syncmaterial.gui.label.area_entry_display",
                 this.entryData.name(),
                 this.entryData.x1(), this.entryData.y1(), this.entryData.z1(),
                 this.entryData.x2(), this.entryData.y2(), this.entryData.z2());
-        this.drawString(drawContext, this.x + 2, this.y + 7, 0xFFFFFFFF, display);
+        this.drawString(drawContext, this.x + 2 + tagWidth, this.y + 7, 0xFFFFFFFF, display);
 
         super.render(drawContext, mouseX, mouseY, selected);
     }

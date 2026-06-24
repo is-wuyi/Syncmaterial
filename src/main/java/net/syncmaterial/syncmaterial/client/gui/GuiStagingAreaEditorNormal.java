@@ -23,6 +23,7 @@ import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
 import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
 import fi.dy.masa.malilib.gui.widgets.WidgetCheckBox;
 import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
+import fi.dy.masa.malilib.util.InfoUtils;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 
@@ -274,6 +275,21 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             ButtonGeneric selectButton = new ButtonGeneric(xSave, ySave, selectWidth, 20, selectLabel, selectHover);
             this.addButton(selectButton, new ButtonListener(ButtonListener.Type.SELECT_AREA, null, null, this));
             xSave += selectWidth + 12;
+        }
+
+        // Phase 5: 添加仓库引用按钮
+        {
+            String whLabel = StringUtils.translate("syncmaterial.gui.button.add_warehouse_ref");
+            int whWidth = this.getStringWidth(whLabel) + 10;
+            ButtonGeneric whButton = new ButtonGeneric(xSave, ySave, whWidth, 20, whLabel);
+            this.addButton(whButton, (btn, mouseBtn) -> {
+                // 发送 LIST_WAREHOUSES 请求获取全局仓库列表
+                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket(
+                    this.schematicId, "LIST_WAREHOUSES", 0, Optional.empty()));
+                // TODO: 打开仓库选择 overlay
+                InfoUtils.showGuiOrActionBarMessage(MessageType.INFO, "仓库选择功能开发中");
+            });
+            xSave += whWidth + 12;
         }
 
         // 备货区数量显示在按钮右侧
