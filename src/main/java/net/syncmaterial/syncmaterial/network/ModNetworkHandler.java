@@ -319,8 +319,7 @@ public class ModNetworkHandler {
             }
 
             // 查询所有仓库的容器数据
-            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers = new ArrayList<>();
-            // TODO: 从 container_inventory 表查询并构建 ContainerEntry 列表
+            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers = manager.getContainerEntriesForWarehouses(allWarehouseIds);
             ServerPlayNetworking.send(player, new WarehouseContainerResponseS2CPacket(containers));
             SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 订阅取货模式: 原理图 {}, 仓库 {}", player.getName().getString(), schematicId, warehouseIds);
         } else {

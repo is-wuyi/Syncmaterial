@@ -182,8 +182,8 @@ public class StagingAreaManager {
 
         SyncMaterial.LOGGER.info("[StagingArea] processDirtyContainers: {} dirty containers", dirtyContainers.size());
 
-        Set<Integer> dirtyStagingAreaIds = new HashSet<>();
-        Set<Integer> dirtyWarehouseIds = new HashSet<>();
+        // 按区域收集脏容器 pos（同一个区域的多个箱子分别处理）
+        Map<String, List<Map.Entry<BlockPos, ServerWorld>>> dirtyByArea = new HashMap<>();
 
         for (Map.Entry<BlockPos, ServerWorld> entry : dirtyContainers.entrySet()) {
             BlockPos pos = entry.getKey();
@@ -191,38 +191,121 @@ public class StagingAreaManager {
 
             Integer stagingAreaId = findAreaId(pos, world);
             if (stagingAreaId != null) {
-                dirtyStagingAreaIds.add(stagingAreaId);
+                dirtyByArea.computeIfAbsent("S:" + stagingAreaId, k -> new ArrayList<>()).add(entry);
             }
             Integer warehouseId = findWarehouseId(pos, world);
             if (warehouseId != null) {
-                dirtyWarehouseIds.add(warehouseId);
+                dirtyByArea.computeIfAbsent("W:" + warehouseId, k -> new ArrayList<>()).add(entry);
             }
         }
 
         dirtyContainers.clear();
 
-        if ((!dirtyStagingAreaIds.isEmpty() || !dirtyWarehouseIds.isEmpty()) && server != null) {
-            server.execute(() -> {
-                // 备货区：全量重扫 + 更新 container_inventory
-                for (int areaId : dirtyStagingAreaIds) {
+        if (dirtyByArea.isEmpty() || server == null) return;
+
+        server.execute(() -> {
+            for (var areaEntry : dirtyByArea.entrySet()) {
+                String areaKey = areaEntry.getKey();
+                List<Map.Entry<BlockPos, ServerWorld>> positions = areaEntry.getValue();
+                boolean isWarehouse = areaKey.startsWith("W:");
+                int areaId = Integer.parseInt(areaKey.substring(2));
+
+                for (var posEntry : positions) {
+                    BlockPos pos = posEntry.getKey();
+                    ServerWorld world = posEntry.getValue();
+                    String areaType = isWarehouse ? "warehouse" : "staging_area";
+
+                    // 1. 扫描该箱子获取新物品集合（含潜影盒）
+                    Set<String> newItems = scanSingleContainerItems(world, pos);
+
+                    // 2. 查询该箱子在 container_inventory 中的旧记录
+                    Set<String> oldItems = getContainerItemsAt(areaId, areaType, pos);
+
+                    // 3. 求差集：删除消失的、插入新出现的
+                    Set<String> toDelete = new HashSet<>(oldItems);
+                    toDelete.removeAll(newItems);
+                    Set<String> toInsert = new HashSet<>(newItems);
+                    toInsert.removeAll(oldItems);
+
+                    for (String itemId : toDelete) {
+                        try {
+                            database.executeUpdate(
+                                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=? AND item_id=?",
+                                areaId, areaType, pos.getX(), pos.getY(), pos.getZ(), itemId);
+                        } catch (java.sql.SQLException e) {
+                            SyncMaterial.LOGGER.error("[StagingArea] 增量扫描删除失败", e);
+                        }
+                    }
+                    for (String itemId : toInsert) {
+                        try {
+                            database.executeUpdate(
+                                "INSERT OR IGNORE INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (?, ?, ?, ?, ?, ?)",
+                                areaId, areaType, pos.getX(), pos.getY(), pos.getZ(), itemId);
+                        } catch (java.sql.SQLException e) {
+                            SyncMaterial.LOGGER.error("[StagingArea] 增量扫描插入失败", e);
+                        }
+                    }
+                }
+
+                // 4. 重新计算该区域的总数（warehouse_inventory / staging_area_inventory）
+                if (isWarehouse) {
+                    Map<String, Integer> result = scanWarehouseContents(areaId);
+                    if (result != null) updateWarehouseInventory(areaId, result);
+                } else {
                     Map<String, Integer> result = scanAreaContents(areaId);
-                    if (result != null) {
-                        updateStagingAreaInventory(areaId, result);
-                        updateContainerInventoryForArea(areaId, "staging_area");
+                    if (result != null) updateStagingAreaInventory(areaId, result);
+                }
+            }
+
+            // 推送更新（含冷却）
+            pushDirtyUpdateWithCooldown();
+        });
+    }
+
+    /**
+     * 扫描单个容器位置的物品集合（含潜影盒），返回 item_id 集合
+     */
+    private Set<String> scanSingleContainerItems(ServerWorld world, BlockPos pos) {
+        Set<String> items = new HashSet<>();
+        BlockEntity be = world.getBlockEntity(pos);
+        if (be instanceof Inventory inventory) {
+            for (int i = 0; i < inventory.size(); i++) {
+                var stack = inventory.getStack(i);
+                if (stack.isEmpty()) continue;
+                items.add(stack.getItem().toString());
+
+                // 潜影盒内容物
+                if (stack.getItem() instanceof net.minecraft.item.BlockItem blockItem &&
+                    blockItem.getBlock() instanceof net.minecraft.block.ShulkerBoxBlock) {
+                    var container = stack.get(net.minecraft.component.DataComponentTypes.CONTAINER);
+                    if (container != null) {
+                        for (var stored : container.streamNonEmpty().toList()) {
+                            if (!stored.isEmpty()) {
+                                items.add(stored.getItem().toString());
+                            }
+                        }
                     }
                 }
-                // 仓库：全量重扫 warehouse_inventory + 更新 container_inventory
-                for (int warehouseId : dirtyWarehouseIds) {
-                    Map<String, Integer> result = scanWarehouseContents(warehouseId);
-                    if (result != null) {
-                        updateWarehouseInventory(warehouseId, result);
-                        updateContainerInventoryForArea(warehouseId, "warehouse");
-                    }
-                }
-                // 推送更新（含冷却）
-                pushDirtyUpdateWithCooldown();
-            });
+            }
         }
+        return items;
+    }
+
+    /**
+     * 查询指定位置在 container_inventory 中的现有记录
+     */
+    private Set<String> getContainerItemsAt(int areaId, String areaType, BlockPos pos) {
+        Set<String> items = new HashSet<>();
+        try (var rs = database.executeQuery(
+                "SELECT item_id FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                areaId, areaType, pos.getX(), pos.getY(), pos.getZ())) {
+            while (rs.next()) {
+                items.add(rs.getString("item_id"));
+            }
+        } catch (java.sql.SQLException e) {
+            SyncMaterial.LOGGER.error("[StagingArea] 查询容器记录失败", e);
+        }
+        return items;
     }
 
     /**
@@ -994,5 +1077,46 @@ public class StagingAreaManager {
     public static List<StagingAreaConfigResponseS2CPacket.AreaInfo> buildAreaInfos(List<StagingArea> areas) {
         return areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
             a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world())).toList();
+    }
+
+    // ========== Phase 5: 容器数据查询 ==========
+
+    /**
+     * 查询指定仓库集合的 container_inventory，返回容器坐标+物品种类列表
+     */
+    public List<net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket.ContainerEntry>
+            getContainerEntriesForWarehouses(Set<Integer> warehouseIds) {
+        if (warehouseIds.isEmpty()) return List.of();
+
+        // 按 (pos_x, pos_y, pos_z) 聚合物品种类
+        Map<String, List<String>> posToItems = new HashMap<>();
+
+        for (int warehouseId : warehouseIds) {
+            try (var rs = database.executeQuery(
+                    "SELECT pos_x, pos_y, pos_z, item_id FROM container_inventory WHERE area_id = ? AND area_type = 'warehouse'",
+                    warehouseId)) {
+                while (rs.next()) {
+                    int px = rs.getInt("pos_x");
+                    int py = rs.getInt("pos_y");
+                    int pz = rs.getInt("pos_z");
+                    String itemId = rs.getString("item_id");
+                    String posKey = px + "," + py + "," + pz;
+                    posToItems.computeIfAbsent(posKey, k -> new ArrayList<>()).add(itemId);
+                }
+            } catch (java.sql.SQLException e) {
+                SyncMaterial.LOGGER.error("[StagingArea] 查询容器数据失败: warehouseId={}", warehouseId, e);
+            }
+        }
+
+        List<net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket.ContainerEntry> result = new ArrayList<>();
+        for (var entry : posToItems.entrySet()) {
+            String[] parts = entry.getKey().split(",");
+            int px = Integer.parseInt(parts[0]);
+            int py = Integer.parseInt(parts[1]);
+            int pz = Integer.parseInt(parts[2]);
+            result.add(new net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket.ContainerEntry(
+                    px, py, pz, entry.getValue()));
+        }
+        return result;
     }
 }
