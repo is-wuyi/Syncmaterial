@@ -147,7 +147,10 @@ public class CollaborationManager {
             SyncMaterial.LOGGER.debug("getCollaborationStatus: material={}, total={}, staging={}, warehouse={}, participants={}, collected={}",
                 materialId, totalCount, stagingOnlyCount, warehouseCount, participants.size(), collected);
 
-            return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingOnlyCount, warehouseCount, participants);
+            // 构建数据新鲜度列表
+            List<CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessInfo = buildFreshnessInfo(schematicId);
+
+            return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingOnlyCount, warehouseCount, participants, freshnessInfo);
 
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("获取协作状态失败", e);
@@ -199,5 +202,37 @@ public class CollaborationManager {
             SyncMaterial.LOGGER.error("获取参与者列表失败", e);
         }
         return participants;
+    }
+
+    /**
+     * 构建数据新鲜度列表
+     * 检查该原理图引用的所有备货区和仓库的区块是否都已扫描
+     */
+    private List<CollaborationStatusS2CPacket.AreaFreshnessInfo> buildFreshnessInfo(String schematicId) {
+        List<CollaborationStatusS2CPacket.AreaFreshnessInfo> result = new ArrayList<>();
+
+        // 检查备货区
+        var stagingAreas = stagingAreaManager.getStagingAreas(schematicId);
+        for (var area : stagingAreas) {
+            boolean fullyScanned = stagingAreaManager.isAreaFullyScanned(
+                area.id(), area.world(), area.x1(), area.y1(), area.z1(), area.x2(), area.y2(), area.z2());
+            if (!fullyScanned) {
+                result.add(new CollaborationStatusS2CPacket.AreaFreshnessInfo(
+                    "staging_area", area.id(), area.name(), "部分区块未加载"));
+            }
+        }
+
+        // 检查仓库
+        var warehouses = stagingAreaManager.getWarehousesForSchematic(schematicId);
+        for (var wh : warehouses) {
+            boolean fullyScanned = stagingAreaManager.isAreaFullyScanned(
+                wh.id(), wh.world(), wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
+            if (!fullyScanned) {
+                result.add(new CollaborationStatusS2CPacket.AreaFreshnessInfo(
+                    "warehouse", wh.id(), wh.name(), "部分区块未加载"));
+            }
+        }
+
+        return result;
     }
 }

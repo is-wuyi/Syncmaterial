@@ -13,7 +13,8 @@ public record CollaborationStatusS2CPacket(
         int totalCount,
         int stagingCount,
         int warehouseCount,
-        List<ParticipantInfo> participants
+        List<ParticipantInfo> participants,
+        List<AreaFreshnessInfo> freshnessInfo
 ) implements CustomPayload {
 
     public static final CustomPayload.Id<CollaborationStatusS2CPacket> ID = new CustomPayload.Id<>(ModPackets.COLLABORATION_STATUS);
@@ -24,6 +25,14 @@ public record CollaborationStatusS2CPacket(
             ParticipantInfo::new
     );
 
+    public static final PacketCodec<RegistryByteBuf, AreaFreshnessInfo> FRESHNESS_CODEC = PacketCodec.tuple(
+            PacketCodecs.STRING, AreaFreshnessInfo::areaType,
+            PacketCodecs.INTEGER, AreaFreshnessInfo::areaId,
+            PacketCodecs.STRING, AreaFreshnessInfo::areaName,
+            PacketCodecs.STRING, AreaFreshnessInfo::status,
+            AreaFreshnessInfo::new
+    );
+
     public static final PacketCodec<RegistryByteBuf, CollaborationStatusS2CPacket> CODEC = PacketCodec.tuple(
             PacketCodecs.STRING, CollaborationStatusS2CPacket::schematicId,
             PacketCodecs.INTEGER, CollaborationStatusS2CPacket::materialId,
@@ -31,6 +40,7 @@ public record CollaborationStatusS2CPacket(
             PacketCodecs.INTEGER, CollaborationStatusS2CPacket::stagingCount,
             PacketCodecs.INTEGER, CollaborationStatusS2CPacket::warehouseCount,
             PARTICIPANT_CODEC.collect(PacketCodecs.toList()), CollaborationStatusS2CPacket::participants,
+            FRESHNESS_CODEC.collect(PacketCodecs.toList()), CollaborationStatusS2CPacket::freshnessInfo,
             CollaborationStatusS2CPacket::new
     );
 
@@ -40,4 +50,5 @@ public record CollaborationStatusS2CPacket(
     }
 
     public record ParticipantInfo(String playerName, int count) {}
+    public record AreaFreshnessInfo(String areaType, int areaId, String areaName, String status) {}
 }
