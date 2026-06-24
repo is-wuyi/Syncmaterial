@@ -85,6 +85,23 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
                 }
             }
 
+            // Bundle 内容物检测（1.21+ Bundle 是独立格子）
+            if (!isNeeded) {
+                var bundleContents = stack.get(DataComponentTypes.BUNDLE_CONTENTS);
+                if (bundleContents != null) {
+                    for (var stored : bundleContents.stream().toList()) {
+                        String storedId = stored.getItem().toString();
+                        int storedMissing = missingCounts.getOrDefault(storedId, 0);
+                        int storedHighlighted = highlightedCounts.getOrDefault(storedId, 0);
+                        if (neededItemIds.contains(storedId) && storedHighlighted < storedMissing) {
+                            isNeeded = true;
+                            highlightedCounts.merge(storedId, stored.getCount(), Integer::sum);
+                            break;
+                        }
+                    }
+                }
+            }
+
             if (isNeeded) {
                 // 画高亮边框（黄色，参考 Litematica 风格）
                 int slotX = slot.x;
