@@ -784,22 +784,6 @@ public class StagingAreaManager {
     }
 
     /**
-     * 标记区域覆盖的所有区块为已扫描（启动时调用）
-     */
-    public void markAllChunksScanned(int areaId, int x1, int y1, int z1, int x2, int y2, int z2) {
-        int minChunkX = Math.min(x1, x2) >> 4;
-        int maxChunkX = Math.max(x1, x2) >> 4;
-        int minChunkZ = Math.min(z1, z2) >> 4;
-        int maxChunkZ = Math.max(z1, z2) >> 4;
-        Set<Long> scanned = areaScannedChunks.computeIfAbsent(String.valueOf(areaId), k -> ConcurrentHashMap.newKeySet());
-        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
-            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
-                scanned.add(((long) cx << 32) | (cz & 0xFFFFFFFFL));
-            }
-        }
-    }
-
-    /**
      * 数据新鲜度：检查区域的所有区块是否都已扫描
      */
     public boolean isAreaFullyScanned(int areaId, String worldId, int x1, int y1, int z1, int x2, int y2, int z2) {

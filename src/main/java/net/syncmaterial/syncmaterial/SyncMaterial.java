@@ -174,20 +174,13 @@ public class SyncMaterial implements ModInitializer {
                                     var areas = sharedStagingAreaManager.getStagingAreas(schematicId);
                                     for (var area : areas) {
                                         sharedStagingAreaManager.rescanStagingArea(area.id());
-                                        // 标记已扫描区块（启动时数据已持久化，视为已扫描）
-                                        sharedStagingAreaManager.markAllChunksScanned(
-                                            area.id(), area.x1(), area.y1(), area.z1(), area.x2(), area.y2(), area.z2());
                                         count++;
                                     }
                                 }
                                 LOGGER.info("启动时全量扫描完成: {} 个备货区", count);
 
-                                // Phase 5: 加载全局仓库 + 标记已扫描区块
+                                // Phase 5: 加载全局仓库（不标记区块为已扫描，等区块实际加载时由 CHUNK_LOAD 处理）
                                 sharedStagingAreaManager.loadWarehousesFromDb();
-                                for (var wh : sharedStagingAreaManager.getAllWarehouses()) {
-                                    sharedStagingAreaManager.markAllChunksScanned(
-                                        wh.id(), wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
-                                }
                                 LOGGER.info("启动时全局仓库加载完成: {} 个仓库", sharedStagingAreaManager.getAllWarehouses().size());
                             }
                         });
