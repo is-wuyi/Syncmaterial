@@ -94,7 +94,7 @@
   "syncmaterial.gui.hint.select_area": "准星选区模式",
   "syncmaterial.gui.label.area_entry_display": "%s  [%d,%d,%d]~[%d,%d,%d]",
   "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]",
-  "syncmaterial.gui.button.staging_area_config": "备货区配置",
+  "syncmaterial.gui.button.staging_area_config": "备货区与仓库管理",
   "syncmaterial.gui.title.area_editor_normal": "备货区与仓库管理",
   "syncmaterial.gui.title.warehouse_manager": "仓库管理",
   "syncmaterial.gui.title.area_editor_sub_region": "子区域编辑",

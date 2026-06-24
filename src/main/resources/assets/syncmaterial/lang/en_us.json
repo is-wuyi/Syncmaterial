@@ -94,7 +94,7 @@
   "syncmaterial.gui.hint.select_area": "Crosshair selection mode",
   "syncmaterial.gui.label.area_entry_display": "%s  [%d,%d,%d]~[%d,%d,%d]",
   "syncmaterial.gui.label.area_coords": "§7[%d,%d,%d] ~ [%d,%d,%d]",
-  "syncmaterial.gui.button.staging_area_config": "Staging Area Config",
+  "syncmaterial.gui.button.staging_area_config": "Staging & Warehouses",
   "syncmaterial.gui.title.area_editor_normal": "Staging Areas & Warehouses",
   "syncmaterial.gui.title.warehouse_manager": "Warehouse Manager",
   "syncmaterial.gui.title.area_editor_sub_region": "Sub-Region Editor",
