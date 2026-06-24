@@ -31,6 +31,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private boolean allowSelfClaim;
     private boolean filterMyMaterials = false;
     private static boolean pickupMode = false; // Phase 5: 取货模式（纯客户端状态）
+    private static java.util.Set<String> pickupModeNeededItemIds = java.util.Collections.emptySet(); // 取货模式需要的物品 ID
     private List<Integer> selectedMaterialIds = new ArrayList<>();
     private static boolean stagingRenderEnabled = true;
 
@@ -102,6 +103,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public SyncMaterialList getMaterialList() { return this.materialList; }
     public boolean isOwner() { return isOwner; }
     public boolean isPickupMode() { return pickupMode; }
+    public static boolean isPickupModeStatic() { return pickupMode; }
+    public static java.util.Set<String> getPickupModeNeededItemIds() { return pickupModeNeededItemIds; }
     public boolean isMainOwner() { return isMainOwner; }
     public String getOwnerName() { return ownerName; }
     public List<String> getDeputyOwners() { return deputyOwners; }
@@ -201,7 +204,25 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
         this.addButton(button, (btn, mouseButton) -> {
             pickupMode = !pickupMode;
-            // TODO: 发送 WarehouseContainerRequestC2SPacket 订阅/取消订阅
+            // 订阅/取消订阅仓库容器数据
+            String schematicId = this.materialList.getSchematicId();
+            if (schematicId != null && !schematicId.isEmpty()) {
+                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, pickupMode));
+            }
+            if (!pickupMode) {
+                // 退出取货模式时清空容器缓存
+                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearWarehouseContainers();
+                pickupModeNeededItemIds = java.util.Collections.emptySet();
+            } else {
+                // 进入取货模式时更新需要的物品 ID 列表
+                java.util.Set<String> needed = new java.util.HashSet<>();
+                for (var entry : this.materialList.getMaterialsAll()) {
+                    if (entry.getCountMissing() > 0) {
+                        needed.add(entry.getStack().getItem().toString());
+                    }
+                }
+                pickupModeNeededItemIds = needed;
+            }
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
                     StringUtils.translate(pickupMode ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
             // 刷新列表显示

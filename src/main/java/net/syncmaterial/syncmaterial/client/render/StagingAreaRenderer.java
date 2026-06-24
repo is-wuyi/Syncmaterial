@@ -20,6 +20,8 @@ import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
 
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
+import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
+import net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.syncmaterial.syncmaterial.selection.Box;
 
@@ -30,6 +32,10 @@ public class StagingAreaRenderer implements IRenderer
     private final Map<String, AreaSelection> selections = new ConcurrentHashMap<>();
     private final Map<String, Boolean> renderEnabled = new ConcurrentHashMap<>();
     private final Map<String, String> schematicNames = new ConcurrentHashMap<>();
+    // Phase 5: 仓库容器缓存（从服务端推送的 container_inventory 数据）
+    private final java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> warehouseContainers =
+            Collections.synchronizedList(new java.util.ArrayList<>());
+    private volatile String warehouseContainersWorld = "";
     // 编辑器打开时，标记当前选中的 box 名称（仅用于视觉高亮）
     @Nullable private String highlightedSchematicId;
     @Nullable private String highlightedBoxName;
@@ -102,6 +108,29 @@ public class StagingAreaRenderer implements IRenderer
         return this.schematicNames.get(schematicId);
     }
 
+    // Phase 5: 仓库容器缓存管理
+
+    /**
+     * 更新仓库容器数据（从 WarehouseContainerResponseS2CPacket 接收）
+     */
+    public void updateWarehouseContainers(java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers, String worldId)
+    {
+        this.warehouseContainers.clear();
+        this.warehouseContainers.addAll(containers);
+        this.warehouseContainersWorld = worldId != null ? worldId : "";
+    }
+
+    public void clearWarehouseContainers()
+    {
+        this.warehouseContainers.clear();
+        this.warehouseContainersWorld = "";
+    }
+
+    public java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> getWarehouseContainers()
+    {
+        return this.warehouseContainers;
+    }
+
     @Override
     public void onRenderWorldLastAdvanced(Framebuffer fb, Matrix4f posMatrix, Matrix4f projMatrix,
             Frustum frustum, Camera camera, BufferBuilderStorage buffers, Profiler profiler)
@@ -164,6 +193,38 @@ public class StagingAreaRenderer implements IRenderer
         }
 
         StagingAreaSelector.getInstance().onRenderWorld(this, posMatrix);
+
+        // Phase 5: 仓库容器蓝色线框高亮
+        if (!this.warehouseContainers.isEmpty() && mc.player != null) {
+            String playerWorldId = mc.player.getWorld().getRegistryKey().getValue().toString();
+            // 跨世界过滤：只渲染玩家所在世界的仓库容器
+            if (playerWorldId.equals(this.warehouseContainersWorld)) {
+                // 取货模式下只显示包含需要材料的箱子
+                boolean isPickupMode = GuiMaterialList.isPickupModeStatic();
+
+                java.util.Set<String> neededItemIds = null;
+                if (isPickupMode) {
+                    neededItemIds = GuiMaterialList.getPickupModeNeededItemIds();
+                }
+
+                Color4f containerColor = new Color4f(0.2f, 0.6f, 1.0f, 1.0f); // 蓝色
+                for (WarehouseContainerResponseS2CPacket.ContainerEntry container : this.warehouseContainers) {
+                    BlockPos pos = new BlockPos(container.posX(), container.posY(), container.posZ());
+                    // 取货模式：过滤不需要的箱子
+                    if (isPickupMode && neededItemIds != null) {
+                        boolean hasNeeded = false;
+                        for (String itemId : container.itemIds()) {
+                            if (neededItemIds.contains(itemId)) {
+                                hasNeeded = true;
+                                break;
+                            }
+                        }
+                        if (!hasNeeded) continue;
+                    }
+                    RenderUtils.renderBlockOutline(pos, 0.0f, 2.0f, containerColor);
+                }
+            }
+        }
 
         profiler.pop();
     }
