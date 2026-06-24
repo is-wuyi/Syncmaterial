@@ -6,6 +6,7 @@ import org.lwjgl.glfw.GLFW;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
@@ -21,6 +22,13 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 public class StagingAreaSelector {
     private static final StagingAreaSelector INSTANCE = new StagingAreaSelector();
 
+    /**
+     * 准星选区完成回调接口（解耦 StagingAreaSelector 和具体 GUI 类）
+     */
+    public interface SelectionCallback {
+        void onSelectionConfirmed(@Nullable String boxName, @Nullable BlockPos pos1, @Nullable BlockPos pos2);
+    }
+
     private static final Color4f COLOR_POS1 = new Color4f(1.0f, 0.0f, 0.0f, 1.0f);
     private static final Color4f COLOR_POS2 = new Color4f(0.0f, 0.0f, 1.0f, 1.0f);
     private static final Color4f COLOR_LOOKING = new Color4f(1.0f, 1.0f, 0.0f, 0.5f);
@@ -30,7 +38,8 @@ public class StagingAreaSelector {
     @Nullable private BlockPos pos1 = null;
     @Nullable private BlockPos pos2 = null;
     @Nullable private BlockPos posLookingAt = null;
-    @Nullable private GuiStagingAreaEditorNormal returnScreen = null;
+    @Nullable private SelectionCallback callback = null;
+    @Nullable private Screen returnScreen = null;
     @Nullable private String targetBoxName = null;
     private boolean leftClicked = false;
     private boolean rightClicked = false;
@@ -55,9 +64,10 @@ public class StagingAreaSelector {
         return this.pos2;
     }
 
-    public void start(GuiStagingAreaEditorNormal returnScreen, @Nullable String boxName,
-                      @Nullable BlockPos initialPos1, @Nullable BlockPos initialPos2) {
+    public void start(SelectionCallback callback, Screen returnScreen,
+                      @Nullable String boxName, @Nullable BlockPos initialPos1, @Nullable BlockPos initialPos2) {
         this.active = true;
+        this.callback = callback;
         this.returnScreen = returnScreen;
         this.targetBoxName = boxName;
         this.pos1 = initialPos1;
@@ -88,8 +98,8 @@ public class StagingAreaSelector {
         SyncMaterial.LOGGER.info("[StagingAreaSelector] 确认选区: pos1={}, pos2={}", this.pos1, this.pos2);
         this.active = false;
 
-        if (this.returnScreen != null) {
-            this.returnScreen.onSelectionConfirmed(this.targetBoxName, this.pos1, this.pos2);
+        if (this.callback != null) {
+            this.callback.onSelectionConfirmed(this.targetBoxName, this.pos1, this.pos2);
         }
 
         this.returnToGui();

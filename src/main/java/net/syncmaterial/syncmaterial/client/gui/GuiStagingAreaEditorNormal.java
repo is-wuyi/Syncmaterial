@@ -43,7 +43,8 @@ import fi.dy.masa.litematica.util.PositionUtils;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
 public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, WidgetStagingAreaEntry, WidgetListStagingAreas>
-                                          implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui
+                                          implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui,
+                                                     StagingAreaSelector.SelectionCallback
 {
     @Nullable private static GuiStagingAreaEditorNormal currentEditor;
 
@@ -684,7 +685,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                     BlockPos pos1 = selectedBox != null ? selectedBox.getPos1() : null;
                     BlockPos pos2 = selectedBox != null ? selectedBox.getPos2() : null;
 
-                    StagingAreaSelector.getInstance().start(this.parent, boxName, pos1, pos2);
+                    StagingAreaSelector.getInstance().start(this.parent, this.parent, boxName, pos1, pos2);
                     return;
                 }
 
