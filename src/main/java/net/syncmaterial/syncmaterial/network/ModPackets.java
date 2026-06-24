@@ -34,4 +34,8 @@ public class ModPackets {
 
     // Material list subscription
     public static final Identifier MATERIAL_LIST_CLOSE_C2S = Identifier.of("syncmaterial", "material_list_close");
+
+    // Phase 5: 仓库容器数据（取货模式订阅）
+    public static final Identifier WAREHOUSE_CONTAINER_REQUEST = Identifier.of("syncmaterial", "warehouse_container_request");
+    public static final Identifier WAREHOUSE_CONTAINER_RESPONSE = Identifier.of("syncmaterial", "warehouse_container_response");
 }

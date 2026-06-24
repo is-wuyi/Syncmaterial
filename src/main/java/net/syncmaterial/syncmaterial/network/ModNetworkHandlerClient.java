@@ -115,5 +115,13 @@ public class ModNetworkHandlerClient {
                 }
             });
         });
+
+        // Phase 5: 仓库容器数据响应
+        ClientPlayNetworking.registerGlobalReceiver(WarehouseContainerResponseS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                // TODO P5-9: 更新客户端容器缓存 + 触发渲染
+                net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.info("[Phase5] 收到仓库容器数据: {} 个箱子", payload.containers().size());
+            });
+        });
     }
 }

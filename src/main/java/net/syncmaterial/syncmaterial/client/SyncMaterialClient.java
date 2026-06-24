@@ -111,7 +111,7 @@ public class SyncMaterialClient implements ClientModInitializer {
     }
 
     public static void onCollaborationStatus(CollaborationStatusS2CPacket status) {
-        LOGGER.info("收到协作状态更新: 材料 {} (总量: {}, 备货区: {})", status.materialId(), status.totalCount(), status.stagingCount());
+        LOGGER.info("收到协作状态更新: 材料 {} (总量: {}, 备货区: {}, 仓库: {})", status.materialId(), status.totalCount(), status.stagingCount(), status.warehouseCount());
         if (activeMaterialList != null) {
             activeMaterialList.onCollaborationStatus(status);
         }

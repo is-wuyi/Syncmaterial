@@ -10,9 +10,8 @@ import net.syncmaterial.syncmaterial.server.PlacementsUtil;
 import net.syncmaterial.syncmaterial.server.StagingAreaManager;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ModNetworkHandler {
     private static DatabaseQueryService queryService;
@@ -55,6 +54,8 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playC2S().register(KickFromMaterialC2SPacket.ID, KickFromMaterialC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(PlayerListRequestC2SPacket.ID, PlayerListRequestC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(MaterialListCloseC2SPacket.ID, MaterialListCloseC2SPacket.CODEC);
+        // Phase 5
+        PayloadTypeRegistry.playC2S().register(WarehouseContainerRequestC2SPacket.ID, WarehouseContainerRequestC2SPacket.CODEC);
 
         // S2C (服务端到客户端)
         PayloadTypeRegistry.playS2C().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
@@ -66,6 +67,8 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playS2C().register(BatchAssignResponseS2CPacket.ID, BatchAssignResponseS2CPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(KickFromMaterialResponseS2CPacket.ID, KickFromMaterialResponseS2CPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(PlayerListResponseS2CPacket.ID, PlayerListResponseS2CPacket.CODEC);
+        // Phase 5
+        PayloadTypeRegistry.playS2C().register(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
     }
 
     private static boolean validateSchematicId(String schematicId) {
@@ -132,7 +135,7 @@ public class ModNetworkHandler {
                         var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
                         if (status != null) {
                             statuses.add(status);
-                            int collected = status.stagingCount();
+                            int collected = status.stagingCount() + status.warehouseCount();
                             for (var p : status.participants()) {
                                 collected += p.count();
                             }
@@ -283,6 +286,54 @@ public class ModNetworkHandler {
 
         // Phase 4 handlers (owner action, batch assign, kick, player list)
         Phase4Handler.registerPhase4Handlers();
+
+        // Phase 5: 取货模式容器数据订阅
+        ServerPlayNetworking.registerGlobalReceiver(WarehouseContainerRequestC2SPacket.ID, (payload, context) -> {
+            var player = context.player();
+            if (!validatePlayer(player)) return;
+            context.server().execute(() -> {
+                handleWarehouseContainerRequest(payload, player);
+            });
+        });
+    }
+
+    // Phase 5: 取货模式订阅管理
+    private static final Map<net.minecraft.server.network.ServerPlayerEntity, Map<String, Set<Integer>>> playerSchematicWarehouses = new ConcurrentHashMap<>();
+
+    private static void handleWarehouseContainerRequest(WarehouseContainerRequestC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player) {
+        String schematicId = payload.schematicId();
+        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+        if (manager == null) return;
+
+        if (payload.subscribe()) {
+            // 订阅：获取该原理图引用的仓库 ID 集合
+            var warehouses = manager.getWarehousesForSchematic(schematicId);
+            Set<Integer> warehouseIds = warehouses.stream().map(StagingAreaManager.Warehouse::id).collect(java.util.stream.Collectors.toSet());
+
+            playerSchematicWarehouses.computeIfAbsent(player, k -> new ConcurrentHashMap<>()).put(schematicId, warehouseIds);
+
+            // 计算该玩家所有活跃原理图的仓库并集
+            Set<Integer> allWarehouseIds = new HashSet<>();
+            for (var entry : playerSchematicWarehouses.get(player).values()) {
+                allWarehouseIds.addAll(entry);
+            }
+
+            // 查询所有仓库的容器数据
+            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers = new ArrayList<>();
+            // TODO: 从 container_inventory 表查询并构建 ContainerEntry 列表
+            ServerPlayNetworking.send(player, new WarehouseContainerResponseS2CPacket(containers));
+            SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 订阅取货模式: 原理图 {}, 仓库 {}", player.getName().getString(), schematicId, warehouseIds);
+        } else {
+            // 取消订阅
+            Map<String, Set<Integer>> schematicMap = playerSchematicWarehouses.get(player);
+            if (schematicMap != null) {
+                schematicMap.remove(schematicId);
+                if (schematicMap.isEmpty()) {
+                    playerSchematicWarehouses.remove(player);
+                }
+            }
+            SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 取消订阅取货模式: 原理图 {}", player.getName().getString(), schematicId);
+        }
     }
 
     private static void handleStagingAreaConfig(StagingAreaConfigC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
@@ -351,6 +402,50 @@ public class ModNetworkHandler {
                     }
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "已清除所有备货区", List.of()));
                     manager.broadcastUpdate(schematicId);
+                }
+                // Phase 5: 仓库管理操作
+                case "LIST_WAREHOUSES" -> {
+                    var warehouses = manager.getAllWarehouses();
+                    var areaInfos = warehouses.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "ok", areaInfos));
+                }
+                case "ADD_WAREHOUSE" -> {
+                    var data = payload.areaData().orElseThrow();
+                    int id = manager.addWarehouse(data.name(), data.world().orElse("minecraft:overworld"),
+                        data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", id > 0, id > 0 ? "仓库已创建" : "创建失败", List.of()));
+                }
+                case "UPDATE_WAREHOUSE" -> {
+                    var data = payload.areaData().orElseThrow();
+                    manager.updateWarehouse(payload.areaId(), data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "仓库已更新", List.of()));
+                }
+                case "DELETE_WAREHOUSE" -> {
+                    manager.deleteWarehouse(payload.areaId());
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "仓库已删除", List.of()));
+                    // 通知所有引用该仓库的原理图客户端
+                    // TODO: 广播仓库删除通知
+                }
+                case "ADD_WAREHOUSE_REF" -> {
+                    manager.addWarehouseReference(schematicId, payload.areaId());
+                    var refs = manager.getWarehousesForSchematic(schematicId);
+                    var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "已添加仓库引用", areaInfos));
+                }
+                case "REMOVE_WAREHOUSE_REF" -> {
+                    manager.removeWarehouseReference(schematicId, payload.areaId());
+                    var refs = manager.getWarehousesForSchematic(schematicId);
+                    var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "已移除仓库引用", areaInfos));
+                }
+                case "LIST_WAREHOUSE_REFS" -> {
+                    var refs = manager.getWarehousesForSchematic(schematicId);
+                    var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                        w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "ok", areaInfos));
                 }
                 default -> {
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", false, "未知操作: " + action, List.of()));

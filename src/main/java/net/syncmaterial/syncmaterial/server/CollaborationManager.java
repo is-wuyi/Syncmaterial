@@ -120,6 +120,8 @@ public class CollaborationManager {
             }
 
             int stagingCount = stagingAreaManager.getStagingCountForMaterial(schematicId, itemId);
+            int stagingOnlyCount = stagingAreaManager.getStagingOnlyCountForMaterial(schematicId, itemId);
+            int warehouseCount = stagingAreaManager.getWarehouseCountForMaterial(schematicId, itemId);
 
             List<CollaborationStatusS2CPacket.ParticipantInfo> participants = new ArrayList<>();
             try (var rs = database.executeQuery(
@@ -142,10 +144,10 @@ public class CollaborationManager {
             for (var p : participants) {
                 collected += p.count();
             }
-            SyncMaterial.LOGGER.debug("getCollaborationStatus: material={}, total={}, staging={}, participants={}, collected={}",
-                materialId, totalCount, stagingCount, participants.size(), collected);
+            SyncMaterial.LOGGER.debug("getCollaborationStatus: material={}, total={}, staging={}, warehouse={}, participants={}, collected={}",
+                materialId, totalCount, stagingOnlyCount, warehouseCount, participants.size(), collected);
 
-            return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingCount, participants);
+            return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingOnlyCount, warehouseCount, participants);
 
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("获取协作状态失败", e);

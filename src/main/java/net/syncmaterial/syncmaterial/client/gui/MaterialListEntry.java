@@ -16,6 +16,7 @@ public class MaterialListEntry
     private final int countMismatched;
     private int countAvailable;
     private int stagingCount;
+    private int warehouseCount;
     private int otherPlayersCount;
     private List<ParticipantData> participants = new ArrayList<>();
 
@@ -69,6 +70,9 @@ public class MaterialListEntry
 
     public int getStagingCount() { return stagingCount; }
     public void setStagingCount(int stagingCount) { this.stagingCount = stagingCount; }
+
+    public int getWarehouseCount() { return warehouseCount; }
+    public void setWarehouseCount(int warehouseCount) { this.warehouseCount = warehouseCount; }
 
     public int getOtherPlayersCount() { return otherPlayersCount; }
     public void setOtherPlayersCount(int otherPlayersCount) { this.otherPlayersCount = otherPlayersCount; }

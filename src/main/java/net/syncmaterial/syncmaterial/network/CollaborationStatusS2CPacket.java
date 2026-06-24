@@ -12,6 +12,7 @@ public record CollaborationStatusS2CPacket(
         int materialId,
         int totalCount,
         int stagingCount,
+        int warehouseCount,
         List<ParticipantInfo> participants
 ) implements CustomPayload {
 
@@ -28,6 +29,7 @@ public record CollaborationStatusS2CPacket(
             PacketCodecs.INTEGER, CollaborationStatusS2CPacket::materialId,
             PacketCodecs.INTEGER, CollaborationStatusS2CPacket::totalCount,
             PacketCodecs.INTEGER, CollaborationStatusS2CPacket::stagingCount,
+            PacketCodecs.INTEGER, CollaborationStatusS2CPacket::warehouseCount,
             PARTICIPANT_CODEC.collect(PacketCodecs.toList()), CollaborationStatusS2CPacket::participants,
             CollaborationStatusS2CPacket::new
     );

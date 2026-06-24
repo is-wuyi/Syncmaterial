@@ -104,22 +104,25 @@ public class SyncMaterialList extends MaterialListBase {
                     }
                 }
                 int otherPlayersCount = allPlayersCount - myCount;
-                int realMissing = Math.max(0, status.totalCount() - status.stagingCount() - allPlayersCount);
+                int realMissing = Math.max(0, status.totalCount() - status.stagingCount() - status.warehouseCount() - allPlayersCount);
 
                 entry.setCountMissing(realMissing);
                 entry.setCountAvailable(myCount);
                 entry.setStagingCount(status.stagingCount());
+                entry.setWarehouseCount(status.warehouseCount());
                 entry.setOtherPlayersCount(otherPlayersCount);
                 entry.setParticipants(status.participants().stream()
                     .map(p -> new MaterialListEntry.ParticipantData(p.playerName(), p.count()))
                     .toList());
             } else {
-                // 无人协作，缺失 = 总数 - 备货区（可能备货区有物品但无人认领）
+                // 无人协作，缺失 = 总数 - 备货区 - 仓库（可能备货区/仓库有物品但无人认领）
                 int stagingCount = status != null ? status.stagingCount() : 0;
-                int realMissing = Math.max(0, entry.getCountTotal() - stagingCount);
+                int warehouseCount = status != null ? status.warehouseCount() : 0;
+                int realMissing = Math.max(0, entry.getCountTotal() - stagingCount - warehouseCount);
                 entry.setCountMissing(realMissing);
                 entry.setCountAvailable(0);
                 entry.setStagingCount(stagingCount);
+                entry.setWarehouseCount(warehouseCount);
                 entry.setOtherPlayersCount(0);
                 entry.setParticipants(java.util.Collections.emptyList());
             }
