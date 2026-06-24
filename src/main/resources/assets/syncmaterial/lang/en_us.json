@@ -55,6 +55,7 @@
   "syncmaterial.gui.label.material_list.title.staging": "Staging",
   "syncmaterial.gui.label.material_list.title.claim": "Claim",
   "syncmaterial.gui.button.staging_wireframe": "Staging Wireframe: %s",
+  "syncmaterial.gui.button.pickup_mode": "Pickup Mode: %s",
   "syncmaterial.gui.button.hud_toggle": "HUD Display: %s",
   "syncmaterial.gui.label.show": "§aShown§r",
   "syncmaterial.gui.label.hide": "§cHidden§r",

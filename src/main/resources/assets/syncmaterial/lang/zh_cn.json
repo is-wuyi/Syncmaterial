@@ -55,6 +55,7 @@
   "syncmaterial.gui.label.material_list.title.staging": "备货区",
   "syncmaterial.gui.label.material_list.title.claim": "认领",
   "syncmaterial.gui.button.staging_wireframe": "备货区线框：%s",
+  "syncmaterial.gui.button.pickup_mode": "取货模式：%s",
   "syncmaterial.gui.button.hud_toggle": "HUD信息显示：%s",
   "syncmaterial.gui.label.show": "§a显示§r",
   "syncmaterial.gui.label.hide": "§c隐藏§r",

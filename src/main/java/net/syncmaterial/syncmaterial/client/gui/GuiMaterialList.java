@@ -30,6 +30,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private List<String> deputyOwners;
     private boolean allowSelfClaim;
     private boolean filterMyMaterials = false;
+    private static boolean pickupMode = false; // Phase 5: 取货模式（纯客户端状态）
     private List<Integer> selectedMaterialIds = new ArrayList<>();
     private static boolean stagingRenderEnabled = true;
 
@@ -135,6 +136,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         x -= this.createButtonToggleHud(x, 24) + gap;
         x -= this.createButtonRefresh(x, 24) + gap;
         x -= this.createButtonToggleStagingRender(x, 24) + gap;
+        x -= this.createButtonTogglePickupMode(x, 24) + gap;
         x -= this.createButtonStagingArea(x, 24) + gap;
         x -= this.createButtonFilterMyMaterials(x, 24) + gap;
         if (isOwner) {
@@ -187,6 +189,22 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             }
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
                     StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide")));
+        });
+        return button.getWidth();
+    }
+
+    // Phase 5: 取货模式切换按钮
+    private int createButtonTogglePickupMode(int x, int y) {
+        String label = StringUtils.translate("syncmaterial.gui.button.pickup_mode",
+                StringUtils.translate(pickupMode ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"));
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
+        this.addButton(button, (btn, mouseButton) -> {
+            pickupMode = !pickupMode;
+            // TODO: 发送 WarehouseContainerRequestC2SPacket 订阅/取消订阅
+            btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
+                    StringUtils.translate(pickupMode ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
+            // 刷新列表显示
+            this.getListWidget().refreshEntries();
         });
         return button.getWidth();
     }
