@@ -63,6 +63,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
     public int render(DrawContext drawContext, int xOffset, int yOffset, HudAlignment alignment) {
         MinecraftClient mc = MinecraftClient.getInstance();
         long currentTime = System.currentTimeMillis();
+        boolean isPickupMode = mc.currentScreen instanceof GuiMaterialList gml && gml.isPickupMode();
 
         List<MaterialListEntry> list;
 
@@ -96,9 +97,11 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         String shulkerBoxAbbr = StringUtils.translate("litematica.gui.label.material_list.abbr.shulker_box");
         int maxLines = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_MAX_LINES.getIntegerValue();
         int lineHeight = 16;
+        int warehouseLineHeight = 12; // 仓库小字行高
         int contentHeight = (Math.min(list.size(), maxLines) * lineHeight) + 14;
         int maxTextLength = 0;
         int maxCountLength = 0;
+        int maxWarehouseTextLength = 0;
         int bgColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue();
         int textColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_COLOR.getIntegerValue();
 
@@ -111,9 +114,15 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             if (count < 0) count = 0;
             String strCount = GuiBase.TXT_RED + MaterialListBase.getFormattedCountStringHud(count, entry.getStack().getMaxCount(), shulkerBoxAbbr) + GuiBase.TXT_RST;
             maxCountLength = Math.max(maxCountLength, font.getWidth(strCount));
+            // 计算仓库小字宽度
+            if (isPickupMode && entry.getWarehouseCount() > 0) {
+                String whText = StringUtils.translate("syncmaterial.gui.label.warehouse_has", entry.getWarehouseCount());
+                maxWarehouseTextLength = Math.max(maxWarehouseTextLength, font.getWidth(whText));
+                contentHeight += warehouseLineHeight;
+            }
         }
 
-        final int maxLineLength = maxTextLength + maxCountLength + 30;
+        final int maxLineLength = Math.max(maxTextLength + maxCountLength + 30, maxWarehouseTextLength + 20);
         double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
         int scaledWidth = GuiUtils.getScaledWindowWidth();
         int scaledHeight = GuiUtils.getScaledWindowHeight();
@@ -159,9 +168,15 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         for (int i = 0; i < size; ++i) {
             drawContext.drawItem(list.get(i).getStack(), x, y);
             y += lineHeight;
+            // 取货模式下仓库小字占位
+            if (isPickupMode && list.get(i).getWarehouseCount() > 0) {
+                y += warehouseLineHeight;
+            }
         }
 
-        String title = GuiBase.TXT_BOLD + fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.title.material_list") + GuiBase.TXT_RST;
+        // 标题：取货模式时显示"材料清单 · 取货模式"
+        String titleKey = isPickupMode ? "syncmaterial.gui.title.material_list_pickup" : "syncmaterial.gui.title.material_list";
+        String title = GuiBase.TXT_BOLD + fi.dy.masa.malilib.util.StringUtils.translate(titleKey) + GuiBase.TXT_RST;
         drawContext.drawText(font, title, posX + 2, posY + 2, textColor, false);
 
         x = posX + 18;
@@ -179,6 +194,13 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             drawContext.drawText(font, text, x, y, textColor, false);
             drawContext.drawText(font, strCount, cntPosX, y, textColor, false);
             y += lineHeight;
+
+            // 取货模式下显示仓库小字
+            if (isPickupMode && entry.getWarehouseCount() > 0) {
+                String whText = StringUtils.translate("syncmaterial.gui.label.warehouse_has", entry.getWarehouseCount());
+                drawContext.drawText(font, whText, x + 4, y, 0xFFAAAAAA, false);
+                y += warehouseLineHeight;
+            }
         }
 
         if (scaled) {

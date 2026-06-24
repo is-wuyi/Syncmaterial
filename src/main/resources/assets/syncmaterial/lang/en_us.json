@@ -1,5 +1,7 @@
 {
   "syncmaterial.gui.title.material_list": "Material List",
+  "syncmaterial.gui.title.material_list_pickup": "Material List · Pickup Mode",
+  "syncmaterial.gui.label.warehouse_has": "Warehouse: %d",
   "syncmaterial.gui.title.staging_area_editor": "Staging Area Config",
   "syncmaterial.gui.title.management": "Owner Management",
   "syncmaterial.gui.title.select_assign_player": "Select Player to Assign",
