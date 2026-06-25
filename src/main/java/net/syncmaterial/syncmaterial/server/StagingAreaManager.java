@@ -784,6 +784,21 @@ public class StagingAreaManager {
     }
 
     /**
+     * 启动扫描后标记区域所有区块为已扫描
+     */
+    public void markAreaChunksScanned(int areaId, int x1, int y1, int z1, int x2, int y2, int z2) {
+        int minChunkX = Math.min(x1, x2) >> 4;
+        int maxChunkX = Math.max(x1, x2) >> 4;
+        int minChunkZ = Math.min(z1, z2) >> 4;
+        int maxChunkZ = Math.max(z1, z2) >> 4;
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                markChunkScanned(areaId, ((long) cx << 32) | (cz & 0xFFFFFFFFL));
+            }
+        }
+    }
+
+    /**
      * 数据新鲜度：检查区域的所有区块是否都已扫描
      */
     public boolean isAreaFullyScanned(int areaId, String worldId, int x1, int y1, int z1, int x2, int y2, int z2) {
@@ -844,16 +859,18 @@ public class StagingAreaManager {
             }
         }
 
-        if (found) {
-            // 标记区块已扫描（用于数据新鲜度）
-            long chunkPos = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
-            if (areas != null) {
-                for (StagingArea area : areas) {
+        // 标记区块已扫描（仅标记与该区块相交的区域）
+        long chunkPos = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+        if (areas != null) {
+            for (StagingArea area : areas) {
+                if (chunkIntersectsArea(chunkX, chunkZ, area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
                     markChunkScanned(area.id, chunkPos);
                 }
             }
-            if (warehouses != null) {
-                for (Warehouse wh : warehouses) {
+        }
+        if (warehouses != null) {
+            for (Warehouse wh : warehouses) {
+                if (chunkIntersectsArea(chunkX, chunkZ, wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
                     markChunkScanned(wh.id(), chunkPos);
                 }
             }
