@@ -270,7 +270,13 @@ public class ModNetworkHandler {
 
         ServerPlayNetworking.registerGlobalReceiver(StagingAreaConfigC2SPacket.ID, (payload, context) -> {
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(payload.schematicId()) || !validateStagingAction(payload.action())) return;
+            if (!validatePlayer(player) || !validateStagingAction(payload.action())) return;
+            // 仓库操作不需要 schematicId，备货区操作需要
+            boolean isWarehouseAction = payload.action().startsWith("LIST_WAREHOUSES")
+                || payload.action().startsWith("ADD_WAREHOUSE")
+                || payload.action().startsWith("UPDATE_WAREHOUSE")
+                || payload.action().startsWith("DELETE_WAREHOUSE");
+            if (!isWarehouseAction && !validateSchematicId(payload.schematicId())) return;
             context.server().execute(() -> {
                 handleStagingAreaConfig(payload, player, context.server());
             });
