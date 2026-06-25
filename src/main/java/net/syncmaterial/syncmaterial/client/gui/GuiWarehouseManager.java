@@ -16,6 +16,7 @@ import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.util.InfoUtils;
 import fi.dy.masa.malilib.util.StringUtils;
 
+import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListWarehouses;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetWarehouseEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
@@ -136,11 +137,13 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
                                       @javax.annotation.Nullable net.minecraft.util.math.BlockPos pos2)
     {
         // 准星选区完成，发送新建仓库请求
+        SyncMaterial.LOGGER.info("[WarehouseManager] onSelectionConfirmed: pos1={}, pos2={}", pos1, pos2);
         if (pos1 != null && pos2 != null) {
             String name = pendingWarehouseName != null ? pendingWarehouseName : "仓库";
             String world = net.minecraft.client.MinecraftClient.getInstance().player != null
                 ? net.minecraft.client.MinecraftClient.getInstance().player.getWorld().getRegistryKey().getValue().toString()
                 : "minecraft:overworld";
+            SyncMaterial.LOGGER.info("[WarehouseManager] 发送 ADD_WAREHOUSE: name={}, world={}", name, world);
             ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
                 Optional.of(new AreaData(name, pos1.getX(), pos1.getY(), pos1.getZ(),
                     pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world)))));
