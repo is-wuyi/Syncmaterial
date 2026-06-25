@@ -109,7 +109,11 @@ public class ModNetworkHandler {
 
     private static boolean validateStagingAction(String action) {
         return action != null && (action.equals("LIST") || action.equals("ADD") || action.equals("RENAME")
-            || action.equals("DELETE") || action.equals("UPDATE") || action.equals("CLEAR"));
+            || action.equals("DELETE") || action.equals("UPDATE") || action.equals("CLEAR")
+            || action.equals("LIST_WAREHOUSES") || action.equals("ADD_WAREHOUSE")
+            || action.equals("UPDATE_WAREHOUSE") || action.equals("DELETE_WAREHOUSE")
+            || action.equals("ADD_WAREHOUSE_REF") || action.equals("REMOVE_WAREHOUSE_REF")
+            || action.equals("LIST_WAREHOUSE_REFS"));
     }
 
     public static void register() {
