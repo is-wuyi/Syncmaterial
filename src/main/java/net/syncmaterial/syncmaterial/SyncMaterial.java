@@ -181,8 +181,11 @@ public class SyncMaterial implements ModInitializer {
                                 }
                                 LOGGER.info("启动时全量扫描完成: {} 个备货区", count);
 
-                                // Phase 5: 加载全局仓库
+                                // Phase 5: 加载全局仓库并扫描
                                 sharedStagingAreaManager.loadWarehousesFromDb();
+                                for (var wh : sharedStagingAreaManager.getAllWarehouses()) {
+                                    sharedStagingAreaManager.rescanWarehouseAndMarkChunks(wh.id());
+                                }
                                 LOGGER.info("启动时全局仓库加载完成: {} 个仓库", sharedStagingAreaManager.getAllWarehouses().size());
                             }
                         });

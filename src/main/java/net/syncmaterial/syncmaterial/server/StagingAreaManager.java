@@ -616,6 +616,21 @@ public class StagingAreaManager {
     // ========== Phase 5: 仓库扫描 + container_inventory 维护 ==========
 
     /**
+     * 启动时扫描仓库并标记区块为已扫描
+     */
+    public void rescanWarehouseAndMarkChunks(int warehouseId) {
+        Warehouse wh = warehousesById.get(warehouseId);
+        if (wh == null) return;
+
+        var totalItems = scanWarehouseContents(warehouseId);
+        if (totalItems == null) return;
+
+        updateWarehouseInventory(warehouseId, totalItems);
+        markAreaChunksScanned(warehouseId, wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
+        SyncMaterial.LOGGER.info("[StagingArea] rescanWarehouse: id={} found {} item types", warehouseId, totalItems.size());
+    }
+
+    /**
      * 扫描仓库内容物（复用 scanAreaContents 的逻辑，针对仓库坐标）
      */
     private Map<String, Integer> scanWarehouseContents(int warehouseId) {
