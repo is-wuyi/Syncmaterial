@@ -400,6 +400,9 @@ public class StagingAreaManager {
                         }
                     }
                 }
+
+                // 扫描成功，标记该区块为已扫描
+                markChunkScanned(areaId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL));
             }
         }
 
@@ -626,7 +629,6 @@ public class StagingAreaManager {
         if (totalItems == null) return;
 
         updateWarehouseInventory(warehouseId, totalItems);
-        markLoadedChunksScanned(warehouseId, wh.world(), wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
         SyncMaterial.LOGGER.info("[StagingArea] rescanWarehouse: id={} found {} item types", warehouseId, totalItems.size());
     }
 
@@ -673,6 +675,9 @@ public class StagingAreaManager {
                         }
                     }
                 }
+
+                // 扫描成功，标记该区块为已扫描
+                markChunkScanned(warehouseId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL));
             }
         }
         return totalItems;
@@ -796,34 +801,6 @@ public class StagingAreaManager {
      */
     public void markChunkScanned(int areaId, long chunkPos) {
         areaScannedChunks.computeIfAbsent(String.valueOf(areaId), k -> ConcurrentHashMap.newKeySet()).add(chunkPos);
-    }
-
-    /**
-     * 启动扫描后标记区域中已加载的区块为已扫描（未加载的不标记，等 CHUNK_LOAD 处理）
-     */
-    public void markLoadedChunksScanned(int areaId, String worldId, int x1, int y1, int z1, int x2, int y2, int z2) {
-        ServerWorld world = server.getWorld(net.minecraft.registry.RegistryKey.of(
-                net.minecraft.registry.RegistryKeys.WORLD, Identifier.of(worldId)));
-        if (world == null) return;
-
-        int minChunkX = Math.min(x1, x2) >> 4;
-        int maxChunkX = Math.max(x1, x2) >> 4;
-        int minChunkZ = Math.min(z1, z2) >> 4;
-        int maxChunkZ = Math.max(z1, z2) >> 4;
-        int count = 0;
-
-        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
-            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
-                if (world.getChunkManager().getWorldChunk(cx, cz) != null) {
-                    markChunkScanned(areaId, ((long) cx << 32) | (cz & 0xFFFFFFFFL));
-                    count++;
-                }
-            }
-        }
-
-        if (count > 0) {
-            SyncMaterial.LOGGER.info("[StagingArea] areaId={} marked {} loaded chunks as scanned", areaId, count);
-        }
     }
 
     /**

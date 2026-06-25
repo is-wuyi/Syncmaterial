@@ -174,8 +174,6 @@ public class SyncMaterial implements ModInitializer {
                                     var areas = sharedStagingAreaManager.getStagingAreas(schematicId);
                                     for (var area : areas) {
                                         sharedStagingAreaManager.rescanStagingArea(area.id());
-                                        sharedStagingAreaManager.markLoadedChunksScanned(area.id(),
-                                            area.world(), area.x1(), area.y1(), area.z1(), area.x2(), area.y2(), area.z2());
                                         count++;
                                     }
                                 }
