@@ -31,8 +31,10 @@ public class StagingAreaManager {
     // Phase 5: 取货模式推送冷却（避免高频变动网络风暴）
     private volatile long lastPushTime = 0;
     private static final long PUSH_COOLDOWN_MS = 1000;
-    // Phase 5: 数据新鲜度跟踪（区块级）
-    private final Map<String, Set<Long>> areaScannedChunks = new ConcurrentHashMap<>();
+    // Phase 5: 初始化跟踪（服务器重启后，区域首次全部区块加载完成即标记为已初始化）
+    private final Set<Integer> initializedAreas = ConcurrentHashMap.newKeySet();
+    // 临时区块跟踪：初始化阶段记录已扫描的区块，全部扫描完成后清除
+    private final Map<String, Set<Long>> initChunkTracking = new ConcurrentHashMap<>();
     private MinecraftServer server;
 
     public StagingAreaManager(SchematicDatabase database) {
@@ -401,8 +403,9 @@ public class StagingAreaManager {
                     }
                 }
 
-                // 扫描成功，标记该区块为已扫描
-                markChunkScanned(areaId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL));
+                // 扫描成功，标记该区块并检查是否完成初始化
+                markChunkAndCheckInit(areaId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL),
+                    area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
             }
         }
 
@@ -676,8 +679,9 @@ public class StagingAreaManager {
                     }
                 }
 
-                // 扫描成功，标记该区块为已扫描
-                markChunkScanned(warehouseId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL));
+                // 扫描成功，标记该区块并检查是否完成初始化
+                markChunkAndCheckInit(warehouseId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL),
+                    wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
             }
         }
         return totalItems;
@@ -797,33 +801,40 @@ public class StagingAreaManager {
     }
 
     /**
-     * 数据新鲜度：标记区块为已扫描
+     * 区域是否已初始化（服务器重启后所有区块至少扫描过一次）
      */
-    public void markChunkScanned(int areaId, long chunkPos) {
-        areaScannedChunks.computeIfAbsent(String.valueOf(areaId), k -> ConcurrentHashMap.newKeySet()).add(chunkPos);
+    public boolean isAreaInitialized(int areaId) {
+        return initializedAreas.contains(areaId);
     }
 
     /**
-     * 数据新鲜度：检查区域的所有区块是否都已扫描
+     * 标记区块已扫描，如果区域所有区块都已扫描则标记为已初始化
      */
-    public boolean isAreaFullyScanned(int areaId, String worldId, int x1, int y1, int z1, int x2, int y2, int z2) {
-        Set<Long> scanned = areaScannedChunks.get(String.valueOf(areaId));
-        if (scanned == null) return false;
+    private void markChunkAndCheckInit(int areaId, long chunkPos,
+            int x1, int y1, int z1, int x2, int y2, int z2) {
+        if (initializedAreas.contains(areaId)) return;
 
+        initChunkTracking.computeIfAbsent(String.valueOf(areaId), k -> ConcurrentHashMap.newKeySet()).add(chunkPos);
+
+        // 检查是否所有区块都已扫描
         int minChunkX = Math.min(x1, x2) >> 4;
         int maxChunkX = Math.max(x1, x2) >> 4;
         int minChunkZ = Math.min(z1, z2) >> 4;
         int maxChunkZ = Math.max(z1, z2) >> 4;
 
+        Set<Long> scanned = initChunkTracking.get(String.valueOf(areaId));
         for (int cx = minChunkX; cx <= maxChunkX; cx++) {
             for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
-                long chunkPos = ((long) cx << 32) | (cz & 0xFFFFFFFFL);
-                if (!scanned.contains(chunkPos)) {
-                    return false;
+                if (!scanned.contains(((long) cx << 32) | (cz & 0xFFFFFFFFL))) {
+                    return; // 还有未扫描的区块
                 }
             }
         }
-        return true;
+
+        // 所有区块已扫描，标记为已初始化，清除临时跟踪
+        initializedAreas.add(areaId);
+        initChunkTracking.remove(String.valueOf(areaId));
+        SyncMaterial.LOGGER.info("[StagingArea] areaId={} 初始化完成（所有区块已扫描）", areaId);
     }
 
     /**
@@ -833,50 +844,32 @@ public class StagingAreaManager {
         String worldId = world.getRegistryKey().getValue().toString();
         int chunkX = chunk.getPos().x;
         int chunkZ = chunk.getPos().z;
-        int blockMinX = chunkX << 4;
-        int blockMaxX = (chunkX << 4) + 15;
-        int blockMinZ = chunkZ << 4;
-        int blockMaxZ = (chunkZ << 4) + 15;
+        long chunkPos = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
 
-        boolean found = false;
-
-        // 检查备货区
+        // 检查备货区（只处理未初始化的）
         List<StagingArea> areas = stagingAreasByWorld.get(worldId);
         if (areas != null) {
             for (StagingArea area : areas) {
+                if (initializedAreas.contains(area.id)) continue;
                 if (chunkIntersectsArea(chunkX, chunkZ, area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
                     scanChunkForArea(chunk, world, area.id, "staging_area",
                         area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
-                    found = true;
+                    markChunkAndCheckInit(area.id, chunkPos,
+                        area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
                 }
             }
         }
 
-        // 检查仓库
+        // 检查仓库（只处理未初始化的）
         List<Warehouse> warehouses = warehousesByWorld.get(worldId);
         if (warehouses != null) {
             for (Warehouse wh : warehouses) {
+                if (initializedAreas.contains(wh.id())) continue;
                 if (chunkIntersectsArea(chunkX, chunkZ, wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
                     scanChunkForArea(chunk, world, wh.id(), "warehouse",
                         wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2);
-                    found = true;
-                }
-            }
-        }
-
-        // 标记区块已扫描（仅标记与该区块相交的区域）
-        long chunkPos = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
-        if (areas != null) {
-            for (StagingArea area : areas) {
-                if (chunkIntersectsArea(chunkX, chunkZ, area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
-                    markChunkScanned(area.id, chunkPos);
-                }
-            }
-        }
-        if (warehouses != null) {
-            for (Warehouse wh : warehouses) {
-                if (chunkIntersectsArea(chunkX, chunkZ, wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
-                    markChunkScanned(wh.id(), chunkPos);
+                    markChunkAndCheckInit(wh.id(), chunkPos,
+                        wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2);
                 }
             }
         }

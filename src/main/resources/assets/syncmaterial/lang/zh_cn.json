@@ -2,7 +2,7 @@
   "syncmaterial.gui.title.material_list": "材料清单",
   "syncmaterial.gui.title.material_list_pickup": "材料清单 · 取货模式",
   "syncmaterial.gui.label.warehouse_has": "仓库有 %d",
-  "syncmaterial.gui.label.freshness_warning": "⚠ 以下区域数据可能为旧数据：",
+  "syncmaterial.gui.label.freshness_warning": "⚠ 以下区域尚未初始化：",
   "syncmaterial.gui.title.staging_area_editor": "备货区配置",
   "syncmaterial.gui.title.management": "负责人管理",
   "syncmaterial.gui.title.select_assign_player": "选择分配玩家",

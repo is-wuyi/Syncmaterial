@@ -205,8 +205,8 @@ public class CollaborationManager {
     }
 
     /**
-     * 构建数据新鲜度列表
-     * 检查该原理图引用的所有备货区和仓库的区块是否都已扫描
+     * 构建初始化状态列表
+     * 检查该原理图引用的所有备货区和仓库是否已初始化（所有区块至少扫描过一次）
      */
     private List<CollaborationStatusS2CPacket.AreaFreshnessInfo> buildFreshnessInfo(String schematicId) {
         List<CollaborationStatusS2CPacket.AreaFreshnessInfo> result = new ArrayList<>();
@@ -214,22 +214,18 @@ public class CollaborationManager {
         // 检查备货区
         var stagingAreas = stagingAreaManager.getStagingAreas(schematicId);
         for (var area : stagingAreas) {
-            boolean fullyScanned = stagingAreaManager.isAreaFullyScanned(
-                area.id(), area.world(), area.x1(), area.y1(), area.z1(), area.x2(), area.y2(), area.z2());
-            if (!fullyScanned) {
+            if (!stagingAreaManager.isAreaInitialized(area.id())) {
                 result.add(new CollaborationStatusS2CPacket.AreaFreshnessInfo(
-                    "staging_area", area.id(), area.name(), "部分区块未加载"));
+                    "staging_area", area.id(), area.name(), "区域尚未初始化"));
             }
         }
 
         // 检查仓库
         var warehouses = stagingAreaManager.getWarehousesForSchematic(schematicId);
         for (var wh : warehouses) {
-            boolean fullyScanned = stagingAreaManager.isAreaFullyScanned(
-                wh.id(), wh.world(), wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
-            if (!fullyScanned) {
+            if (!stagingAreaManager.isAreaInitialized(wh.id())) {
                 result.add(new CollaborationStatusS2CPacket.AreaFreshnessInfo(
-                    "warehouse", wh.id(), wh.name(), "部分区块未加载"));
+                    "warehouse", wh.id(), wh.name(), "区域尚未初始化"));
             }
         }
 
