@@ -137,9 +137,8 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
             }
             else if (this.type == ButtonType.EDIT)
             {
-                // TODO: 打开编辑界面
-                fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
-                    fi.dy.masa.malilib.gui.Message.MessageType.INFO, "编辑功能开发中");
+                // 进入准星选区编辑仓库
+                this.widget.parent.getWarehouseGui().startEditWarehouse(this.widget.entryData);
             }
         }
 

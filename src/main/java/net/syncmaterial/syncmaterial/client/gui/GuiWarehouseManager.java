@@ -33,6 +33,7 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
 {
     private final List<WarehouseEntry> warehouses = new ArrayList<>();
     private String pendingWarehouseName = null; // 等待准星选区完成后的仓库名
+    private int editingWarehouseId = -1; // 正在编辑的仓库ID（-1表示新建模式）
 
     public GuiWarehouseManager()
     {
@@ -93,6 +94,18 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
         requestWarehouseList();
     }
 
+    /**
+     * 开始编辑仓库（进入准星选区模式）
+     */
+    public void startEditWarehouse(WarehouseEntry entry)
+    {
+        this.editingWarehouseId = entry.warehouseId();
+        this.pendingWarehouseName = entry.name();
+        StagingAreaSelector.getInstance().start(this, this, entry.name(),
+            new net.minecraft.util.math.BlockPos(entry.x1(), entry.y1(), entry.z1()),
+            new net.minecraft.util.math.BlockPos(entry.x2(), entry.y2(), entry.z2()));
+    }
+
     private void requestWarehouseList()
     {
         ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "LIST_WAREHOUSES", 0, Optional.empty()));
@@ -136,19 +149,30 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
                                       @javax.annotation.Nullable net.minecraft.util.math.BlockPos pos1,
                                       @javax.annotation.Nullable net.minecraft.util.math.BlockPos pos2)
     {
-        // 准星选区完成，发送新建仓库请求
         SyncMaterial.LOGGER.info("[WarehouseManager] onSelectionConfirmed: pos1={}, pos2={}", pos1, pos2);
         if (pos1 != null && pos2 != null) {
             String name = pendingWarehouseName != null ? pendingWarehouseName : "仓库";
             String world = net.minecraft.client.MinecraftClient.getInstance().player != null
                 ? net.minecraft.client.MinecraftClient.getInstance().player.getWorld().getRegistryKey().getValue().toString()
                 : "minecraft:overworld";
-            SyncMaterial.LOGGER.info("[WarehouseManager] 发送 ADD_WAREHOUSE: name={}, world={}", name, world);
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
-                Optional.of(new AreaData(name, pos1.getX(), pos1.getY(), pos1.getZ(),
-                    pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world)))));
+
+            if (editingWarehouseId >= 0) {
+                // 编辑模式：更新仓库
+                SyncMaterial.LOGGER.info("[WarehouseManager] 发送 UPDATE_WAREHOUSE: id={}, name={}", editingWarehouseId, name);
+                var areaData = new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData(
+                    name, pos1.getX(), pos1.getY(), pos1.getZ(),
+                    pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world));
+                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                    "", "UPDATE_WAREHOUSE", editingWarehouseId, Optional.of(areaData)));
+                editingWarehouseId = -1;
+            } else {
+                // 新建模式
+                SyncMaterial.LOGGER.info("[WarehouseManager] 发送 ADD_WAREHOUSE: name={}, world={}", name, world);
+                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
+                    Optional.of(new StagingAreaConfigC2SPacket.AreaData(name, pos1.getX(), pos1.getY(), pos1.getZ(),
+                        pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world)))));
+            }
             pendingWarehouseName = null;
-            // 刷新列表
             requestWarehouseList();
         }
     }

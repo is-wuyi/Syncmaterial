@@ -33,6 +33,13 @@ public class ModNetworkHandlerClient {
                     return;
                 }
 
+                // Phase 5: 仓库选择界面响应
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseSelect warehouseSelect)
+                {
+                    warehouseSelect.onWarehouseListResponse(payload.areas());
+                    return;
+                }
+
                 if (screen instanceof GuiStagingAreaEditorNormal editor)
                 {
                     editor.onServerResponse(payload);
