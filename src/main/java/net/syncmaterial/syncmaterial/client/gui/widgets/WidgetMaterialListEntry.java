@@ -429,15 +429,16 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private void renderProgressBar(DrawContext drawContext, int x, int y, int totalWidth) {
         int countTotal = this.entry.getCountTotal();
         int stagingCount = this.entry.getStagingCount();
+        int warehouseCount = this.entry.getWarehouseCount();
         var participants = this.entry.getParticipants();
 
         if (countTotal <= 0) return;
 
-        int collected = stagingCount;
+        int collected = stagingCount + warehouseCount;
         for (var p : participants) collected += p.count();
         int remaining = Math.max(0, countTotal - collected);
         boolean isComplete = collected >= countTotal;
-        boolean isUnclaimed = collected == 0 && participants.isEmpty() && stagingCount == 0;
+        boolean isUnclaimed = collected == 0 && participants.isEmpty();
 
         int barHeight = 4;
         int barY = y;
@@ -459,6 +460,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         if (stagingCount > 0) {
             int w = Math.max(1, (int)((double)stagingCount / countTotal * totalWidth));
             RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFFFFAA00);
+            barX += w;
+        }
+        if (warehouseCount > 0) {
+            int w = Math.max(1, (int)((double)warehouseCount / countTotal * totalWidth));
+            RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFF55AAFF);
             barX += w;
         }
 
@@ -494,6 +500,13 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             String s = StringUtils.translate("syncmaterial.gui.label.progress_staging", stagingCount);
             if (textX + this.getStringWidth(s) < textMaxX) {
                 this.drawString(drawContext, textX, textY, 0xFFFFAA00, s);
+                textX += this.getStringWidth(s) + 6;
+            }
+        }
+        if (warehouseCount > 0) {
+            String s = StringUtils.translate("syncmaterial.gui.label.progress_warehouse", warehouseCount);
+            if (textX + this.getStringWidth(s) < textMaxX) {
+                this.drawString(drawContext, textX, textY, 0xFF55AAFF, s);
                 textX += this.getStringWidth(s) + 6;
             }
         }

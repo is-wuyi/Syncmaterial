@@ -60,6 +60,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
     protected boolean loadingWarehouseRefs = false;
+    protected boolean needsWarehouseRefLoad = true;
 
     protected static StagingAreaConfigC2SPacket.AreaData toAreaData(String name, BlockPos pos1, BlockPos pos2) {
         return new StagingAreaConfigC2SPacket.AreaData(name,
@@ -257,9 +258,10 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                     this.schematicId, "LIST", -1, Optional.empty()));
         }
 
-        // 请求仓库引用列表
-        if (this.schematicId != null && !this.schematicId.isEmpty())
+        // 请求仓库引用列表（仅首次）
+        if (this.needsWarehouseRefLoad && this.schematicId != null && !this.schematicId.isEmpty())
         {
+            this.needsWarehouseRefLoad = false;
             this.loadingWarehouseRefs = true;
             ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                     this.schematicId, "LIST_WAREHOUSE_REFS", 0, Optional.empty()));
@@ -311,10 +313,10 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         this.addButton(new ButtonGeneric(xClose, yBottom, buttonWidth, 20, label),
                 new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
 
-        // Phase 5: 仓库引用区域（备货区列表下方）
+        // Phase 5: 仓库引用按钮（底部左侧）
         if (this.schematicId != null && !this.schematicId.isEmpty())
         {
-            addWarehouseRefSection();
+            addWarehouseRefSection(yBottom);
         }
 
         return yBottom;
@@ -323,35 +325,31 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     @Override
     protected int getBrowserHeight()
     {
-        return this.getScreenHeight() - 78 - 32;
+        return this.getScreenHeight() - 78;
     }
 
     /**
      * 仓库引用区域：在备货区列表下方显示已引用仓库，可添加/移除
      */
-    private void addWarehouseRefSection()
+    private void addWarehouseRefSection(int sectionY)
     {
-        int listBottom = 48 + this.getBrowserHeight();
-        int sectionY = listBottom + 4;
-
         // 添加仓库按钮
         String addLabel = StringUtils.translate("syncmaterial.gui.button.add_warehouse_ref");
         int addWidth = this.getStringWidth(addLabel) + 10;
-        ButtonGeneric addBtn = new ButtonGeneric(10, sectionY, addWidth, 16, addLabel);
+        ButtonGeneric addBtn = new ButtonGeneric(10, sectionY, addWidth, 20, addLabel);
         this.addButton(addBtn, (btn, mouseBtn) -> {
-            // 打开仓库选择界面
             GuiBase.openGui(new GuiWarehouseSelect(this.schematicId));
         });
 
         int xRight = 10 + addWidth + 4;
         if (!warehouseRefs.isEmpty())
         {
-            this.addLabel(xRight, sectionY + 2, -1, 12, 0xFFAAAAAA,
+            this.addLabel(xRight, sectionY + 4, -1, 12, 0xFFAAAAAA,
                     StringUtils.translate("syncmaterial.gui.label.warehouse_count", String.valueOf(warehouseRefs.size())));
         }
         else
         {
-            this.addLabel(xRight, sectionY + 2, -1, 12, 0xFF888888,
+            this.addLabel(xRight, sectionY + 4, -1, 12, 0xFF888888,
                     StringUtils.translate("syncmaterial.gui.label.no_warehouse_ref"));
         }
     }
