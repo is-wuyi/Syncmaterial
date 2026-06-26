@@ -40,6 +40,13 @@ public class ModNetworkHandlerClient {
                     return;
                 }
 
+                // Phase 5: 仓库引用弹窗响应
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseRefPopup popup)
+                {
+                    popup.onWarehouseListResponse(payload.areas());
+                    return;
+                }
+
                 if (screen instanceof GuiStagingAreaEditorNormal editor)
                 {
                     editor.onServerResponse(payload);

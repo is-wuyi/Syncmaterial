@@ -5,6 +5,8 @@
   "syncmaterial.gui.label.freshness_warning": "⚠ 以下区域尚未初始化：",
   "syncmaterial.gui.label.warehouse_count": "已引用: %s 个仓库",
   "syncmaterial.gui.label.no_warehouse_ref": "未引用任何仓库",
+  "syncmaterial.gui.label.no_warehouses": "暂无可用仓库",
+  "syncmaterial.gui.label.loading": "加载中...",
   "syncmaterial.gui.title.staging_area_editor": "备货区配置",
   "syncmaterial.gui.title.management": "负责人管理",
   "syncmaterial.gui.title.select_assign_player": "选择分配玩家",

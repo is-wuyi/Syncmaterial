@@ -3,8 +3,6 @@ package net.syncmaterial.syncmaterial.client.gui.widgets;
 import java.util.List;
 import java.util.Optional;
 
-import net.minecraft.client.gui.DrawContext;
-
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import fi.dy.masa.malilib.gui.GuiBase;

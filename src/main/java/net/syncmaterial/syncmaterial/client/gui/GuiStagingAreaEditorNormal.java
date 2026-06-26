@@ -378,7 +378,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             int addX = 14 + StringUtils.getStringWidth(GuiBase.TXT_BOLD + warehouseLabel) + 8;
             ButtonGeneric addBtn = new ButtonGeneric(addX, separatorY + 1, addWidth, 16, addLabel);
             this.addButton(addBtn, (btn, mouseBtn) -> {
-                GuiBase.openGui(new GuiWarehouseSelect(this.schematicId));
+                GuiBase.openGui(new GuiWarehouseRefPopup(this.schematicId));
             });
         }
 

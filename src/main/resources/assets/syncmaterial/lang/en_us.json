@@ -5,6 +5,8 @@
   "syncmaterial.gui.label.freshness_warning": "⚠ The following areas are not yet initialized:",
   "syncmaterial.gui.label.warehouse_count": "Referenced: %s warehouse(s)",
   "syncmaterial.gui.label.no_warehouse_ref": "No warehouse referenced",
+  "syncmaterial.gui.label.no_warehouses": "No warehouses available",
+  "syncmaterial.gui.label.loading": "Loading...",
   "syncmaterial.gui.title.staging_area_editor": "Staging Area Config",
   "syncmaterial.gui.title.management": "Owner Management",
   "syncmaterial.gui.title.select_assign_player": "Select Player to Assign",
