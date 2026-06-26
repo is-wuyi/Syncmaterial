@@ -556,9 +556,10 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             var participants = this.entry.getParticipants();
             int stagingCount = this.entry.getStagingCount();
+            int warehouseCount = this.entry.getWarehouseCount();
             int extraLines = 0;
-            if (stagingCount > 0 || !participants.isEmpty()) {
-                extraLines = 1 + Math.min(participants.size(), 6);
+            if (stagingCount > 0 || warehouseCount > 0 || !participants.isEmpty()) {
+                extraLines = 1 + (warehouseCount > 0 ? 1 : 0) + Math.min(participants.size(), 6);
             }
 
             int w1 = Math.max(this.getStringWidth(header1), Math.max(this.getStringWidth(header2), this.getStringWidth(header3)));
@@ -598,9 +599,15 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             drawContext.drawItem(stack, x2, y1);
 
             y += 18;
-            if (stagingCount > 0 || !participants.isEmpty()) {
-                this.drawString(drawContext, x1, y, 0xFFAAAAAA, GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.label.progress_staging_hover", stagingCount));
-                y += 14;
+            if (stagingCount > 0 || warehouseCount > 0 || !participants.isEmpty()) {
+                if (stagingCount > 0) {
+                    this.drawString(drawContext, x1, y, 0xFFAAAAAA, GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.label.progress_staging_hover", stagingCount));
+                    y += 14;
+                }
+                if (warehouseCount > 0) {
+                    this.drawString(drawContext, x1, y, 0xFF55AAFF, GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.label.progress_warehouse_hover", warehouseCount));
+                    y += 14;
+                }
                 for (int i = 0; i < Math.min(participants.size(), 5); i++) {
                     var p = participants.get(i);
                     this.drawString(drawContext, x1, y, 0xFFAAAAAA, p.playerName() + ": " + p.count());

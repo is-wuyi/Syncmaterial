@@ -97,6 +97,7 @@
   "syncmaterial.gui.label.progress_staging": "备货区:%d",
   "syncmaterial.gui.label.progress_warehouse": "仓库:%d",
   "syncmaterial.gui.label.progress_staging_hover": "备货区: %d",
+  "syncmaterial.gui.label.progress_warehouse_hover": "仓库: %d",
   "syncmaterial.gui.label.progress_other": "其他:%d",
   "syncmaterial.gui.label.progress_other_hover": "其他: %d",
   "syncmaterial.gui.label.progress_remaining": "剩余:%d",

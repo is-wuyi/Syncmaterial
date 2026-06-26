@@ -97,6 +97,7 @@
   "syncmaterial.gui.label.progress_staging": "Staging: %d",
   "syncmaterial.gui.label.progress_warehouse": "Warehouse: %d",
   "syncmaterial.gui.label.progress_staging_hover": "Staging: %d",
+  "syncmaterial.gui.label.progress_warehouse_hover": "Warehouse: %d",
   "syncmaterial.gui.label.progress_other": "Other: %d",
   "syncmaterial.gui.label.progress_other_hover": "Other: %d",
   "syncmaterial.gui.label.progress_remaining": "Remaining: %d",
