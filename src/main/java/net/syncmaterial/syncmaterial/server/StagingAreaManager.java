@@ -542,21 +542,49 @@ public class StagingAreaManager {
     public void onContainerRemoved(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
 
+        // 检查备货区
         for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
             for (StagingArea area : areas) {
                 if (area.world.equals(worldId) && isPosInArea(pos, area)) {
-                    try {
-                        database.executeUpdate(
-                            "DELETE FROM staging_area_inventory WHERE staging_area_id = ?",
-                            area.id
-                        );
-                        SyncMaterial.LOGGER.info("Cleared staging area {} inventory after container removal", area.id);
-                    } catch (SQLException e) {
-                        SyncMaterial.LOGGER.error("Failed to clear staging area inventory on container removal", e);
-                    }
+                    onContainerRemovedFromArea(area.id, "staging_area", pos);
                     return;
                 }
             }
+        }
+
+        // 检查仓库
+        List<Warehouse> warehouses = warehousesByWorld.get(worldId);
+        if (warehouses != null) {
+            for (Warehouse wh : warehouses) {
+                if (isPosInWarehouse(pos, wh)) {
+                    onContainerRemovedFromArea(wh.id(), "warehouse", pos);
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * 容器被破坏后，清理 container_inventory 明细并全量重扫该区域
+     */
+    private void onContainerRemovedFromArea(int areaId, String areaType, BlockPos pos) {
+        try {
+            // 1. 删除该位置在 container_inventory 中的记录
+            database.executeUpdate(
+                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                areaId, areaType, pos.getX(), pos.getY(), pos.getZ());
+            SyncMaterial.LOGGER.info("[StagingArea] 容器被移除: area={} type={} pos={},{},{}", areaId, areaType, pos.getX(), pos.getY(), pos.getZ());
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("Failed to clean container_inventory on removal", e);
+        }
+
+        // 2. 全量重扫该区域，更新总数
+        if ("warehouse".equals(areaType)) {
+            Map<String, Integer> result = scanWarehouseContents(areaId);
+            if (result != null) updateWarehouseInventory(areaId, result);
+        } else {
+            Map<String, Integer> result = scanAreaContents(areaId);
+            if (result != null) updateStagingAreaInventory(areaId, result);
         }
     }
 
