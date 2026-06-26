@@ -100,7 +100,7 @@ public class SyncMaterial implements ModInitializer {
                             }
                             var areaInfos = StagingAreaManager.buildAreaInfos(areas);
                             net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(handler.player,
-                                new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(schematicId, schematicName, true, "", areaInfos));
+                                new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket("LIST", schematicId, schematicName, true, "", areaInfos));
                         }
                     }
                 });

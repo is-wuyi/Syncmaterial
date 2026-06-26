@@ -76,7 +76,7 @@ public class StagingAreaManager {
         String schematicName = getSchematicNameFromDb(schematicId);
         List<StagingArea> areas = getStagingAreas(schematicId);
         List<StagingAreaConfigResponseS2CPacket.AreaInfo> areaInfos = buildAreaInfos(areas);
-        StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket(schematicId, schematicName, true, "", areaInfos);
+        StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket("LIST", schematicId, schematicName, true, "", areaInfos);
 
         ModNetworkHandler.sendToPlayers(set, packet);
         SyncMaterial.LOGGER.info("[StagingArea] 广播原理图 {} 的备货区更新给 {} 个玩家", schematicId, set.size());

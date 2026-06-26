@@ -59,7 +59,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     @Nullable protected String selectionId;
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
-    protected boolean loadingWarehouseRefs = false;
     protected boolean needsWarehouseRefLoad = true;
 
     protected static StagingAreaConfigC2SPacket.AreaData toAreaData(String name, BlockPos pos1, BlockPos pos2) {
@@ -149,10 +148,11 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             return;
         }
 
-        // 仓库引用响应（LIST_WAREHOUSE_REFS / ADD_WAREHOUSE_REF / REMOVE_WAREHOUSE_REF）
-        if (this.loadingWarehouseRefs)
+        String action = packet.action();
+
+        // 仓库引用响应
+        if ("LIST_WAREHOUSE_REFS".equals(action) || "ADD_WAREHOUSE_REF".equals(action) || "REMOVE_WAREHOUSE_REF".equals(action))
         {
-            this.loadingWarehouseRefs = false;
             this.warehouseRefs.clear();
             this.warehouseRefs.addAll(packet.areas());
             this.initGui();
@@ -262,7 +262,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         if (this.needsWarehouseRefLoad && this.schematicId != null && !this.schematicId.isEmpty())
         {
             this.needsWarehouseRefLoad = false;
-            this.loadingWarehouseRefs = true;
             ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                     this.schematicId, "LIST_WAREHOUSE_REFS", 0, Optional.empty()));
         }

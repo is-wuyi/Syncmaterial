@@ -8,6 +8,7 @@ import net.minecraft.network.packet.CustomPayload;
 import java.util.List;
 
 public record StagingAreaConfigResponseS2CPacket(
+    String action,
     String schematicId,
     String schematicName,
     boolean success,
@@ -47,6 +48,7 @@ public record StagingAreaConfigResponseS2CPacket(
     };
 
     public static final PacketCodec<RegistryByteBuf, StagingAreaConfigResponseS2CPacket> CODEC = PacketCodec.tuple(
+            PacketCodecs.STRING, StagingAreaConfigResponseS2CPacket::action,
             PacketCodecs.STRING, StagingAreaConfigResponseS2CPacket::schematicId,
             PacketCodecs.STRING, StagingAreaConfigResponseS2CPacket::schematicName,
             PacketCodecs.BOOLEAN, StagingAreaConfigResponseS2CPacket::success,

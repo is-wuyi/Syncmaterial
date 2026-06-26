@@ -349,7 +349,7 @@ public class ModNetworkHandler {
         String schematicId = payload.schematicId();
         StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
         if (manager == null) {
-            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", false, "备货区服务未初始化", List.of()));
+            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("", schematicId, "", false, "备货区服务未初始化", List.of()));
             return;
         }
         String action = payload.action();
@@ -363,7 +363,7 @@ public class ModNetworkHandler {
                 case "ADD" -> {
                     var ad = payload.areaData();
                     if (ad.isEmpty()) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", false, "缺少区域数据", List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD", schematicId, "", false, "缺少区域数据", List.of()));
                         return;
                     }
                     AreaData data = ad.get();
@@ -378,7 +378,7 @@ public class ModNetworkHandler {
                 case "RENAME" -> {
                     var ad = payload.areaData();
                     if (ad.isEmpty()) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", false, "缺少区域数据", List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("RENAME", schematicId, "", false, "缺少区域数据", List.of()));
                         return;
                     }
                     manager.renameStagingArea(payload.areaId(), schematicId, ad.get().name());
@@ -393,7 +393,7 @@ public class ModNetworkHandler {
                 case "UPDATE" -> {
                     var ad = payload.areaData();
                     if (ad.isEmpty()) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", false, "缺少区域数据", List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE", schematicId, "", false, "缺少区域数据", List.of()));
                         return;
                     }
                     AreaData data = ad.get();
@@ -409,7 +409,7 @@ public class ModNetworkHandler {
                     for (var area : areas) {
                         manager.removeStagingArea(area.id(), schematicId);
                     }
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "已清除所有备货区", List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("CLEAR", schematicId, "", true, "已清除所有备货区", List.of()));
                     manager.broadcastUpdate(schematicId);
                 }
                 // Phase 5: 仓库管理操作
@@ -417,52 +417,50 @@ public class ModNetworkHandler {
                     var warehouses = manager.getAllWarehouses();
                     var areaInfos = warehouses.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
                         w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "ok", areaInfos));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("LIST_WAREHOUSES", schematicId, "", true, "ok", areaInfos));
                 }
                 case "ADD_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
                     int id = manager.addWarehouse(data.name(), data.world().orElse("minecraft:overworld"),
                         data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", id > 0, id > 0 ? "仓库已创建" : "创建失败", List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD_WAREHOUSE", schematicId, "", id > 0, id > 0 ? "仓库已创建" : "创建失败", List.of()));
                 }
                 case "UPDATE_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
                     manager.updateWarehouse(payload.areaId(), data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "仓库已更新", List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE_WAREHOUSE", schematicId, "", true, "仓库已更新", List.of()));
                 }
                 case "DELETE_WAREHOUSE" -> {
                     manager.deleteWarehouse(payload.areaId());
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "仓库已删除", List.of()));
-                    // 通知所有引用该仓库的原理图客户端
-                    // TODO: 广播仓库删除通知
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("DELETE_WAREHOUSE", schematicId, "", true, "仓库已删除", List.of()));
                 }
                 case "ADD_WAREHOUSE_REF" -> {
                     manager.addWarehouseReference(schematicId, payload.areaId());
                     var refs = manager.getWarehousesForSchematic(schematicId);
                     var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
                         w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "已添加仓库引用", areaInfos));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD_WAREHOUSE_REF", schematicId, "", true, "已添加仓库引用", areaInfos));
                 }
                 case "REMOVE_WAREHOUSE_REF" -> {
                     manager.removeWarehouseReference(schematicId, payload.areaId());
                     var refs = manager.getWarehousesForSchematic(schematicId);
                     var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
                         w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "已移除仓库引用", areaInfos));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("REMOVE_WAREHOUSE_REF", schematicId, "", true, "已移除仓库引用", areaInfos));
                 }
                 case "LIST_WAREHOUSE_REFS" -> {
                     var refs = manager.getWarehousesForSchematic(schematicId);
                     var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
                         w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", true, "ok", areaInfos));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("LIST_WAREHOUSE_REFS", schematicId, "", true, "ok", areaInfos));
                 }
                 default -> {
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", false, "未知操作: " + action, List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("", schematicId, "", false, "未知操作: " + action, List.of()));
                 }
             }
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("处理备货区配置失败", e);
-            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, "", false, "操作失败: " + e.getMessage(), List.of()));
+            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("", schematicId, "", false, "操作失败: " + e.getMessage(), List.of()));
         }
     }
 
@@ -514,7 +512,7 @@ public class ModNetworkHandler {
         String schematicName = getSchematicName(schematicId);
         var areas = manager.getStagingAreas(schematicId);
         var areaInfos = StagingAreaManager.buildAreaInfos(areas);
-        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(schematicId, schematicName, success, message, areaInfos));
+        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("LIST", schematicId, schematicName, success, message, areaInfos));
     }
 
     private static String getSchematicName(String schematicId) {

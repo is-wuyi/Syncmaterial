@@ -330,7 +330,7 @@ public class SchematicFolderWatcher {
         this.server.execute(() -> {
             try {
                 var packet = new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(
-                    schematicId, "", true, "", java.util.List.of());
+                    "LIST", schematicId, "", true, "", java.util.List.of());
                 for (var player : this.server.getPlayerManager().getPlayerList()) {
                     net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, packet);
                 }
