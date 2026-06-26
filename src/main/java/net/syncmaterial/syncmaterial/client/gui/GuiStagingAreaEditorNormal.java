@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
 import net.minecraft.util.math.BlockPos;
 
 import fi.dy.masa.malilib.gui.*;
@@ -23,7 +25,9 @@ import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
 import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
 import fi.dy.masa.malilib.gui.widgets.WidgetCheckBox;
 import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
+import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.InfoUtils;
+import fi.dy.masa.malilib.util.KeyCodes;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 
@@ -32,6 +36,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListStagingAreas;
+import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListWarehouseRefs;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetStagingAreaEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
@@ -42,9 +47,8 @@ import fi.dy.masa.litematica.gui.Icons;
 import fi.dy.masa.litematica.util.PositionUtils;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
-public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, WidgetStagingAreaEntry, WidgetListStagingAreas>
-                                          implements ISelectionListener<StagingAreaEntry>, StagingAreaEditorGui,
-                                                     StagingAreaSelector.SelectionCallback
+public class GuiStagingAreaEditorNormal extends GuiBase
+                                      implements StagingAreaEditorGui, StagingAreaSelector.SelectionCallback
 {
     @Nullable private static GuiStagingAreaEditorNormal currentEditor;
 
@@ -61,13 +65,19 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected boolean loadingFromServer = false;
     protected boolean needsWarehouseRefLoad = true;
 
+    // 双列表
+    @Nullable protected WidgetListStagingAreas stagingListWidget;
+    @Nullable protected WidgetListWarehouseRefs warehouseListWidget;
+    protected int stagingListY;
+    protected int stagingListHeight;
+    protected int warehouseListY;
+    protected int warehouseListHeight;
+
     protected static StagingAreaConfigC2SPacket.AreaData toAreaData(String name, BlockPos pos1, BlockPos pos2) {
         return new StagingAreaConfigC2SPacket.AreaData(name,
             pos1.getX(), pos1.getY(), pos1.getZ(),
             pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
     }
-
-    private final List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouseRefs = new ArrayList<>();
 
     @Nullable
     public static GuiStagingAreaEditorNormal getCurrentEditor()
@@ -92,8 +102,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
 
     public GuiStagingAreaEditorNormal(AreaSelection selection, @Nullable String selectionId, String schematicId)
     {
-        super(8, 48);
-
         this.selection = selection;
         this.selectionId = selectionId;
         this.schematicId = schematicId;
@@ -131,14 +139,16 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                         this.schematicId, "DELETE", serverId, Optional.empty()));
             }
         }
-        this.initGui();
+        this.refreshStagingList();
     }
 
     @Override
     public void refreshAreas()
     {
-        this.initGui();
+        this.refreshStagingList();
     }
+
+    // ========== 网络响应 ==========
 
     public void onServerResponse(StagingAreaConfigResponseS2CPacket packet)
     {
@@ -153,24 +163,16 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         // 仓库引用响应
         if ("LIST_WAREHOUSE_REFS".equals(action) || "ADD_WAREHOUSE_REF".equals(action) || "REMOVE_WAREHOUSE_REF".equals(action))
         {
-            this.warehouseRefs.clear();
-            this.warehouseRefs.addAll(packet.areas());
-            this.initGui();
+            if (this.warehouseListWidget != null)
+            {
+                this.warehouseListWidget.setEntries(packet.areas());
+            }
             return;
         }
 
-        // 设置原理图名称，用于框线文字标注
+        // 设置原理图名称
         if (packet.schematicName() != null && !packet.schematicName().isEmpty()) {
-            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
-                .setSchematicName(this.schematicId, packet.schematicName());
-        }
-
-        SyncMaterial.LOGGER.info("[StagingArea] onServerResponse: loadingFromServer={}, areas={}",
-                this.loadingFromServer, packet.areas().size());
-        for (var a : packet.areas())
-        {
-            SyncMaterial.LOGGER.info("[StagingArea]   area id={} name='{}' coords=[{},{},{}]~[{},{},{}]",
-                    a.areaId(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2());
+            StagingAreaRenderer.getInstance().setSchematicName(this.schematicId, packet.schematicName());
         }
 
         if (this.loadingFromServer)
@@ -210,38 +212,35 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
                 this.selection.removeServerId(name);
             }
 
-            this.initGui();
-
+            this.refreshStagingList();
             StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
         }
         else
         {
-            // 非 LIST 响应（ADD/UPDATE/RENAME/DELETE 的回复）：只更新 serverIdMap
-            // 不替换 Box 对象（本地内存已由 setCoordinate 更新）
             for (var area : packet.areas())
             {
                 if (this.selection.getServerId(area.name()) == null)
                 {
-                    SyncMaterial.LOGGER.info("[StagingArea]   更新 serverIdMap: {} -> {}", area.name(), area.areaId());
                     this.selection.setServerId(area.name(), area.areaId());
                 }
             }
-
             StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
         }
     }
+
+    // ========== GUI 生命周期 ==========
 
     @Override
     public void initGui()
     {
         super.initGui();
         currentEditor = this;
-        SyncMaterial.LOGGER.info("[StagingAreaEditor] initGui: currentEditor set to {}", this.hashCode());
 
         if (this.selection != null)
         {
-            this.createSelectionEditFields();
-            this.addSubRegionFields(this.xOrigin, this.yNext);
+            this.createTopButtons();
+            this.createBottomButtons();
+            this.createListWidgets();
             this.updateCheckBoxes();
         }
         else
@@ -271,87 +270,321 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     public void removed()
     {
         super.removed();
-        // 关闭编辑器时清除游戏内黄色高亮
-        net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearHighlightedBox();
-        // 不清除 currentEditor，让木棍交互在关闭 GUI 后仍能工作
-        // currentEditor 会在玩家断开连接或打开其他编辑器时被清除
+        if (this.stagingListWidget != null) this.stagingListWidget.removed();
+        if (this.warehouseListWidget != null) this.warehouseListWidget.removed();
+        StagingAreaRenderer.getInstance().clearHighlightedBox();
     }
 
-    protected void createSelectionEditFields()
+    // ========== 布局 ==========
+
+    protected void createTopButtons()
     {
-        this.xOrigin = 12;
-        this.xSet = this.xOrigin;
-        this.yNext = 26;
-    }
+        int x = 10;
+        int y = 26;
 
-    protected int addSubRegionFields(int x, int y)
-    {
-        int xSave = 10;
-        int ySave = y;
+        // 添加备货区
+        x += this.createButton(x, y, -1, ButtonListener.Type.CREATE_SUB_REGION) + 4;
 
-        xSave += this.createButton(xSave, ySave, -1, ButtonListener.Type.CREATE_SUB_REGION) + 4;
-
+        // 选区
         {
             String selectLabel = ButtonListener.Type.SELECT_AREA.getDisplayName();
             String selectHover = StringUtils.translate("syncmaterial.gui.button.select_area.hover");
-            int selectWidth = this.getStringWidth(selectLabel) + 10;
-            ButtonGeneric selectButton = new ButtonGeneric(xSave, ySave, selectWidth, 20, selectLabel, selectHover);
+            int selectWidth = StringUtils.getStringWidth(selectLabel) + 10;
+            ButtonGeneric selectButton = new ButtonGeneric(x, y, selectWidth, 20, selectLabel, selectHover);
             this.addButton(selectButton, new ButtonListener(ButtonListener.Type.SELECT_AREA, null, null, this));
-            xSave += selectWidth + 12;
+            x += selectWidth + 12;
         }
 
-        // 备货区数量显示在按钮右侧
+        // 备货区数量
         String str = String.valueOf(this.selection.getAllSubRegionNames().size());
-        this.addLabel(xSave, ySave + 4, -1, 16, 0xFFFFFFFF,
+        this.addLabel(x, y + 4, -1, 16, 0xFFFFFFFF,
                 GuiBase.TXT_BOLD + StringUtils.translate("syncmaterial.gui.label.staging_areas", str));
+    }
 
+    protected void createBottomButtons()
+    {
         int yBottom = this.getScreenHeight() - 26;
-        String label = GuiBase.TXT_RED + StringUtils.translate("gui.back");
-        int buttonWidth = this.getStringWidth(label) + 10;
+
+        // 返回按钮
+        String label = StringUtils.translate("gui.back");
+        int buttonWidth = StringUtils.getStringWidth(label) + 10;
         int xClose = this.getScreenWidth() - buttonWidth - 10;
         this.addButton(new ButtonGeneric(xClose, yBottom, buttonWidth, 20, label),
                 new ButtonListener(ButtonListener.Type.CLOSE, null, null, this));
+    }
 
-        // Phase 5: 仓库引用按钮（底部左侧）
+    protected void createListWidgets()
+    {
+        int listX = 8;
+        int listWidth = this.getScreenWidth() - 16;
+        int contentTop = 48;
+        int contentBottom = this.getScreenHeight() - 36;
+        int totalHeight = contentBottom - contentTop;
+
+        // 上半：备货区列表（约 55%）
+        this.stagingListY = contentTop;
+        this.stagingListHeight = (int)(totalHeight * 0.55);
+        int stagingBottom = stagingListY + stagingListHeight;
+
+        // 分隔线位置
+        int separatorY = stagingBottom + 2;
+
+        // 下半：仓库引用列表
+        this.warehouseListY = separatorY + 14;
+        this.warehouseListHeight = contentBottom - this.warehouseListY;
+
+        // 备货区列表
+        this.stagingListWidget = new WidgetListStagingAreas(listX, this.stagingListY, listWidth, this.stagingListHeight, this.selection, this);
+        this.stagingListWidget.initGui();
+
+        // 仓库引用列表
         if (this.schematicId != null && !this.schematicId.isEmpty())
         {
-            addWarehouseRefSection(yBottom);
+            this.warehouseListWidget = new WidgetListWarehouseRefs(listX, this.warehouseListY, listWidth, this.warehouseListHeight, this.schematicId);
+            this.warehouseListWidget.initGui();
+        }
+    }
+
+    private void refreshStagingList()
+    {
+        if (this.stagingListWidget != null)
+        {
+            this.stagingListWidget.refreshEntries();
+        }
+    }
+
+    // ========== 渲染 ==========
+
+    @Override
+    protected void drawContents(DrawContext drawContext, int mouseX, int mouseY, float partialTicks)
+    {
+        if (this.stagingListWidget != null)
+        {
+            this.stagingListWidget.drawContents(drawContext, mouseX, mouseY, partialTicks);
         }
 
-        return yBottom;
+        // 分隔线 + 标签
+        int separatorY = this.stagingListY + this.stagingListHeight + 2;
+        RenderUtils.drawRect(drawContext, 10, separatorY, this.getScreenWidth() - 20, 1, 0xFF555555);
+        if (this.schematicId != null && !this.schematicId.isEmpty())
+        {
+            String warehouseLabel = StringUtils.translate("syncmaterial.gui.label.warehouse_refs_section",
+                    String.valueOf(this.warehouseListWidget != null ? this.warehouseListWidget.getEntryCount() : 0));
+            this.drawString(drawContext, GuiBase.TXT_BOLD + warehouseLabel, 14, separatorY + 3, 0xFF55AAFF);
+
+            // 添加仓库按钮（标签右侧）
+            String addLabel = StringUtils.translate("syncmaterial.gui.button.add_warehouse_ref");
+            int addWidth = StringUtils.getStringWidth(addLabel) + 10;
+            int addX = 14 + StringUtils.getStringWidth(GuiBase.TXT_BOLD + warehouseLabel) + 8;
+            ButtonGeneric addBtn = new ButtonGeneric(addX, separatorY + 1, addWidth, 16, addLabel);
+            this.addButton(addBtn, (btn, mouseBtn) -> {
+                GuiBase.openGui(new GuiWarehouseSelect(this.schematicId));
+            });
+        }
+
+        if (this.warehouseListWidget != null)
+        {
+            this.warehouseListWidget.drawContents(drawContext, mouseX, mouseY, partialTicks);
+        }
     }
 
     @Override
-    protected int getBrowserHeight()
+    protected void drawHoveredWidget(DrawContext drawContext, int mouseX, int mouseY)
     {
-        return this.getScreenHeight() - 78;
+        super.drawHoveredWidget(drawContext, mouseX, mouseY);
+
+        if (!this.shouldRenderHoverStuff()) return;
+
+        if (isMouseInRegion(mouseX, mouseY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
+        {
+            this.stagingListWidget.renderHoverEffects(drawContext, mouseX, mouseY);
+        }
+        else if (isMouseInRegion(mouseX, mouseY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
+        {
+            this.warehouseListWidget.renderHoverEffects(drawContext, mouseX, mouseY);
+        }
     }
 
-    /**
-     * 仓库引用区域：在备货区列表下方显示已引用仓库，可添加/移除
-     */
-    private void addWarehouseRefSection(int sectionY)
-    {
-        // 添加仓库按钮
-        String addLabel = StringUtils.translate("syncmaterial.gui.button.add_warehouse_ref");
-        int addWidth = this.getStringWidth(addLabel) + 10;
-        ButtonGeneric addBtn = new ButtonGeneric(10, sectionY, addWidth, 20, addLabel);
-        this.addButton(addBtn, (btn, mouseBtn) -> {
-            GuiBase.openGui(new GuiWarehouseSelect(this.schematicId));
-        });
+    // ========== 事件分发 ==========
 
-        int xRight = 10 + addWidth + 4;
-        if (!warehouseRefs.isEmpty())
+    @Override
+    public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton)
+    {
+        if (super.onMouseClicked(mouseX, mouseY, mouseButton))
         {
-            this.addLabel(xRight, sectionY + 4, -1, 12, 0xFFAAAAAA,
-                    StringUtils.translate("syncmaterial.gui.label.warehouse_count", String.valueOf(warehouseRefs.size())));
+            return true;
+        }
+
+        if (isMouseInRegion(mouseX, mouseY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
+        {
+            return this.stagingListWidget.onMouseClicked(mouseX, mouseY, mouseButton);
+        }
+        if (isMouseInRegion(mouseX, mouseY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
+        {
+            return this.warehouseListWidget.onMouseClicked(mouseX, mouseY, mouseButton);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean onMouseReleased(int mouseX, int mouseY, int mouseButton)
+    {
+        if (super.onMouseReleased(mouseX, mouseY, mouseButton))
+        {
+            return true;
+        }
+        if (this.stagingListWidget != null) this.stagingListWidget.onMouseReleased(mouseX, mouseY, mouseButton);
+        if (this.warehouseListWidget != null) this.warehouseListWidget.onMouseReleased(mouseX, mouseY, mouseButton);
+        return false;
+    }
+
+    @Override
+    public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount)
+    {
+        if (super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount))
+        {
+            return true;
+        }
+        if (isMouseInRegion(mouseX, mouseY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
+        {
+            return this.stagingListWidget.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+        if (isMouseInRegion(mouseX, mouseY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
+        {
+            return this.warehouseListWidget.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean onKeyTyped(int keyCode, int scanCode, int modifiers)
+    {
+        if (keyCode != KeyCodes.KEY_ESCAPE && super.onKeyTyped(keyCode, scanCode, modifiers))
+        {
+            return true;
+        }
+        // 键盘事件优先给备货区列表（它有搜索栏）
+        if (this.stagingListWidget != null && this.stagingListWidget.onKeyTyped(keyCode, scanCode, modifiers))
+        {
+            return true;
+        }
+        if (keyCode == KeyCodes.KEY_ESCAPE && super.onKeyTyped(keyCode, scanCode, modifiers))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean onCharTyped(char charIn, int modifiers)
+    {
+        if (super.onCharTyped(charIn, modifiers))
+        {
+            return true;
+        }
+        if (this.stagingListWidget != null && this.stagingListWidget.onCharTyped(charIn, modifiers))
+        {
+            return true;
+        }
+        return super.onCharTyped(charIn, modifiers);
+    }
+
+    @Override
+    public void resize(MinecraftClient mc, int width, int height)
+    {
+        super.resize(mc, width, height);
+        if (this.stagingListWidget != null) this.stagingListWidget.resize(mc, width, height);
+        if (this.warehouseListWidget != null) this.warehouseListWidget.resize(mc, width, height);
+    }
+
+    private boolean isMouseInRegion(int mouseX, int mouseY, int regionY, int regionHeight)
+    {
+        return mouseX >= 8 && mouseX <= this.getScreenWidth() - 8
+            && mouseY >= regionY && mouseY <= regionY + regionHeight;
+    }
+
+    // ========== 选区回调 ==========
+
+    @Override
+    public void onSelectionChange(@Nullable StagingAreaEntry entry)
+    {
+        if (entry != null)
+        {
+            this.selection.setSelectedSubRegionBox(entry.name());
+            StagingAreaRenderer.getInstance().setHighlightedBox(this.schematicId, entry.name());
+        }
+    }
+
+    protected List<StagingAreaEntry> getStagingAreaEntries()
+    {
+        List<StagingAreaEntry> entries = new ArrayList<>();
+        int id = 0;
+        for (String name : this.selection.getAllSubRegionNames())
+        {
+            Box box = this.selection.getSubRegionBox(name);
+            if (box != null)
+            {
+                BlockPos pos1 = box.getPos1();
+                BlockPos pos2 = box.getPos2();
+                entries.add(new StagingAreaEntry(id++, name,
+                        pos1.getX(), pos1.getY(), pos1.getZ(),
+                        pos2.getX(), pos2.getY(), pos2.getZ(), ""));
+            }
+        }
+        return entries;
+    }
+
+    public void onSelectionConfirmed(@Nullable String boxName, BlockPos pos1, BlockPos pos2)
+    {
+        if (boxName == null)
+        {
+            String newName = StringUtils.translate("syncmaterial.gui.label.staging_area_default", this.selection.getAllSubRegionNames().size() + 1);
+            Box newBox = new Box(pos1, pos2, newName);
+            this.selection.addSubRegionBox(newBox, true);
+            this.selection.setSelectedSubRegionBox(newName);
+
+            if (this.schematicId != null && !this.schematicId.isEmpty())
+            {
+                AreaData areaData = toAreaData(newName, pos1, pos2);
+                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                        this.schematicId, "ADD", -1, Optional.of(areaData)));
+            }
         }
         else
         {
-            this.addLabel(xRight, sectionY + 4, -1, 12, 0xFF888888,
-                    StringUtils.translate("syncmaterial.gui.label.no_warehouse_ref"));
+            Box box = this.selection.getSubRegionBox(boxName);
+            if (box != null)
+            {
+                box.setPos1(pos1);
+                box.setPos2(pos2);
+
+                Integer serverId = this.selection.getServerId(boxName);
+                if (serverId != null && this.schematicId != null && !this.schematicId.isEmpty())
+                {
+                    AreaData areaData = toAreaData(boxName, pos1, pos2);
+                    ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                            this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+                }
+            }
         }
+
+        StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
+        this.refreshStagingList();
     }
+
+    @Nullable
+    public ISelectionListener<StagingAreaEntry> getSelectionListener()
+    {
+        return entry -> {
+            if (entry != null)
+            {
+                this.selection.setSelectedSubRegionBox(entry.name());
+                StagingAreaRenderer.getInstance().setHighlightedBox(this.schematicId, entry.name());
+            }
+        };
+    }
+
+    // ========== 坐标编辑（保持不变） ==========
 
     protected void renameSubRegion()
     {
@@ -441,16 +674,13 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected int createButton(int x, int y, int width, @Nullable Corner corner, ButtonListener.Type type)
     {
         String label = type.getDisplayName();
-
         if (width == -1)
         {
-            width = this.getStringWidth(label) + 10;
+            width = StringUtils.getStringWidth(label) + 10;
         }
-
         ButtonGeneric button = new ButtonGeneric(x, y, width, 20, label);
         ButtonListener listener = new ButtonListener(type, corner, null, this);
         this.addButton(button, listener);
-
         return width;
     }
 
@@ -469,7 +699,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             boolean checked = this.selection.getSelectedSubRegionBox() != null && this.selection.getSelectedSubRegionBox().getSelectedCorner() == Corner.CORNER_1;
             this.checkBoxCorner1.setChecked(checked, false);
         }
-
         if (this.checkBoxCorner2 != null)
         {
             boolean checked = this.selection.getSelectedSubRegionBox() != null && this.selection.getSelectedSubRegionBox().getSelectedCorner() == Corner.CORNER_2;
@@ -498,7 +727,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     protected void moveCoordinate(int amount, Corner corner, CoordinateType type)
     {
         int oldValue = 0;
-
         if (corner == Corner.NONE)
         {
             oldValue = PositionUtils.getCoordinate(this.selection.getEffectiveOrigin(), type);
@@ -507,7 +735,6 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
         {
             oldValue = this.getBox().getCoordinate(corner, type);
         }
-
         this.selection.setCoordinate(this.getBox(), corner, type, oldValue + amount);
     }
 
@@ -515,134 +742,33 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
     {
         if (corner == Corner.NONE || this.schematicId == null)
         {
-            SyncMaterial.LOGGER.warn("[StagingArea] sendCoordinateUpdate: corner=NONE or no schematicId");
             return;
         }
 
         Box box = this.getBox();
-
         if (box == null)
         {
             box = this.selection.getSelectedSubRegionBox();
         }
-
         if (box == null)
         {
-            SyncMaterial.LOGGER.warn("[StagingArea] sendCoordinateUpdate: box is null");
             return;
         }
 
         Integer serverId = this.selection.getServerId(box.getName());
-
         if (serverId == null)
         {
-            SyncMaterial.LOGGER.warn("[StagingArea] sendCoordinateUpdate: serverId null for '{}' (UUID: {})",
-                    box.getName(), System.identityHashCode(this.selection));
             return;
         }
 
         BlockPos pos1 = box.getPos1();
         BlockPos pos2 = box.getPos2();
-
-        SyncMaterial.LOGGER.info("[StagingArea] sendCoordinateUpdate: box='{}' serverId={} pos1=[{},{},{}] pos2=[{},{},{}]",
-                box.getName(), serverId,
-                pos1.getX(), pos1.getY(), pos1.getZ(),
-                pos2.getX(), pos2.getY(), pos2.getZ());
-
         AreaData areaData = toAreaData(box.getName(), pos1, pos2);
         ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                 this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
     }
 
-    public void onSelectionConfirmed(@Nullable String boxName, BlockPos pos1, BlockPos pos2)
-    {
-        if (boxName == null)
-        {
-            String newName = StringUtils.translate("syncmaterial.gui.label.staging_area_default", this.selection.getAllSubRegionNames().size() + 1);
-            Box newBox = new Box(pos1, pos2, newName);
-            this.selection.addSubRegionBox(newBox, true);
-            this.selection.setSelectedSubRegionBox(newName);
-
-            if (this.schematicId != null && !this.schematicId.isEmpty())
-            {
-                AreaData areaData = toAreaData(newName, pos1, pos2);
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                        this.schematicId, "ADD", -1, Optional.of(areaData)));
-            }
-        }
-        else
-        {
-            Box box = this.selection.getSubRegionBox(boxName);
-            if (box != null)
-            {
-                box.setPos1(pos1);
-                box.setPos2(pos2);
-
-                Integer serverId = this.selection.getServerId(boxName);
-                if (serverId != null && this.schematicId != null && !this.schematicId.isEmpty())
-                {
-                    AreaData areaData = toAreaData(boxName, pos1, pos2);
-                    ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                            this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
-                }
-            }
-        }
-
-        StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
-    }
-
-    @Override
-    protected WidgetListStagingAreas createListWidget(int listX, int listY)
-    {
-        return new WidgetListStagingAreas(listX, listY,
-                this.getBrowserWidth(), this.getBrowserHeight(),
-                this.selection, this);
-    }
-
-    protected List<StagingAreaEntry> getStagingAreaEntries()
-    {
-        List<StagingAreaEntry> entries = new ArrayList<>();
-        int id = 0;
-
-        for (String name : this.selection.getAllSubRegionNames())
-        {
-            Box box = this.selection.getSubRegionBox(name);
-
-            if (box != null)
-            {
-                BlockPos pos1 = box.getPos1();
-                BlockPos pos2 = box.getPos2();
-                entries.add(new StagingAreaEntry(id++, name,
-                        pos1.getX(), pos1.getY(), pos1.getZ(),
-                        pos2.getX(), pos2.getY(), pos2.getZ(), ""));
-            }
-        }
-
-        return entries;
-    }
-
-    @Override
-    protected int getBrowserWidth()
-    {
-        return this.getScreenWidth() - 20;
-    }
-
-    @Override
-    protected ISelectionListener<StagingAreaEntry> getSelectionListener()
-    {
-        return this;
-    }
-
-    @Override
-    public void onSelectionChange(@Nullable StagingAreaEntry entry)
-    {
-        if (entry != null)
-        {
-            this.selection.setSelectedSubRegionBox(entry.name());
-            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
-                .setHighlightedBox(this.schematicId, entry.name());
-        }
-    }
+    // ========== 内部类 ==========
 
     protected static class ButtonListener implements IButtonActionListener
     {
@@ -742,7 +868,7 @@ public class GuiStagingAreaEditorNormal extends GuiListBase<StagingAreaEntry, Wi
             CREATE_SUB_REGION       ("syncmaterial.gui.button.add_staging_area"),
             SELECT_AREA             ("syncmaterial.gui.button.select_area"),
             MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),
-            CLOSE                   ("gui.close"),
+            CLOSE                   ("gui.back"),
             NUDGE_COORD_X           (""),
             NUDGE_COORD_Y           (""),
             NUDGE_COORD_Z           ("");

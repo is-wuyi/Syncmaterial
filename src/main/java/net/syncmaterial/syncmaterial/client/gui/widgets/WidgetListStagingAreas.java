@@ -14,6 +14,8 @@ import java.util.List;
 
 import net.minecraft.util.math.BlockPos;
 
+import net.minecraft.client.gui.DrawContext;
+
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
@@ -45,6 +47,12 @@ public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, Wid
     public AreaSelection getSelection()
     {
         return this.selection;
+    }
+
+    public void renderHoverEffects(DrawContext drawContext, int mouseX, int mouseY)
+    {
+        this.drawHoveredWidget(drawContext, mouseX, mouseY);
+        this.drawButtonHoverTexts(drawContext, mouseX, mouseY, 0f);
     }
 
     @Override
