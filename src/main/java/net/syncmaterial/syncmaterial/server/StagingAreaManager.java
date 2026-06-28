@@ -31,6 +31,8 @@ public class StagingAreaManager {
     // Phase 5: 取货模式推送冷却（避免高频变动网络风暴）
     private volatile long lastPushTime = 0;
     private static final long PUSH_COOLDOWN_MS = 1000;
+    // 被冷却跳过的推送需要在下次扫描时重试
+    private volatile boolean pushPending = false;
     // Phase 5: 初始化跟踪（服务器重启后，区域首次全部区块加载完成即标记为已初始化）
     private final Set<Integer> initializedAreas = ConcurrentHashMap.newKeySet();
     // 临时区块跟踪：初始化阶段记录已扫描的区块，全部扫描完成后清除
@@ -206,11 +208,9 @@ public class StagingAreaManager {
             return;
         }
 
-        // 快照当前脏容器，只清除已处理的条目（大箱子配对的一半会保留到下次处理）
-        Map<BlockPos, ServerWorld> snapshot = new HashMap<>(dirtyContainers);
-        for (BlockPos pos : snapshot.keySet()) {
-            dirtyContainers.remove(pos);
-        }
+        // 原子快照：取走当前所有条目，后续新加入的条目不受影响
+        Map<BlockPos, ServerWorld> snapshot = new java.util.HashMap<>(dirtyContainers);
+        dirtyContainers.keySet().removeAll(snapshot.keySet());
 
         SyncMaterial.LOGGER.info("[StagingArea] processDirtyContainers: {} dirty containers", snapshot.size());
 
@@ -325,8 +325,9 @@ public class StagingAreaManager {
                 }
             }
 
-            // 推送更新（含冷却）
+            // 推送更新（含冷却），被跳过的会在下一帧重试
             pushDirtyUpdateWithCooldown();
+            schedulePushRetryIfNeeded();
         });
     }
 
@@ -396,15 +397,29 @@ public class StagingAreaManager {
     }
 
     /**
-     * 推送更新给取货模式玩家（带 1 秒冷却合并）
+     * 推送更新给取货模式玩家（带 1 秒冷却合并，被跳过的推送会标记为 pending）
      */
     private void pushDirtyUpdateWithCooldown() {
         long now = System.currentTimeMillis();
         if (now - lastPushTime < PUSH_COOLDOWN_MS) {
+            pushPending = true;
             return;
         }
         lastPushTime = now;
+        pushPending = false;
         net.syncmaterial.syncmaterial.network.ModNetworkHandler.pushWarehouseContainerUpdate(this);
+    }
+
+    /**
+     * processDirtyContainers 结束前调用：如果有被冷却跳过的推送，安排延迟重试
+     */
+    private void schedulePushRetryIfNeeded() {
+        if (pushPending) {
+            pushPending = false;
+            server.execute(() -> {
+                pushDirtyUpdateWithCooldown();
+            });
+        }
     }
 
     private Integer findAreaId(BlockPos pos, ServerWorld world) {
