@@ -84,9 +84,33 @@ public class StagingAreaManager {
 
     public int addStagingArea(String schematicId, String world, String name, int x1, int y1, int z1, int x2, int y2, int z2) {
         try {
+            // 检查同原理图下是否已有同名备货区，如有则加后缀
+            String finalName = name;
+            try (var rs = database.executeQuery(
+                "SELECT COUNT(*) FROM staging_areas WHERE schematic_id = ? AND name = ?",
+                schematicId, name
+            )) {
+                if (rs.next() && rs.getInt(1) > 0) {
+                    int suffix = 2;
+                    while (true) {
+                        String candidate = name + " (" + suffix + ")";
+                        try (var rs2 = database.executeQuery(
+                            "SELECT COUNT(*) FROM staging_areas WHERE schematic_id = ? AND name = ?",
+                            schematicId, candidate
+                        )) {
+                            if (rs2.next() && rs2.getInt(1) == 0) {
+                                finalName = candidate;
+                                break;
+                            }
+                        }
+                        suffix++;
+                    }
+                }
+            }
+
             database.executeUpdate(
                 "INSERT INTO staging_areas (schematic_id, world, name, x1, y1, z1, x2, y2, z2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                schematicId, world, name, x1, y1, z1, x2, y2, z2
+                schematicId, world, finalName, x1, y1, z1, x2, y2, z2
             );
 
             try (var rs = database.executeQuery("SELECT last_insert_rowid()")) {
@@ -593,13 +617,29 @@ public class StagingAreaManager {
             SyncMaterial.LOGGER.error("Failed to clean container_inventory on removal", e);
         }
 
-        // 2. 全量重扫该区域，更新总数
+        // 2. 全量重扫该区域及同原理图所有备货区
         if ("warehouse".equals(areaType)) {
             Map<String, Integer> result = scanWarehouseContents(areaId);
             if (result != null) updateWarehouseInventory(areaId, result);
         } else {
-            Map<String, Integer> result = scanAreaContents(areaId);
-            if (result != null) updateStagingAreaInventory(areaId, result);
+            rescanAllStagingAreasForSibling(areaId);
+        }
+    }
+
+    /**
+     * 重扫指定备货区所在原理图的所有备货区（材料总数是 SUM，必须全部重扫）
+     */
+    private void rescanAllStagingAreasForSibling(int areaId) {
+        for (var schematicEntry : stagingAreasBySchematic.entrySet()) {
+            for (StagingArea area : schematicEntry.getValue()) {
+                if (area.id == areaId) {
+                    for (StagingArea sibling : schematicEntry.getValue()) {
+                        Map<String, Integer> result = scanAreaContents(sibling.id);
+                        if (result != null) updateStagingAreaInventory(sibling.id, result);
+                    }
+                    return;
+                }
+            }
         }
     }
 
