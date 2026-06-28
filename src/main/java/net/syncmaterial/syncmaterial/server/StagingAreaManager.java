@@ -249,13 +249,28 @@ public class StagingAreaManager {
                     }
                 }
 
-                // 4. 重新计算该区域的总数（warehouse_inventory / staging_area_inventory）
-                if (isWarehouse) {
+                // 4. 如果是备货区，重扫该原理图下所有备货区（因为材料总数是所有备货区的 SUM）
+                if (!isWarehouse) {
+                    // 找到该备货区所属的原理图，重扫所有备货区
+                    for (var schematicEntry : stagingAreasBySchematic.entrySet()) {
+                        boolean found = false;
+                        for (StagingArea area : schematicEntry.getValue()) {
+                            if (area.id == areaId) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found) {
+                            for (StagingArea area : schematicEntry.getValue()) {
+                                Map<String, Integer> result = scanAreaContents(area.id);
+                                if (result != null) updateStagingAreaInventory(area.id, result);
+                            }
+                            break;
+                        }
+                    }
+                } else {
                     Map<String, Integer> result = scanWarehouseContents(areaId);
                     if (result != null) updateWarehouseInventory(areaId, result);
-                } else {
-                    Map<String, Integer> result = scanAreaContents(areaId);
-                    if (result != null) updateStagingAreaInventory(areaId, result);
                 }
             }
 
