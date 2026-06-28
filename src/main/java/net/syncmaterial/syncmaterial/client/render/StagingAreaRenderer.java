@@ -207,10 +207,9 @@ public class StagingAreaRenderer implements IRenderer
                     neededItemIds = GuiMaterialList.getPickupModeNeededItemIds();
                 }
 
-                Color4f containerColor = new Color4f(0.2f, 0.6f, 1.0f, 1.0f); // 蓝色
+                // 1. 过滤出需要渲染的容器
+                java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> toRender = new java.util.ArrayList<>();
                 for (WarehouseContainerResponseS2CPacket.ContainerEntry container : this.warehouseContainers) {
-                    BlockPos pos = new BlockPos(container.posX(), container.posY(), container.posZ());
-                    // 取货模式：过滤不需要的箱子
                     if (isPickupMode && neededItemIds != null) {
                         boolean hasNeeded = false;
                         for (String itemId : container.itemIds()) {
@@ -221,7 +220,43 @@ public class StagingAreaRenderer implements IRenderer
                         }
                         if (!hasNeeded) continue;
                     }
-                    RenderUtils.renderBlockOutline(pos, 0.0f, 2.0f, containerColor);
+                    toRender.add(container);
+                }
+
+                // 2. 合并相邻容器（大箱子检测）：同 Y 层且 X 或 Z 相差 1 的视为同一组
+                java.util.Set<String> used = new java.util.HashSet<>();
+                Color4f containerColor = new Color4f(0.2f, 0.6f, 1.0f, 1.0f); // 蓝色
+
+                for (int i = 0; i < toRender.size(); i++) {
+                    String keyI = toRender.get(i).posX() + "," + toRender.get(i).posY() + "," + toRender.get(i).posZ();
+                    if (used.contains(keyI)) continue;
+
+                    int minX = toRender.get(i).posX(), minY = toRender.get(i).posY(), minZ = toRender.get(i).posZ();
+                    int maxX = minX, maxY = minY, maxZ = minZ;
+
+                    // 向后查找相邻容器（同 Y 层，X 或 Z 方向差 1）
+                    for (int j = i + 1; j < toRender.size(); j++) {
+                        String keyJ = toRender.get(j).posX() + "," + toRender.get(j).posY() + "," + toRender.get(j).posZ();
+                        if (used.contains(keyJ)) continue;
+
+                        WarehouseContainerResponseS2CPacket.ContainerEntry other = toRender.get(j);
+                        if (other.posY() == minY) {
+                            boolean adjacentX = Math.abs(other.posX() - minX) == 1 && other.posZ() == minZ;
+                            boolean adjacentZ = Math.abs(other.posZ() - minZ) == 1 && other.posX() == minX;
+                            if (adjacentX || adjacentZ) {
+                                minX = Math.min(minX, other.posX());
+                                maxX = Math.max(maxX, other.posX());
+                                minZ = Math.min(minZ, other.posZ());
+                                maxZ = Math.max(maxZ, other.posZ());
+                                used.add(keyJ);
+                            }
+                        }
+                    }
+
+                    used.add(keyI);
+                    BlockPos pos1 = new BlockPos(minX, minY, minZ);
+                    BlockPos pos2 = new BlockPos(maxX, maxY, maxZ);
+                    RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, containerColor, containerColor, containerColor);
                 }
             }
         }

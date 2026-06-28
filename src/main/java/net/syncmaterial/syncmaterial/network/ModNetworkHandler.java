@@ -345,6 +345,23 @@ public class ModNetworkHandler {
         }
     }
 
+    /**
+     * 供 StagingAreaManager 调用：容器数据变化后推送给取货模式中的玩家
+     */
+    public static void pushWarehouseContainerUpdate(StagingAreaManager manager) {
+        for (var playerEntry : playerSchematicWarehouses.entrySet()) {
+            var player = playerEntry.getKey();
+            Set<Integer> allWarehouseIds = new HashSet<>();
+            for (var ids : playerEntry.getValue().values()) {
+                allWarehouseIds.addAll(ids);
+            }
+            if (allWarehouseIds.isEmpty()) continue;
+
+            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers = manager.getContainerEntriesForWarehouses(allWarehouseIds);
+            ServerPlayNetworking.send(player, new WarehouseContainerResponseS2CPacket(containers));
+        }
+    }
+
     private static void handleStagingAreaConfig(StagingAreaConfigC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();

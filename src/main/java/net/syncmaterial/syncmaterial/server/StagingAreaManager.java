@@ -358,8 +358,7 @@ public class StagingAreaManager {
             return;
         }
         lastPushTime = now;
-        // TODO P5-9: 推送给取货模式中的玩家
-        SyncMaterial.LOGGER.info("[StagingArea] 推送容器数据更新给取货模式玩家（冷却合并）");
+        net.syncmaterial.syncmaterial.network.ModNetworkHandler.pushWarehouseContainerUpdate(this);
     }
 
     private Integer findAreaId(BlockPos pos, ServerWorld world) {
@@ -580,26 +579,37 @@ public class StagingAreaManager {
 
     public void onContainerRemoved(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
+        boolean found = false;
 
         // 检查备货区
         for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
             for (StagingArea area : areas) {
                 if (area.world.equals(worldId) && isPosInArea(pos, area)) {
                     onContainerRemovedFromArea(area.id, "staging_area", pos);
-                    return;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+
+        if (!found) {
+            // 检查仓库
+            List<Warehouse> warehouses = warehousesByWorld.get(worldId);
+            if (warehouses != null) {
+                for (Warehouse wh : warehouses) {
+                    if (isPosInWarehouse(pos, wh)) {
+                        onContainerRemovedFromArea(wh.id(), "warehouse", pos);
+                        found = true;
+                        break;
+                    }
                 }
             }
         }
 
-        // 检查仓库
-        List<Warehouse> warehouses = warehousesByWorld.get(worldId);
-        if (warehouses != null) {
-            for (Warehouse wh : warehouses) {
-                if (isPosInWarehouse(pos, wh)) {
-                    onContainerRemovedFromArea(wh.id(), "warehouse", pos);
-                    return;
-                }
-            }
+        // 容器被破坏后，推送给取货模式中的玩家
+        if (found) {
+            pushDirtyUpdateWithCooldown();
         }
     }
 
