@@ -3,7 +3,6 @@ package net.syncmaterial.syncmaterial.server;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.world.chunk.WorldChunk;
-import net.minecraft.inventory.DoubleInventory;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.util.math.BlockPos;
@@ -254,21 +253,18 @@ public class StagingAreaManager {
                         continue;
                     }
 
-                    // 大箱子检测：如果该位置的 Inventory 是 DoubleInventory，记录配对位置
-                    BlockEntity be = world.getBlockEntity(pos);
-                    if (be instanceof Inventory inv && inv instanceof DoubleInventory) {
-                        BlockPos pairedPos = findPairedChestPos(world, pos);
-                        if (pairedPos != null) {
-                            pairedPositions.add(pairedPos);
-                            dirtyContainers.remove(pairedPos);
-                            // 清理配对位置在 container_inventory 中的旧记录（避免重复计数）
-                            try {
-                                database.executeUpdate(
-                                    "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
-                                    areaId, areaType, pairedPos.getX(), pairedPos.getY(), pairedPos.getZ());
-                            } catch (java.sql.SQLException e) {
-                                SyncMaterial.LOGGER.error("[StagingArea] 清理大箱子配对位置记录失败", e);
-                            }
+                    // 大箱子检测：通过 CHEST_TYPE 属性判断，记录配对位置
+                    BlockPos pairedPos = findPairedChestPos(world, pos);
+                    if (pairedPos != null) {
+                        pairedPositions.add(pairedPos);
+                        dirtyContainers.remove(pairedPos);
+                        // 清理配对位置在 container_inventory 中的旧记录（避免重复计数）
+                        try {
+                            database.executeUpdate(
+                                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                                areaId, areaType, pairedPos.getX(), pairedPos.getY(), pairedPos.getZ());
+                        } catch (java.sql.SQLException e) {
+                            SyncMaterial.LOGGER.error("[StagingArea] 清理大箱子配对位置记录失败", e);
                         }
                     }
 
@@ -336,18 +332,18 @@ public class StagingAreaManager {
 
     /**
      * 找到大箱子（DoubleInventory）中与 pos 配对的另一半坐标
-     * 检查 pos 四个水平相邻位置是否也持有 DoubleInventory
+     * 参考 Litematica：通过方块状态 CHEST_TYPE + getFacing 判断
      */
     private BlockPos findPairedChestPos(ServerWorld world, BlockPos pos) {
-        for (var dir : new net.minecraft.util.math.Direction[]{
-                net.minecraft.util.math.Direction.NORTH,
-                net.minecraft.util.math.Direction.SOUTH,
-                net.minecraft.util.math.Direction.EAST,
-                net.minecraft.util.math.Direction.WEST}) {
-            BlockPos neighbor = pos.offset(dir);
-            BlockEntity neighborBE = world.getBlockEntity(neighbor);
-            if (neighborBE instanceof Inventory inv && inv instanceof DoubleInventory) {
-                return neighbor;
+        net.minecraft.block.BlockState state = world.getBlockState(pos);
+        if (state.getBlock() instanceof net.minecraft.block.ChestBlock) {
+            var chestTypeProp = net.minecraft.block.ChestBlock.CHEST_TYPE;
+            if (state.contains(chestTypeProp)) {
+                var chestType = state.get(chestTypeProp);
+                if (chestType != net.minecraft.block.enums.ChestType.SINGLE) {
+                    net.minecraft.util.math.Direction facing = net.minecraft.block.ChestBlock.getFacing(state);
+                    return pos.offset(facing);
+                }
             }
         }
         return null;
@@ -664,6 +660,7 @@ public class StagingAreaManager {
         }
 
         // 大箱子被破坏一半时，重新扫描另一半（从54格变回27格）
+        // 被破坏的方块已经是 AIR，所以检查四个方向的相邻方块
         if (found) {
             for (var dir : new net.minecraft.util.math.Direction[]{
                     net.minecraft.util.math.Direction.NORTH,

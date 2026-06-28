@@ -223,39 +223,37 @@ public class StagingAreaRenderer implements IRenderer
                     toRender.add(container);
                 }
 
-                // 2. 合并相邻容器（大箱子检测）：同 Y 层且 X 或 Z 相差 1 的视为同一组
-                java.util.Set<String> used = new java.util.HashSet<>();
+                // 2. 渲染容器线框（大箱子用 CHEST_TYPE 属性检测，渲染覆盖整个双箱区域）
                 Color4f containerColor = new Color4f(0.2f, 0.6f, 1.0f, 1.0f); // 蓝色
 
-                for (int i = 0; i < toRender.size(); i++) {
-                    String keyI = toRender.get(i).posX() + "," + toRender.get(i).posY() + "," + toRender.get(i).posZ();
-                    if (used.contains(keyI)) continue;
+                for (WarehouseContainerResponseS2CPacket.ContainerEntry container : toRender) {
+                    int px = container.posX(), py = container.posY(), pz = container.posZ();
+                    BlockPos pos = new BlockPos(px, py, pz);
+                    BlockPos pos1 = pos, pos2 = pos;
 
-                    int minX = toRender.get(i).posX(), minY = toRender.get(i).posY(), minZ = toRender.get(i).posZ();
-                    int maxX = minX, maxY = minY, maxZ = minZ;
-
-                    // 向后查找相邻容器（同 Y 层，X 或 Z 方向差 1）
-                    for (int j = i + 1; j < toRender.size(); j++) {
-                        String keyJ = toRender.get(j).posX() + "," + toRender.get(j).posY() + "," + toRender.get(j).posZ();
-                        if (used.contains(keyJ)) continue;
-
-                        WarehouseContainerResponseS2CPacket.ContainerEntry other = toRender.get(j);
-                        if (other.posY() == minY) {
-                            boolean adjacentX = Math.abs(other.posX() - minX) == 1 && other.posZ() == minZ;
-                            boolean adjacentZ = Math.abs(other.posZ() - minZ) == 1 && other.posX() == minX;
-                            if (adjacentX || adjacentZ) {
-                                minX = Math.min(minX, other.posX());
-                                maxX = Math.max(maxX, other.posX());
-                                minZ = Math.min(minZ, other.posZ());
-                                maxZ = Math.max(maxZ, other.posZ());
-                                used.add(keyJ);
+                    // 检测大箱子：读取方块状态的 CHEST_TYPE 属性
+                    net.minecraft.block.BlockState state = mc.world.getBlockState(pos);
+                    if (state.getBlock() instanceof net.minecraft.block.ChestBlock) {
+                        net.minecraft.state.property.EnumProperty<net.minecraft.block.enums.ChestType> chestTypeProp =
+                            net.minecraft.block.ChestBlock.CHEST_TYPE;
+                        if (state.contains(chestTypeProp)) {
+                            net.minecraft.block.enums.ChestType chestType = state.get(chestTypeProp);
+                            if (chestType != net.minecraft.block.enums.ChestType.SINGLE) {
+                                // 大箱子：用 ChestBlock.getFacing 获取配对方向，扩展到配对坐标
+                                net.minecraft.util.math.Direction facing = net.minecraft.block.ChestBlock.getFacing(state);
+                                BlockPos pairedPos = pos.offset(facing);
+                                pos1 = new BlockPos(
+                                    Math.min(px, pairedPos.getX()),
+                                    Math.min(py, pairedPos.getY()),
+                                    Math.min(pz, pairedPos.getZ()));
+                                pos2 = new BlockPos(
+                                    Math.max(px, pairedPos.getX()),
+                                    Math.max(py, pairedPos.getY()),
+                                    Math.max(pz, pairedPos.getZ()));
                             }
                         }
                     }
 
-                    used.add(keyI);
-                    BlockPos pos1 = new BlockPos(minX, minY, minZ);
-                    BlockPos pos2 = new BlockPos(maxX, maxY, maxZ);
                     RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, containerColor, containerColor, containerColor);
                 }
             }
