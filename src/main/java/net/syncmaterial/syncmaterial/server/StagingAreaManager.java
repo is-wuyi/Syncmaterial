@@ -3,6 +3,7 @@ package net.syncmaterial.syncmaterial.server;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.world.chunk.WorldChunk;
+import net.minecraft.inventory.DoubleInventory;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.util.math.BlockPos;
@@ -206,12 +207,18 @@ public class StagingAreaManager {
             return;
         }
 
-        SyncMaterial.LOGGER.info("[StagingArea] processDirtyContainers: {} dirty containers", dirtyContainers.size());
+        // 快照当前脏容器，只清除已处理的条目（大箱子配对的一半会保留到下次处理）
+        Map<BlockPos, ServerWorld> snapshot = new HashMap<>(dirtyContainers);
+        for (BlockPos pos : snapshot.keySet()) {
+            dirtyContainers.remove(pos);
+        }
+
+        SyncMaterial.LOGGER.info("[StagingArea] processDirtyContainers: {} dirty containers", snapshot.size());
 
         // 按区域收集脏容器 pos（同一个区域的多个箱子分别处理）
         Map<String, List<Map.Entry<BlockPos, ServerWorld>>> dirtyByArea = new HashMap<>();
 
-        for (Map.Entry<BlockPos, ServerWorld> entry : dirtyContainers.entrySet()) {
+        for (Map.Entry<BlockPos, ServerWorld> entry : snapshot.entrySet()) {
             BlockPos pos = entry.getKey();
             ServerWorld world = entry.getValue();
 
@@ -225,9 +232,10 @@ public class StagingAreaManager {
             }
         }
 
-        dirtyContainers.clear();
-
         if (dirtyByArea.isEmpty() || server == null) return;
+
+        // 大箱子配对检测：记录已处理的配对位置，跳过扫描避免重复
+        Set<BlockPos> pairedPositions = new HashSet<>();
 
         server.execute(() -> {
             for (var areaEntry : dirtyByArea.entrySet()) {
@@ -240,6 +248,29 @@ public class StagingAreaManager {
                     BlockPos pos = posEntry.getKey();
                     ServerWorld world = posEntry.getValue();
                     String areaType = isWarehouse ? "warehouse" : "staging_area";
+
+                    // 跳过已作为大箱子配对处理过的位置
+                    if (pairedPositions.contains(pos)) {
+                        continue;
+                    }
+
+                    // 大箱子检测：如果该位置的 Inventory 是 DoubleInventory，记录配对位置
+                    BlockEntity be = world.getBlockEntity(pos);
+                    if (be instanceof Inventory inv && inv instanceof DoubleInventory) {
+                        BlockPos pairedPos = findPairedChestPos(world, pos);
+                        if (pairedPos != null) {
+                            pairedPositions.add(pairedPos);
+                            dirtyContainers.remove(pairedPos);
+                            // 清理配对位置在 container_inventory 中的旧记录（避免重复计数）
+                            try {
+                                database.executeUpdate(
+                                    "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                                    areaId, areaType, pairedPos.getX(), pairedPos.getY(), pairedPos.getZ());
+                            } catch (java.sql.SQLException e) {
+                                SyncMaterial.LOGGER.error("[StagingArea] 清理大箱子配对位置记录失败", e);
+                            }
+                        }
+                    }
 
                     // 1. 扫描该箱子获取新物品集合（含潜影盒）
                     Set<String> newItems = scanSingleContainerItems(world, pos);
@@ -301,6 +332,25 @@ public class StagingAreaManager {
             // 推送更新（含冷却）
             pushDirtyUpdateWithCooldown();
         });
+    }
+
+    /**
+     * 找到大箱子（DoubleInventory）中与 pos 配对的另一半坐标
+     * 检查 pos 四个水平相邻位置是否也持有 DoubleInventory
+     */
+    private BlockPos findPairedChestPos(ServerWorld world, BlockPos pos) {
+        for (var dir : new net.minecraft.util.math.Direction[]{
+                net.minecraft.util.math.Direction.NORTH,
+                net.minecraft.util.math.Direction.SOUTH,
+                net.minecraft.util.math.Direction.EAST,
+                net.minecraft.util.math.Direction.WEST}) {
+            BlockPos neighbor = pos.offset(dir);
+            BlockEntity neighborBE = world.getBlockEntity(neighbor);
+            if (neighborBE instanceof Inventory inv && inv instanceof DoubleInventory) {
+                return neighbor;
+            }
+        }
+        return null;
     }
 
     /**
@@ -580,12 +630,16 @@ public class StagingAreaManager {
     public void onContainerRemoved(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
         boolean found = false;
+        int foundAreaId = -1;
+        String foundAreaType = "";
 
         // 检查备货区
         for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
             for (StagingArea area : areas) {
                 if (area.world.equals(worldId) && isPosInArea(pos, area)) {
                     onContainerRemovedFromArea(area.id, "staging_area", pos);
+                    foundAreaId = area.id;
+                    foundAreaType = "staging_area";
                     found = true;
                     break;
                 }
@@ -600,6 +654,8 @@ public class StagingAreaManager {
                 for (Warehouse wh : warehouses) {
                     if (isPosInWarehouse(pos, wh)) {
                         onContainerRemovedFromArea(wh.id(), "warehouse", pos);
+                        foundAreaId = wh.id();
+                        foundAreaType = "warehouse";
                         found = true;
                         break;
                     }
@@ -607,8 +663,42 @@ public class StagingAreaManager {
             }
         }
 
-        // 容器被破坏后，推送给取货模式中的玩家
+        // 大箱子被破坏一半时，重新扫描另一半（从54格变回27格）
         if (found) {
+            for (var dir : new net.minecraft.util.math.Direction[]{
+                    net.minecraft.util.math.Direction.NORTH,
+                    net.minecraft.util.math.Direction.SOUTH,
+                    net.minecraft.util.math.Direction.EAST,
+                    net.minecraft.util.math.Direction.WEST}) {
+                BlockPos neighbor = pos.offset(dir);
+                BlockEntity neighborBE = world.getBlockEntity(neighbor);
+                if (neighborBE instanceof Inventory) {
+                    // 相邻位置是容器且属于同一区域，重新扫描
+                    Integer neighborAreaId = findAreaId(neighbor, world);
+                    if (neighborAreaId == null) neighborAreaId = findWarehouseId(neighbor, world);
+                    if (neighborAreaId != null && neighborAreaId == foundAreaId) {
+                        Set<String> newItems = scanSingleContainerItems(world, neighbor);
+                        // 全量替换该位置的记录
+                        try {
+                            database.executeUpdate(
+                                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                                foundAreaId, foundAreaType, neighbor.getX(), neighbor.getY(), neighbor.getZ());
+                        } catch (SQLException e) {
+                            SyncMaterial.LOGGER.error("Failed to clean paired position inventory", e);
+                        }
+                        for (String itemId : newItems) {
+                            try {
+                                database.executeUpdate(
+                                    "INSERT OR IGNORE INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (?, ?, ?, ?, ?, ?)",
+                                    foundAreaId, foundAreaType, neighbor.getX(), neighbor.getY(), neighbor.getZ(), itemId);
+                            } catch (SQLException e) {
+                                SyncMaterial.LOGGER.error("Failed to insert paired position inventory", e);
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
             pushDirtyUpdateWithCooldown();
         }
     }
