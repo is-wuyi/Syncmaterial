@@ -253,7 +253,7 @@ public class StagingAreaManager {
                     if (pairedPos != null) {
                         pairedPositions.add(pairedPos);
                         dirtyContainers.remove(pairedPos);
-                        // 清理配对位置在 container_inventory 中的旧记录（避免重复计数）
+                        // 清理配对位置的旧记录（大箱子两个位置共享同一 DoubleInventory，只记录在一个位置）
                         try {
                             database.executeUpdate(
                                 "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
@@ -266,31 +266,51 @@ public class StagingAreaManager {
                     // 1. 扫描该箱子获取新物品集合（含潜影盒）
                     Set<String> newItems = scanSingleContainerItems(world, pos);
 
-                    // 2. 查询该箱子在 container_inventory 中的旧记录
-                    Set<String> oldItems = getContainerItemsAt(areaId, areaType, pos);
-
-                    // 3. 求差集：删除消失的、插入新出现的
-                    Set<String> toDelete = new HashSet<>(oldItems);
-                    toDelete.removeAll(newItems);
-                    Set<String> toInsert = new HashSet<>(newItems);
-                    toInsert.removeAll(oldItems);
-
-                    for (String itemId : toDelete) {
+                    // 大箱子：全量替换（DoubleInventory 的物品可能在两个半箱间移动，增量更新无法检测）
+                    // 普通容器：增量更新（更高效）
+                    if (pairedPos != null) {
+                        // 全量替换：删除旧记录 → 插入新记录
                         try {
                             database.executeUpdate(
-                                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=? AND item_id=?",
-                                areaId, areaType, pos.getX(), pos.getY(), pos.getZ(), itemId);
+                                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                                areaId, areaType, pos.getX(), pos.getY(), pos.getZ());
                         } catch (java.sql.SQLException e) {
-                            SyncMaterial.LOGGER.error("[StagingArea] 增量扫描删除失败", e);
+                            SyncMaterial.LOGGER.error("[StagingArea] 大箱子全量替换删除失败", e);
                         }
-                    }
-                    for (String itemId : toInsert) {
-                        try {
-                            database.executeUpdate(
-                                "INSERT OR IGNORE INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (?, ?, ?, ?, ?, ?)",
-                                areaId, areaType, pos.getX(), pos.getY(), pos.getZ(), itemId);
-                        } catch (java.sql.SQLException e) {
-                            SyncMaterial.LOGGER.error("[StagingArea] 增量扫描插入失败", e);
+                        for (String itemId : newItems) {
+                            try {
+                                database.executeUpdate(
+                                    "INSERT OR IGNORE INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (?, ?, ?, ?, ?, ?)",
+                                    areaId, areaType, pos.getX(), pos.getY(), pos.getZ(), itemId);
+                            } catch (java.sql.SQLException e) {
+                                SyncMaterial.LOGGER.error("[StagingArea] 大箱子全量替换插入失败", e);
+                            }
+                        }
+                    } else {
+                        // 普通容器：增量更新
+                        Set<String> oldItems = getContainerItemsAt(areaId, areaType, pos);
+                        Set<String> toDelete = new HashSet<>(oldItems);
+                        toDelete.removeAll(newItems);
+                        Set<String> toInsert = new HashSet<>(newItems);
+                        toInsert.removeAll(oldItems);
+
+                        for (String itemId : toDelete) {
+                            try {
+                                database.executeUpdate(
+                                    "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=? AND item_id=?",
+                                    areaId, areaType, pos.getX(), pos.getY(), pos.getZ(), itemId);
+                            } catch (java.sql.SQLException e) {
+                                SyncMaterial.LOGGER.error("[StagingArea] 增量扫描删除失败", e);
+                            }
+                        }
+                        for (String itemId : toInsert) {
+                            try {
+                                database.executeUpdate(
+                                    "INSERT OR IGNORE INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (?, ?, ?, ?, ?, ?)",
+                                    areaId, areaType, pos.getX(), pos.getY(), pos.getZ(), itemId);
+                            } catch (java.sql.SQLException e) {
+                                SyncMaterial.LOGGER.error("[StagingArea] 增量扫描插入失败", e);
+                            }
                         }
                     }
                 }
