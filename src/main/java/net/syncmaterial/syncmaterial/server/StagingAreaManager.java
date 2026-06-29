@@ -240,15 +240,29 @@ public class StagingAreaManager {
         Set<BlockPos> pairedPositions = new HashSet<>();
 
         server.execute(() -> {
-            // 跳过延迟重扫的位置（容器被移除，等下一 tick 状态稳定后再处理）
+            // 延迟重扫：跳过扫描但清理旧 container_inventory 记录，防止残留数据导致蓝框常亮
             dirtyByArea.entrySet().removeIf(e -> {
+                String areaKey = e.getKey();
+                boolean isWh = areaKey.startsWith("W:");
+                int areaId = Integer.parseInt(areaKey.substring(2));
+                String areaType = isWh ? "warehouse" : "staging_area";
+                boolean shouldRemove = false;
                 for (var entry : e.getValue()) {
-                    if (deferredRescans.remove(entry.getKey())) {
-                        SyncMaterial.LOGGER.info("[StagingArea] 跳过延迟重扫位置: {}", entry.getKey());
-                        return true;
+                    BlockPos pos = entry.getKey();
+                    if (deferredRescans.remove(pos)) {
+                        // 清理该位置的旧 container_inventory 记录
+                        try {
+                            database.executeUpdate(
+                                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                                areaId, areaType, pos.getX(), pos.getY(), pos.getZ());
+                        } catch (java.sql.SQLException ex) {
+                            SyncMaterial.LOGGER.error("[StagingArea] 延迟清理 container_inventory 失败", ex);
+                        }
+                        SyncMaterial.LOGGER.info("[StagingArea] 延迟跳过并清理旧记录: {}", pos);
+                        shouldRemove = true;
                     }
                 }
-                return false;
+                return shouldRemove;
             });
             if (dirtyByArea.isEmpty()) return;
 
