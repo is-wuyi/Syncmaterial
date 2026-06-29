@@ -656,6 +656,7 @@ public class StagingAreaManager {
                         SyncMaterial.LOGGER.error("[StagingArea] 容器移除清理失败", e);
                     }
                     pendingDeferredRescans.put(pos, currentServerTick);
+                    dirtyContainers.put(pos, world);
                     SyncMaterial.LOGGER.info("[StagingArea] 容器被移除(延迟): area={} pos={},{},{}", area.id, pos.getX(), pos.getY(), pos.getZ());
                     foundAreaId = area.id;
                     foundAreaType = "staging_area";
@@ -685,6 +686,7 @@ public class StagingAreaManager {
                             SyncMaterial.LOGGER.error("[StagingArea] 容器移除清理失败", e);
                         }
                         pendingDeferredRescans.put(pos, currentServerTick);
+                        dirtyContainers.put(pos, world);
                         SyncMaterial.LOGGER.info("[StagingArea] 容器被移除(延迟): area={} type=warehouse pos={},{},{}", wh.id(), pos.getX(), pos.getY(), pos.getZ());
                         foundAreaId = wh.id();
                         foundAreaType = "warehouse";
