@@ -327,28 +327,36 @@ public class StagingAreaManager {
     }
 
     /**
-     * 判断方块实体是否应该跳过扫描（大箱子去重）
-     * 通过 DoubleInventory 内部引用判断：如果 inventory1 不是当前 BlockEntity，则跳过
-     * （DoubleInventory 的 inventory1 是"主"半箱，inventory2 是"副"半箱）
+     * 获取用于计数的 Inventory：大箱子返回 DoubleInventory（54格），普通容器返回自身
+     * ChestBlockEntity 自身只有 27 格，需要检查是否是大箱子并构建 DoubleInventory
      */
-    private boolean shouldSkipInventoryScan(BlockEntity be) {
-        if (!(be instanceof Inventory inv)) return false;
-        if (inv instanceof net.minecraft.inventory.DoubleInventory doubleInv) {
-            try {
-                java.lang.reflect.Field f1 = net.minecraft.inventory.DoubleInventory.class.getDeclaredField("inventory1");
-                f1.setAccessible(true);
-                Object inv1 = f1.get(doubleInv);
-                // 如果当前 BlockEntity 不是 inventory1，说明它是"副"半箱，跳过
-                return inv1 != be;
-            } catch (Exception e) {
-                // 反射失败时用 CHEST_TYPE 作为后备
-                return shouldSkipInventoryScanFallback(be);
+    private Inventory getInventoryForCounting(BlockEntity be, ServerWorld world) {
+        if (be instanceof net.minecraft.block.entity.ChestBlockEntity chestBE) {
+            net.minecraft.block.BlockState state = be.getCachedState();
+            var chestTypeProp = net.minecraft.block.ChestBlock.CHEST_TYPE;
+            if (state.contains(chestTypeProp)) {
+                var chestType = state.get(chestTypeProp);
+                if (chestType != net.minecraft.block.enums.ChestType.SINGLE) {
+                    net.minecraft.util.math.Direction facing = net.minecraft.block.ChestBlock.getFacing(state);
+                    BlockPos pairedPos = be.getPos().offset(facing);
+                    BlockEntity pairedBE = world.getBlockEntity(pairedPos);
+                    if (pairedBE instanceof net.minecraft.block.entity.ChestBlockEntity pairedChest) {
+                        if (chestType == net.minecraft.block.enums.ChestType.LEFT) {
+                            return new net.minecraft.inventory.DoubleInventory(chestBE, pairedChest);
+                        } else {
+                            return new net.minecraft.inventory.DoubleInventory(pairedChest, chestBE);
+                        }
+                    }
+                }
             }
         }
-        return false;
+        return (Inventory) be;
     }
 
-    private boolean shouldSkipInventoryScanFallback(BlockEntity be) {
+    /**
+     * 判断是否应该跳过此方块实体的扫描（大箱子去重：RIGHT 半箱跳过，LEFT 半箱处理）
+     */
+    private boolean shouldSkipInventoryScan(BlockEntity be) {
         if (be instanceof net.minecraft.block.entity.ChestBlockEntity) {
             net.minecraft.block.BlockState state = be.getCachedState();
             var chestTypeProp = net.minecraft.block.ChestBlock.CHEST_TYPE;
@@ -365,7 +373,9 @@ public class StagingAreaManager {
     private Set<String> scanSingleContainerItems(ServerWorld world, BlockPos pos) {
         Set<String> items = new HashSet<>();
         BlockEntity be = world.getBlockEntity(pos);
-        if (be instanceof Inventory inventory) {
+        if (be instanceof Inventory) {
+            // 大箱子：获取完整 DoubleInventory（54格）；普通容器：返回自身
+            Inventory inventory = getInventoryForCounting(be, world);
             for (int i = 0; i < inventory.size(); i++) {
                 var stack = inventory.getStack(i);
                 if (stack.isEmpty()) continue;
@@ -486,9 +496,11 @@ public class StagingAreaManager {
                     for (int y = minY; y <= maxY; y++) {
                         for (int z = startZ; z <= endZ; z++) {
                             BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
-                            if (be instanceof Inventory inventory) {
-                                // 大箱子去重：跳过 RIGHT 半箱，只计数 LEFT 半箱
+                            if (be instanceof Inventory) {
+                                // 大箱子去重：跳过 RIGHT 半箱
                                 if (!shouldSkipInventoryScan(be)) {
+                                    // 大箱子返回 DoubleInventory（54格），普通容器返回自身
+                                    Inventory inventory = getInventoryForCounting(be, world);
                                     countInventoryItems(inventory, totalItems);
                                 }
                             }
@@ -861,9 +873,9 @@ public class StagingAreaManager {
                     for (int y = minY; y <= maxY; y++) {
                         for (int z = startZ; z <= endZ; z++) {
                             BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
-                            if (be instanceof Inventory inventory) {
-                                // 大箱子去重：跳过 RIGHT 半箱，只计数 LEFT 半箱（两者共享同一 DoubleInventory）
+                            if (be instanceof Inventory) {
                                 if (!shouldSkipInventoryScan(be)) {
+                                    Inventory inventory = getInventoryForCounting(be, world);
                                     countInventoryItems(inventory, totalItems);
                                 }
                             }
@@ -944,9 +956,9 @@ public class StagingAreaManager {
                         for (int y = minY; y <= maxY; y++) {
                             for (int z = startZ; z <= endZ; z++) {
                                 BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
-                                if (be instanceof Inventory inventory) {
-                                    // 大箱子去重：跳过 RIGHT 半箱
+                                if (be instanceof Inventory) {
                                     if (!shouldSkipInventoryScan(be)) {
+                                        Inventory inventory = getInventoryForCounting(be, world);
                                         writeContainerInventory(areaId, areaType, x, y, z, inventory);
                                     }
                                 }
@@ -1095,9 +1107,9 @@ public class StagingAreaManager {
             for (int y = minY; y <= maxY; y++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
-                    if (be instanceof Inventory inventory) {
-                        // 大箱子去重：跳过 RIGHT 半箱
+                    if (be instanceof Inventory) {
                         if (!shouldSkipInventoryScan(be)) {
+                            Inventory inventory = getInventoryForCounting(be, world);
                             writeContainerInventory(areaId, areaType, x, y, z, inventory);
                             countInventoryItems(inventory, items);
                         }
