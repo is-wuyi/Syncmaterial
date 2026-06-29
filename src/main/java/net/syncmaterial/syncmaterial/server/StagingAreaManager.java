@@ -327,9 +327,28 @@ public class StagingAreaManager {
     }
 
     /**
-     * 判断方块实体是否是大箱子的 RIGHT 半箱（用于全量扫描去重：跳过 RIGHT，只计数 LEFT）
+     * 判断方块实体是否应该跳过扫描（大箱子去重）
+     * 通过 DoubleInventory 内部引用判断：如果 inventory1 不是当前 BlockEntity，则跳过
+     * （DoubleInventory 的 inventory1 是"主"半箱，inventory2 是"副"半箱）
      */
-    private boolean isRightChestHalf(BlockEntity be) {
+    private boolean shouldSkipInventoryScan(BlockEntity be) {
+        if (!(be instanceof Inventory inv)) return false;
+        if (inv instanceof net.minecraft.inventory.DoubleInventory doubleInv) {
+            try {
+                java.lang.reflect.Field f1 = net.minecraft.inventory.DoubleInventory.class.getDeclaredField("inventory1");
+                f1.setAccessible(true);
+                Object inv1 = f1.get(doubleInv);
+                // 如果当前 BlockEntity 不是 inventory1，说明它是"副"半箱，跳过
+                return inv1 != be;
+            } catch (Exception e) {
+                // 反射失败时用 CHEST_TYPE 作为后备
+                return shouldSkipInventoryScanFallback(be);
+            }
+        }
+        return false;
+    }
+
+    private boolean shouldSkipInventoryScanFallback(BlockEntity be) {
         if (be instanceof net.minecraft.block.entity.ChestBlockEntity) {
             net.minecraft.block.BlockState state = be.getCachedState();
             var chestTypeProp = net.minecraft.block.ChestBlock.CHEST_TYPE;
@@ -469,7 +488,7 @@ public class StagingAreaManager {
                             BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                             if (be instanceof Inventory inventory) {
                                 // 大箱子去重：跳过 RIGHT 半箱，只计数 LEFT 半箱
-                                if (!isRightChestHalf(be)) {
+                                if (!shouldSkipInventoryScan(be)) {
                                     countInventoryItems(inventory, totalItems);
                                 }
                             }
@@ -844,7 +863,7 @@ public class StagingAreaManager {
                             BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                             if (be instanceof Inventory inventory) {
                                 // 大箱子去重：跳过 RIGHT 半箱，只计数 LEFT 半箱（两者共享同一 DoubleInventory）
-                                if (!isRightChestHalf(be)) {
+                                if (!shouldSkipInventoryScan(be)) {
                                     countInventoryItems(inventory, totalItems);
                                 }
                             }
@@ -927,7 +946,7 @@ public class StagingAreaManager {
                                 BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                                 if (be instanceof Inventory inventory) {
                                     // 大箱子去重：跳过 RIGHT 半箱
-                                    if (!isRightChestHalf(be)) {
+                                    if (!shouldSkipInventoryScan(be)) {
                                         writeContainerInventory(areaId, areaType, x, y, z, inventory);
                                     }
                                 }
@@ -1078,7 +1097,7 @@ public class StagingAreaManager {
                     BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                     if (be instanceof Inventory inventory) {
                         // 大箱子去重：跳过 RIGHT 半箱
-                        if (!isRightChestHalf(be)) {
+                        if (!shouldSkipInventoryScan(be)) {
                             writeContainerInventory(areaId, areaType, x, y, z, inventory);
                             countInventoryItems(inventory, items);
                         }
