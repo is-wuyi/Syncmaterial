@@ -108,7 +108,8 @@ public class SyncMaterialList extends MaterialListBase {
                     }
                 }
                 int otherPlayersCount = allPlayersCount - myCount;
-                int realMissing = Math.max(0, status.totalCount() - status.stagingCount() - status.warehouseCount() - allPlayersCount);
+                // 缺失 = 总数 - 备货区 - 仓库（背包物品不影响缺失计数，物品未放入备货区前不算已收集）
+                int realMissing = Math.max(0, status.totalCount() - status.stagingCount() - status.warehouseCount());
 
                 entry.setCountMissing(realMissing);
                 entry.setCountAvailable(myCount);
