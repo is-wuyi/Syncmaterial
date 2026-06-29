@@ -348,6 +348,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     private void refreshStagingList()
     {
         // 刷新整个界面以更新数量标签等 UI 元素
+        this.needsWarehouseRefLoad = true;
         this.initGui();
     }
 
