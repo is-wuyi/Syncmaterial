@@ -68,15 +68,14 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         List<MaterialListEntry> list;
 
         if (currentTime - this.lastUpdateTime > 2000) {
-            list = this.materialList.getMaterialsMissingOnly(true);
-            // 取货模式：显示仓库+背包都不够的材料（还需取货 > 0）
-            // 普通模式：显示已认领且还有缺失的材料
+            // 取货模式：使用全部材料列表，按取货公式过滤
+            // 普通模式：使用缺失材料列表，按收集模式过滤
             if (isPickupMode) {
-                list = list.stream()
+                list = this.materialList.getMaterialsAll().stream()
                     .filter(e -> (e.getCountTotal() - e.getStagingCount() - e.getCountAvailable()) > 0 && e.isCurrentPlayerClaimed())
                     .collect(java.util.stream.Collectors.toList());
             } else {
-                list = list.stream()
+                list = this.materialList.getMaterialsMissingOnly(true).stream()
                     .filter(e -> e.getCountMissing() > 0 && e.isCurrentPlayerClaimed())
                     .collect(java.util.stream.Collectors.toList());
             }
