@@ -332,6 +332,9 @@ public class StagingAreaManager {
                 }
             }
 
+            // 延迟标记只对当前 tick 有效，清除防止永久阻塞
+            deferredRescans.clear();
+
             // 推送更新给取货模式玩家
             pushDirtyUpdateWithCooldown();
 
