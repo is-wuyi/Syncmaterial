@@ -676,6 +676,7 @@ public class StagingAreaManager {
             for (StagingArea area : schematicEntry.getValue()) {
                 if (area.world.equals(worldId) && isPosInArea(pos, area)) {
                     onContainerRemovedFromArea(area.id, "staging_area", pos);
+                    dirtyContainers.remove(pos);
                     foundAreaId = area.id;
                     foundAreaType = "staging_area";
                     affectedSchematics.add(schematicEntry.getKey());
@@ -693,6 +694,7 @@ public class StagingAreaManager {
                 for (Warehouse wh : warehouses) {
                     if (isPosInWarehouse(pos, wh)) {
                         onContainerRemovedFromArea(wh.id(), "warehouse", pos);
+                        dirtyContainers.remove(pos);
                         foundAreaId = wh.id();
                         foundAreaType = "warehouse";
                         found = true;
