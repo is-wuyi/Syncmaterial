@@ -13,6 +13,7 @@ import fi.dy.masa.malilib.gui.button.IButtonActionListener;
 import fi.dy.masa.malilib.gui.widgets.WidgetListEntrySortable;
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.StringUtils;
+import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase.SortCriteria;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
@@ -138,6 +139,10 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         {
             int countTotal = entry.getCountTotal() * multiplier;
             int countMissing = multiplier == 1 ? entry.getCountMissing() : countTotal;
+            // 取货模式：还需取货 = 缺失数 + 仓库数（列宽计算）
+            if (GuiMaterialList.isPickupModeStatic() && multiplier == 1) {
+                countMissing = entry.getCountMissing() + entry.getWarehouseCount();
+            }
 
             maxNameLength   = Math.max(maxNameLength,   StringUtils.getStringWidth(entry.getStack().getName().getString()));
             maxCountLength1 = Math.max(maxCountLength1, StringUtils.getStringWidth(String.valueOf(countTotal)));
@@ -370,6 +375,10 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int multiplier = this.materialList.getMultiplier();
             int countTotal = this.entry.getCountTotal() * multiplier;
             int countMissing = multiplier == 1 ? this.entry.getCountMissing() : countTotal;
+            // 取货模式：还需取货 = 缺失数 + 仓库数（不减仓库，需要从仓库取货）
+            if (this.listWidget.getGui().isPickupMode() && multiplier == 1) {
+                countMissing = this.entry.getCountMissing() + this.entry.getWarehouseCount();
+            }
             int countAvailable = this.entry.getCountAvailable();
             int otherPlayersCount = this.entry.getOtherPlayersCount();
             int stagingCount = this.entry.getStagingCount();

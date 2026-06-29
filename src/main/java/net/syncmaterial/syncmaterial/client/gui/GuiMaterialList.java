@@ -225,13 +225,15 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 pickupModeNeededItemIds = java.util.Collections.emptySet();
             } else {
                 // 进入取货模式时更新需要的物品 ID 列表和缺失数量
+                // 取货模式：还需取货 = 总数 - 备货区 - 背包（不减仓库，因为需要从仓库取货）
                 java.util.Set<String> needed = new java.util.HashSet<>();
                 java.util.Map<String, Integer> counts = new java.util.HashMap<>();
                 for (var entry : this.materialList.getMaterialsAll()) {
-                    if (entry.getCountMissing() > 0) {
+                    int pickupMissing = entry.getCountMissing() + entry.getWarehouseCount();
+                    if (pickupMissing > 0) {
                         String itemId = entry.getStack().getItem().toString();
                         needed.add(itemId);
-                        counts.put(itemId, entry.getCountMissing());
+                        counts.put(itemId, pickupMissing);
                     }
                 }
                 pickupModeNeededItemIds = needed;
