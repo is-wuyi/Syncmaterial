@@ -669,14 +669,16 @@ public class StagingAreaManager {
         boolean found = false;
         int foundAreaId = -1;
         String foundAreaType = "";
+        Set<String> affectedSchematics = new HashSet<>();
 
         // 检查备货区
-        for (List<StagingArea> areas : stagingAreasBySchematic.values()) {
-            for (StagingArea area : areas) {
+        for (var schematicEntry : stagingAreasBySchematic.entrySet()) {
+            for (StagingArea area : schematicEntry.getValue()) {
                 if (area.world.equals(worldId) && isPosInArea(pos, area)) {
                     onContainerRemovedFromArea(area.id, "staging_area", pos);
                     foundAreaId = area.id;
                     foundAreaType = "staging_area";
+                    affectedSchematics.add(schematicEntry.getKey());
                     found = true;
                     break;
                 }
@@ -694,6 +696,15 @@ public class StagingAreaManager {
                         foundAreaId = wh.id();
                         foundAreaType = "warehouse";
                         found = true;
+                        // 查找引用该仓库的原理图
+                        try (var rs = database.executeQuery(
+                                "SELECT DISTINCT schematic_id FROM schematic_warehouses WHERE warehouse_id = ?", wh.id())) {
+                            while (rs.next()) {
+                                affectedSchematics.add(rs.getString("schematic_id"));
+                            }
+                        } catch (java.sql.SQLException e) {
+                            SyncMaterial.LOGGER.error("[StagingArea] 查询仓库关联原理图失败", e);
+                        }
                         break;
                     }
                 }
@@ -738,6 +749,13 @@ public class StagingAreaManager {
                 }
             }
             pushDirtyUpdateWithCooldown();
+
+            // 广播受影响原理图的最新材料状态
+            if (!affectedSchematics.isEmpty() && server != null) {
+                for (String schematicId : affectedSchematics) {
+                    net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                }
+            }
         }
     }
 
