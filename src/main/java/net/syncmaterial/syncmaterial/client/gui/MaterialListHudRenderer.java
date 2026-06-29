@@ -72,7 +72,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             // 普通模式：使用缺失材料列表，按收集模式过滤
             if (isPickupMode) {
                 list = this.materialList.getMaterialsAll().stream()
-                    .filter(e -> (e.getCountTotal() - e.getStagingCount() - e.getCountAvailable()) > 0 && e.isCurrentPlayerClaimed())
+                    .filter(e -> Math.min(e.getCountTotal() - e.getStagingCount() - e.getCountAvailable(), e.getWarehouseCount()) > 0 && e.isCurrentPlayerClaimed())
                     .collect(java.util.stream.Collectors.toList());
             } else {
                 list = this.materialList.getMaterialsMissingOnly(true).stream()
@@ -116,8 +116,8 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         for (int i = 0; i < size; ++i) {
             MaterialListEntry entry = list.get(i);
             maxTextLength = Math.max(maxTextLength, font.getWidth(entry.getStack().getName().getString()));
-            // 取货模式：还需取货 = 总数 - 备货区 - 我的背包
-            int count = isPickupMode ? Math.max(0, entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable()) : entry.getCountMissing();
+            // 取货模式：还需取货 = min(总数 - 备货区 - 我的背包, 仓库数量)
+            int count = isPickupMode ? Math.max(0, Math.min(entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable(), entry.getWarehouseCount())) : entry.getCountMissing();
             if (count < 0) count = 0;
             String strCount = GuiBase.TXT_RED + MaterialListBase.getFormattedCountStringHud(count, entry.getStack().getMaxCount(), shulkerBoxAbbr) + GuiBase.TXT_RST;
             maxCountLength = Math.max(maxCountLength, font.getWidth(strCount));
@@ -192,8 +192,8 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         for (int i = 0; i < size; ++i) {
             MaterialListEntry entry = list.get(i);
             String text = entry.getStack().getName().getString();
-            // 取货模式：还需取货 = 总数 - 备货区 - 我的背包
-            int count = isPickupMode ? Math.max(0, entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable()) : entry.getCountMissing();
+            // 取货模式：还需取货 = min(总数 - 备货区 - 我的背包, 仓库数量)
+            int count = isPickupMode ? Math.max(0, Math.min(entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable(), entry.getWarehouseCount())) : entry.getCountMissing();
             if (count < 0) count = 0;
             String strCount = MaterialListBase.getFormattedCountStringHud(count, entry.getStack().getMaxCount(), shulkerBoxAbbr);
             int cntLen = font.getWidth(strCount);

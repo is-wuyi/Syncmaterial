@@ -141,7 +141,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int countMissing = multiplier == 1 ? entry.getCountMissing() : countTotal;
             // 取货模式：还需取货 = 总数 - 备货区 - 我的背包（列宽计算）
             if (GuiMaterialList.isPickupModeStatic() && multiplier == 1) {
-                countMissing = Math.max(0, entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable());
+                countMissing = Math.max(0, Math.min(entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable(), entry.getWarehouseCount()));
             }
 
             maxNameLength   = Math.max(maxNameLength,   StringUtils.getStringWidth(entry.getStack().getName().getString()));
@@ -377,7 +377,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int countMissing = multiplier == 1 ? this.entry.getCountMissing() : countTotal;
             // 取货模式：还需取货 = 总数 - 备货区 - 我的背包
             if (this.listWidget.getGui().isPickupMode() && multiplier == 1) {
-                countMissing = Math.max(0, countTotal - this.entry.getStagingCount() - this.entry.getCountAvailable());
+                countMissing = Math.max(0, Math.min(countTotal - this.entry.getStagingCount() - this.entry.getCountAvailable(), this.entry.getWarehouseCount()));
             }
             int countAvailable = this.entry.getCountAvailable();
             int otherPlayersCount = this.entry.getOtherPlayersCount();
@@ -570,7 +570,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int total = this.entry.getCountTotal() * multiplier;
             int missing;
             if (this.listWidget.getGui().isPickupMode() && multiplier == 1) {
-                missing = Math.max(0, this.entry.getCountTotal() - this.entry.getStagingCount() - this.entry.getCountAvailable());
+                missing = Math.max(0, Math.min(this.entry.getCountTotal() - this.entry.getStagingCount() - this.entry.getCountAvailable(), this.entry.getWarehouseCount()));
             } else {
                 missing = multiplier == 1 ? this.entry.getCountMissing() : total;
             }
