@@ -553,13 +553,19 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             String header1 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[0]);
             String header2 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[1]);
-            String header3 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[2]);
+            String missingKey = this.listWidget.getGui().isPickupMode() ? "syncmaterial.gui.label.material_list.title.pickup_needed" : HEADERS[2];
+            String header3 = GuiBase.TXT_BOLD + StringUtils.translate(missingKey);
 
             ItemStack stack = this.entry.getStack();
             String stackName = stack.getName().getString();
             int multiplier = this.materialList.getMultiplier();
             int total = this.entry.getCountTotal() * multiplier;
-            int missing = multiplier == 1 ? this.entry.getCountMissing() : total;
+            int missing;
+            if (this.listWidget.getGui().isPickupMode() && multiplier == 1) {
+                missing = Math.max(0, this.entry.getCountTotal() - this.entry.getStagingCount() - this.entry.getCountAvailable());
+            } else {
+                missing = multiplier == 1 ? this.entry.getCountMissing() : total;
+            }
             String strCountTotal = MaterialListBase.getFormattedCountString(total, stack.getMaxCount(), this.shulkerBoxAbbr);
             String strCountMissing = MaterialListBase.getFormattedCountString(missing, stack.getMaxCount(), this.shulkerBoxAbbr);
 
