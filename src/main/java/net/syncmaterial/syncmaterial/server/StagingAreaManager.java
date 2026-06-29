@@ -27,6 +27,9 @@ public class StagingAreaManager {
     private final Map<Integer, Warehouse> warehousesById = new ConcurrentHashMap<>();
     private volatile Map<String, List<Warehouse>> warehousesByWorld = new ConcurrentHashMap<>();
     private final Map<BlockPos, ServerWorld> dirtyContainers = new ConcurrentHashMap<>();
+    // 延迟重扫：容器被移除后，不在 markRemoved 时立即重扫（破坏期间状态不可靠），
+    // 而是标记延迟，在下一个 tick 由 processDirtyContainers 统一处理
+    private final Set<BlockPos> deferredRescans = ConcurrentHashMap.newKeySet();
     private final Map<String, Set<ServerPlayerEntity>> subscribers = new ConcurrentHashMap<>();
     // Phase 5: 初始化跟踪（服务器重启后，区域首次全部区块加载完成即标记为已初始化）
     private final Set<Integer> initializedAreas = ConcurrentHashMap.newKeySet();
@@ -195,6 +198,8 @@ public class StagingAreaManager {
 
     public void scheduleContainerScan(BlockPos pos, ServerWorld world) {
         dirtyContainers.put(pos, world);
+        // 新的容器变化事件覆盖延迟标记（如玩家放下了新箱子）
+        deferredRescans.remove(pos);
         SyncMaterial.LOGGER.info("[StagingArea] scheduleContainerScan: pos={},{},{}", pos.getX(), pos.getY(), pos.getZ());
     }
 
@@ -235,6 +240,18 @@ public class StagingAreaManager {
         Set<BlockPos> pairedPositions = new HashSet<>();
 
         server.execute(() -> {
+            // 跳过延迟重扫的位置（容器被移除，等下一 tick 状态稳定后再处理）
+            dirtyByArea.entrySet().removeIf(e -> {
+                for (var entry : e.getValue()) {
+                    if (deferredRescans.remove(entry.getKey())) {
+                        SyncMaterial.LOGGER.info("[StagingArea] 跳过延迟重扫位置: {}", entry.getKey());
+                        return true;
+                    }
+                }
+                return false;
+            });
+            if (dirtyByArea.isEmpty()) return;
+
             for (var areaEntry : dirtyByArea.entrySet()) {
                 String areaKey = areaEntry.getKey();
                 List<Map.Entry<BlockPos, ServerWorld>> positions = areaEntry.getValue();
@@ -675,8 +692,16 @@ public class StagingAreaManager {
         for (var schematicEntry : stagingAreasBySchematic.entrySet()) {
             for (StagingArea area : schematicEntry.getValue()) {
                 if (area.world.equals(worldId) && isPosInArea(pos, area)) {
-                    onContainerRemovedFromArea(area.id, "staging_area", pos);
-                    dirtyContainers.remove(pos);
+                    // 仅清理 container_inventory 明细，不做立即重扫
+                    // （大箱子破坏期间方块状态不可靠，延迟到下一 tick 由 processDirtyContainers 处理）
+                    try {
+                        database.executeUpdate(
+                            "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                            area.id, "staging_area", pos.getX(), pos.getY(), pos.getZ());
+                    } catch (java.sql.SQLException e) {
+                        SyncMaterial.LOGGER.error("[StagingArea] 容器移除清理失败", e);
+                    }
+                    deferredRescans.add(pos);
                     foundAreaId = area.id;
                     foundAreaType = "staging_area";
                     affectedSchematics.add(schematicEntry.getKey());
@@ -693,8 +718,15 @@ public class StagingAreaManager {
             if (warehouses != null) {
                 for (Warehouse wh : warehouses) {
                     if (isPosInWarehouse(pos, wh)) {
-                        onContainerRemovedFromArea(wh.id(), "warehouse", pos);
-                        dirtyContainers.remove(pos);
+                        // 仅清理 container_inventory 明细，不做立即重扫
+                        try {
+                            database.executeUpdate(
+                                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                                wh.id(), "warehouse", pos.getX(), pos.getY(), pos.getZ());
+                        } catch (java.sql.SQLException e) {
+                            SyncMaterial.LOGGER.error("[StagingArea] 容器移除清理失败", e);
+                        }
+                        deferredRescans.add(pos);
                         foundAreaId = wh.id();
                         foundAreaType = "warehouse";
                         found = true;
@@ -713,8 +745,8 @@ public class StagingAreaManager {
             }
         }
 
-        // 大箱子被破坏一半时，重新扫描另一半（从54格变回27格）
-        // 被破坏的方块已经是 AIR，所以检查四个方向的相邻方块
+        // 大箱子被破坏一半时，将另一半也标记为延迟重扫
+        // （破坏期间方块状态不可靠，不在这里立即重扫）
         if (found) {
             for (var dir : new net.minecraft.util.math.Direction[]{
                     net.minecraft.util.math.Direction.NORTH,
@@ -724,28 +756,11 @@ public class StagingAreaManager {
                 BlockPos neighbor = pos.offset(dir);
                 BlockEntity neighborBE = world.getBlockEntity(neighbor);
                 if (neighborBE instanceof Inventory) {
-                    // 相邻位置是容器且属于同一区域，重新扫描
                     Integer neighborAreaId = findAreaId(neighbor, world);
                     if (neighborAreaId == null) neighborAreaId = findWarehouseId(neighbor, world);
                     if (neighborAreaId != null && neighborAreaId == foundAreaId) {
-                        Set<String> newItems = scanSingleContainerItems(world, neighbor);
-                        // 全量替换该位置的记录
-                        try {
-                            database.executeUpdate(
-                                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
-                                foundAreaId, foundAreaType, neighbor.getX(), neighbor.getY(), neighbor.getZ());
-                        } catch (SQLException e) {
-                            SyncMaterial.LOGGER.error("Failed to clean paired position inventory", e);
-                        }
-                        for (String itemId : newItems) {
-                            try {
-                                database.executeUpdate(
-                                    "INSERT OR IGNORE INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (?, ?, ?, ?, ?, ?)",
-                                    foundAreaId, foundAreaType, neighbor.getX(), neighbor.getY(), neighbor.getZ(), itemId);
-                            } catch (SQLException e) {
-                                SyncMaterial.LOGGER.error("Failed to insert paired position inventory", e);
-                            }
-                        }
+                        deferredRescans.add(neighbor);
+                        dirtyContainers.put(neighbor, world);
                     }
                     break;
                 }
