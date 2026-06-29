@@ -360,21 +360,6 @@ public class StagingAreaManager {
         });
     }
 
-    /**
-      * 参考 Litematica：通过方块状态 CHEST_TYPE + getFacing 判断
-     */
-    /**
-     * 获取用于计数的 Inventory：每个位置独立扫描自身物品
-     * 大箱子左右半箱各自 27 格，客户端渲染时合并显示
-     */
-    private Inventory getInventoryForCounting(BlockEntity be, ServerWorld world) {
-        return (Inventory) be;
-    }
-
-    /**
-     * 判断是否应该跳过此方块实体的扫描（大箱子去重：RIGHT 半箱跳过，LEFT 半箱处理）
-     */
-
 
     /**
      * 扫描单个容器位置的物品集合（含潜影盒），返回 item_id 集合
@@ -383,7 +368,7 @@ public class StagingAreaManager {
         Set<String> items = new HashSet<>();
         BlockEntity be = world.getBlockEntity(pos);
         if (be instanceof Inventory) {
-            Inventory inventory = getInventoryForCounting(be, world);
+            Inventory inventory = (Inventory) be;
             for (int i = 0; i < inventory.size(); i++) {
                 var stack = inventory.getStack(i);
                 if (stack.isEmpty()) continue;
@@ -505,7 +490,7 @@ public class StagingAreaManager {
                         for (int z = startZ; z <= endZ; z++) {
                             BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                             if (be instanceof Inventory) {
-                                Inventory inventory = getInventoryForCounting(be, world);
+                                Inventory inventory = (Inventory) be;
                                 countInventoryItems(inventory, totalItems);
                             }
                         }
@@ -734,42 +719,6 @@ public class StagingAreaManager {
     /**
      * 容器被破坏后，清理 container_inventory 明细并全量重扫该区域
      */
-    private void onContainerRemovedFromArea(int areaId, String areaType, BlockPos pos) {
-        try {
-            // 1. 删除该位置在 container_inventory 中的记录
-            database.executeUpdate(
-                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
-                areaId, areaType, pos.getX(), pos.getY(), pos.getZ());
-            SyncMaterial.LOGGER.info("[StagingArea] 容器被移除: area={} type={} pos={},{},{}", areaId, areaType, pos.getX(), pos.getY(), pos.getZ());
-        } catch (SQLException e) {
-            SyncMaterial.LOGGER.error("Failed to clean container_inventory on removal", e);
-        }
-
-        // 2. 全量重扫该区域及同原理图所有备货区
-        if ("warehouse".equals(areaType)) {
-            Map<String, Integer> result = scanWarehouseContents(areaId);
-            if (result != null) updateWarehouseInventory(areaId, result);
-        } else {
-            rescanAllStagingAreasForSibling(areaId);
-        }
-    }
-
-    /**
-     * 重扫指定备货区所在原理图的所有备货区（材料总数是 SUM，必须全部重扫）
-     */
-    private void rescanAllStagingAreasForSibling(int areaId) {
-        for (var schematicEntry : stagingAreasBySchematic.entrySet()) {
-            for (StagingArea area : schematicEntry.getValue()) {
-                if (area.id == areaId) {
-                    for (StagingArea sibling : schematicEntry.getValue()) {
-                        Map<String, Integer> result = scanAreaContents(sibling.id);
-                        if (result != null) updateStagingAreaInventory(sibling.id, result);
-                    }
-                    return;
-                }
-            }
-        }
-    }
 
     private boolean isPosInArea(BlockPos pos, StagingArea area) {
         int minX = Math.min(area.x1, area.x2);
@@ -884,7 +833,7 @@ public class StagingAreaManager {
                         for (int z = startZ; z <= endZ; z++) {
                             BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                             if (be instanceof Inventory) {
-                                Inventory inventory = getInventoryForCounting(be, world);
+                                Inventory inventory = (Inventory) be;
                                 countInventoryItems(inventory, totalItems);
                             }
                         }
@@ -965,7 +914,7 @@ public class StagingAreaManager {
                             for (int z = startZ; z <= endZ; z++) {
                                 BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                                 if (be instanceof Inventory) {
-                                    Inventory inventory = getInventoryForCounting(be, world);
+                                    Inventory inventory = (Inventory) be;
                                     writeContainerInventory(areaId, areaType, x, y, z, inventory);
                                 }
                             }
@@ -1114,7 +1063,7 @@ public class StagingAreaManager {
                 for (int z = minZ; z <= maxZ; z++) {
                     BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                     if (be instanceof Inventory) {
-                        Inventory inventory = getInventoryForCounting(be, world);
+                        Inventory inventory = (Inventory) be;
                         writeContainerInventory(areaId, areaType, x, y, z, inventory);
                         countInventoryItems(inventory, items);
                     }
