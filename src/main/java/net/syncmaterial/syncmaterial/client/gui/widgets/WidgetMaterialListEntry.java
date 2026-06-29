@@ -139,9 +139,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         {
             int countTotal = entry.getCountTotal() * multiplier;
             int countMissing = multiplier == 1 ? entry.getCountMissing() : countTotal;
-            // 取货模式：还需取货 = 缺失数 + 仓库数（列宽计算）
+            // 取货模式：还需取货 = 总数 - 备货区 - 我的背包（列宽计算）
             if (GuiMaterialList.isPickupModeStatic() && multiplier == 1) {
-                countMissing = entry.getCountMissing() + entry.getWarehouseCount();
+                countMissing = Math.max(0, entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable());
             }
 
             maxNameLength   = Math.max(maxNameLength,   StringUtils.getStringWidth(entry.getStack().getName().getString()));
@@ -375,9 +375,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int multiplier = this.materialList.getMultiplier();
             int countTotal = this.entry.getCountTotal() * multiplier;
             int countMissing = multiplier == 1 ? this.entry.getCountMissing() : countTotal;
-            // 取货模式：还需取货 = 缺失数 + 仓库数（不减仓库，需要从仓库取货）
+            // 取货模式：还需取货 = 总数 - 备货区 - 我的背包
             if (this.listWidget.getGui().isPickupMode() && multiplier == 1) {
-                countMissing = this.entry.getCountMissing() + this.entry.getWarehouseCount();
+                countMissing = Math.max(0, countTotal - this.entry.getStagingCount() - this.entry.getCountAvailable());
             }
             int countAvailable = this.entry.getCountAvailable();
             int otherPlayersCount = this.entry.getOtherPlayersCount();
