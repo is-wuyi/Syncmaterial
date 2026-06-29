@@ -27,9 +27,12 @@ public class StagingAreaManager {
     private final Map<Integer, Warehouse> warehousesById = new ConcurrentHashMap<>();
     private volatile Map<String, List<Warehouse>> warehousesByWorld = new ConcurrentHashMap<>();
     private final Map<BlockPos, ServerWorld> dirtyContainers = new ConcurrentHashMap<>();
-    // 延迟重扫：容器被移除后，不在 markRemoved 时立即重扫（破坏期间状态不可靠），
-    // 而是标记延迟，在下一个 tick 由 processDirtyContainers 统一处理
-    private final Set<BlockPos> deferredRescans = ConcurrentHashMap.newKeySet();
+    // 延迟重扫：容器被移除后，记录需要延迟一个 tick 处理的位置
+    // key=位置, value=添加时的 tick（只延迟一个 tick，下个 tick 正常处理）
+    private final Map<BlockPos, Integer> pendingDeferredRescans = new ConcurrentHashMap<>();
+    private int currentServerTick = 0;
+    // 防止 markRemoved 在多个 tick 重复触发导致重入
+    private final Set<BlockPos> processedRemovals = ConcurrentHashMap.newKeySet();
     private final Map<String, Set<ServerPlayerEntity>> subscribers = new ConcurrentHashMap<>();
     // Phase 5: 初始化跟踪（服务器重启后，区域首次全部区块加载完成即标记为已初始化）
     private final Set<Integer> initializedAreas = ConcurrentHashMap.newKeySet();
@@ -198,8 +201,8 @@ public class StagingAreaManager {
 
     public void scheduleContainerScan(BlockPos pos, ServerWorld world) {
         dirtyContainers.put(pos, world);
-        // 新的容器变化事件覆盖延迟标记（如玩家放下了新箱子）
-        deferredRescans.remove(pos);
+        // 新的容器变化事件清除延迟标记（如玩家放下了新箱子）
+        pendingDeferredRescans.remove(pos);
         SyncMaterial.LOGGER.info("[StagingArea] scheduleContainerScan: pos={},{},{}", pos.getX(), pos.getY(), pos.getZ());
     }
 
@@ -240,7 +243,11 @@ public class StagingAreaManager {
         Set<BlockPos> pairedPositions = new HashSet<>();
 
         server.execute(() -> {
-            // 延迟重扫：跳过扫描但清理旧 container_inventory 记录，防止残留数据导致蓝框常亮
+            // 延迟重扫：跳过当前 tick 标记的位置，同时清理旧 container_inventory
+            // 只跳过在之前 tick 标记的位置（pendingDeferredRescans tick < currentServerTick）
+            // 当前 tick 标记的不跳过（会在下次 processDirtyContainers 时处理）
+            currentServerTick++;
+            processedRemovals.clear();
             dirtyByArea.entrySet().removeIf(e -> {
                 String areaKey = e.getKey();
                 boolean isWh = areaKey.startsWith("W:");
@@ -249,8 +256,13 @@ public class StagingAreaManager {
                 boolean shouldRemove = false;
                 for (var entry : e.getValue()) {
                     BlockPos pos = entry.getKey();
-                    if (deferredRescans.remove(pos)) {
-                        // 清理该位置的旧 container_inventory 记录
+                    Integer deferredTick = pendingDeferredRescans.get(pos);
+                    if (deferredTick != null && deferredTick < currentServerTick) {
+                        // 已延迟一个 tick，清除标记，正常处理（不跳过）
+                        pendingDeferredRescans.remove(pos);
+                        SyncMaterial.LOGGER.info("[StagingArea] 延迟到期，正常处理: {}", pos);
+                    } else if (deferredTick != null) {
+                        // 当前 tick 刚标记的，跳过并清理旧记录
                         try {
                             database.executeUpdate(
                                 "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
@@ -346,8 +358,7 @@ public class StagingAreaManager {
                 }
             }
 
-            // 延迟标记只对当前 tick 有效，清除防止永久阻塞
-            deferredRescans.clear();
+            // processedRemovals 在下次 processDirtyContainers 开头清除
 
             // 推送更新给取货模式玩家
             pushDirtyUpdateWithCooldown();
@@ -709,8 +720,10 @@ public class StagingAreaManager {
         for (var schematicEntry : stagingAreasBySchematic.entrySet()) {
             for (StagingArea area : schematicEntry.getValue()) {
                 if (area.world.equals(worldId) && isPosInArea(pos, area)) {
-                    // 仅清理 container_inventory 明细，不做立即重扫
-                    // （大箱子破坏期间方块状态不可靠，延迟到下一 tick 由 processDirtyContainers 处理）
+                    // 防止 markRemoved 多次触发导致重入
+                    if (processedRemovals.contains(pos)) break;
+                    processedRemovals.add(pos);
+                    // 延迟重扫：清理旧记录，标记延迟一个 tick
                     try {
                         database.executeUpdate(
                             "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
@@ -718,7 +731,8 @@ public class StagingAreaManager {
                     } catch (java.sql.SQLException e) {
                         SyncMaterial.LOGGER.error("[StagingArea] 容器移除清理失败", e);
                     }
-                    deferredRescans.add(pos);
+                    pendingDeferredRescans.put(pos, currentServerTick);
+                    SyncMaterial.LOGGER.info("[StagingArea] 容器被移除(延迟): area={} pos={},{},{}", area.id, pos.getX(), pos.getY(), pos.getZ());
                     foundAreaId = area.id;
                     foundAreaType = "staging_area";
                     affectedSchematics.add(schematicEntry.getKey());
@@ -735,7 +749,10 @@ public class StagingAreaManager {
             if (warehouses != null) {
                 for (Warehouse wh : warehouses) {
                     if (isPosInWarehouse(pos, wh)) {
-                        // 仅清理 container_inventory 明细，不做立即重扫
+                        // 防止 markRemoved 多次触发导致重入
+                        if (processedRemovals.contains(pos)) break;
+                        processedRemovals.add(pos);
+                        // 延迟重扫：清理旧记录，标记延迟一个 tick
                         try {
                             database.executeUpdate(
                                 "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
@@ -743,7 +760,8 @@ public class StagingAreaManager {
                         } catch (java.sql.SQLException e) {
                             SyncMaterial.LOGGER.error("[StagingArea] 容器移除清理失败", e);
                         }
-                        deferredRescans.add(pos);
+                        pendingDeferredRescans.put(pos, currentServerTick);
+                        SyncMaterial.LOGGER.info("[StagingArea] 容器被移除(延迟): area={} type=warehouse pos={},{},{}", wh.id(), pos.getX(), pos.getY(), pos.getZ());
                         foundAreaId = wh.id();
                         foundAreaType = "warehouse";
                         found = true;
@@ -776,7 +794,7 @@ public class StagingAreaManager {
                     Integer neighborAreaId = findAreaId(neighbor, world);
                     if (neighborAreaId == null) neighborAreaId = findWarehouseId(neighbor, world);
                     if (neighborAreaId != null && neighborAreaId == foundAreaId) {
-                        deferredRescans.add(neighbor);
+                        pendingDeferredRescans.put(neighbor, currentServerTick);
                         dirtyContainers.put(neighbor, world);
                     }
                     break;
