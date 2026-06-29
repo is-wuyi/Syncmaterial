@@ -240,7 +240,6 @@ public class StagingAreaManager {
         if (dirtyByArea.isEmpty() || server == null) return;
 
         // 大箱子配对检测：记录已处理的配对位置，跳过扫描避免重复
-        Set<BlockPos> pairedPositions = new HashSet<>();
 
         server.execute(() -> {
             // 延迟重扫：跳过当前 tick 标记的位置，同时清理旧 container_inventory
@@ -289,22 +288,11 @@ public class StagingAreaManager {
                     ServerWorld world = posEntry.getValue();
                     String areaType = isWarehouse ? "warehouse" : "staging_area";
 
-                    // 跳过已作为大箱子配对处理过的位置
-                    if (pairedPositions.contains(pos)) {
-                        continue;
-                    }
-
-                    // 大箱子检测：跳过配对位置避免重复扫描（配对位置的脏标记在下一周期自然处理）
-                    BlockPos pairedPos = findPairedChestPos(world, pos);
-                    if (pairedPos != null && !pairedPositions.contains(pairedPos)) {
-                        pairedPositions.add(pairedPos);
-                    }
-
                     // 1. 扫描该箱子获取新物品集合（含潜影盒）
                     Set<String> newItems = scanSingleContainerItems(world, pos);
 
                     // 全量替换：删除旧记录 → 插入新记录
-                    // （大箱子 DoubleInventory 让两个位置都有全部物品，增量更新无法检测移动）
+                    // 每个位置独立扫描，大箱子左右半箱各自 27 格
                     try {
                         database.executeUpdate(
                             "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
@@ -373,64 +361,20 @@ public class StagingAreaManager {
     }
 
     /**
-     * 找到大箱子（DoubleInventory）中与 pos 配对的另一半坐标
-     * 参考 Litematica：通过方块状态 CHEST_TYPE + getFacing 判断
+      * 参考 Litematica：通过方块状态 CHEST_TYPE + getFacing 判断
      */
-    private BlockPos findPairedChestPos(ServerWorld world, BlockPos pos) {
-        net.minecraft.block.BlockState state = world.getBlockState(pos);
-        if (state.getBlock() instanceof net.minecraft.block.ChestBlock) {
-            var chestTypeProp = net.minecraft.block.ChestBlock.CHEST_TYPE;
-            if (state.contains(chestTypeProp)) {
-                var chestType = state.get(chestTypeProp);
-                if (chestType != net.minecraft.block.enums.ChestType.SINGLE) {
-                    net.minecraft.util.math.Direction facing = net.minecraft.block.ChestBlock.getFacing(state);
-                    return pos.offset(facing);
-                }
-            }
-        }
-        return null;
-    }
-
     /**
-     * 获取用于计数的 Inventory：大箱子返回 DoubleInventory（54格），普通容器返回自身
-     * ChestBlockEntity 自身只有 27 格，需要检查是否是大箱子并构建 DoubleInventory
+     * 获取用于计数的 Inventory：每个位置独立扫描自身物品
+     * 大箱子左右半箱各自 27 格，客户端渲染时合并显示
      */
     private Inventory getInventoryForCounting(BlockEntity be, ServerWorld world) {
-        if (be instanceof net.minecraft.block.entity.ChestBlockEntity chestBE) {
-            net.minecraft.block.BlockState state = be.getCachedState();
-            var chestTypeProp = net.minecraft.block.ChestBlock.CHEST_TYPE;
-            if (state.contains(chestTypeProp)) {
-                var chestType = state.get(chestTypeProp);
-                if (chestType != net.minecraft.block.enums.ChestType.SINGLE) {
-                    net.minecraft.util.math.Direction facing = net.minecraft.block.ChestBlock.getFacing(state);
-                    BlockPos pairedPos = be.getPos().offset(facing);
-                    BlockEntity pairedBE = world.getBlockEntity(pairedPos);
-                    if (pairedBE instanceof net.minecraft.block.entity.ChestBlockEntity pairedChest) {
-                        if (chestType == net.minecraft.block.enums.ChestType.LEFT) {
-                            return new net.minecraft.inventory.DoubleInventory(chestBE, pairedChest);
-                        } else {
-                            return new net.minecraft.inventory.DoubleInventory(pairedChest, chestBE);
-                        }
-                    }
-                }
-            }
-        }
         return (Inventory) be;
     }
 
     /**
      * 判断是否应该跳过此方块实体的扫描（大箱子去重：RIGHT 半箱跳过，LEFT 半箱处理）
      */
-    private boolean shouldSkipInventoryScan(BlockEntity be) {
-        if (be instanceof net.minecraft.block.entity.ChestBlockEntity) {
-            net.minecraft.block.BlockState state = be.getCachedState();
-            var chestTypeProp = net.minecraft.block.ChestBlock.CHEST_TYPE;
-            if (state.contains(chestTypeProp)) {
-                return state.get(chestTypeProp) == net.minecraft.block.enums.ChestType.RIGHT;
-            }
-        }
-        return false;
-    }
+
 
     /**
      * 扫描单个容器位置的物品集合（含潜影盒），返回 item_id 集合
@@ -439,7 +383,6 @@ public class StagingAreaManager {
         Set<String> items = new HashSet<>();
         BlockEntity be = world.getBlockEntity(pos);
         if (be instanceof Inventory) {
-            // 大箱子：获取完整 DoubleInventory（54格）；普通容器：返回自身
             Inventory inventory = getInventoryForCounting(be, world);
             for (int i = 0; i < inventory.size(); i++) {
                 var stack = inventory.getStack(i);
@@ -562,12 +505,8 @@ public class StagingAreaManager {
                         for (int z = startZ; z <= endZ; z++) {
                             BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                             if (be instanceof Inventory) {
-                                // 大箱子去重：跳过 RIGHT 半箱
-                                if (!shouldSkipInventoryScan(be)) {
-                                    // 大箱子返回 DoubleInventory（54格），普通容器返回自身
-                                    Inventory inventory = getInventoryForCounting(be, world);
-                                    countInventoryItems(inventory, totalItems);
-                                }
+                                Inventory inventory = getInventoryForCounting(be, world);
+                                countInventoryItems(inventory, totalItems);
                             }
                         }
                     }
@@ -780,26 +719,7 @@ public class StagingAreaManager {
             }
         }
 
-        // 大箱子被破坏一半时，将另一半也标记为延迟重扫
-        // （破坏期间方块状态不可靠，不在这里立即重扫）
         if (found) {
-            for (var dir : new net.minecraft.util.math.Direction[]{
-                    net.minecraft.util.math.Direction.NORTH,
-                    net.minecraft.util.math.Direction.SOUTH,
-                    net.minecraft.util.math.Direction.EAST,
-                    net.minecraft.util.math.Direction.WEST}) {
-                BlockPos neighbor = pos.offset(dir);
-                BlockEntity neighborBE = world.getBlockEntity(neighbor);
-                if (neighborBE instanceof Inventory) {
-                    Integer neighborAreaId = findAreaId(neighbor, world);
-                    if (neighborAreaId == null) neighborAreaId = findWarehouseId(neighbor, world);
-                    if (neighborAreaId != null && neighborAreaId == foundAreaId) {
-                        pendingDeferredRescans.put(neighbor, currentServerTick);
-                        dirtyContainers.put(neighbor, world);
-                    }
-                    break;
-                }
-            }
             pushDirtyUpdateWithCooldown();
 
             // 广播受影响原理图的最新材料状态
@@ -964,10 +884,8 @@ public class StagingAreaManager {
                         for (int z = startZ; z <= endZ; z++) {
                             BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                             if (be instanceof Inventory) {
-                                if (!shouldSkipInventoryScan(be)) {
-                                    Inventory inventory = getInventoryForCounting(be, world);
-                                    countInventoryItems(inventory, totalItems);
-                                }
+                                Inventory inventory = getInventoryForCounting(be, world);
+                                countInventoryItems(inventory, totalItems);
                             }
                         }
                     }
@@ -1047,10 +965,8 @@ public class StagingAreaManager {
                             for (int z = startZ; z <= endZ; z++) {
                                 BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                                 if (be instanceof Inventory) {
-                                    if (!shouldSkipInventoryScan(be)) {
-                                        Inventory inventory = getInventoryForCounting(be, world);
-                                        writeContainerInventory(areaId, areaType, x, y, z, inventory);
-                                    }
+                                    Inventory inventory = getInventoryForCounting(be, world);
+                                    writeContainerInventory(areaId, areaType, x, y, z, inventory);
                                 }
                             }
                         }
@@ -1198,11 +1114,9 @@ public class StagingAreaManager {
                 for (int z = minZ; z <= maxZ; z++) {
                     BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
                     if (be instanceof Inventory) {
-                        if (!shouldSkipInventoryScan(be)) {
-                            Inventory inventory = getInventoryForCounting(be, world);
-                            writeContainerInventory(areaId, areaType, x, y, z, inventory);
-                            countInventoryItems(inventory, items);
-                        }
+                        Inventory inventory = getInventoryForCounting(be, world);
+                        writeContainerInventory(areaId, areaType, x, y, z, inventory);
+                        countInventoryItems(inventory, items);
                     }
                 }
             }
