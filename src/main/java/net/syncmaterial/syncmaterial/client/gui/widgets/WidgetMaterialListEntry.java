@@ -392,7 +392,15 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.drawString(drawContext, x2, y, color, String.valueOf(countTotal));
 
             // 缺失（新公式：总计 - 备货区 - 所有背包）
-            pre = countMissing == 0 ? green : (countAvailable >= countMissing ? gold : red);
+            // 收集模式：背包能覆盖剩余需求时显示金色
+            // 取货模式：背包有物品时显示金色（正在搬运中）
+            if (countMissing == 0) {
+                pre = green;
+            } else if (this.listWidget.getGui().isPickupMode()) {
+                pre = countAvailable > 0 ? gold : red;
+            } else {
+                pre = countAvailable >= countMissing ? gold : red;
+            }
             this.drawString(drawContext, x3, y, color, pre + String.valueOf(countMissing));
 
             // 我的背包
