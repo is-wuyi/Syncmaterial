@@ -207,6 +207,9 @@ public class StagingAreaManager {
         Map<BlockPos, ServerWorld> snapshot = new java.util.HashMap<>(dirtyContainers);
         dirtyContainers.keySet().removeAll(snapshot.keySet());
 
+        // 跟踪受影响的原理图 ID，用于后续广播材料状态
+        Set<String> affectedSchematics = new HashSet<>();
+
         SyncMaterial.LOGGER.info("[StagingArea] processDirtyContainers: {} dirty containers", snapshot.size());
 
         // 按区域收集脏容器 pos（同一个区域的多个箱子分别处理）
@@ -289,6 +292,7 @@ public class StagingAreaManager {
                             }
                         }
                         if (found) {
+                            affectedSchematics.add(schematicEntry.getKey());
                             for (StagingArea area : schematicEntry.getValue()) {
                                 Map<String, Integer> result = scanAreaContents(area.id);
                                 if (result != null) updateStagingAreaInventory(area.id, result);
@@ -299,11 +303,27 @@ public class StagingAreaManager {
                 } else {
                     Map<String, Integer> result = scanWarehouseContents(areaId);
                     if (result != null) updateWarehouseInventory(areaId, result);
+                    // 查找引用该仓库的原理图
+                    try (var rs = database.executeQuery(
+                            "SELECT DISTINCT schematic_id FROM schematic_warehouses WHERE warehouse_id = ?", areaId)) {
+                        while (rs.next()) {
+                            affectedSchematics.add(rs.getString("schematic_id"));
+                        }
+                    } catch (java.sql.SQLException e) {
+                        SyncMaterial.LOGGER.error("[StagingArea] 查询仓库关联原理图失败", e);
+                    }
                 }
             }
 
             // 推送更新给取货模式玩家
             pushDirtyUpdateWithCooldown();
+
+            // 广播受影响原理图的最新材料状态（含仓库/备货区计数）
+            if (!affectedSchematics.isEmpty() && server != null) {
+                for (String schematicId : affectedSchematics) {
+                    net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                }
+            }
         });
     }
 
