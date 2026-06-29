@@ -63,7 +63,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
     public int render(DrawContext drawContext, int xOffset, int yOffset, HudAlignment alignment) {
         MinecraftClient mc = MinecraftClient.getInstance();
         long currentTime = System.currentTimeMillis();
-        boolean isPickupMode = mc.currentScreen instanceof GuiMaterialList gml && gml.isPickupMode();
+        boolean isPickupMode = GuiMaterialList.isPickupModeStatic();
 
         List<MaterialListEntry> list;
 
