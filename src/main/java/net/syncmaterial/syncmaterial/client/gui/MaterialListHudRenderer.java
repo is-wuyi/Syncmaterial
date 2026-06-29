@@ -69,10 +69,17 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
 
         if (currentTime - this.lastUpdateTime > 2000) {
             list = this.materialList.getMaterialsMissingOnly(true);
-            // 仅显示当前玩家已认领且还有缺失的材料
-            list = list.stream()
-                .filter(e -> e.getCountMissing() > 0 && e.isCurrentPlayerClaimed())
-                .collect(java.util.stream.Collectors.toList());
+            // 取货模式：显示仓库+背包都不够的材料（还需取货 > 0）
+            // 普通模式：显示已认领且还有缺失的材料
+            if (isPickupMode) {
+                list = list.stream()
+                    .filter(e -> (e.getCountMissing() + e.getWarehouseCount()) > 0 && e.isCurrentPlayerClaimed())
+                    .collect(java.util.stream.Collectors.toList());
+            } else {
+                list = list.stream()
+                    .filter(e -> e.getCountMissing() > 0 && e.isCurrentPlayerClaimed())
+                    .collect(java.util.stream.Collectors.toList());
+            }
             Collections.sort(list, this.sorter);
             this.lastRenderedList = list;
             this.lastUpdateTime = currentTime;
@@ -110,7 +117,8 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         for (int i = 0; i < size; ++i) {
             MaterialListEntry entry = list.get(i);
             maxTextLength = Math.max(maxTextLength, font.getWidth(entry.getStack().getName().getString()));
-            int count = entry.getCountMissing();
+            // 取货模式：还需取货 = 缺失 + 仓库
+            int count = isPickupMode ? entry.getCountMissing() + entry.getWarehouseCount() : entry.getCountMissing();
             if (count < 0) count = 0;
             String strCount = GuiBase.TXT_RED + MaterialListBase.getFormattedCountStringHud(count, entry.getStack().getMaxCount(), shulkerBoxAbbr) + GuiBase.TXT_RST;
             maxCountLength = Math.max(maxCountLength, font.getWidth(strCount));
@@ -185,7 +193,8 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         for (int i = 0; i < size; ++i) {
             MaterialListEntry entry = list.get(i);
             String text = entry.getStack().getName().getString();
-            int count = entry.getCountMissing();
+            // 取货模式：还需取货 = 缺失 + 仓库
+            int count = isPickupMode ? entry.getCountMissing() + entry.getWarehouseCount() : entry.getCountMissing();
             if (count < 0) count = 0;
             String strCount = MaterialListBase.getFormattedCountStringHud(count, entry.getStack().getMaxCount(), shulkerBoxAbbr);
             int cntLen = font.getWidth(strCount);
