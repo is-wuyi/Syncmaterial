@@ -199,15 +199,13 @@ public class DefaultLitematicaParser implements LitematicaParser {
 
             if (blockStates.length == 0) return;
 
-            // 计算正确的 bitsPerBlock
-            long totalBits = (long) blockStates.length * 64;
-            long volume = (long) width * height * length;
-            int actualBits = (int) Math.ceil((double) totalBits / volume);
-            actualBits = Math.max(1, actualBits);
-            
-            LOGGER.info("重新计算 bitsPerBlock: {} (原: {})", actualBits, bitsPerBlock);
-            bitsPerBlock = actualBits;
-            maxEntryValue = (1L << bitsPerBlock) - 1;
+            // 从 palette 大小计算正确的 bitsPerBlock（Litematica 标准编码）
+            int correctBits = Math.max(1, 64 - Integer.numberOfLeadingZeros(paletteSize - 1));
+            if (bitsPerBlock != correctBits) {
+                LOGGER.info("修正 bitsPerBlock: {} -> {} (palette 大小: {})", bitsPerBlock, correctBits, paletteSize);
+                bitsPerBlock = correctBits;
+                maxEntryValue = (1L << bitsPerBlock) - 1;
+            }
 
             // 使用 Litematica 风格的位数组解码
             int index = 0;
