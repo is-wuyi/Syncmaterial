@@ -85,6 +85,7 @@ public class SchematicFolderWatcher {
         while ( true) {
             try {
                 WatchKey key = watchService.take();
+                boolean needsProcess = false;
                 for (WatchEvent<?> event : key.pollEvents()) {
                     WatchEvent.Kind<?> kind = event.kind();
                     if (kind == StandardWatchEventKinds.OVERFLOW) {
@@ -98,14 +99,17 @@ public class SchematicFolderWatcher {
                     
                     // placements.json.new 是 syncmatica 写入的临时文件
                     if (filenameStr.equals("placements.json") || filenameStr.equals("placements.json.new")) {
-                        // 等待文件写入完成（在 synchronized 块外，避免持锁 200ms）
-                        try {
-                            Thread.sleep(200);
-                        } catch (InterruptedException ie) {
-                            break;
-                        }
-                        processPlacementsJson();
+                        needsProcess = true;
                     }
+                }
+                // 去抖：一批 pollEvents 只触发一次处理
+                if (needsProcess) {
+                    try {
+                        Thread.sleep(200);
+                    } catch (InterruptedException ie) {
+                        break;
+                    }
+                    processPlacementsJson();
                 }
                 key.reset();
             } catch (InterruptedException e) {
@@ -251,23 +255,11 @@ public class SchematicFolderWatcher {
     private void processNewSchematic(String id, String hash, String displayName, String owner, Path filePath) {
         SyncMaterial.LOGGER.debug("processNewSchematic 被调用: id={}, hash={}", id, hash);
         
-        // 先检查是否已存在，只有确认不存在时才添加到 processedHashes
-        boolean exists;
-        try {
-            exists = queryService.schematicExists(id);
-            SyncMaterial.LOGGER.debug("schematicExists 结果: {}", exists);
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("schematicExists 调用失败: {} - {}", id, e.getMessage(), e);
+        // processedHashes 快速去重，避免重复解析同一文件
+        if (processedHashes.contains(hash)) {
+            SyncMaterial.LOGGER.debug("hash 已在处理队列中，跳过: {}", hash);
             return;
         }
-        
-        if (exists) {
-            SyncMaterial.LOGGER.debug("原理图已存在，跳过: {}", id);
-            processedHashes.add(hash);
-            return;
-        }
-
-        SyncMaterial.LOGGER.debug("开始解析并存储新原理图: {}", id);
         processedHashes.add(hash);
         hashToSchematicId.put(hash, id);
 
@@ -275,12 +267,18 @@ public class SchematicFolderWatcher {
         parseExecutor.submit(() -> {
             SyncMaterial.LOGGER.debug("异步任务开始执行: {}", id);
             try {
+                // 在异步任务中再次检查数据库，防止并发重复插入
+                if (queryService.schematicExists(id)) {
+                    SyncMaterial.LOGGER.debug("原理图已存在于数据库，跳过: {}", id);
+                    return;
+                }
+                
                 SyncMaterial.LOGGER.debug("检测到新原理图: {} (hash: {})", displayName, hash);
                 var materials = parser.parseAsync(filePath.toString()).join();
                 SyncMaterial.LOGGER.debug("解析完成, 材料数量: {}", materials.size());
 
                 database.executeUpdate(
-                    "INSERT INTO schematics (id, name, file_path, uploaded_by, file_hash) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR IGNORE INTO schematics (id, name, file_path, uploaded_by, file_hash) VALUES (?, ?, ?, ?, ?)",
                     id,
                     displayName,
                     filePath.toString(),
