@@ -1,4 +1,5 @@
-{
+﻿{
+  "syncmaterial.translation.todo.config_comments": "TRANSLATORS: Please translate all syncmaterial.config.comment.* keys added in zh_cn/en_us.",
   "syncmaterial.gui.title.material_list": "Lista de materiales",
   "syncmaterial.gui.title.staging_area_editor": "Configuración de zona de preparación",
   "syncmaterial.gui.title.management": "Gestión de propietarios",

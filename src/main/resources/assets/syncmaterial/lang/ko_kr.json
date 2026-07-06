@@ -1,4 +1,5 @@
-{
+﻿{
+  "syncmaterial.translation.todo.config_comments": "TRANSLATORS: Please translate all syncmaterial.config.comment.* keys added in zh_cn/en_us.",
   "syncmaterial.gui.title.material_list": "재료 목록",
   "syncmaterial.gui.title.staging_area_editor": "준비 구역 설정",
   "syncmaterial.gui.title.management": "소유자 관리",
