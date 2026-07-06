@@ -152,7 +152,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
             
             // 如果没有单独的 bits，使用计算值
             if (!regionNbt.contains("BitsPerEntry")) {
-                bitsPerBlock = Math.max(1, 64 - Integer.numberOfLeadingZeros(paletteList.size() - 1));
+                bitsPerBlock = Math.max(1, 32 - Integer.numberOfLeadingZeros(paletteList.size() - 1));
             }
             
             for (int i = 0; i < paletteList.size(); i++) {
@@ -200,7 +200,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
             if (blockStates.length == 0) return;
 
             // 从 palette 大小计算正确的 bitsPerBlock（Litematica 标准编码）
-            int correctBits = Math.max(1, 64 - Integer.numberOfLeadingZeros(paletteSize - 1));
+            int correctBits = Math.max(1, 32 - Integer.numberOfLeadingZeros(paletteSize - 1));
             if (bitsPerBlock != correctBits) {
                 LOGGER.info("修正 bitsPerBlock: {} -> {} (palette 大小: {})", bitsPerBlock, correctBits, paletteSize);
                 bitsPerBlock = correctBits;
