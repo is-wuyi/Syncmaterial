@@ -116,4 +116,24 @@ public class SyncMaterialClient implements ClientModInitializer {
             activeMaterialList.onCollaborationStatus(status);
         }
     }
+
+    /**
+     * 原理图被删除时清理客户端状态：关闭 GUI、清除 HUD、清理渲染。
+     * 由 SchematicUploadListener 调用（已通过 MinecraftClient.execute() 调度到渲染线程）。
+     */
+    public static void clearActiveSchematic(String schematicId) {
+        // 关闭当前打开的材料列表 GUI（如果属于被删除的原理图）
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.currentScreen instanceof GuiMaterialList gui) {
+            if (schematicId.equals(gui.getMaterialList().getSchematicId())) {
+                mc.setScreen(null);
+            }
+        }
+
+        // 清除 HUD（如果属于被删除的原理图）
+        if (activeMaterialList != null && schematicId.equals(activeMaterialList.getSchematicId())) {
+            LOGGER.info("原理图 {} 已删除，清除 HUD", schematicId);
+            activeMaterialList = null;
+        }
+    }
 }

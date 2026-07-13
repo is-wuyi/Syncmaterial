@@ -112,6 +112,7 @@ public class SchematicUploadListener implements Consumer<Object> {
         net.minecraft.client.MinecraftClient.getInstance().execute(() -> {
             net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
                 .removeRenderData(schematicId);
+            net.syncmaterial.syncmaterial.client.SyncMaterialClient.clearActiveSchematic(schematicId);
         });
 
         // 清理数据库记录
