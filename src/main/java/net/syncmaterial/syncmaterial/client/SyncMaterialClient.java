@@ -116,15 +116,4 @@ public class SyncMaterialClient implements ClientModInitializer {
             activeMaterialList.onCollaborationStatus(status);
         }
     }
-
-    public static String getActiveSchematicId() {
-        return activeMaterialList != null ? activeMaterialList.getSchematicId() : null;
-    }
-
-    public static void clearActiveMaterialList() {
-        if (activeMaterialList != null) {
-            activeMaterialList = null;
-            LOGGER.info("原理图已删除，清除 HUD");
-        }
-    }
 }
