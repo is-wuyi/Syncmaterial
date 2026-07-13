@@ -48,6 +48,8 @@
   "syncmaterial.gui.hint.hold_shift_delete": "Hold Shift and click to delete",
   "syncmaterial.gui.tooltip.self_claim_disabled": "Self-claim is disabled; cannot join",
   "syncmaterial.gui.hint.claim_materials": "Claim materials from the material list first",
+  "syncmaterial.gui.hint.collect_complete": "Claimed materials collected ✓",
+  "syncmaterial.gui.hint.pickup_complete": "Claimed materials picked up ✓",
   "syncmaterial.gui.hint.no_materials": "No materials available",
   "syncmaterial.gui.hint.request_sent": "Request sent...",
   "syncmaterial.gui.hint.select_materials_first": "Select materials first",

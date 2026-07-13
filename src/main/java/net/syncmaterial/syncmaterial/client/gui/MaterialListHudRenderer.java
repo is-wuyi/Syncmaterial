@@ -88,15 +88,71 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
 
         if (list.size() == 0) {
             TextRenderer font = mc.textRenderer;
-            String hint = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.hint.claim_materials");
-            int textWidth = font.getWidth(hint);
-            int boxWidth = textWidth + 10;
-            int boxHeight = 18;
-            int x = xOffset + 2;
-            int y = yOffset + 2;
-            fi.dy.masa.malilib.render.RenderUtils.drawRect(x, y, boxWidth, boxHeight, net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue());
-            drawContext.drawText(font, hint, x + 5, y + 4, 0xFFAAAAAA, false);
-            return boxHeight + 4;
+            boolean hasAnyClaimed = this.materialList.getMaterialsAll().stream()
+                .anyMatch(MaterialListEntry::isCurrentPlayerClaimed);
+
+            String hint;
+            if (!hasAnyClaimed) {
+                hint = StringUtils.translate("syncmaterial.gui.hint.claim_materials");
+            } else if (isPickupMode) {
+                hint = StringUtils.translate("syncmaterial.gui.hint.pickup_complete");
+            } else {
+                hint = StringUtils.translate("syncmaterial.gui.hint.collect_complete");
+            }
+
+            String titleKey = isPickupMode ? "syncmaterial.gui.title.material_list_pickup" : "syncmaterial.gui.title.material_list";
+            String title = GuiBase.TXT_BOLD + StringUtils.translate(titleKey) + GuiBase.TXT_RST;
+            int titleWidth = font.getWidth(title);
+            int hintWidth = font.getWidth(hint);
+            int maxLineLength = Math.max(titleWidth, hintWidth) + 10;
+            int contentHeight = 30; // 标题行 + 提示行 + 上下内边距
+            int bgColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_BG_COLOR.getIntegerValue();
+            int textColor = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_TEXT_COLOR.getIntegerValue();
+            double scale = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_SCALE.getDoubleValue();
+            int scaledWidth = GuiUtils.getScaledWindowWidth();
+            int scaledHeight = GuiUtils.getScaledWindowHeight();
+            boolean scaled = scale != 1.0;
+
+            int posX, posY;
+            switch (alignment) {
+                case TOP_LEFT:
+                    posX = xOffset;
+                    posY = yOffset;
+                    break;
+                case TOP_RIGHT:
+                    posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
+                    posY = yOffset;
+                    break;
+                case BOTTOM_LEFT:
+                    posX = xOffset;
+                    posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
+                    break;
+                case BOTTOM_RIGHT:
+                default:
+                    posX = (int)(scaledWidth / scale) - maxLineLength - xOffset;
+                    posY = (int)(scaledHeight / scale) - contentHeight - yOffset;
+                    break;
+            }
+            posY += RenderUtils.getHudOffsetForPotions(alignment, scale, mc.player);
+
+            if (scaled) {
+                drawContext.getMatrices().pushMatrix();
+                drawContext.getMatrices().scale((float) scale, (float) scale);
+            }
+
+            int x1 = posX - 2;
+            int y1 = posY - 2;
+            int x2 = x1 + maxLineLength + 4;
+            int y2 = y1 + contentHeight + 2;
+            drawContext.fill(x1, y1, x2, y2, bgColor);
+            drawContext.drawText(font, title, posX + 2, posY + 2, textColor, false);
+            drawContext.drawText(font, hint, posX + 5, posY + 16, 0xFFAAAAAA, false);
+
+            if (scaled) {
+                drawContext.getMatrices().popMatrix();
+            }
+
+            return contentHeight + 4;
         }
 
         TextRenderer font = mc.textRenderer;

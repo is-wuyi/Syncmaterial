@@ -48,6 +48,8 @@
   "syncmaterial.gui.hint.hold_shift_delete": "请按住 Shift 再点击删除",
   "syncmaterial.gui.tooltip.self_claim_disabled": "自行认领已关闭，无法加入协作",
   "syncmaterial.gui.hint.claim_materials": "请先在材料清单中认领材料",
+  "syncmaterial.gui.hint.collect_complete": "认领的材料已收集完成 ✓",
+  "syncmaterial.gui.hint.pickup_complete": "认领的材料已取货完成 ✓",
   "syncmaterial.gui.hint.no_materials": "暂无材料数据",
   "syncmaterial.gui.hint.request_sent": "请求已发送...",
   "syncmaterial.gui.hint.select_materials_first": "请先勾选材料",
