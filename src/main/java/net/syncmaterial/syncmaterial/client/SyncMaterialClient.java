@@ -130,6 +130,7 @@ public class SyncMaterialClient implements ClientModInitializer {
             }
         }
 
+
         // 清除 HUD（如果属于被删除的原理图）
         if (activeMaterialList != null && schematicId.equals(activeMaterialList.getSchematicId())) {
             LOGGER.info("原理图 {} 已删除，清除 HUD", schematicId);

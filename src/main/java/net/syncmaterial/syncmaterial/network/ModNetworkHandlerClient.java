@@ -60,6 +60,13 @@ public class ModNetworkHandlerClient {
                         renderer.setSchematicName(payload.schematicId(), payload.schematicName());
                     }
 
+                    // 原理图被删除：清理渲染 + HUD
+                    if ("SCHEMATIC_DELETED".equals(payload.action())) {
+                        renderer.removeRenderData(payload.schematicId());
+                        net.syncmaterial.syncmaterial.client.SyncMaterialClient.clearActiveSchematic(payload.schematicId());
+                        return;
+                    }
+
                     // 空 areas 列表表示该原理图的备货区已被删除
                     if (payload.areas().isEmpty())
                     {
