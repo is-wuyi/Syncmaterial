@@ -22,8 +22,7 @@ public class SchematicUploadListener implements Consumer<Object> {
 
     public SchematicUploadListener(SchematicDatabase database,
                                    DatabaseQueryService queryService,
-                                   LitematicaParser parser,
-                                   Object ignored) {
+                                   LitematicaParser parser) {
         this.database = database;
         this.queryService = queryService;
         this.parser = parser;

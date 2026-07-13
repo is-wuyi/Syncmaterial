@@ -1,12 +1,8 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import com.google.common.collect.ImmutableList;
-import fi.dy.masa.malilib.interfaces.ICompletionListener;
-import fi.dy.masa.malilib.util.StringUtils;
 import net.minecraft.util.math.MathHelper;
 
 public abstract class MaterialListBase
@@ -15,17 +11,12 @@ public abstract class MaterialListBase
     protected final List<MaterialListEntry> materialListPreFiltered = new ArrayList<>();
     protected final List<MaterialListEntry> materialListFiltered = new ArrayList<>();
     protected ImmutableList<MaterialListEntry> materialListAll = ImmutableList.of();
-    protected final Map<MaterialListEntry, String> claimStatusMap = new HashMap<>();
-    protected ICompletionListener completionListener;
     protected SortCriteria sortCriteria = SortCriteria.COUNT_TOTAL;
     protected boolean reverse = false;
-    protected boolean hideAvailable;
     protected int multiplier = 1;
     protected long countTotal;
     protected long countMissing;
     protected long countMismatched;
-
-    public abstract String getName();
 
     public abstract String getTitle();
 
@@ -41,11 +32,6 @@ public abstract class MaterialListBase
 
     public List<MaterialListEntry> getMaterialsFiltered(boolean refresh)
     {
-        if (this.hideAvailable)
-        {
-            return this.getMaterialsMissingOnly(refresh);
-        }
-
         return this.materialListPreFiltered;
     }
 
@@ -59,52 +45,25 @@ public abstract class MaterialListBase
         return this.materialListFiltered;
     }
 
-    public void setCompletionListener(ICompletionListener listener)
-    {
-        this.completionListener = listener;
-    }
-
     public void recreateFilteredList()
     {
         this.materialListFiltered.clear();
 
-        for (int i = 0; i < this.materialListPreFiltered.size(); ++i)
+        for (MaterialListEntry entry : this.materialListPreFiltered)
         {
-            MaterialListEntry entry = this.materialListPreFiltered.get(i);
-            int countMissing = this.multiplier == 1 ? entry.getCountMissing() : this.multiplier * entry.getCountTotal();
-
             if (entry.getCountMissing() > 0)
             {
                 this.materialListFiltered.add(entry);
             }
-            // Remove entries that have been seen as available at least at one point
-            // (for example when gathering resources to a staging area)
-            else if (this.hideAvailable)
-            {
-                this.materialListPreFiltered.remove(i);
-                --i;
-            }
         }
     }
-
-    /**
-     * Re-creates the all-materials list from the schematic or placement or area
-     * by starting a new task, if applicable.
-     */
-    public abstract void reCreateMaterialList();
 
     public void setMaterialListEntries(List<MaterialListEntry> list)
     {
         this.materialListAll = ImmutableList.copyOf(list);
         this.refreshPreFilteredList();
         this.updateCounts();
-
-        if (this.completionListener != null)
-        {
-            this.completionListener.onTaskCompleted();
-        }
     }
-
 
     /**
      * Resets the pre-filtered materials list to the all materials list
@@ -123,11 +82,6 @@ public abstract class MaterialListBase
     public boolean getSortInReverse()
     {
         return this.reverse;
-    }
-
-    public boolean getHideAvailable()
-    {
-        return this.hideAvailable;
     }
 
     public int getMultiplier()
@@ -150,11 +104,6 @@ public abstract class MaterialListBase
 
     public void setSortInReverse(boolean reverse) {
         this.reverse = reverse;
-    }
-
-    public void setHideAvailable(boolean hideAvailable)
-    {
-        this.hideAvailable = hideAvailable;
     }
 
     public void setMultiplier(int multiplier)
@@ -189,16 +138,6 @@ public abstract class MaterialListBase
     public long getCountMismatched()
     {
         return this.countMismatched;
-    }
-
-    public String getClaimStatus(MaterialListEntry entry)
-    {
-        return this.claimStatusMap.getOrDefault(entry, StringUtils.translate("syncmaterial.gui.label.unclaimed"));
-    }
-
-    public void setClaimStatus(MaterialListEntry entry, String status)
-    {
-        this.claimStatusMap.put(entry, status);
     }
 
     public void claimEntry(MaterialListEntry entry)

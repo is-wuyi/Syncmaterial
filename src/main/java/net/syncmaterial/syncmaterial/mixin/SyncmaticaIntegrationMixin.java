@@ -42,7 +42,7 @@ public class SyncmaticaIntegrationMixin {
             Object syncManager = context.getClass().getMethod("getSyncmaticManager").invoke(context);
             if (syncManager != null) {
                 SyncMaterial.LOGGER.info("找到Syncmatica syncManager，尝试注册监听器...");
-                SchematicUploadListener listener = new SchematicUploadListener(database, queryService, parser, syncManager);
+                SchematicUploadListener listener = new SchematicUploadListener(database, queryService, parser);
                 syncManager.getClass().getMethod("addServerPlacementConsumer", java.util.function.Consumer.class)
                     .invoke(syncManager, listener);
 

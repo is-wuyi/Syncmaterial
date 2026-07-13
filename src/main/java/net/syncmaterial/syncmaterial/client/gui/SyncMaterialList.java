@@ -43,21 +43,12 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     @Override
-    public String getName() {
-        return this.title;
-    }
-
-    @Override
     public String getTitle() {
         return this.title;
     }
 
     public String getSchematicId() {
         return this.schematicId;
-    }
-
-    @Override
-    public void reCreateMaterialList() {
     }
 
     public void setMaterialEntries(List<MaterialEntry> entries) {
