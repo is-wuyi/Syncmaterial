@@ -64,6 +64,10 @@ public class ModNetworkHandlerClient {
                     if (payload.areas().isEmpty())
                     {
                         renderer.removeRenderData(payload.schematicId());
+                        // 如果是当前 HUD 显示的原理图，清除 HUD
+                        if (payload.schematicId().equals(net.syncmaterial.syncmaterial.client.SyncMaterialClient.getActiveSchematicId())) {
+                            net.syncmaterial.syncmaterial.client.SyncMaterialClient.clearActiveMaterialList();
+                        }
                     }
                     else
                     {
