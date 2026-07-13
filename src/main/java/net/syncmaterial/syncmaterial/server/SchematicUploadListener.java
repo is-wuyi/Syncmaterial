@@ -19,16 +19,14 @@ public class SchematicUploadListener implements Consumer<Object> {
     private final SchematicDatabase database;
     private final DatabaseQueryService queryService;
     private final LitematicaParser parser;
-    private final Object syncManager;  // SyncmaticManager 引用，用于判断 placement 是新增还是删除
 
     public SchematicUploadListener(SchematicDatabase database,
                                    DatabaseQueryService queryService,
                                    LitematicaParser parser,
-                                   Object syncManager) {
+                                   Object ignored) {
         this.database = database;
         this.queryService = queryService;
         this.parser = parser;
-        this.syncManager = syncManager;
     }
 
     /**
@@ -75,54 +73,12 @@ public class SchematicUploadListener implements Consumer<Object> {
      */
     @Override
     public void accept(Object placement) {
-        try {
-            Class<?> placementClass = placement.getClass();
-            Object id = placementClass.getMethod("getId").invoke(placement);
-            String schematicId = id.toString();
-
-            // 反射检查 placement 是否仍在 SyncmaticManager 中
-            // removePlacement() 先从 Map 移除，再通知 Consumer
-            // 所以此时如果 getPlacement() 返回 null，说明是删除事件
-            Object existing = syncManager.getClass()
-                .getMethod("getPlacement", java.util.UUID.class)
-                .invoke(syncManager, id);
-
-            if (existing == null) {
-                SyncMaterial.LOGGER.info("检测到原理图删除: {}", schematicId);
-                onSchematicRemoved(schematicId);
-                return;
-            }
-
-            SyncMaterial.LOGGER.info("检测到原理图新增/更新: {}", schematicId);
-            onSchematicUploaded(placement);
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("处理placement事件失败", e);
-        }
+        // 仅处理新增/更新事件。原理图删除由服务器 SchematicFolderWatcher 通过
+        // SCHEMATIC_DELETED 网络包通知客户端，不依赖此 consumer。
+        onSchematicUploaded(placement);
     }
 
-    /**
-     * 原理图被删除时清理渲染数据和数据库记录。
-     * 注意：此方法通过 SyncmaticaIntegrationMixin 注册，该 Mixin 目标为客户端类 LitematicManager，
-     * 因此只在客户端执行，MinecraftClient 是安全的。
-     * 客户端渲染清理通过 MinecraftClient.execute() 调度到渲染线程。
-     * （SchematicFolderWatcher 也会通过网络包通知客户端，这里是直接响应 Syncmatica 事件的快速路径）
-     */
-    private void onSchematicRemoved(String schematicId) {
-        // 清理客户端渲染数据（调度到渲染线程）
-        net.minecraft.client.MinecraftClient.getInstance().execute(() -> {
-            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
-                .removeRenderData(schematicId);
-            net.syncmaterial.syncmaterial.client.SyncMaterialClient.clearActiveSchematic(schematicId);
-        });
 
-        // 清理数据库记录
-        try {
-            database.deleteSchematicRecords(schematicId);
-            SyncMaterial.LOGGER.info("已清理数据库中的原理图记录: {}", schematicId);
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("清理数据库记录失败: {}", schematicId, e);
-        }
-    }
 
     /**
      * 实际的原理图处理逻辑
