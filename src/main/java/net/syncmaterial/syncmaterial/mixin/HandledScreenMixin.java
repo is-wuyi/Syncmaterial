@@ -1,6 +1,8 @@
 package net.syncmaterial.syncmaterial.mixin;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -18,14 +20,12 @@ import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.block.ShulkerBoxBlock;
 
-import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
-import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
-import net.syncmaterial.syncmaterial.client.InventoryWatcher;
+import net.syncmaterial.syncmaterial.client.gui.MaterialListHudRenderer;
 
 /**
  * 取货指示器：打开箱子时高亮需要取的物品格子
- * 遍历容器格子，用实时取货公式逐格递减，直到满足需求为止。
+ * 使用 MaterialListHudRenderer 的缓存数据（与HUD同步更新），逐格递减计算高亮。
  */
 @Mixin(HandledScreen.class)
 public abstract class HandledScreenMixin<T extends ScreenHandler> {
@@ -36,21 +36,18 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
     private void onDrawForeground(DrawContext context, int mouseX, int mouseY, CallbackInfo ci) {
         if (!GuiMaterialList.isPickupModeStatic()) return;
 
-        InventoryWatcher.refreshLocalDelta();
+        Map<String, Integer> needs = MaterialListHudRenderer.getPickupHighlightNeeds();
+        if (needs.isEmpty()) return;
 
-        var activeList = SyncMaterialClient.getActiveMaterialList();
-        if (activeList == null) return;
-        var entries = activeList.getMaterialsAll();
-        java.util.Map<String, Integer> remaining = new java.util.HashMap<>();
+        // 逐格递减的剩余需求量
+        Map<String, Integer> remaining = new HashMap<>(needs);
 
-        List<Slot> slots = this.handler.slots;
-
-        for (Slot slot : slots) {
+        for (Slot slot : this.handler.slots) {
             if (!slot.hasStack()) continue;
             ItemStack stack = slot.getStack();
             String itemId = stack.getItem().toString();
 
-            if (shouldHighlight(itemId, stack.getCount(), entries, remaining)) {
+            if (shouldHighlight(itemId, stack.getCount(), remaining)) {
                 drawHighlight(context, slot);
                 continue;
             }
@@ -61,7 +58,7 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
                 var container = stack.get(DataComponentTypes.CONTAINER);
                 if (container != null) {
                     for (var stored : container.streamNonEmpty().toList()) {
-                        if (shouldHighlight(stored.getItem().toString(), stored.getCount(), entries, remaining)) {
+                        if (shouldHighlight(stored.getItem().toString(), stored.getCount(), remaining)) {
                             drawHighlight(context, slot);
                             break;
                         }
@@ -73,7 +70,7 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
             var bundleContents = stack.get(DataComponentTypes.BUNDLE_CONTENTS);
             if (bundleContents != null) {
                 for (var stored : bundleContents.stream().toList()) {
-                    if (shouldHighlight(stored.getItem().toString(), stored.getCount(), entries, remaining)) {
+                    if (shouldHighlight(stored.getItem().toString(), stored.getCount(), remaining)) {
                         drawHighlight(context, slot);
                         break;
                     }
@@ -82,35 +79,14 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
         }
     }
 
-    /**
-     * 判断某个物品是否还需要高亮。
-     * 对每个 materialList 条目，用 HUD 相同公式算出还需取货量，
-     * 再按格子顺序递减，若还有剩余则高亮。
-     */
     @Unique
-    private boolean shouldHighlight(String itemId, int stackCount, java.util.List<MaterialListEntry> entries, java.util.Map<String, Integer> remaining) {
-        for (MaterialListEntry entry : entries) {
-            if (!entry.getStack().getItem().toString().equals(itemId)) continue;
-
-            int pickupMissing = Math.max(0,
-                Math.min(entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable(),
-                         entry.getWarehouseCount()));
-            if (pickupMissing <= 0) continue;
-
-            // 本地增量补偿：减去玩家已从箱子取走但服务端尚未确认的数量
-            int localAdj = InventoryWatcher.getLocalDelta().getOrDefault(itemId, 0);
-            pickupMissing = Math.max(0, pickupMissing - localAdj);
-            if (pickupMissing <= 0) continue;
-
-            // 用已渲染的剩余需求量（逐格递减）
-            int rem = remaining.getOrDefault(itemId, pickupMissing);
-            if (rem > 0) {
-                remaining.put(itemId, rem - stackCount);
-                return true;
-            }
-        }
-        return false;
+    private boolean shouldHighlight(String itemId, int stackCount, Map<String, Integer> remaining) {
+        int rem = remaining.getOrDefault(itemId, 0);
+        if (rem <= 0) return false;
+        remaining.put(itemId, rem - stackCount);
+        return true;
     }
+
     @Unique
     private void drawHighlight(DrawContext context, Slot slot) {
         int slotX = slot.x;

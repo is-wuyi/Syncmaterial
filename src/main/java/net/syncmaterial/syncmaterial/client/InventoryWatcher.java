@@ -18,49 +18,7 @@ public class InventoryWatcher {
     private static String currentSchematicId;
     private static final Map<String, Integer> itemIdToMaterialId = new HashMap<>();
     private static final Map<Integer, Integer> lastKnownCounts = new HashMap<>();
-    private static final Map<String, Integer> lastStringCounts = new HashMap<>();
     private static int tickCounter = 0;
-
-    // 本地增量：背包相比服务端数据多出的物品数量，用于高亮即时反馈
-    private static final Map<String, Integer> localDelta = new HashMap<>();
-
-    /** 获取本地增量（取货指示器高亮用）*/
-    public static Map<String, Integer> getLocalDelta() { return Collections.unmodifiableMap(localDelta); }
-
-    /** 每帧调用：用当前背包与基线比较，刷新本地增量 */
-    public static void refreshLocalDelta() {
-        PlayerInventory inv = MinecraftClient.getInstance().player != null ? MinecraftClient.getInstance().player.getInventory() : null;
-        if (inv == null) return;
-        // 先累加每个物品 ID 的总数
-        Map<String, Integer> totals = new HashMap<>();
-        for (int i = 0; i < inv.size(); i++) {
-            ItemStack stack = inv.getStack(i);
-            if (stack.isEmpty()) continue;
-            totals.merge(stack.getItem().toString(), stack.getCount(), Integer::sum);
-        }
-        // 再与基线比较算出增量
-        localDelta.clear();
-        for (var e : totals.entrySet()) {
-            int baseline = lastStringCounts.getOrDefault(e.getKey(), 0);
-            int delta = e.getValue() - baseline;
-            if (delta > 0) localDelta.put(e.getKey(), delta);
-        }
-    }
-
-    /** 服务端数据回来后清零本地增量 */
-    public static void clearLocalDelta() {
-        localDelta.clear();
-        // 重置基线为当前背包状态
-        lastStringCounts.clear();
-        PlayerInventory inv = MinecraftClient.getInstance().player != null ? MinecraftClient.getInstance().player.getInventory() : null;
-        if (inv != null) {
-            for (int i = 0; i < inv.size(); i++) {
-                ItemStack stack = inv.getStack(i);
-                if (stack.isEmpty()) continue;
-                lastStringCounts.merge(stack.getItem().toString(), stack.getCount(), Integer::sum);
-            }
-        }
-    }
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
