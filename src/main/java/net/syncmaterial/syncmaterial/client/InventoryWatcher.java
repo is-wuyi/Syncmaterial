@@ -126,28 +126,6 @@ public class InventoryWatcher {
     private static void checkInventoryChanges(PlayerInventory inventory) {
         Map<Integer, Integer> currentCounts = getCurrentCounts();
 
-        // 更新本地增量（按物品 ID 字符串，供高亮使用）
-        Map<String, Integer> stringCounts = new HashMap<>();
-        for (int i = 0; i < inventory.size(); i++) {
-            ItemStack stack = inventory.getStack(i);
-            if (stack.isEmpty()) continue;
-            String itemId = stack.getItem().toString();
-            stringCounts.merge(itemId, stack.getCount(), Integer::sum);
-        }
-        // localDelta = 当前背包 - 上次服务端确认时的背包
-        for (var e : stringCounts.entrySet()) {
-            int baseline = lastStringCounts.getOrDefault(e.getKey(), 0);
-            int delta = e.getValue() - baseline;
-            if (delta > 0) {
-                localDelta.put(e.getKey(), delta);
-            } else {
-                localDelta.remove(e.getKey());
-            }
-        }
-        for (var key : lastStringCounts.keySet()) {
-            if (!stringCounts.containsKey(key)) localDelta.remove(key);
-        }
-
         for (Map.Entry<Integer, Integer> entry : currentCounts.entrySet()) {
             int materialId = entry.getKey();
             int currentCount = entry.getValue();
