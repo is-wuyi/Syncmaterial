@@ -32,7 +32,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private boolean filterMyMaterials = false;
     private static boolean pickupMode = false; // Phase 5: 取货模式（纯客户端状态）
     private static java.util.Set<String> pickupModeNeededItemIds = java.util.Collections.emptySet(); // 取货模式需要的物品 ID
-    private static java.util.Map<String, Integer> pickupModeMissingCounts = java.util.Collections.emptyMap(); // 取货模式缺失数量
     private List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessWarnings = java.util.Collections.emptyList();
     private List<Integer> selectedMaterialIds = new ArrayList<>();
     private static boolean stagingRenderEnabled = true;
@@ -107,7 +106,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public boolean isPickupMode() { return pickupMode; }
     public static boolean isPickupModeStatic() { return pickupMode; }
     public static java.util.Set<String> getPickupModeNeededItemIds() { return pickupModeNeededItemIds; }
-    public static java.util.Map<String, Integer> getPickupModeMissingCounts() { return pickupModeMissingCounts; }
 
     /**
      * 更新数据新鲜度警告（从协作状态包接收）
@@ -237,7 +235,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                     }
                 }
                 pickupModeNeededItemIds = needed;
-                pickupModeMissingCounts = counts;
             }
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
                     StringUtils.translate(pickupMode ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
