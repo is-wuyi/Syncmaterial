@@ -86,9 +86,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         {
             this.header1 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[0]) + GuiBase.TXT_RST;
             this.header2 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[1]) + GuiBase.TXT_RST;
-            // 取货模式切换列头：还需收集 / 还需取货
-            String missingKey = listWidget.getGui().isPickupMode() ? "syncmaterial.gui.label.material_list.title.pickup_needed" : HEADERS[2];
-            this.header3 = GuiBase.TXT_BOLD + StringUtils.translate(missingKey) + GuiBase.TXT_RST;
+            this.header3 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[2]) + GuiBase.TXT_RST;
             this.header4 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[3]) + GuiBase.TXT_RST;
             this.header5 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[4]) + GuiBase.TXT_RST;
             this.header6 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[5]) + GuiBase.TXT_RST;
@@ -139,10 +137,6 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         {
             int countTotal = entry.getCountTotal() * multiplier;
             int countMissing = multiplier == 1 ? entry.getCountMissing() : countTotal;
-            // 取货模式：还需取货 = 总数 - 备货区 - 我的背包（列宽计算）
-            if (GuiMaterialList.isPickupModeStatic() && multiplier == 1) {
-                countMissing = Math.max(0, Math.min(entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable(), entry.getWarehouseCount()));
-            }
 
             maxNameLength   = Math.max(maxNameLength,   StringUtils.getStringWidth(entry.getStack().getName().getString()));
             maxCountLength1 = Math.max(maxCountLength1, StringUtils.getStringWidth(String.valueOf(countTotal)));
@@ -375,10 +369,6 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int multiplier = this.materialList.getMultiplier();
             int countTotal = this.entry.getCountTotal() * multiplier;
             int countMissing = multiplier == 1 ? this.entry.getCountMissing() : countTotal;
-            // 取货模式：还需取货 = 总数 - 备货区 - 我的背包
-            if (this.listWidget.getGui().isPickupMode() && multiplier == 1) {
-                countMissing = Math.max(0, Math.min(countTotal - this.entry.getStagingCount() - this.entry.getCountAvailable(), this.entry.getWarehouseCount()));
-            }
             int countAvailable = this.entry.getCountAvailable();
             int otherPlayersCount = this.entry.getOtherPlayersCount();
             int stagingCount = this.entry.getStagingCount();
@@ -393,11 +383,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             // 缺失（新公式：总计 - 备货区 - 所有背包）
             // 收集模式：背包能覆盖剩余需求时显示金色
-            // 取货模式：背包有物品时显示金色（正在搬运中）
             if (countMissing == 0) {
                 pre = green;
-            } else if (this.listWidget.getGui().isPickupMode()) {
-                pre = countAvailable > 0 ? gold : red;
             } else {
                 pre = countAvailable >= countMissing ? gold : red;
             }
@@ -561,19 +548,14 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             String header1 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[0]);
             String header2 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[1]);
-            String missingKey = this.listWidget.getGui().isPickupMode() ? "syncmaterial.gui.label.material_list.title.pickup_needed" : HEADERS[2];
+            String missingKey = HEADERS[2];
             String header3 = GuiBase.TXT_BOLD + StringUtils.translate(missingKey);
 
             ItemStack stack = this.entry.getStack();
             String stackName = stack.getName().getString();
             int multiplier = this.materialList.getMultiplier();
             int total = this.entry.getCountTotal() * multiplier;
-            int missing;
-            if (this.listWidget.getGui().isPickupMode() && multiplier == 1) {
-                missing = Math.max(0, Math.min(this.entry.getCountTotal() - this.entry.getStagingCount() - this.entry.getCountAvailable(), this.entry.getWarehouseCount()));
-            } else {
-                missing = multiplier == 1 ? this.entry.getCountMissing() : total;
-            }
+            int missing = multiplier == 1 ? this.entry.getCountMissing() : total;
             String strCountTotal = MaterialListBase.getFormattedCountString(total, stack.getMaxCount(), this.shulkerBoxAbbr);
             String strCountMissing = MaterialListBase.getFormattedCountString(missing, stack.getMaxCount(), this.shulkerBoxAbbr);
 
