@@ -18,7 +18,29 @@ public class InventoryWatcher {
     private static String currentSchematicId;
     private static final Map<String, Integer> itemIdToMaterialId = new HashMap<>();
     private static final Map<Integer, Integer> lastKnownCounts = new HashMap<>();
+    private static final Map<String, Integer> lastStringCounts = new HashMap<>();
     private static int tickCounter = 0;
+
+    // 本地增量：背包相比服务端数据多出的物品数量，用于高亮即时反馈
+    private static final Map<String, Integer> localDelta = new HashMap<>();
+
+    /** 获取本地增量（取货指示器高亮用）*/
+    public static Map<String, Integer> getLocalDelta() { return Collections.unmodifiableMap(localDelta); }
+
+    /** 服务端数据回来后清零本地增量 */
+    public static void clearLocalDelta() {
+        localDelta.clear();
+        // 重置基线为当前背包状态
+        lastStringCounts.clear();
+        PlayerInventory inv = MinecraftClient.getInstance().player != null ? MinecraftClient.getInstance().player.getInventory() : null;
+        if (inv != null) {
+            for (int i = 0; i < inv.size(); i++) {
+                ItemStack stack = inv.getStack(i);
+                if (stack.isEmpty()) continue;
+                lastStringCounts.merge(stack.getItem().toString(), stack.getCount(), Integer::sum);
+            }
+        }
+    }
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -88,6 +110,28 @@ public class InventoryWatcher {
 
     private static void checkInventoryChanges(PlayerInventory inventory) {
         Map<Integer, Integer> currentCounts = getCurrentCounts();
+
+        // 更新本地增量（按物品 ID 字符串，供高亮使用）
+        Map<String, Integer> stringCounts = new HashMap<>();
+        for (int i = 0; i < inventory.size(); i++) {
+            ItemStack stack = inventory.getStack(i);
+            if (stack.isEmpty()) continue;
+            String itemId = stack.getItem().toString();
+            stringCounts.merge(itemId, stack.getCount(), Integer::sum);
+        }
+        // localDelta = 当前背包 - 上次服务端确认时的背包
+        for (var e : stringCounts.entrySet()) {
+            int baseline = lastStringCounts.getOrDefault(e.getKey(), 0);
+            int delta = e.getValue() - baseline;
+            if (delta > 0) {
+                localDelta.put(e.getKey(), delta);
+            } else {
+                localDelta.remove(e.getKey());
+            }
+        }
+        for (var key : lastStringCounts.keySet()) {
+            if (!stringCounts.containsKey(key)) localDelta.remove(key);
+        }
 
         for (Map.Entry<Integer, Integer> entry : currentCounts.entrySet()) {
             int materialId = entry.getKey();

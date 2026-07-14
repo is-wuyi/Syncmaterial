@@ -21,6 +21,7 @@ import net.minecraft.block.ShulkerBoxBlock;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
+import net.syncmaterial.syncmaterial.client.InventoryWatcher;
 
 /**
  * 取货指示器：打开箱子时高亮需要取的物品格子
@@ -92,6 +93,11 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
             int pickupMissing = Math.max(0,
                 Math.min(entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable(),
                          entry.getWarehouseCount()));
+            if (pickupMissing <= 0) continue;
+
+            // 本地增量补偿：减去玩家已从箱子取走但服务端尚未确认的数量
+            int localAdj = InventoryWatcher.getLocalDelta().getOrDefault(itemId, 0);
+            pickupMissing = Math.max(0, pickupMissing - localAdj);
             if (pickupMissing <= 0) continue;
 
             // 用已渲染的剩余需求量（逐格递减）
