@@ -36,6 +36,8 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
     private void onDrawForeground(DrawContext context, int mouseX, int mouseY, CallbackInfo ci) {
         if (!GuiMaterialList.isPickupModeStatic()) return;
 
+        InventoryWatcher.refreshLocalDelta();
+
         var activeList = SyncMaterialClient.getActiveMaterialList();
         if (activeList == null) return;
         var entries = activeList.getMaterialsAll();

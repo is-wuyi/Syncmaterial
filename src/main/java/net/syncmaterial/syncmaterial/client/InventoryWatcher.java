@@ -27,6 +27,21 @@ public class InventoryWatcher {
     /** 获取本地增量（取货指示器高亮用）*/
     public static Map<String, Integer> getLocalDelta() { return Collections.unmodifiableMap(localDelta); }
 
+    /** 每帧调用：用当前背包与基线比较，刷新本地增量 */
+    public static void refreshLocalDelta() {
+        PlayerInventory inv = MinecraftClient.getInstance().player != null ? MinecraftClient.getInstance().player.getInventory() : null;
+        if (inv == null) return;
+        localDelta.clear();
+        for (int i = 0; i < inv.size(); i++) {
+            ItemStack stack = inv.getStack(i);
+            if (stack.isEmpty()) continue;
+            String itemId = stack.getItem().toString();
+            int baseline = lastStringCounts.getOrDefault(itemId, 0);
+            int delta = stack.getCount() - baseline;
+            if (delta > 0) localDelta.put(itemId, delta);
+        }
+    }
+
     /** 服务端数据回来后清零本地增量 */
     public static void clearLocalDelta() {
         localDelta.clear();
