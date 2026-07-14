@@ -31,14 +31,19 @@ public class InventoryWatcher {
     public static void refreshLocalDelta() {
         PlayerInventory inv = MinecraftClient.getInstance().player != null ? MinecraftClient.getInstance().player.getInventory() : null;
         if (inv == null) return;
-        localDelta.clear();
+        // 先累加每个物品 ID 的总数
+        Map<String, Integer> totals = new HashMap<>();
         for (int i = 0; i < inv.size(); i++) {
             ItemStack stack = inv.getStack(i);
             if (stack.isEmpty()) continue;
-            String itemId = stack.getItem().toString();
-            int baseline = lastStringCounts.getOrDefault(itemId, 0);
-            int delta = stack.getCount() - baseline;
-            if (delta > 0) localDelta.put(itemId, delta);
+            totals.merge(stack.getItem().toString(), stack.getCount(), Integer::sum);
+        }
+        // 再与基线比较算出增量
+        localDelta.clear();
+        for (var e : totals.entrySet()) {
+            int baseline = lastStringCounts.getOrDefault(e.getKey(), 0);
+            int delta = e.getValue() - baseline;
+            if (delta > 0) localDelta.put(e.getKey(), delta);
         }
     }
 
