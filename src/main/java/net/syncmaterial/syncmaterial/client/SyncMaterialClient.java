@@ -22,6 +22,8 @@ public class SyncMaterialClient implements ClientModInitializer {
     private static final Logger LOGGER = SyncMaterial.LOGGER;
     private static SyncMaterialList activeMaterialList;
 
+    public static SyncMaterialList getActiveMaterialList() { return activeMaterialList; }
+
     @Override
     public void onInitializeClient() {
         LOGGER.info("SyncMaterial Client initialized!");
