@@ -37,6 +37,7 @@ dependencies {
     include "org.xerial:sqlite-jdbc:3.45.1.0"
 
     // 测试依赖
+    testImplementation "net.fabricmc:fabric-loader-junit:0.16.13"
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
     testImplementation "org.mockito:mockito-core:5.11.0"
