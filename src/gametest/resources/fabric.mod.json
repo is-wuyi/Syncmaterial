@@ -1,0 +1,18 @@
+{
+    "schemaVersion": 1,
+    "id": "syncmaterial-test",
+    "version": "1.0.0",
+    "name": "SyncMaterial GameTest",
+    "environment": "*",
+    "entrypoints": {
+        "fabric-gametest": [
+            "net.syncmaterial.syncmaterial.gametest.SyncMaterialGameTest"
+        ]
+    },
+    "depends": {
+        "fabricloader": ">=0.16.9",
+        "minecraft": ">=1.21.7 <=1.21.8",
+        "fabric-api": "*",
+        "syncmaterial": "*"
+    }
+}

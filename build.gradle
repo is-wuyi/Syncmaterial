@@ -64,3 +64,24 @@ java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
 }
+
+// 服务端 GameTest 配置
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "syncmaterial-test"
+        enableGameTests = true
+        enableClientGameTests = false
+        eula = true
+        clearRunDirectory = true
+    }
+}
+
+// GameTest 运行目录设到本地磁盘（外置硬盘不支持文件锁定）
+loom {
+    runs {
+        gametest {
+            runDir = "/tmp/syncmaterial-gametest/run"
+        }
+    }
+}
