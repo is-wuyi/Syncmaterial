@@ -62,8 +62,17 @@ public class InventoryWatcher {
 
     public static Map<Integer, Integer> getCurrentCounts() {
         if (MinecraftClient.getInstance().player == null) return Map.of();
+        return getCounts(MinecraftClient.getInstance().player.getInventory());
+    }
+
+    /**
+     * 按白名单统计背包中各材料的数量（纯函数，可 JUnit 测试）。
+     * 只统计 setContext 注册过的 itemId，潜影盒内容物递归展开后同样按白名单过滤。
+     * @param inventory 玩家背包
+     * @return materialId → 数量
+     */
+    public static Map<Integer, Integer> getCounts(PlayerInventory inventory) {
         Map<Integer, Integer> currentCounts = new HashMap<>();
-        PlayerInventory inventory = MinecraftClient.getInstance().player.getInventory();
 
         for (int i = 0; i < inventory.size(); i++) {
             ItemStack stack = inventory.getStack(i);

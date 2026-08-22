@@ -129,57 +129,7 @@ public class ModNetworkHandler {
             if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
 
             context.server().execute(() -> {
-                try {
-                    SyncMaterial.LOGGER.debug("收到玩家 {} 的材料统计请求: {}", player.getGameProfile().getName(), schematicId);
-
-                    var materials = queryService.getMaterials(schematicId);
-                    var statuses = new java.util.ArrayList<CollaborationStatusS2CPacket>();
-
-                    for (var entry : materials) {
-                        var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
-                        if (status != null) {
-                            statuses.add(status);
-                            int playersSum = 0;
-                            for (var p : status.participants()) {
-                                playersSum += p.count();
-                            }
-                            int collected = status.stagingCount() + status.warehouseCount() + playersSum;
-                            entry.setCountAvailable(collected);
-                            entry.setCountMissing(net.syncmaterial.syncmaterial.api.ProgressFormulas.collectedMissing(
-                                entry.getCountTotal(), status.stagingCount(), status.warehouseCount(), playersSum));
-                        }
-                    }
-
-                    String schematicName = PlacementsUtil.getDisplayName(schematicId);
-
-                    // Phase 4: 查询负责人状态
-                    var db = SyncMaterial.getSharedDatabase();
-                    String playerName = player.getGameProfile().getName();
-                    boolean isOwner = db != null && db.isOwner(schematicId, playerName);
-                    boolean isMainOwner = db != null && db.isMainOwner(schematicId, playerName);
-                    String ownerName = "";
-                    var deputyOwners = new java.util.ArrayList<String>();
-                    boolean allowSelfClaim = true;
-                    if (db != null) {
-                        try {
-                            ownerName = db.getUploadedBy(schematicId);
-                            deputyOwners.addAll(db.getDeputyOwners(schematicId));
-                            allowSelfClaim = db.getAllowSelfClaim(schematicId);
-                        } catch (Exception e) {
-                            SyncMaterial.LOGGER.warn("获取负责人信息失败", e);
-                        }
-                    }
-
-                    ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim));
-
-                    for (var status : statuses) {
-                        ServerPlayNetworking.send(player, status);
-                    }
-
-                } catch (Exception e) {
-                    SyncMaterial.LOGGER.error("处理材料统计请求失败", e);
-                    ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, "", java.util.List.of(), false, false, "", java.util.List.of(), true));
-                }
+                handleMaterialStatsRequest(payload, player, context.server());
             });
         });
 
@@ -199,13 +149,9 @@ public class ModNetworkHandler {
             int materialId = payload.materialId();
             var player = context.player();
             if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
-            String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
-                if (collaborationManager.leaveCollaboration(schematicId, materialId, playerName)) {
-                    broadcastStatus(context.server(), schematicId, materialId);
-                    sendStatusToPlayer(player, schematicId, materialId);
-                }
+                handleLeaveCollaboration(payload, player, context.server());
             });
         });
 
@@ -227,12 +173,7 @@ public class ModNetworkHandler {
             if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
 
             context.server().execute(() -> {
-                SyncMaterial.LOGGER.debug("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getGameProfile().getName(), schematicId);
-                Phase4Handler.subscribeMaterialList(player, schematicId);
-                List<Integer> materialIds = collaborationManager.getAllMaterialIds(schematicId);
-                for (int materialId : materialIds) {
-                    sendStatusToPlayer(player, schematicId, materialId);
-                }
+                handleQueryMaterialStatus(payload, player);
             });
         });
 
@@ -242,7 +183,7 @@ public class ModNetworkHandler {
             if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
 
             context.server().execute(() -> {
-                Phase4Handler.unsubscribeMaterialList(player, schematicId);
+                handleMaterialListClose(payload, player);
             });
         });
 
@@ -322,6 +263,86 @@ public class ModNetworkHandler {
         } else {
             SyncMaterial.LOGGER.debug("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
         }
+    }
+
+    static void handleMaterialStatsRequest(MaterialStatsRequestC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
+        String schematicId = payload.schematicId();
+        try {
+            SyncMaterial.LOGGER.debug("收到玩家 {} 的材料统计请求: {}", player.getGameProfile().getName(), schematicId);
+
+            var materials = queryService.getMaterials(schematicId);
+            var statuses = new java.util.ArrayList<CollaborationStatusS2CPacket>();
+
+            for (var entry : materials) {
+                var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
+                if (status != null) {
+                    statuses.add(status);
+                    int playersSum = 0;
+                    for (var p : status.participants()) {
+                        playersSum += p.count();
+                    }
+                    int collected = status.stagingCount() + status.warehouseCount() + playersSum;
+                    entry.setCountAvailable(collected);
+                    entry.setCountMissing(net.syncmaterial.syncmaterial.api.ProgressFormulas.collectedMissing(
+                        entry.getCountTotal(), status.stagingCount(), status.warehouseCount(), playersSum));
+                }
+            }
+
+            String schematicName = PlacementsUtil.getDisplayName(schematicId);
+
+            // Phase 4: 查询负责人状态
+            var db = SyncMaterial.getSharedDatabase();
+            String playerName = player.getGameProfile().getName();
+            boolean isOwner = db != null && db.isOwner(schematicId, playerName);
+            boolean isMainOwner = db != null && db.isMainOwner(schematicId, playerName);
+            String ownerName = "";
+            var deputyOwners = new java.util.ArrayList<String>();
+            boolean allowSelfClaim = true;
+            if (db != null) {
+                try {
+                    ownerName = db.getUploadedBy(schematicId);
+                    deputyOwners.addAll(db.getDeputyOwners(schematicId));
+                    allowSelfClaim = db.getAllowSelfClaim(schematicId);
+                } catch (Exception e) {
+                    SyncMaterial.LOGGER.warn("获取负责人信息失败", e);
+                }
+            }
+
+            ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim));
+
+            for (var status : statuses) {
+                ServerPlayNetworking.send(player, status);
+            }
+
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("处理材料统计请求失败", e);
+            ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, "", java.util.List.of(), false, false, "", java.util.List.of(), true));
+        }
+    }
+
+    static void handleLeaveCollaboration(LeaveCollaborationC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
+        String schematicId = payload.schematicId();
+        int materialId = payload.materialId();
+        String playerName = player.getGameProfile().getName();
+
+        if (collaborationManager.leaveCollaboration(schematicId, materialId, playerName)) {
+            broadcastStatus(server, schematicId, materialId);
+            sendStatusToPlayer(player, schematicId, materialId);
+        }
+    }
+
+    static void handleQueryMaterialStatus(QueryMaterialStatusC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player) {
+        String schematicId = payload.schematicId();
+        SyncMaterial.LOGGER.debug("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getGameProfile().getName(), schematicId);
+        Phase4Handler.subscribeMaterialList(player, schematicId);
+        List<Integer> materialIds = collaborationManager.getAllMaterialIds(schematicId);
+        for (int materialId : materialIds) {
+            sendStatusToPlayer(player, schematicId, materialId);
+        }
+    }
+
+    static void handleMaterialListClose(MaterialListCloseC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player) {
+        Phase4Handler.unsubscribeMaterialList(player, payload.schematicId());
     }
 
     // Phase 5: 取货模式订阅管理

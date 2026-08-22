@@ -617,4 +617,128 @@ public class StagingAreaScanGameTest {
             throw ctx.createError("ID 碰撞回归测试失败: " + e.getMessage());
         }
     }
+
+    // ==================== 仓库侧的跨区块补扫（与备货区同机制的镜像验证） ====================
+
+    @GameTest(structure = "empty")
+    public void warehouse_chunkLoadScan_crossChunk_keepsBothChunksItems(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-whcross-" + System.currentTimeMillis();
+        final int[] warehouseId = {-1};
+        final BlockPos[] absBHolder = {null};
+
+        Runnable cleanup = () -> {
+            try {
+                if (warehouseId[0] > 0) sam.deleteWarehouse(warehouseId[0]);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+            ctx.removeBlock(new BlockPos(1, 1, 1));
+            if (absBHolder[0] != null) ((ServerWorld) ctx.getWorld()).removeBlock(absBHolder[0], false);
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Warehouse Cross Chunk Test", "/test.litematic");
+
+            ServerWorld world = (ServerWorld) ctx.getWorld();
+            BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 32));
+
+            int bx = nextChunkStartX(absA);
+            BlockPos absB = new BlockPos(bx, absA.getY(), absA.getZ());
+            absBHolder[0] = absB;
+            if (world.getChunkManager().getWorldChunk(bx >> 4, absB.getZ() >> 4) == null) {
+                cleanup.run();
+                throw ctx.createError("相邻区块未加载，测试环境不满足");
+            }
+            world.setBlockState(absB, Blocks.CHEST.getDefaultState());
+            ChestBlockEntity chestB = (ChestBlockEntity) world.getBlockEntity(absB);
+            if (chestB == null) {
+                cleanup.run();
+                throw ctx.createError("箱子 B 方块实体未创建");
+            }
+            chestB.setStack(0, new ItemStack(Items.IRON_INGOT, 7));
+
+            warehouseId[0] = sam.addWarehouse("Cross Chunk Warehouse", "minecraft:overworld",
+                Math.min(absA.getX(), absB.getX()) - 1, absA.getY() - 1, absA.getZ() - 1,
+                Math.max(absA.getX(), absB.getX()) + 1, absA.getY() + 1, absA.getZ() + 1);
+            sam.addWarehouseReference(testId, warehouseId[0]);
+
+            sam.scanChunkForInventoryAreas(
+                world.getChunkManager().getWorldChunk(absA.getX() >> 4, absA.getZ() >> 4), world);
+            sam.scanChunkForInventoryAreas(
+                world.getChunkManager().getWorldChunk(absB.getX() >> 4, absB.getZ() >> 4), world);
+
+            ctx.assertEquals(32, sam.getWarehouseCountForMaterial(testId, "minecraft:stone"),
+                Text.literal("仓库跨区块：区块 A 的石头应保留"));
+            ctx.assertEquals(7, sam.getWarehouseCountForMaterial(testId, "minecraft:iron_ingot"),
+                Text.literal("仓库跨区块：区块 B 的铁锭应计入"));
+            cleanup.run();
+            ctx.complete();
+
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("仓库跨区块补扫测试失败: " + e.getMessage());
+        }
+    }
+
+    // ==================== 双箱（大箱子）聚合 ====================
+
+    @GameTest(structure = "empty")
+    public void stagingArea_doubleChest_bothHalvesCounted(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-dchest-" + System.currentTimeMillis();
+        final int[] areaId = {-1};
+
+        Runnable cleanup = () -> {
+            try {
+                if (areaId[0] > 0) sam.removeStagingArea(areaId[0], testId);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+            ServerWorld world = (ServerWorld) ctx.getWorld();
+            BlockPos absA = ctx.getAbsolutePos(new BlockPos(1, 1, 1));
+            world.removeBlock(absA, false);
+            world.removeBlock(absA.east(), false);
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Double Chest Test", "/test.litematic");
+
+            ServerWorld world = (ServerWorld) ctx.getWorld();
+            BlockPos absA = ctx.getAbsolutePos(new BlockPos(1, 1, 1));
+            BlockPos absB = absA.east();
+            var facing = net.minecraft.util.math.Direction.NORTH;
+            world.setBlockState(absA, Blocks.CHEST.getDefaultState()
+                .with(net.minecraft.block.ChestBlock.CHEST_TYPE, net.minecraft.block.enums.ChestType.LEFT)
+                .with(net.minecraft.block.ChestBlock.FACING, facing));
+            world.setBlockState(absB, Blocks.CHEST.getDefaultState()
+                .with(net.minecraft.block.ChestBlock.CHEST_TYPE, net.minecraft.block.enums.ChestType.RIGHT)
+                .with(net.minecraft.block.ChestBlock.FACING, facing));
+
+            ChestBlockEntity left = (ChestBlockEntity) world.getBlockEntity(absA);
+            ChestBlockEntity right = (ChestBlockEntity) world.getBlockEntity(absB);
+            if (left == null || right == null) {
+                cleanup.run();
+                throw ctx.createError("双箱方块实体未创建");
+            }
+            left.setStack(0, new ItemStack(Items.STONE, 16));
+            right.setStack(0, new ItemStack(Items.STONE, 16));
+
+            areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Double Chest Area",
+                absA.getX() - 1, absA.getY() - 1, absA.getZ() - 1,
+                absB.getX() + 1, absB.getY() + 1, absB.getZ() + 1);
+            sam.rescanStagingArea(areaId[0]);
+
+            ctx.assertEquals(32, sam.getStagingCountForMaterial(testId, "minecraft:stone"),
+                Text.literal("双箱两半各 16，合计应为 32 而非翻倍"));
+            cleanup.run();
+            ctx.complete();
+
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("双箱聚合测试失败: " + e.getMessage());
+        }
+    }
 }

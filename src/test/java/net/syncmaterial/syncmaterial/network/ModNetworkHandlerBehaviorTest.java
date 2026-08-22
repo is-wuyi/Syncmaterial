@@ -37,8 +37,10 @@ class ModNetworkHandlerBehaviorTest {
 
     private MockedStatic<SyncMaterial> syncMaterialMock;
     private MockedStatic<ServerPlayNetworking> networkingMock;
+    private MockedStatic<net.syncmaterial.syncmaterial.server.PlacementsUtil> placementsMock;
 
     private SchematicDatabase db;
+    private DatabaseQueryService queryService;
     private CollaborationManager cm;
     private MinecraftServer server;
     private ServerPlayerEntity player;
@@ -53,6 +55,7 @@ class ModNetworkHandlerBehaviorTest {
     @BeforeEach
     void setUp() {
         db = mock(SchematicDatabase.class);
+        queryService = mock(DatabaseQueryService.class);
         cm = mock(CollaborationManager.class);
         server = mock(MinecraftServer.class);
         player = mock(ServerPlayerEntity.class);
@@ -64,7 +67,11 @@ class ModNetworkHandlerBehaviorTest {
 
         networkingMock = mockStatic(ServerPlayNetworking.class);
 
-        ModNetworkHandler.initializeServices(mock(DatabaseQueryService.class), cm);
+        placementsMock = mockStatic(net.syncmaterial.syncmaterial.server.PlacementsUtil.class);
+        placementsMock.when(() -> net.syncmaterial.syncmaterial.server.PlacementsUtil.getDisplayName(any()))
+            .thenReturn("测试原理图");
+
+        ModNetworkHandler.initializeServices(queryService, cm);
     }
 
     @AfterEach
@@ -72,8 +79,10 @@ class ModNetworkHandlerBehaviorTest {
         // 先取消本测试可能建立的取货订阅（mock 仍可用），避免静态状态泄漏到其他测试类
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", false), player);
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s2", false), player);
+        Phase4Handler.unsubscribeAllMaterialList(player);
         syncMaterialMock.close();
         networkingMock.close();
+        placementsMock.close();
     }
 
     // ========== JoinCollaboration: 自行认领门控 ==========
@@ -318,5 +327,127 @@ class ModNetworkHandlerBehaviorTest {
         networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
         assertFalse(captor.getValue().success());
         assertEquals("缺少区域数据", captor.getValue().message());
+    }
+
+    // ========== 材料清单请求（服务端核心读路径） ==========
+
+    @Test
+    void materialStatsRequest_assemblesOwnerInfoAndProgress() throws Exception {
+        var entry = new net.syncmaterial.syncmaterial.api.MaterialEntry(1, new net.minecraft.item.ItemStack(net.minecraft.item.Items.STONE), 100);
+        when(queryService.getMaterials("s1")).thenReturn(List.of(entry));
+        var status = new CollaborationStatusS2CPacket("s1", 1, 100, 10, 5,
+            List.of(new CollaborationStatusS2CPacket.ParticipantInfo("P1", 20)), List.of());
+        when(cm.getCollaborationStatus("s1", 1)).thenReturn(status);
+        when(db.isOwner("s1", "Player1")).thenReturn(true);
+        when(db.isMainOwner("s1", "Player1")).thenReturn(false);
+        when(db.getUploadedBy("s1")).thenReturn("Boss");
+        when(db.getDeputyOwners("s1")).thenReturn(List.of("Dep1"));
+
+        ModNetworkHandler.handleMaterialStatsRequest(
+            new MaterialStatsRequestC2SPacket("s1"), player, server);
+
+        // 进度装配：备货区 10 + 仓库 5 + 背包 20 = 35，缺失 65
+        assertEquals(35, entry.getCountAvailable());
+        assertEquals(65, entry.getCountMissing());
+
+        ArgumentCaptor<MaterialStatsResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(MaterialStatsResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        var resp = captor.getValue();
+        assertEquals("测试原理图", resp.schematicName());
+        assertTrue(resp.isOwner());
+        assertFalse(resp.isMainOwner());
+        assertEquals("Boss", resp.ownerName());
+        assertTrue(resp.deputyOwners().contains("Dep1"));
+        assertEquals(1, resp.materials().size());
+
+        // 有协作状态的材料，状态包也应转发给玩家
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), eq(status)));
+    }
+
+    @Test
+    void materialStatsRequest_dbMissing_usesDefaults() {
+        syncMaterialMock.when(SyncMaterial::getSharedDatabase).thenReturn(null);
+        when(queryService.getMaterials("s1")).thenReturn(List.of());
+
+        ModNetworkHandler.handleMaterialStatsRequest(
+            new MaterialStatsRequestC2SPacket("s1"), player, server);
+
+        ArgumentCaptor<MaterialStatsResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(MaterialStatsResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        var resp = captor.getValue();
+        assertFalse(resp.isOwner(), "数据库缺失时不应误判为 owner");
+        assertEquals("", resp.ownerName());
+        assertTrue(resp.allowSelfClaim(), "默认应允许自行认领");
+    }
+
+    @Test
+    void materialStatsRequest_queryFails_sendsEmptyFallback() {
+        when(queryService.getMaterials("s1")).thenThrow(new RuntimeException("db down"));
+
+        ModNetworkHandler.handleMaterialStatsRequest(
+            new MaterialStatsRequestC2SPacket("s1"), player, server);
+
+        ArgumentCaptor<MaterialStatsResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(MaterialStatsResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        var resp = captor.getValue();
+        assertTrue(resp.materials().isEmpty());
+        assertEquals("", resp.schematicName());
+    }
+
+    // ========== 退出协作 ==========
+
+    @Test
+    void leaveCollaboration_byParticipant_broadcastsAndSendsStatus() {
+        when(cm.leaveCollaboration("s1", 42, "Player1")).thenReturn(true);
+        when(cm.getCollaborationStatus("s1", 42)).thenReturn(new CollaborationStatusS2CPacket(
+            "s1", 42, 10, 0, 0, List.of(), List.of()));
+
+        ModNetworkHandler.handleLeaveCollaboration(
+            new LeaveCollaborationC2SPacket("s1", 42), player, server);
+
+        verify(cm).leaveCollaboration("s1", 42, "Player1");
+        // 无其他参与者/订阅者时 broadcast 不发包，仅 sendStatusToPlayer 单发一次
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), any(CollaborationStatusS2CPacket.class)),
+            times(1));
+    }
+
+    @Test
+    void leaveCollaboration_notParticipating_noSideEffects() {
+        when(cm.leaveCollaboration("s1", 42, "Player1")).thenReturn(false);
+
+        ModNetworkHandler.handleLeaveCollaboration(
+            new LeaveCollaborationC2SPacket("s1", 42), player, server);
+
+        verify(cm).leaveCollaboration("s1", 42, "Player1");
+        verify(cm, never()).updatePlayerInventory(any(), any(), anyInt(), anyInt());
+    }
+
+    // ========== 材料列表订阅（打开/关闭界面） ==========
+
+    @Test
+    void queryMaterialStatus_subscribesAndSendsEachStatus() {
+        var status = new CollaborationStatusS2CPacket("s1", 1, 10, 0, 0, List.of(), List.of());
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of(1, 2));
+        when(cm.getCollaborationStatus("s1", 1)).thenReturn(status);
+        when(cm.getCollaborationStatus("s1", 2)).thenReturn(null);
+
+        ModNetworkHandler.handleQueryMaterialStatus(new QueryMaterialStatusC2SPacket("s1"), player);
+
+        assertTrue(Phase4Handler.getMaterialListSubscribers().getOrDefault("s1", java.util.Set.of()).contains(player),
+            "查询状态应把玩家加入订阅列表");
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), eq(status)), times(1));
+    }
+
+    @Test
+    void materialListClose_unsubscribes() {
+        Phase4Handler.subscribeMaterialList(player, "s1");
+
+        ModNetworkHandler.handleMaterialListClose(new MaterialListCloseC2SPacket("s1"), player);
+
+        assertFalse(Phase4Handler.getMaterialListSubscribers().containsKey("s1"),
+            "关闭界面应清除订阅");
     }
 }
