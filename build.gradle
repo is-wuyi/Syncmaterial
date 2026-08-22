@@ -75,6 +75,24 @@ jacocoTestReport {
         xml.required = true
         html.required = true
     }
+    // 排除 JUnit 环境物理上无法执行的渲染/屏幕/输入层（需要真实客户端渲染循环）。
+    // 保留已测的纯逻辑类：InventoryWatcher、MaterialListBase、MaterialListUtils。
+    // 排除后覆盖率反映"可单测代码"的真实情况，数字升降才有趋势意义。
+    classDirectories.setFrom(files(classDirectories.files.collect {
+        fileTree(dir: it, exclude: [
+            'net/syncmaterial/syncmaterial/client/gui/widgets/**',
+            'net/syncmaterial/syncmaterial/client/render/**',
+            'net/syncmaterial/syncmaterial/client/config/**',
+            'net/syncmaterial/syncmaterial/client/infohud/**',
+            'net/syncmaterial/syncmaterial/mixin/**',
+            'net/syncmaterial/syncmaterial/client/SyncMaterialClient*',
+            // client.gui 中依赖屏幕/控件/渲染的类（含嵌套类）
+            'net/syncmaterial/syncmaterial/client/gui/Gui*',
+            'net/syncmaterial/syncmaterial/client/gui/StagingAreaSelector*',
+            'net/syncmaterial/syncmaterial/client/gui/SyncMaterialList*',
+            'net/syncmaterial/syncmaterial/client/gui/MaterialListHudRenderer*',
+        ])
+    }))
 }
 
 test {
