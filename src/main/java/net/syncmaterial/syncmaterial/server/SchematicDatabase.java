@@ -28,9 +28,15 @@ public class SchematicDatabase implements AutoCloseable {
      * 初始化数据库连接和表结构
      */
     public void initialize() {
+        initialize(getDatabasePath());
+    }
+
+    /**
+     * 初始化数据库连接和表结构（指定数据库文件路径，供测试注入临时路径）
+     */
+    public void initialize(String dbPath) {
         try {
             // 创建数据库连接
-            String dbPath = getDatabasePath();
             connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
 
             // 启用WAL模式提升并发性能

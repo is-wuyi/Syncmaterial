@@ -2,482 +2,64 @@ package net.syncmaterial.syncmaterial;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
+import java.nio.file.Path;
 import java.sql.SQLException;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 
 /**
- * SchematicDatabase SQL 逻辑测试。
- * 使用内存 SQLite，不依赖 Minecraft 运行时。
- * DDL 与 SchematicDatabase.createTables() 保持一致。
+ * SchematicDatabase 真实类测试。
+ * 直接实例化 SchematicDatabase 并注入临时数据库文件路径，
+ * 因此 schema/迁移/业务方法测的都是生产代码本身，schema 漂移会直接红灯。
+ * 不依赖 Minecraft 运行时。
  */
 public class DatabaseTest
 {
-    private Connection conn;
+    @TempDir
+    Path tempDir;
+
+    private SchematicDatabase db;
 
     @BeforeEach
-    void setUp() throws SQLException
+    void setUp()
     {
-        try { Class.forName("org.sqlite.JDBC"); } catch (ClassNotFoundException ignored) {}
-        conn = DriverManager.getConnection("jdbc:sqlite::memory:");
-        conn.createStatement().execute("PRAGMA foreign_keys = ON");
-        createTables();
+        db = new SchematicDatabase();
+        db.initialize(tempDir.resolve("test.db").toString());
     }
 
     @AfterEach
-    void tearDown() throws SQLException
+    void tearDown()
     {
-        if (conn != null && !conn.isClosed()) conn.close();
+        if (db != null) db.close();
     }
 
-    /**
-     * 复刻 SchematicDatabase.createTables() 的完整 DDL（含迁移列）。
-     * 若真实 schema 变了，此处必须同步更新。
-     */
-    private void createTables() throws SQLException
+    // ========== 造数据辅助 ==========
+
+    private void insertSchematic(String id, String uploadedBy) throws SQLException
     {
-        // 原理图基础信息表
-        conn.createStatement().execute("""
-            CREATE TABLE schematics (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                uploaded_by TEXT,
-                allow_self_claim INTEGER DEFAULT 1,
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-            )
-        """);
-        // 迁移列：file_hash
-        conn.createStatement().execute("ALTER TABLE schematics ADD COLUMN file_hash TEXT DEFAULT ''");
-
-        // 材料条目表
-        conn.createStatement().execute("""
-            CREATE TABLE material_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schematic_id TEXT NOT NULL,
-                item_id TEXT NOT NULL,
-                count INTEGER NOT NULL,
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE
-            )
-        """);
-
-        // 协作认领记录表
-        conn.createStatement().execute("""
-            CREATE TABLE claims (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schematic_id TEXT NOT NULL,
-                material_id INTEGER NOT NULL,
-                player_name TEXT NOT NULL,
-                status TEXT DEFAULT 'active',
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
-                FOREIGN KEY (material_id) REFERENCES material_entries(id) ON DELETE CASCADE
-            )
-        """);
-
-        // 副负责人表
-        conn.createStatement().execute("""
-            CREATE TABLE deputy_owners (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schematic_id TEXT NOT NULL,
-                player_name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
-                UNIQUE(schematic_id, player_name)
-            )
-        """);
-
-        // 备货区区域定义表
-        conn.createStatement().execute("""
-            CREATE TABLE staging_areas (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schematic_id TEXT NOT NULL,
-                world TEXT NOT NULL,
-                x1 INTEGER, y1 INTEGER, z1 INTEGER,
-                x2 INTEGER, y2 INTEGER, z2 INTEGER,
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE
-            )
-        """);
-        // 迁移列：name
-        conn.createStatement().execute("ALTER TABLE staging_areas ADD COLUMN name TEXT NOT NULL DEFAULT '未命名'");
-
-        // 备货区内容物统计表
-        conn.createStatement().execute("""
-            CREATE TABLE staging_area_inventory (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                staging_area_id INTEGER NOT NULL,
-                item_id TEXT NOT NULL,
-                count INTEGER NOT NULL,
-                FOREIGN KEY (staging_area_id) REFERENCES staging_areas(id) ON DELETE CASCADE
-            )
-        """);
-
-        // 玩家背包缓存表
-        conn.createStatement().execute("""
-            CREATE TABLE player_inventories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schematic_id TEXT NOT NULL,
-                player_name TEXT NOT NULL,
-                material_id INTEGER NOT NULL,
-                count INTEGER NOT NULL DEFAULT 0,
-                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
-                UNIQUE(schematic_id, player_name, material_id)
-            )
-        """);
-
-        // 索引
-        conn.createStatement().execute(
-            "CREATE INDEX idx_staging_inventory_area ON staging_area_inventory(staging_area_id)");
-        conn.createStatement().execute(
-            "CREATE INDEX idx_staging_inventory_item ON staging_area_inventory(item_id)");
-        conn.createStatement().execute(
-            "CREATE UNIQUE INDEX idx_claim_unique ON claims(schematic_id, material_id, player_name)");
+        db.executeUpdate(
+            "INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
+            id, "test", "/test.litematic", uploadedBy);
     }
 
-    // ========== 基础 CRUD ==========
-
-    @Test
-    void insertAndQuerySchematic() throws SQLException
+    private int insertMaterial(String schematicId, String itemId, int count) throws SQLException
     {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES ('s1', 'test', '/test.litematic', 'Player1')");
-
-        try (var rs = conn.createStatement().executeQuery(
-                "SELECT name, uploaded_by, allow_self_claim FROM schematics WHERE id = 's1'"))
-        {
-            assertTrue(rs.next());
-            assertEquals("test", rs.getString("name"));
-            assertEquals("Player1", rs.getString("uploaded_by"));
-            assertEquals(1, rs.getInt("allow_self_claim"));
-        }
+        db.executeUpdate(
+            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?)",
+            schematicId, itemId, count);
+        return lastInsertId();
     }
-
-    @Test
-    void insertOrIgnore_duplicateId_doesNotOverwrite() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path, file_hash) VALUES ('s1', 'original', '/test.litematic', 'hash1')");
-
-        conn.createStatement().executeUpdate(
-            "INSERT OR IGNORE INTO schematics (id, name, file_path, file_hash) VALUES ('s1', 'duplicate', '/test.litematic', 'hash2')");
-
-        try (var rs = conn.createStatement().executeQuery(
-                "SELECT name, file_hash FROM schematics WHERE id = 's1'"))
-        {
-            assertTrue(rs.next());
-            assertEquals("original", rs.getString("name"));
-            assertEquals("hash1", rs.getString("file_hash"));
-        }
-        assertEquals(1, countRows("schematics"));
-    }
-
-    @Test
-    void fileHash_updateByDeleteAndReinsert() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path, file_hash) VALUES ('s1', 'test', '/test.litematic', 'old_hash')");
-
-        conn.createStatement().executeUpdate("DELETE FROM schematics WHERE id = 's1'");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path, file_hash) VALUES ('s1', 'test', '/test.litematic', 'new_hash')");
-
-        try (var rs = conn.createStatement().executeQuery(
-                "SELECT file_hash FROM schematics WHERE id = 's1'"))
-        {
-            assertTrue(rs.next());
-            assertEquals("new_hash", rs.getString("file_hash"));
-        }
-    }
-
-    // ========== Claims（材料认领） ==========
-
-    @Test
-    void claim_insertAndQuery() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
-        int matId = lastInsertId();
-
-        conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, status) " +
-            "VALUES ('s1', " + matId + ", 'player1', 'active')");
-
-        try (var rs = conn.createStatement().executeQuery(
-                "SELECT player_name, status FROM claims WHERE schematic_id = 's1'"))
-        {
-            assertTrue(rs.next());
-            assertEquals("player1", rs.getString("player_name"));
-            assertEquals("active", rs.getString("status"));
-        }
-    }
-
-    @Test
-    void claim_multiplePlayersSameMaterial() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 128)");
-        int matId = lastInsertId();
-
-        // 多个玩家认领同一材料
-        conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player1', 'active')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player2', 'active')");
-
-        // 验证有两个认领记录
-        try (var ps = conn.prepareStatement(
-                "SELECT COUNT(*) as total FROM claims WHERE material_id = ? AND status = 'active'"))
-        {
-            ps.setInt(1, matId);
-            try (var rs = ps.executeQuery())
-            {
-                assertTrue(rs.next());
-                assertEquals(2, rs.getInt("total"));
-            }
-        }
-    }
-
-    @Test
-    void claim_cascadeDeleteOnSchematic() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
-        int matId = lastInsertId();
-        conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player1', 'active')");
-
-        conn.createStatement().executeUpdate("DELETE FROM schematics WHERE id = 's1'");
-
-        assertEquals(0, countRows("claims"));
-        assertEquals(0, countRows("material_entries"));
-    }
-
-    @Test
-    void claim_uniqueConstraint_preventsDuplicates() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
-        int matId = lastInsertId();
-
-        conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player1', 'active')");
-
-        // 同一玩家对同一材料不能重复认领
-        assertThrows(SQLException.class, () ->
-            conn.createStatement().executeUpdate(
-                "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player1', 'active')"));
-    }
-
-    // ========== Deputy Owners（副负责人） ==========
-
-    @Test
-    void deputyOwner_insertAndQuery() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'deputy1')");
-
-        try (var rs = conn.createStatement().executeQuery(
-                "SELECT player_name FROM deputy_owners WHERE schematic_id = 's1'"))
-        {
-            assertTrue(rs.next());
-            assertEquals("deputy1", rs.getString("player_name"));
-        }
-    }
-
-    @Test
-    void deputyOwner_uniqueConstraint_preventsDuplicates() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'deputy1')");
-
-        assertThrows(SQLException.class, () ->
-            conn.createStatement().executeUpdate(
-                "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'deputy1')"));
-    }
-
-    @Test
-    void deputyOwner_multipleDeputiesPerSchematic() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'deputy1')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'deputy2')");
-
-        assertEquals(2, countRows("deputy_owners"));
-    }
-
-    // ========== Player Inventories（玩家背包） ==========
-
-    @Test
-    void playerInventory_upsertPattern() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
-        int matId = lastInsertId();
-
-        conn.createStatement().executeUpdate(
-            "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) " +
-            "VALUES ('s1', 'player1', " + matId + ", 10)");
-
-        conn.createStatement().executeUpdate(
-            "INSERT OR REPLACE INTO player_inventories (schematic_id, player_name, material_id, count) " +
-            "VALUES ('s1', 'player1', " + matId + ", 25)");
-
-        try (var rs = conn.createStatement().executeQuery(
-                "SELECT count FROM player_inventories WHERE schematic_id = 's1' AND player_name = 'player1'"))
-        {
-            assertTrue(rs.next());
-            assertEquals(25, rs.getInt("count"));
-        }
-        assertEquals(1, countRows("player_inventories"));
-    }
-
-    @Test
-    void playerInventory_uniqueConstraint() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
-        int matId = lastInsertId();
-
-        conn.createStatement().executeUpdate(
-            "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) " +
-            "VALUES ('s1', 'player1', " + matId + ", 10)");
-
-        assertThrows(SQLException.class, () ->
-            conn.createStatement().executeUpdate(
-                "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) " +
-                "VALUES ('s1', 'player1', " + matId + ", 20)"));
-    }
-
-    // ========== 备货区 ==========
-
-    @Test
-    void stagingInventoryQuery_correctCount() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO staging_areas (schematic_id, name, world, x1, y1, z1, x2, y2, z2) " +
-            "VALUES ('s1', 'area1', 'overworld', 0, 0, 0, 10, 10, 10)");
-        int areaId = lastInsertId();
-
-        conn.createStatement().executeUpdate(
-            "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) " +
-            "VALUES (" + areaId + ", 'minecraft:stone', 64)");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) " +
-            "VALUES (" + areaId + ", 'minecraft:stone', 64)");
-
-        try (var ps = conn.prepareStatement(
-                "SELECT SUM(count) as total FROM staging_area_inventory " +
-                "WHERE staging_area_id = ? AND item_id = ?"))
-        {
-            ps.setInt(1, areaId);
-            ps.setString(2, "minecraft:stone");
-            try (var rs = ps.executeQuery())
-            {
-                assertTrue(rs.next());
-                assertEquals(128, rs.getInt("total"));
-            }
-        }
-    }
-
-    @Test
-    void cascadeDelete_removesAllRelatedData() throws SQLException
-    {
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-
-        conn.createStatement().executeUpdate(
-            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
-        int matId = lastInsertId();
-        conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'p1', 'active')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'p2')");
-        conn.createStatement().executeUpdate(
-            "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) VALUES ('s1', 'p1', " + matId + ", 10)");
-
-        conn.createStatement().executeUpdate(
-            "INSERT INTO staging_areas (schematic_id, name, world, x1, y1, z1, x2, y2, z2) " +
-            "VALUES ('s1', 'area1', 'overworld', 0, 0, 0, 10, 10, 10)");
-        int areaId = lastInsertId();
-        conn.createStatement().executeUpdate(
-            "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) " +
-            "VALUES (" + areaId + ", 'minecraft:stone', 64)");
-
-        conn.createStatement().executeUpdate("DELETE FROM schematics WHERE id = 's1'");
-
-        assertEquals(0, countRows("schematics"));
-        assertEquals(0, countRows("material_entries"));
-        assertEquals(0, countRows("claims"));
-        assertEquals(0, countRows("deputy_owners"));
-        assertEquals(0, countRows("player_inventories"));
-        assertEquals(0, countRows("staging_areas"));
-        assertEquals(0, countRows("staging_area_inventory"));
-    }
-
-    // ========== 索引 ==========
-
-    @Test
-    void indexExists() throws SQLException
-    {
-        assertIndexExists("idx_staging_inventory_area");
-        assertIndexExists("idx_staging_inventory_item");
-        assertIndexExists("idx_claim_unique");
-    }
-
-    // ========== 事务安全 ==========
-
-    @Test
-    void transactionRollback_doesNotPersist() throws SQLException
-    {
-        conn.setAutoCommit(false);
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.rollback();
-        assertEquals(0, countRows("schematics"));
-    }
-
-    @Test
-    void transactionCommit_persists() throws SQLException
-    {
-        conn.setAutoCommit(false);
-        conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
-        conn.commit();
-        assertEquals(1, countRows("schematics"));
-    }
-
-    // ========== helpers ==========
 
     private int lastInsertId() throws SQLException
     {
-        try (var rs = conn.createStatement().executeQuery("SELECT last_insert_rowid()"))
+        try (var rs = db.executeQuery("SELECT last_insert_rowid()"))
         {
             rs.next();
             return rs.getInt(1);
@@ -486,19 +68,317 @@ public class DatabaseTest
 
     private int countRows(String table) throws SQLException
     {
-        try (var rs = conn.createStatement().executeQuery("SELECT COUNT(*) FROM " + table))
+        try (var rs = db.executeQuery("SELECT COUNT(*) FROM " + table))
         {
             rs.next();
             return rs.getInt(1);
         }
     }
 
-    private void assertIndexExists(String indexName) throws SQLException
+    // ========== Schema 初始化（真实 createTables） ==========
+
+    @Test
+    void initialize_createsAllTables() throws SQLException
     {
-        try (var rs = conn.createStatement().executeQuery(
-                "SELECT name FROM sqlite_master WHERE type='index' AND name='" + indexName + "'"))
+        String[] expected = {"schematics", "material_entries", "claims", "deputy_owners",
+            "staging_areas", "staging_area_inventory", "player_inventories", "warehouses",
+            "schematic_warehouses", "warehouse_inventory", "container_inventory"};
+        var actual = queryNames("SELECT name FROM sqlite_master WHERE type='table'");
+        for (String name : expected)
         {
-            assertTrue(rs.next(), indexName + " should exist");
+            assertTrue(actual.contains(name), "表应存在: " + name);
         }
+    }
+
+    @Test
+    void initialize_createsIndexes() throws SQLException
+    {
+        String[] expected = {"idx_claim_unique", "idx_claims_schematic", "idx_claims_player",
+            "idx_staging_inventory_area", "idx_staging_inventory_item",
+            "idx_deputy_owners_schematic", "idx_deputy_owners_player",
+            "idx_schematic_warehouses_schematic", "idx_warehouse_inventory_warehouse",
+            "idx_container_inventory_area", "idx_container_inventory_pos"};
+        var actual = queryNames("SELECT name FROM sqlite_master WHERE type='index'");
+        for (String name : expected)
+        {
+            assertTrue(actual.contains(name), "索引应存在: " + name);
+        }
+    }
+
+    private java.util.Set<String> queryNames(String sql) throws SQLException
+    {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        try (var rs = db.executeQuery(sql))
+        {
+            while (rs.next())
+            {
+                names.add(rs.getString(1));
+            }
+        }
+        return names;
+    }
+
+    @Test
+    void initialize_appliesColumnMigrations() throws SQLException
+    {
+        // 全新库走迁移分支：staging_areas.name 和 schematics.file_hash 应被补上
+        assertTrue(columnExists("staging_areas", "name"), "staging_areas.name 迁移列应存在");
+        assertTrue(columnExists("schematics", "file_hash"), "schematics.file_hash 迁移列应存在");
+    }
+
+    @Test
+    void initialize_secondRun_idempotent()
+    {
+        // 重复初始化（CREATE IF NOT EXISTS + 迁移检查）不应抛异常
+        db.initialize(tempDir.resolve("test.db").toString());
+    }
+
+    private boolean columnExists(String table, String column) throws SQLException
+    {
+        try (var rs = db.executeQuery("PRAGMA table_info(" + table + ")"))
+        {
+            while (rs.next())
+            {
+                if (column.equals(rs.getString("name"))) return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    void foreignKeys_enforcedByInitialize() throws SQLException
+    {
+        // initialize() 开启了 PRAGMA foreign_keys=ON：
+        // 向不存在的原理图插入材料应被外键拒绝
+        assertThrows(SQLException.class, () ->
+            db.executeUpdate(
+                "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?)",
+                "nonexistent", "minecraft:stone", 64));
+    }
+
+    // ========== 主/副负责人（Phase 4 业务方法） ==========
+
+    @Test
+    void isMainOwner_onlyForUploader() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+
+        assertTrue(db.isMainOwner("s1", "Owner1"));
+        assertFalse(db.isMainOwner("s1", "OtherPlayer"));
+        assertFalse(db.isMainOwner("nonexistent", "Owner1"));
+    }
+
+    @Test
+    void isOwner_includesDeputies() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        db.addDeputyOwner("s1", "Deputy1");
+
+        assertTrue(db.isOwner("s1", "Owner1"), "主负责人应是 owner");
+        assertTrue(db.isOwner("s1", "Deputy1"), "副负责人应是 owner");
+        assertFalse(db.isOwner("s1", "RandomPlayer"), "普通玩家不应是 owner");
+    }
+
+    @Test
+    void addDeputyOwner_duplicateIgnored() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+
+        // INSERT OR IGNORE：重复添加不抛异常，也不产生重复行
+        assertDoesNotThrow(() -> db.addDeputyOwner("s1", "Deputy1"));
+        db.addDeputyOwner("s1", "Deputy1");
+        assertEquals(1, db.getDeputyOwners("s1").size());
+    }
+
+    @Test
+    void getDeputyOwners_returnsAll() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        db.addDeputyOwner("s1", "Deputy1");
+        db.addDeputyOwner("s1", "Deputy2");
+
+        List<String> deputies = db.getDeputyOwners("s1");
+        assertEquals(2, deputies.size());
+        assertTrue(deputies.contains("Deputy1"));
+        assertTrue(deputies.contains("Deputy2"));
+    }
+
+    @Test
+    void removeDeputyOwner_revokesOwner() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        db.addDeputyOwner("s1", "Deputy1");
+
+        db.removeDeputyOwner("s1", "Deputy1");
+
+        assertFalse(db.isDeputyOwner("s1", "Deputy1"));
+        assertFalse(db.isOwner("s1", "Deputy1"));
+        assertTrue(db.getDeputyOwners("s1").isEmpty());
+    }
+
+    @Test
+    void transferOwnership_demotesOldOwner() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+
+        db.transferOwnership("s1", "Owner2");
+
+        assertTrue(db.isMainOwner("s1", "Owner2"), "新负责人应是主负责人");
+        assertFalse(db.isOwner("s1", "Owner1"), "原负责人应被降级");
+        assertEquals("Owner2", db.getUploadedBy("s1"));
+    }
+
+    @Test
+    void getUploadedBy_nonexistent_returnsEmpty() throws SQLException
+    {
+        assertEquals("", db.getUploadedBy("nonexistent"));
+    }
+
+    // ========== 自行认领开关 ==========
+
+    @Test
+    void allowSelfClaim_defaultTrue() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        assertTrue(db.getAllowSelfClaim("s1"), "默认应允许自行认领");
+    }
+
+    @Test
+    void allowSelfClaim_toggleRoundtrip() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+
+        db.setAllowSelfClaim("s1", false);
+        assertFalse(db.getAllowSelfClaim("s1"));
+
+        db.setAllowSelfClaim("s1", true);
+        assertTrue(db.getAllowSelfClaim("s1"));
+    }
+
+    // ========== 玩家背包（upsert + 聚合加载） ==========
+
+    @Test
+    void upsertPlayerInventory_updatesExistingRow() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        int matId = insertMaterial("s1", "minecraft:stone", 64);
+
+        db.upsertPlayerInventory("s1", "Player1", matId, 10);
+        db.upsertPlayerInventory("s1", "Player1", matId, 25);
+
+        Map<String, Map<Integer, Integer>> all = db.loadPlayerInventories("s1");
+        assertEquals(1, all.size());
+        assertEquals(25, all.get("Player1").get(matId), "重复 upsert 应更新数量而非新增行");
+    }
+
+    @Test
+    void loadPlayerInventories_groupsByPlayer() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        int stone = insertMaterial("s1", "minecraft:stone", 64);
+        int diamond = insertMaterial("s1", "minecraft:diamond", 10);
+
+        db.upsertPlayerInventory("s1", "Player1", stone, 10);
+        db.upsertPlayerInventory("s1", "Player1", diamond, 2);
+        db.upsertPlayerInventory("s1", "Player2", stone, 5);
+
+        Map<String, Map<Integer, Integer>> all = db.loadPlayerInventories("s1");
+        assertEquals(2, all.size());
+        assertEquals(10, all.get("Player1").get(stone));
+        assertEquals(2, all.get("Player1").get(diamond));
+        assertEquals(5, all.get("Player2").get(stone));
+    }
+
+    // ========== 级联删除（deleteSchematicRecords） ==========
+
+    @Test
+    void deleteSchematicRecords_cascadesAllTables() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        int matId = insertMaterial("s1", "minecraft:stone", 64);
+        db.executeUpdate(
+            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES (?, ?, ?, 'active')",
+            "s1", matId, "p1");
+        db.addDeputyOwner("s1", "p2");
+        db.upsertPlayerInventory("s1", "p1", matId, 10);
+        db.executeUpdate(
+            "INSERT INTO staging_areas (schematic_id, name, world, x1, y1, z1, x2, y2, z2) VALUES (?, ?, ?, 0, 0, 0, 10, 10, 10)",
+            "s1", "area1", "overworld");
+        int areaId = lastInsertId();
+        db.executeUpdate(
+            "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, 64)",
+            areaId, "minecraft:stone");
+        db.executeUpdate("INSERT INTO warehouses (name, world) VALUES ('w1', 'overworld')");
+        int warehouseId = lastInsertId();
+        db.executeUpdate(
+            "INSERT INTO schematic_warehouses (schematic_id, warehouse_id) VALUES (?, ?)", "s1", warehouseId);
+
+        db.deleteSchematicRecords("s1");
+
+        assertEquals(0, countRows("schematics"));
+        assertEquals(0, countRows("material_entries"));
+        assertEquals(0, countRows("claims"));
+        assertEquals(0, countRows("deputy_owners"));
+        assertEquals(0, countRows("player_inventories"));
+        assertEquals(0, countRows("staging_areas"));
+        assertEquals(0, countRows("staging_area_inventory"));
+        assertEquals(0, countRows("schematic_warehouses"), "原理图-仓库引用应随外键级联删除");
+        assertEquals(1, countRows("warehouses"), "仓库是全局的，不应被连带删除");
+    }
+
+    // ========== 事务 ==========
+
+    @Test
+    void transaction_rollbackDiscardsChanges() throws SQLException
+    {
+        db.beginTransaction();
+        insertSchematic("s1", "Owner1");
+        db.rollbackTransaction();
+
+        assertEquals(0, countRows("schematics"));
+    }
+
+    @Test
+    void transaction_commitPersistsChanges() throws SQLException
+    {
+        db.beginTransaction();
+        insertSchematic("s1", "Owner1");
+        db.commitTransaction();
+
+        assertEquals(1, countRows("schematics"));
+    }
+
+    // ========== 约束语义（裸 SQL，但跑在真实 schema 上） ==========
+
+    @Test
+    void claim_uniqueIndex_preventsDuplicateClaims() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        int matId = insertMaterial("s1", "minecraft:stone", 64);
+        db.executeUpdate(
+            "INSERT INTO claims (schematic_id, material_id, player_name) VALUES (?, ?, ?)", "s1", matId, "p1");
+
+        // 同一玩家对同一材料不能重复认领
+        assertThrows(SQLException.class, () ->
+            db.executeUpdate(
+                "INSERT INTO claims (schematic_id, material_id, player_name) VALUES (?, ?, ?)",
+                "s1", matId, "p1"));
+    }
+
+    @Test
+    void schematics_insertOrIgnore_doesNotOverwrite() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        db.executeUpdate(
+            "INSERT OR IGNORE INTO schematics (id, name, file_path, file_hash) VALUES (?, ?, ?, ?)",
+            "s1", "duplicate", "/other.litematic", "hash2");
+
+        try (var rs = db.executeQuery("SELECT name, file_path FROM schematics WHERE id = 's1'"))
+        {
+            assertTrue(rs.next());
+            assertEquals("test", rs.getString("name"), "重复 ID 插入应被忽略");
+            assertEquals("/test.litematic", rs.getString("file_path"));
+        }
+        assertEquals(1, countRows("schematics"));
     }
 }
