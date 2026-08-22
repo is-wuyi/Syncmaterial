@@ -7,12 +7,17 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.ItemContainerContents;
+import net.minecraft.block.Blocks;
+import net.minecraft.item.BlockItem;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase.QueryResult;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.StagingAreaManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
+import net.syncmaterial.syncmaterial.client.InventoryWatcher;
 
 /**
  * SyncMaterial 服务端 GameTest。
@@ -502,6 +507,53 @@ public class SyncMaterialGameTest {
         } finally {
             try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
+        ctx.complete();
+    }
+
+    // ==================== InventoryWatcher.getShulkerContents 测试 ====================
+
+    @GameTest(structure = "empty")
+    public void shulkerContents_extractsItems(TestContext ctx) {
+        // 创建一个装有物品的潜影盒
+        ItemStack shulker = new ItemStack(Blocks.PURPLE_SHULKER_BOX);
+        ItemContainerContents contents = ItemContainerContents.ofItems(List.of(
+            new ItemStack(Items.DIAMOND, 64),
+            new ItemStack(Items.STONE, 32)
+        ));
+        shulker.set(DataComponentTypes.CONTAINER, contents);
+
+        var result = InventoryWatcher.getShulkerContents(shulker);
+        ctx.assertEquals(2, result.size(), Text.literal("潜影盒应有 2 种物品"));
+
+        boolean hasDiamond = false, hasStone = false;
+        for (var item : result) {
+            if (item.getItem() == Items.DIAMOND) {
+                hasDiamond = true;
+                ctx.assertEquals(64, item.getCount(), Text.literal("钻石数量应为 64"));
+            }
+            if (item.getItem() == Items.STONE) {
+                hasStone = true;
+                ctx.assertEquals(32, item.getCount(), Text.literal("石头数量应为 32"));
+            }
+        }
+        ctx.assertTrue(hasDiamond, Text.literal("应包含钻石"));
+        ctx.assertTrue(hasStone, Text.literal("应包含石头"));
+        ctx.complete();
+    }
+
+    @GameTest(structure = "empty")
+    public void shulkerContents_emptyShulker_returnsEmpty(TestContext ctx) {
+        ItemStack shulker = new ItemStack(Blocks.PURPLE_SHULKER_BOX);
+        var result = InventoryWatcher.getShulkerContents(shulker);
+        ctx.assertTrue(result.isEmpty(), Text.literal("空潜影盒应返回空列表"));
+        ctx.complete();
+    }
+
+    @GameTest(structure = "empty")
+    public void shulkerContents_nonShulker_returnsEmpty(TestContext ctx) {
+        ItemStack stone = new ItemStack(Items.STONE);
+        var result = InventoryWatcher.getShulkerContents(stone);
+        ctx.assertTrue(result.isEmpty(), Text.literal("非潜影盒应返回空列表"));
         ctx.complete();
     }
 }
