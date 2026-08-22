@@ -28,7 +28,8 @@ dependencies {
     modCompileOnly "maven.modrinth:malilib:0.25.7"
 
     // Litematica for reference (compile-time only, not required at runtime)
-    modCompileOnly "maven.modrinth:litematica:0.23.6"
+    // 0.23.6 已从 Modrinth 下架，改用 0.23.7（同系列补丁版本，支持 1.21.6~1.21.8）
+    modCompileOnly "maven.modrinth:litematica:0.23.7"
 
     // JSR 305 (javax.annotation.Nullable 等)
     compileOnly "com.google.code.findbugs:jsr305:3.0.2"
