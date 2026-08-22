@@ -78,10 +78,10 @@ public class SyncMaterialGameTest {
             ctx.assertFalse(cm.isCollaborating(testId, matId, "Player1"), Text.literal("退出后不应处于协作状态"));
             ctx.assertEquals(1, cm.getParticipants(testId, matId).size(), Text.literal("退出后应剩 1 个参与者"));
 
-            // 清理
-            db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
         } catch (Exception e) {
             throw ctx.createError("协作加入/退出测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
@@ -123,9 +123,10 @@ public class SyncMaterialGameTest {
                 ctx.assertEquals(8, qr.getInt("count"), Text.literal("更新后背包数量应为 8"));
             }
 
-            db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
         } catch (Exception e) {
             throw ctx.createError("背包更新测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
@@ -172,9 +173,10 @@ public class SyncMaterialGameTest {
             ctx.assertTrue(cm.isCollaborating(testId, matId, "Player1"), Text.literal("Player1 应仍在协作"));
             ctx.assertTrue(cm.isCollaborating(testId, matId, "Player3"), Text.literal("Player3 应仍在协作"));
 
-            db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
         } catch (Exception e) {
             throw ctx.createError("多人协作测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
@@ -212,9 +214,10 @@ public class SyncMaterialGameTest {
             ctx.assertEquals("Player1", status.participants().get(0).playerName(), Text.literal("参与者应为 Player1"));
             ctx.assertEquals(10, status.participants().get(0).count(), Text.literal("参与者背包数应为 10"));
 
-            db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
         } catch (Exception e) {
             throw ctx.createError("协作状态查询测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
@@ -244,11 +247,11 @@ public class SyncMaterialGameTest {
             for (var entry : materials) {
                 if ("minecraft:stone".equals(Registries.ITEM.getId(entry.getStack().getItem()).toString())) {
                     hasStone = true;
-                    ctx.assertEquals(64L, entry.getCountTotal(), Text.literal("石头数量应为 64"));
+                    ctx.assertEquals(64, entry.getCountTotal(), Text.literal("石头数量应为 64"));
                 }
                 if ("minecraft:diamond".equals(Registries.ITEM.getId(entry.getStack().getItem()).toString())) {
                     hasDiamond = true;
-                    ctx.assertEquals(10L, entry.getCountTotal(), Text.literal("钻石数量应为 10"));
+                    ctx.assertEquals(10, entry.getCountTotal(), Text.literal("钻石数量应为 10"));
                 }
             }
             ctx.assertTrue(hasStone, Text.literal("应包含石头"));
@@ -258,9 +261,10 @@ public class SyncMaterialGameTest {
             ctx.assertTrue(qs.schematicExists(testId), Text.literal("原理图应存在"));
             ctx.assertFalse(qs.schematicExists("nonexistent"), Text.literal("不存在的原理图应返回 false"));
 
-            db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
         } catch (Exception e) {
             throw ctx.createError("材料查询测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
@@ -279,9 +283,10 @@ public class SyncMaterialGameTest {
             var materials = qs.getMaterials(testId);
             ctx.assertTrue(materials.isEmpty(), Text.literal("空原理图应返回空材料列表"));
 
-            db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
         } catch (Exception e) {
             throw ctx.createError("空原理图查询测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
@@ -320,9 +325,10 @@ public class SyncMaterialGameTest {
             areas = sam.getStagingAreas(testId);
             ctx.assertTrue(areas.isEmpty(), Text.literal("删除后应无备货区"));
 
-            db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
         } catch (Exception e) {
             throw ctx.createError("备货区增删测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
@@ -348,9 +354,10 @@ public class SyncMaterialGameTest {
             areas = sam.getStagingAreas(testId);
             ctx.assertEquals(1, areas.size(), Text.literal("删除一个后应剩 1 个"));
 
-            db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
         } catch (Exception e) {
             throw ctx.createError("多备货区测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
@@ -367,7 +374,7 @@ public class SyncMaterialGameTest {
 
             sam.addStagingArea(testId, "minecraft:overworld", "Area 1", 0, 64, 0, 10, 70, 10);
 
-            // 删除原理图，备货区应级联删除（数据库层面）
+            // 删除原理图，备货区应级联删除
             db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
 
             try (QueryResult qr = db.executeQuery(
@@ -375,8 +382,14 @@ public class SyncMaterialGameTest {
                 ctx.assertTrue(qr.next(), Text.literal("应能查询级联删除结果"));
                 ctx.assertEquals(0, qr.getInt(1), Text.literal("级联删除后应无备货区"));
             }
+
+            // 内存缓存也应清除
+            var areas = sam.getStagingAreas(testId);
+            ctx.assertTrue(areas.isEmpty(), Text.literal("内存缓存应已清除"));
         } catch (Exception e) {
             throw ctx.createError("备货区级联删除测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
         ctx.complete();
     }
