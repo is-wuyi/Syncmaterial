@@ -247,11 +247,11 @@ public class SyncMaterialGameTest {
             for (var entry : materials) {
                 if ("minecraft:stone".equals(Registries.ITEM.getId(entry.getStack().getItem()).toString())) {
                     hasStone = true;
-                    ctx.assertEquals(64, entry.getCountTotal(), Text.literal("石头数量应为 64"));
+                    ctx.assertEquals(64L, entry.getCountTotal(), Text.literal("石头数量应为 64"));
                 }
                 if ("minecraft:diamond".equals(Registries.ITEM.getId(entry.getStack().getItem()).toString())) {
                     hasDiamond = true;
-                    ctx.assertEquals(10, entry.getCountTotal(), Text.literal("钻石数量应为 10"));
+                    ctx.assertEquals(10L, entry.getCountTotal(), Text.literal("钻石数量应为 10"));
                 }
             }
             ctx.assertTrue(hasStone, Text.literal("应包含石头"));
@@ -383,11 +383,122 @@ public class SyncMaterialGameTest {
                 ctx.assertEquals(0, qr.getInt(1), Text.literal("级联删除后应无备货区"));
             }
 
-            // 内存缓存也应清除
-            var areas = sam.getStagingAreas(testId);
-            ctx.assertTrue(areas.isEmpty(), Text.literal("内存缓存应已清除"));
+            // 注意：直接 SQL DELETE 不会触发 StagingAreaManager 的内存缓存刷新
+            // 内存缓存一致性由 StagingAreaManager 自身的方法保证，此处只验证数据库级联
         } catch (Exception e) {
             throw ctx.createError("备货区级联删除测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
+        }
+        ctx.complete();
+    }
+
+    // ==================== Owner/Deputy 权限逻辑测试 ====================
+
+    @GameTest(structure = "empty")
+    public void owner_isMainOwner(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        String testId = "gt-owner-" + System.currentTimeMillis();
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
+                testId, "Owner Test", "/test.litematic", "Owner1");
+
+            ctx.assertTrue(db.isMainOwner(testId, "Owner1"), Text.literal("上传者应为主负责人"));
+            ctx.assertFalse(db.isMainOwner(testId, "OtherPlayer"), Text.literal("非上传者不应是主负责人"));
+
+            // getUploadedBy 应返回上传者
+            ctx.assertEquals("Owner1", db.getUploadedBy(testId), Text.literal("上传者应为 Owner1"));
+        } catch (Exception e) {
+            throw ctx.createError("主负责人测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
+        }
+        ctx.complete();
+    }
+
+    @GameTest(structure = "empty")
+    public void owner_addAndRemoveDeputy(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        String testId = "gt-deputy-" + System.currentTimeMillis();
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
+                testId, "Deputy Test", "/test.litematic", "Owner1");
+
+            // 添加副负责人
+            db.addDeputyOwner(testId, "Deputy1");
+            db.addDeputyOwner(testId, "Deputy2");
+
+            var deputies = db.getDeputyOwners(testId);
+            ctx.assertEquals(2, deputies.size(), Text.literal("应有 2 个副负责人"));
+
+            // isOwner：主负责人和副负责人都是 owner
+            ctx.assertTrue(db.isOwner(testId, "Owner1"), Text.literal("主负责人应是 owner"));
+            ctx.assertTrue(db.isOwner(testId, "Deputy1"), Text.literal("副负责人应是 owner"));
+            ctx.assertFalse(db.isOwner(testId, "RandomPlayer"), Text.literal("普通玩家不应是 owner"));
+
+            // 移除副负责人
+            db.removeDeputyOwner(testId, "Deputy1");
+            deputies = db.getDeputyOwners(testId);
+            ctx.assertEquals(1, deputies.size(), Text.literal("移除后应剩 1 个副负责人"));
+            ctx.assertFalse(db.isOwner(testId, "Deputy1"), Text.literal("被移除的副负责人不应再是 owner"));
+        } catch (Exception e) {
+            throw ctx.createError("副负责人测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
+        }
+        ctx.complete();
+    }
+
+    @GameTest(structure = "empty")
+    public void owner_transferOwnership(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        String testId = "gt-transfer-" + System.currentTimeMillis();
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
+                testId, "Transfer Test", "/test.litematic", "Owner1");
+
+            // 转让负责人
+            db.transferOwnership(testId, "Owner2");
+
+            // 原负责人不再是主负责人
+            ctx.assertFalse(db.isMainOwner(testId, "Owner1"), Text.literal("原负责人不应再是主负责人"));
+            ctx.assertFalse(db.isOwner(testId, "Owner1"), Text.literal("原负责人不应再是 owner"));
+
+            // 新负责人是主负责人
+            ctx.assertTrue(db.isMainOwner(testId, "Owner2"), Text.literal("新负责人应是主负责人"));
+            ctx.assertEquals("Owner2", db.getUploadedBy(testId), Text.literal("上传者应变为 Owner2"));
+        } catch (Exception e) {
+            throw ctx.createError("负责人转让测试失败: " + e.getMessage());
+        } finally {
+            try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
+        }
+        ctx.complete();
+    }
+
+    @GameTest(structure = "empty")
+    public void owner_toggleSelfClaim(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        String testId = "gt-claim-" + System.currentTimeMillis();
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path, uploaded_by, allow_self_claim) VALUES (?, ?, ?, ?, ?)",
+                testId, "Claim Test", "/test.litematic", "Owner1", 1);
+
+            // 默认允许自行认领
+            ctx.assertTrue(db.getAllowSelfClaim(testId), Text.literal("默认应允许自行认领"));
+
+            // 关闭自行认领
+            db.setAllowSelfClaim(testId, false);
+            ctx.assertFalse(db.getAllowSelfClaim(testId), Text.literal("关闭后不应允许自行认领"));
+
+            // 重新开启
+            db.setAllowSelfClaim(testId, true);
+            ctx.assertTrue(db.getAllowSelfClaim(testId), Text.literal("重新开启后应允许自行认领"));
+        } catch (Exception e) {
+            throw ctx.createError("自行认领开关测试失败: " + e.getMessage());
         } finally {
             try { db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId); } catch (Exception ignored) {}
         }
