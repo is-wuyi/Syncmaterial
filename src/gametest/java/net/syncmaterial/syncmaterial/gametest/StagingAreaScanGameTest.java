@@ -275,4 +275,56 @@ public class StagingAreaScanGameTest {
             throw ctx.createError("脏容器管线测试失败: " + e.getMessage());
         }
     }
+
+    // ==================== 全自动管线（Mixin 感知 → 定时批处理 → 统计更新） ====================
+
+    @GameTest(structure = "empty")
+    public void stagingArea_autoPipeline_detectsItemAddition(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-auto-" + System.currentTimeMillis();
+        final int[] areaId = {-1};
+
+        // 与脏管线测试同理：waitAndRun 非阻塞，清理必须放进断言回调
+        Runnable cleanup = () -> {
+            try {
+                if (areaId[0] > 0) sam.removeStagingArea(areaId[0], testId);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+            ctx.removeBlock(new BlockPos(1, 1, 1));
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Auto Pipeline Test", "/test.litematic");
+
+            // 先圈区域，再放空箱子
+            BlockPos chestPos = placeChestWith(ctx);
+            areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Auto Area",
+                chestPos.getX() - 1, chestPos.getY() - 1, chestPos.getZ() - 1,
+                chestPos.getX() + 1, chestPos.getY() + 1, chestPos.getZ() + 1);
+
+            // 往箱子里放物品：BlockEntity.markDirty → Mixin 自动调度 →
+            // 每 4 tick 的服务器钩子批处理 → 重扫统计。全程不手动调用任何扫描方法。
+            ChestBlockEntity chest = ctx.getBlockEntity(new BlockPos(1, 1, 1), ChestBlockEntity.class);
+            if (chest == null) {
+                cleanup.run();
+                throw ctx.createError("箱子方块实体未创建");
+            }
+            chest.setStack(0, new ItemStack(Items.STONE, 32));
+
+            ctx.waitAndRun(20L, () -> {
+                int count = sam.getStagingCountForMaterial(testId, "minecraft:stone");
+                cleanup.run();
+                if (count != 32) {
+                    throw ctx.createError("自动管线未在 20 tick 内更新统计（期望石头 32，实际 " + count + "）");
+                }
+                ctx.complete();
+            });
+
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("自动管线测试失败: " + e.getMessage());
+        }
+    }
 }

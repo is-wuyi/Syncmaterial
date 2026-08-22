@@ -327,7 +327,7 @@ public class ModNetworkHandler {
     // Phase 5: 取货模式订阅管理
     private static final Map<net.minecraft.server.network.ServerPlayerEntity, Map<String, Set<Integer>>> playerSchematicWarehouses = new ConcurrentHashMap<>();
 
-    private static void handleWarehouseContainerRequest(WarehouseContainerRequestC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player) {
+    static void handleWarehouseContainerRequest(WarehouseContainerRequestC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player) {
         String schematicId = payload.schematicId();
         StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
         if (manager == null) return;

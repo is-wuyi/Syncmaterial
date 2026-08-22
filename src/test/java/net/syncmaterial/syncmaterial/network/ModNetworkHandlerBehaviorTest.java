@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
 import com.mojang.authlib.GameProfile;
@@ -20,10 +22,12 @@ import net.minecraft.Bootstrap;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
+import net.syncmaterial.syncmaterial.server.StagingAreaManager;
 
 /**
  * ModNetworkHandler C2S 行为测试：
@@ -53,6 +57,7 @@ class ModNetworkHandlerBehaviorTest {
         server = mock(MinecraftServer.class);
         player = mock(ServerPlayerEntity.class);
         when(player.getGameProfile()).thenReturn(new GameProfile(UUID.randomUUID(), "Player1"));
+        when(player.getName()).thenReturn(Text.literal("Player1"));
 
         syncMaterialMock = mockStatic(SyncMaterial.class);
         syncMaterialMock.when(SyncMaterial::getSharedDatabase).thenReturn(db);
@@ -64,6 +69,9 @@ class ModNetworkHandlerBehaviorTest {
 
     @AfterEach
     void tearDown() {
+        // 先取消本测试可能建立的取货订阅（mock 仍可用），避免静态状态泄漏到其他测试类
+        ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", false), player);
+        ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s2", false), player);
         syncMaterialMock.close();
         networkingMock.close();
     }
@@ -191,5 +199,76 @@ class ModNetworkHandlerBehaviorTest {
         // 白名单区分大小写
         assertThrows(IllegalArgumentException.class, () -> Phase4Handler.validateOwnerAction("transfer"));
         assertThrows(IllegalArgumentException.class, () -> Phase4Handler.validateOwnerAction("HACK"));
+    }
+
+    // ========== 取货模式订阅（Phase 5） ==========
+
+    private StagingAreaManager mockWarehouseManager() {
+        StagingAreaManager manager = mock(StagingAreaManager.class);
+        syncMaterialMock.when(SyncMaterial::getServerStagingAreaManager).thenReturn(manager);
+        return manager;
+    }
+
+    @Test
+    void warehouseSubscribe_sendsContainerEntriesOfReferencedWarehouses() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
+        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of(
+            new WarehouseContainerResponseS2CPacket.ContainerEntry(1, 64, 1, List.of("minecraft:stone"))));
+
+        ModNetworkHandler.handleWarehouseContainerRequest(
+            new WarehouseContainerRequestC2SPacket("s1", true), player);
+
+        ArgumentCaptor<WarehouseContainerResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(WarehouseContainerResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertEquals(1, captor.getValue().containers().size());
+        assertEquals("minecraft:stone", captor.getValue().containers().get(0).itemIds().get(0));
+    }
+
+    @Test
+    void warehouseSubscribe_managerMissing_noop() {
+        // getServerStagingAreaManager 默认返回 null（未初始化），订阅应静默跳过
+        assertDoesNotThrow(() -> ModNetworkHandler.handleWarehouseContainerRequest(
+            new WarehouseContainerRequestC2SPacket("s1", true), player));
+
+        networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), never());
+    }
+
+    @Test
+    void warehouseUnsubscribe_stopsPush() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
+        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+
+        ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", true), player);
+        ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", false), player);
+
+        // 退订后推送不应再给该玩家发任何包：唯一的 send 来自订阅时那次
+        ModNetworkHandler.pushWarehouseContainerUpdate(manager);
+        networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), times(1));
+    }
+
+    @Test
+    void warehousePush_sendsUnionOfAllSubscribedSchematics() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
+        when(manager.getWarehousesForSchematic("s2")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(2, "w2", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
+        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+
+        ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", true), player);
+        ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s2", true), player);
+
+        ModNetworkHandler.pushWarehouseContainerUpdate(manager);
+
+        // 第二次订阅时 handler 已按并集 {1,2} 查询过一次，推送再查一次
+        verify(manager, atLeastOnce()).getContainerEntriesForWarehouses(argThat(ids ->
+            ids.size() == 2 && ids.contains(1) && ids.contains(2)));
+        // 每个原理图订阅各一次 + 推送一次 = 3 次
+        networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), times(3));
     }
 }
