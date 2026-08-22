@@ -8,9 +8,8 @@ import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
 import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.ItemContainerContents;
+import net.minecraft.component.type.ContainerComponent;
 import net.minecraft.block.Blocks;
-import net.minecraft.item.BlockItem;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase.QueryResult;
@@ -516,7 +515,7 @@ public class SyncMaterialGameTest {
     public void shulkerContents_extractsItems(TestContext ctx) {
         // 创建一个装有物品的潜影盒
         ItemStack shulker = new ItemStack(Blocks.PURPLE_SHULKER_BOX);
-        ItemContainerContents contents = ItemContainerContents.ofItems(List.of(
+        ContainerComponent contents = ContainerComponent.fromStacks(List.of(
             new ItemStack(Items.DIAMOND, 64),
             new ItemStack(Items.STONE, 32)
         ));
