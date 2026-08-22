@@ -22,6 +22,18 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ./gradlew clean           # 清理构建缓存
 ```
 
+## 测试
+
+```bash
+./gradlew test            # 跑全部测试：单元测试 + GameTest（test 任务依赖 runGameTest）+ JaCoCo 报告
+```
+
+- **单元测试**在 `src/test/java`：纯逻辑测试不依赖 MC 运行时；需要注册表的测试用 `Bootstrap.initialize()`（参考 StatisticsProcessorTest）；网络 handler 测试用 Mockito `mockStatic`（参考 Phase4HandlerTest）
+- **GameTest** 在 `src/gametest/java`：真实服务器环境集成测试。**新类必须注册到 `src/gametest/resources/fabric.mod.json` 的 `fabric-gametest` entrypoint，否则不会运行**
+- 数据库测试直接实例化 `SchematicDatabase.initialize(临时路径)`，**不要**在测试里手工复制 DDL（影子 schema 漂移时测试会假绿）
+- GameTest 运行目录配置在 `/tmp/syncmaterial-gametest/run`（本仓库在外置 exFAT 磁盘上，Gradle 文件锁不可用，本机跑测试需先 `rsync` 到 /tmp 再执行）
+- CI（`.github/workflows/ci.yml`）通过 `./gradlew build` 跑全部测试，并在 Job Summary 输出测试数与覆盖率
+
 ## 架构要点
 
 ### 客户端/服务端分离

@@ -26,7 +26,38 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build
-        run: ./gradlew build
+        run: ./gradlew build --stacktrace
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## 测试结果" >> $GITHUB_STEP_SUMMARY
+          if ls build/test-results/test/*.xml >/dev/null 2>&1; then
+            python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
+          import glob, xml.etree.ElementTree as ET
+          total = failed = skipped = 0
+          for f in glob.glob('build/test-results/test/*.xml'):
+              root = ET.parse(f).getroot()
+              total += int(root.get('tests', 0))
+              failed += int(root.get('failures', 0)) + int(root.get('errors', 0))
+              skipped += int(root.get('skipped', 0))
+          print(f"- 单元测试: {total} 个（失败 {failed}，跳过 {skipped}）")
+          EOF
+          else
+            echo "- 测试未运行（编译失败？）" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f build/reports/jacoco/test/jacocoTestReport.xml ]; then
+            echo "## 覆盖率（JaCoCo 指令级）" >> $GITHUB_STEP_SUMMARY
+            python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
+          import xml.etree.ElementTree as ET
+          root = ET.parse('build/reports/jacoco/test/jacocoTestReport.xml').getroot()
+          for counter in root.findall('counter'):
+              if counter.get('type') == 'INSTRUCTION':
+                  missed = int(counter.get('missed')); covered = int(counter.get('covered'))
+                  pct = covered * 100 // (missed + covered) if (missed + covered) else 0
+                  print(f"- 指令覆盖率: {pct}%（覆盖 {covered} / 未覆盖 {missed}）")
+          EOF
+          fi
 
       - name: Upload jar
         if: success()
@@ -41,5 +72,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: build/reports/tests/
+          path: |
+            build/reports/tests/
+            build/test-results/
+            build/reports/jacoco/
           retention-days: 7

@@ -1,9 +1,10 @@
 // Gradle settings for SyncMaterial
 plugins {
     id 'fabric-loom' version '1.14.10'
+    id 'jacoco'
 }
 
-version = "1.21.7-0.3.0-beta.6"
+version = "1.21.7-0.3.0-beta.7"
 group = "net.syncmaterial"
 
 repositories {
@@ -44,6 +45,13 @@ dependencies {
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
     testImplementation "org.mockito:mockito-core:5.11.0"
     testImplementation "org.xerial:sqlite-jdbc:3.45.1.0"
+    // selection 包的 Box/AreaSelection 引用 litematica 的 Corner 枚举，
+    // 单测加载这些类需要重映射后的 mod jar（loom 把 modCompileOnly 重映射产物
+    // 放在 .gradle/loom-cache/remapped_mods，只挂在编译类路径，这里补到运行时）
+    testRuntimeOnly fileTree(".gradle/loom-cache/remapped_mods/remapped/maven/modrinth") {
+        include "litematica-*/0.23.7/*.jar"
+        include "malilib-*/0.25.7/*.jar"
+    }
 }
 
 processResources {
@@ -59,6 +67,18 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+test {
+    finalizedBy jacocoTestReport
 }
 
 java {
