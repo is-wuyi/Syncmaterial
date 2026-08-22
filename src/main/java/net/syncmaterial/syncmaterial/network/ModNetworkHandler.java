@@ -71,7 +71,7 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playS2C().register(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
     }
 
-    private static boolean validateSchematicId(String schematicId) {
+    static boolean validateSchematicId(String schematicId) {
         if (schematicId == null || schematicId.isBlank()) {
             SyncMaterial.LOGGER.warn("收到无效的 schematicId (null/blank)");
             return false;
@@ -83,7 +83,7 @@ public class ModNetworkHandler {
         return true;
     }
 
-    private static boolean validateMaterialId(int materialId) {
+    static boolean validateMaterialId(int materialId) {
         if (materialId < 0) {
             SyncMaterial.LOGGER.warn("收到无效的 materialId: {}", materialId);
             return false;
@@ -91,7 +91,7 @@ public class ModNetworkHandler {
         return true;
     }
 
-    private static boolean validateCount(int count) {
+    static boolean validateCount(int count) {
         if (count < 0) {
             SyncMaterial.LOGGER.warn("收到无效的 count: {}", count);
             return false;
@@ -99,7 +99,7 @@ public class ModNetworkHandler {
         return true;
     }
 
-    private static boolean validatePlayer(net.minecraft.server.network.ServerPlayerEntity player) {
+    static boolean validatePlayer(net.minecraft.server.network.ServerPlayerEntity player) {
         if (player == null) {
             SyncMaterial.LOGGER.warn("收到来自 null player 的网络包");
             return false;
@@ -107,7 +107,7 @@ public class ModNetworkHandler {
         return true;
     }
 
-    private static boolean validateStagingAction(String action) {
+    static boolean validateStagingAction(String action) {
         return action != null && (action.equals("LIST") || action.equals("ADD") || action.equals("RENAME")
             || action.equals("DELETE") || action.equals("UPDATE") || action.equals("CLEAR")
             || action.equals("LIST_WAREHOUSES") || action.equals("ADD_WAREHOUSE")
@@ -139,12 +139,14 @@ public class ModNetworkHandler {
                         var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
                         if (status != null) {
                             statuses.add(status);
-                            int collected = status.stagingCount() + status.warehouseCount();
+                            int playersSum = 0;
                             for (var p : status.participants()) {
-                                collected += p.count();
+                                playersSum += p.count();
                             }
+                            int collected = status.stagingCount() + status.warehouseCount() + playersSum;
                             entry.setCountAvailable(collected);
-                            entry.setCountMissing(Math.max(0, entry.getCountTotal() - collected));
+                            entry.setCountMissing(net.syncmaterial.syncmaterial.api.ProgressFormulas.collectedMissing(
+                                entry.getCountTotal(), status.stagingCount(), status.warehouseCount(), playersSum));
                         }
                     }
 
@@ -184,32 +186,11 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(JoinCollaborationC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
-            Map<Integer, Integer> inventoryCounts = payload.inventoryCounts();
             var player = context.player();
             if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
-            String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
-                try {
-                    var db = SyncMaterial.getSharedDatabase();
-                    boolean allowSelfClaim = db.getAllowSelfClaim(schematicId);
-                    boolean isOwner = db.isOwner(schematicId, playerName);
-
-                    if (!allowSelfClaim && !isOwner) {
-                        // 不允许自行认领且非负责人，拒绝
-                        return;
-                    }
-                } catch (Exception e) {
-                    SyncMaterial.LOGGER.error("检查自行认领权限失败", e);
-                    return;
-                }
-
-                if (collaborationManager.joinCollaboration(schematicId, materialId, playerName)) {
-                    for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
-                        collaborationManager.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
-                    }
-                    broadcastStatus(context.server(), schematicId, materialId);
-                }
+                handleJoinCollaboration(payload, player, context.server());
             });
         });
 
@@ -234,16 +215,9 @@ public class ModNetworkHandler {
             int count = payload.count();
             var player = context.player();
             if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId) || !validateCount(count)) return;
-            String playerName = player.getGameProfile().getName();
 
             context.server().execute(() -> {
-                SyncMaterial.LOGGER.debug("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
-                if (collaborationManager.isCollaborating(schematicId, materialId, playerName)) {
-                    collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
-                    broadcastStatus(context.server(), schematicId, materialId);
-                } else {
-                    SyncMaterial.LOGGER.debug("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
-                }
+                handleInventoryUpdate(payload, player, context.server());
             });
         });
 
@@ -307,6 +281,49 @@ public class ModNetworkHandler {
         });
     }
 
+    static void handleJoinCollaboration(JoinCollaborationC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
+        String schematicId = payload.schematicId();
+        int materialId = payload.materialId();
+        Map<Integer, Integer> inventoryCounts = payload.inventoryCounts();
+        String playerName = player.getGameProfile().getName();
+
+        try {
+            var db = SyncMaterial.getSharedDatabase();
+            boolean allowSelfClaim = db.getAllowSelfClaim(schematicId);
+            boolean isOwner = db.isOwner(schematicId, playerName);
+
+            if (!allowSelfClaim && !isOwner) {
+                // 不允许自行认领且非负责人，拒绝
+                return;
+            }
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("检查自行认领权限失败", e);
+            return;
+        }
+
+        if (collaborationManager.joinCollaboration(schematicId, materialId, playerName)) {
+            for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
+                collaborationManager.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
+            }
+            broadcastStatus(server, schematicId, materialId);
+        }
+    }
+
+    static void handleInventoryUpdate(InventoryUpdateC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
+        String schematicId = payload.schematicId();
+        int materialId = payload.materialId();
+        int count = payload.count();
+        String playerName = player.getGameProfile().getName();
+
+        SyncMaterial.LOGGER.debug("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
+        if (collaborationManager.isCollaborating(schematicId, materialId, playerName)) {
+            collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
+            broadcastStatus(server, schematicId, materialId);
+        } else {
+            SyncMaterial.LOGGER.debug("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
+        }
+    }
+
     // Phase 5: 取货模式订阅管理
     private static final Map<net.minecraft.server.network.ServerPlayerEntity, Map<String, Set<Integer>>> playerSchematicWarehouses = new ConcurrentHashMap<>();
 
@@ -362,7 +379,7 @@ public class ModNetworkHandler {
         }
     }
 
-    private static void handleStagingAreaConfig(StagingAreaConfigC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
+    static void handleStagingAreaConfig(StagingAreaConfigC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
         if (manager == null) {
@@ -481,7 +498,7 @@ public class ModNetworkHandler {
         }
     }
 
-    private static void handleRescanStagingArea(RescanStagingAreaC2SPacket payload, ServerPlayNetworking.Context context) {
+    static void handleRescanStagingArea(RescanStagingAreaC2SPacket payload, ServerPlayNetworking.Context context) {
         try {
             var player = context.player();
             if (!validatePlayer(player)) return;

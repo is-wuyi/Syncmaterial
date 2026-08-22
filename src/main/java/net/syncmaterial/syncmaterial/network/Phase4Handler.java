@@ -81,14 +81,14 @@ public class Phase4Handler {
 
     // ========== Phase 4: 负责人管理 ==========
 
-    private static void validateOwnerAction(String action) {
+    static void validateOwnerAction(String action) {
         if (!action.equals("TRANSFER") && !action.equals("ADD_DEPUTY") &&
             !action.equals("REMOVE_DEPUTY") && !action.equals("TOGGLE_SELF_CLAIM")) {
             throw new IllegalArgumentException("未知操作: " + action);
         }
     }
 
-    private static void handleOwnerAction(OwnerActionC2SPacket payload, ServerPlayerEntity player, MinecraftServer server) {
+    static void handleOwnerAction(OwnerActionC2SPacket payload, ServerPlayerEntity player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         String action = payload.action();
         String targetPlayer = payload.targetPlayerName();
@@ -174,7 +174,7 @@ public class Phase4Handler {
         ServerPlayNetworking.send(player, packet);
     }
 
-    private static void handleBatchAssign(BatchAssignC2SPacket payload, ServerPlayerEntity player, MinecraftServer server) {
+    static void handleBatchAssign(BatchAssignC2SPacket payload, ServerPlayerEntity player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         var materialIds = payload.materialIds();
         var targetPlayers = payload.targetPlayers();
@@ -219,7 +219,7 @@ public class Phase4Handler {
         }
     }
 
-    private static void handleKickFromMaterial(KickFromMaterialC2SPacket payload, ServerPlayerEntity player, MinecraftServer server) {
+    static void handleKickFromMaterial(KickFromMaterialC2SPacket payload, ServerPlayerEntity player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         var materialIds = payload.materialIds();
         String targetPlayer = payload.targetPlayer();
@@ -262,7 +262,7 @@ public class Phase4Handler {
         }
     }
 
-    private static void handlePlayerListRequest(PlayerListRequestC2SPacket payload, ServerPlayerEntity player, MinecraftServer server) {
+    static void handlePlayerListRequest(PlayerListRequestC2SPacket payload, ServerPlayerEntity player, MinecraftServer server) {
         String schematicId = payload.schematicId();
 
         try {
@@ -320,7 +320,7 @@ public class Phase4Handler {
 
     // ========== 内部工具方法 ==========
 
-    private static boolean validateSchematicId(String schematicId) {
+    static boolean validateSchematicId(String schematicId) {
         if (schematicId == null || schematicId.isBlank()) {
             SyncMaterial.LOGGER.warn("收到无效的 schematicId (null/blank)");
             return false;
@@ -332,7 +332,7 @@ public class Phase4Handler {
         return true;
     }
 
-    private static boolean validatePlayer(ServerPlayerEntity player) {
+    static boolean validatePlayer(ServerPlayerEntity player) {
         if (player == null) {
             SyncMaterial.LOGGER.warn("收到来自 null player 的网络包");
             return false;
