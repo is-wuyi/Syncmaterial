@@ -38,8 +38,17 @@ public class SchematicFolderWatcher {
         this.database = database;
         this.queryService = queryService;
         this.parser = parser;
-        this.watchExecutor = Executors.newSingleThreadExecutor();
-        this.parseExecutor = Executors.newSingleThreadExecutor();
+        // daemon 线程：避免 stop() 后残留线程阻止 JVM 退出（测试环境/服务器关服）
+        this.watchExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "syncmaterial-watch");
+            t.setDaemon(true);
+            return t;
+        });
+        this.parseExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "syncmaterial-parse");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     public void setServer(MinecraftServer server) {
@@ -114,6 +123,10 @@ public class SchematicFolderWatcher {
                 key.reset();
             } catch (InterruptedException e) {
                 SyncMaterial.LOGGER.info("原理图监控线程被中断");
+                break;
+            } catch (ClosedWatchServiceException e) {
+                // stop() 关闭了 WatchService，正常退出循环
+                SyncMaterial.LOGGER.info("原理图监控服务已关闭");
                 break;
             } catch (Exception e) {
                 SyncMaterial.LOGGER.error("监控循环出错", e);
