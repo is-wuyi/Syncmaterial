@@ -98,11 +98,11 @@ public class SyncMaterialGameTest {
 
             // 创建材料条目
             db.executeUpdate(
-                "INSERT INTO material_entries (schematic_id, item_id, count_total) VALUES (?, ?, ?)",
+                "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?)",
                 testId, "minecraft:stone", 64
             );
             db.executeUpdate(
-                "INSERT INTO material_entries (schematic_id, item_id, count_total) VALUES (?, ?, ?)",
+                "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?)",
                 testId, "minecraft:diamond", 10
             );
 
