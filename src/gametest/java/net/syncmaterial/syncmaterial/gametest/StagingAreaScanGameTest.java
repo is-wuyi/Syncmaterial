@@ -333,18 +333,15 @@ public class StagingAreaScanGameTest {
     /**
      * 场景：区域跨两个区块，箱子里物品早已放好（服务器重启后区块逐一加载补扫、
      * 或圈区时部分区块未加载的路径）。两个区块都补扫后，统计应包含两个区块的物品。
-     *
-     * ⚠️ 已确认红灯（2026-08-22）：scanChunkForArea 用单区块的部分结果全量替换整个区域的
-     * 统计表（updateStagingAreaInventory 是全删全插），跨区块区域只保留最后加载区块的数据。
-     * 修复方案待定，修复后取消下方 @GameTest 注释启用本测试。
+     * （曾暴露"单区块结果全量覆盖区域统计"的 bug，修复为增量合并 + 完成后全量校正）
      */
-    // @GameTest(structure = "empty")
+    @GameTest(structure = "empty")
     public void stagingArea_chunkLoadScan_crossChunk_keepsBothChunksItems(TestContext ctx) {
         SchematicDatabase db = SyncMaterial.getSharedDatabase();
         StagingAreaManager sam = manager();
         String testId = "gt-cross-" + System.currentTimeMillis();
         final int[] areaId = {-1};
-        final BlockPos[] relB = {null};
+        final BlockPos[] absBHolder = {null};
 
         Runnable cleanup = () -> {
             try {
@@ -352,7 +349,7 @@ public class StagingAreaScanGameTest {
                 db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
             } catch (Exception ignored) {}
             ctx.removeBlock(new BlockPos(1, 1, 1));
-            if (relB[0] != null) ctx.removeBlock(relB[0]);
+            if (absBHolder[0] != null) ((ServerWorld) ctx.getWorld()).removeBlock(absBHolder[0], false);
         };
 
         try {
@@ -362,16 +359,18 @@ public class StagingAreaScanGameTest {
             ServerWorld world = (ServerWorld) ctx.getWorld();
             BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 32));
 
-            // 箱子 B 放到相邻区块（x 方向下一个区块的起点）
+            // 箱子 B 放到相邻区块（x 方向下一个区块的起点）。
+            // 不用 TestContext 的相对坐标换算（getRelativePos 与 getAbsolutePos 不互逆），
+            // 直接用世界 API 放置，位置确定
             int bx = ((absA.getX() >> 4) + 1) << 4;
             BlockPos absB = new BlockPos(bx, absA.getY(), absA.getZ());
+            absBHolder[0] = absB;
             if (world.getChunkManager().getWorldChunk(bx >> 4, absB.getZ() >> 4) == null) {
                 cleanup.run();
                 throw ctx.createError("相邻区块未加载，测试环境不满足");
             }
-            relB[0] = ctx.getRelativePos(absB);
-            ctx.setBlockState(relB[0], Blocks.CHEST.getDefaultState());
-            ChestBlockEntity chestB = ctx.getBlockEntity(relB[0], ChestBlockEntity.class);
+            world.setBlockState(absB, Blocks.CHEST.getDefaultState());
+            ChestBlockEntity chestB = (ChestBlockEntity) world.getBlockEntity(absB);
             if (chestB == null) {
                 cleanup.run();
                 throw ctx.createError("箱子 B 方块实体未创建");
@@ -388,11 +387,12 @@ public class StagingAreaScanGameTest {
             sam.scanChunkForInventoryAreas(
                 world.getChunkManager().getWorldChunk(absB.getX() >> 4, absB.getZ() >> 4), world);
 
-            cleanup.run();
+            // 断言必须先于清理：统计查询按原理图 JOIN，清理后永远是 0
             ctx.assertEquals(32, sam.getStagingCountForMaterial(testId, "minecraft:stone"),
                 Text.literal("区块 A 的石头应保留（跨区块区域不应被单区块结果覆盖）"));
             ctx.assertEquals(5, sam.getStagingCountForMaterial(testId, "minecraft:diamond"),
                 Text.literal("区块 B 的钻石应计入"));
+            cleanup.run();
             ctx.complete();
 
         } catch (Exception e) {

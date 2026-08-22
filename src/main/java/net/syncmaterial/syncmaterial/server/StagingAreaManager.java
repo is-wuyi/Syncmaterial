@@ -972,11 +972,13 @@ public class StagingAreaManager {
     }
 
     /**
-     * 标记区块已扫描，如果区域所有区块都已扫描则标记为已初始化
+     * 标记区块已扫描，如果区域所有区块都已扫描则标记为已初始化。
+     *
+     * @return 本次调用是否刚好完成初始化（用于触发全量校正）
      */
-    private void markChunkAndCheckInit(int areaId, long chunkPos,
+    private boolean markChunkAndCheckInit(int areaId, long chunkPos,
             int x1, int y1, int z1, int x2, int y2, int z2) {
-        if (initializedAreas.contains(areaId)) return;
+        if (initializedAreas.contains(areaId)) return false;
 
         initChunkTracking.computeIfAbsent(String.valueOf(areaId), k -> ConcurrentHashMap.newKeySet()).add(chunkPos);
 
@@ -990,7 +992,7 @@ public class StagingAreaManager {
         for (int cx = minChunkX; cx <= maxChunkX; cx++) {
             for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
                 if (!scanned.contains(((long) cx << 32) | (cz & 0xFFFFFFFFL))) {
-                    return; // 还有未扫描的区块
+                    return false; // 还有未扫描的区块
                 }
             }
         }
@@ -999,6 +1001,7 @@ public class StagingAreaManager {
         initializedAreas.add(areaId);
         initChunkTracking.remove(String.valueOf(areaId));
         SyncMaterial.LOGGER.info("[StagingArea] areaId={} 初始化完成（所有区块已扫描）", areaId);
+        return true;
     }
 
     /**
@@ -1016,10 +1019,14 @@ public class StagingAreaManager {
             for (StagingArea area : areas) {
                 if (initializedAreas.contains(area.id)) continue;
                 if (chunkIntersectsArea(chunkX, chunkZ, area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
+                    clearTotalsOnFirstChunk("staging_area", area.id);
                     scanChunkForArea(chunk, world, area.id, "staging_area",
                         area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
-                    markChunkAndCheckInit(area.id, chunkPos,
-                        area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
+                    if (markChunkAndCheckInit(area.id, chunkPos,
+                        area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
+                        correctTotalsIfFullyLoaded(world, "staging_area", area.id,
+                            area.x1, area.z1, area.x2, area.z2);
+                    }
                 }
             }
         }
@@ -1030,12 +1037,57 @@ public class StagingAreaManager {
             for (Warehouse wh : warehouses) {
                 if (initializedAreas.contains(wh.id())) continue;
                 if (chunkIntersectsArea(chunkX, chunkZ, wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
+                    clearTotalsOnFirstChunk("warehouse", wh.id());
                     scanChunkForArea(chunk, world, wh.id(), "warehouse",
-                        wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2);
-                    markChunkAndCheckInit(wh.id(), chunkPos,
-                        wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2);
+                        wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
+                    if (markChunkAndCheckInit(wh.id(), chunkPos,
+                        wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
+                        correctTotalsIfFullyLoaded(world, "warehouse", wh.id(),
+                            wh.x1(), wh.z1(), wh.x2(), wh.z2());
+                    }
                 }
             }
+        }
+    }
+
+    /**
+     * 区域重新初始化的第一个区块：清掉上一会话遗留的总数统计，
+     * 之后逐区块增量合并，避免重启后重复累计。
+     */
+    private void clearTotalsOnFirstChunk(String areaType, int areaId) {
+        if (initChunkTracking.containsKey(String.valueOf(areaId))) return;
+        try {
+            if ("warehouse".equals(areaType)) {
+                database.executeUpdate("DELETE FROM warehouse_inventory WHERE warehouse_id = ?", areaId);
+            } else {
+                database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id = ?", areaId);
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("[StagingArea] 清理区域旧统计失败: areaId={}", areaId, e);
+        }
+    }
+
+    /**
+     * 区域完成初始化后的全量校正：所有区块当前都在加载状态时，
+     * 重扫一次以区块级合并无法纠正的场景（如箱子被清空但区块未再触发变化）。
+     * 部分区块已卸载时跳过，保留合并结果（全量重扫会因跳过卸载区块而丢数据）。
+     */
+    private void correctTotalsIfFullyLoaded(ServerWorld world, String areaType, int areaId,
+            int x1, int z1, int x2, int z2) {
+        int minCX = Math.min(x1, x2) >> 4, maxCX = Math.max(x1, x2) >> 4;
+        int minCZ = Math.min(z1, z2) >> 4, maxCZ = Math.max(z1, z2) >> 4;
+        for (int cx = minCX; cx <= maxCX; cx++) {
+            for (int cz = minCZ; cz <= maxCZ; cz++) {
+                if (world.getChunkManager().getWorldChunk(cx, cz) == null) {
+                    SyncMaterial.LOGGER.info("[StagingArea] areaId={} 部分区块已卸载，跳过全量校正，保留合并统计", areaId);
+                    return;
+                }
+            }
+        }
+        if ("warehouse".equals(areaType)) {
+            rescanWarehouseAndMarkChunks(areaId);
+        } else {
+            rescanStagingArea(areaId);
         }
     }
 
@@ -1073,13 +1125,60 @@ public class StagingAreaManager {
             }
         }
 
-        // 更新总数表
+        // 更新总数表：增量合并（区块加载顺序无关，跨区块区域不会被单区块结果覆盖；
+        // 区域完成初始化且区块全在时会做一次全量校正）
         if (!items.isEmpty()) {
             if ("warehouse".equals(areaType)) {
-                updateWarehouseInventory(areaId, items);
+                mergeWarehouseInventory(areaId, items);
             } else {
-                updateStagingAreaInventory(areaId, items);
+                mergeStagingAreaInventory(areaId, items);
             }
+        }
+    }
+
+    /** 逐条合并区块扫描结果到备货区总数（无则插入，有则累加） */
+    private void mergeStagingAreaInventory(int areaId, Map<String, Integer> items) {
+        try {
+            for (Map.Entry<String, Integer> e : items.entrySet()) {
+                try (var rs = database.executeQuery(
+                        "SELECT count FROM staging_area_inventory WHERE staging_area_id = ? AND item_id = ?",
+                        areaId, e.getKey())) {
+                    if (rs.next()) {
+                        database.executeUpdate(
+                            "UPDATE staging_area_inventory SET count = ? WHERE staging_area_id = ? AND item_id = ?",
+                            rs.getInt("count") + e.getValue(), areaId, e.getKey());
+                    } else {
+                        database.executeUpdate(
+                            "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, ?)",
+                            areaId, e.getKey(), e.getValue());
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("[StagingArea] 合并备货区统计失败: areaId={}", areaId, e);
+        }
+    }
+
+    /** 逐条合并区块扫描结果到仓库总数（无则插入，有则累加） */
+    private void mergeWarehouseInventory(int warehouseId, Map<String, Integer> items) {
+        try {
+            for (Map.Entry<String, Integer> e : items.entrySet()) {
+                try (var rs = database.executeQuery(
+                        "SELECT count FROM warehouse_inventory WHERE warehouse_id = ? AND item_id = ?",
+                        warehouseId, e.getKey())) {
+                    if (rs.next()) {
+                        database.executeUpdate(
+                            "UPDATE warehouse_inventory SET count = ? WHERE warehouse_id = ? AND item_id = ?",
+                            rs.getInt("count") + e.getValue(), warehouseId, e.getKey());
+                    } else {
+                        database.executeUpdate(
+                            "INSERT INTO warehouse_inventory (warehouse_id, item_id, count) VALUES (?, ?, ?)",
+                            warehouseId, e.getKey(), e.getValue());
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("[StagingArea] 合并仓库统计失败: warehouseId={}", warehouseId, e);
         }
     }
 
