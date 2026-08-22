@@ -6,7 +6,9 @@
     "environment": "*",
     "entrypoints": {
         "fabric-gametest": [
-            "net.syncmaterial.syncmaterial.gametest.SyncMaterialGameTest"
+            "net.syncmaterial.syncmaterial.gametest.SyncMaterialGameTest",
+            "net.syncmaterial.syncmaterial.gametest.LitematicaParserGameTest",
+            "net.syncmaterial.syncmaterial.gametest.StagingAreaScanGameTest"
         ]
     },
     "depends": {
