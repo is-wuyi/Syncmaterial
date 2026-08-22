@@ -111,7 +111,7 @@ public class WarehouseDatabaseTest
     void warehouseCascadeDelete_cleansInventoryAndReferences() throws SQLException
     {
         // 插入原理图和仓库
-        conn.createStatement().executeUpdate("INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+        conn.createStatement().executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO warehouses (name, world, x1, y1, z1, x2, y2, z2) VALUES ('仓库A', 'minecraft:overworld', 0, 0, 0, 10, 10, 10)");
         conn.createStatement().executeUpdate("INSERT INTO schematic_warehouses (schematic_id, warehouse_id) VALUES ('s1', 1)");
@@ -144,7 +144,7 @@ public class WarehouseDatabaseTest
     @Test
     void warehouseReference_uniqueConstraint() throws SQLException
     {
-        conn.createStatement().executeUpdate("INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+        conn.createStatement().executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO warehouses (name, world, x1, y1, z1, x2, y2, z2) VALUES ('仓库A', 'minecraft:overworld', 0, 0, 0, 10, 10, 10)");
 
@@ -164,7 +164,7 @@ public class WarehouseDatabaseTest
     @Test
     void getWarehousesForSchematic() throws SQLException
     {
-        conn.createStatement().executeUpdate("INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+        conn.createStatement().executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO warehouses (name, world, x1, y1, z1, x2, y2, z2) VALUES ('仓库A', 'minecraft:overworld', 0, 0, 0, 10, 10, 10)");
         conn.createStatement().executeUpdate(
