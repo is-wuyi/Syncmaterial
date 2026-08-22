@@ -271,4 +271,52 @@ class ModNetworkHandlerBehaviorTest {
         // 每个原理图订阅各一次 + 推送一次 = 3 次
         networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), times(3));
     }
+
+    // ========== 备货区网络配置入口（ADD） ==========
+
+    @Test
+    void stagingAreaConfig_add_rescansImmediatelyAndResponds() {
+        StagingAreaManager manager = mockWarehouseManager();
+        // handler 解析 world 时 orElse 参数会立即求值（即使 AreaData 已带 world 也调用）
+        var worldKey = net.minecraft.registry.RegistryKey.of(
+            net.minecraft.registry.RegistryKeys.WORLD, net.minecraft.util.Identifier.of("minecraft", "overworld"));
+        var playerWorld = mock(net.minecraft.server.world.ServerWorld.class);
+        when(playerWorld.getRegistryKey()).thenReturn(worldKey);
+        when(player.getWorld()).thenReturn(playerWorld);
+        when(manager.addStagingArea(eq("s1"), eq("minecraft:overworld"), eq("新区域"),
+            anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt())).thenReturn(7);
+        when(manager.getStagingAreas("s1")).thenReturn(List.of());
+
+        ModNetworkHandler.handleStagingAreaConfig(new StagingAreaConfigC2SPacket("s1", "ADD", 0,
+            java.util.Optional.of(new StagingAreaConfigC2SPacket.AreaData(
+                "新区域", 0, 64, 0, 10, 70, 10,
+                java.util.Optional.of("minecraft:overworld")))),
+            player, server);
+
+        // 圈区时箱子里已有的物品靠创建后的这次同步重扫统计（GUI 添加区域的真实路径）
+        verify(manager).rescanStagingArea(7);
+        verify(manager).broadcastUpdate("s1");
+
+        ArgumentCaptor<StagingAreaConfigResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(StagingAreaConfigResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertTrue(captor.getValue().success());
+        assertEquals("备货区已添加", captor.getValue().message());
+    }
+
+    @Test
+    void stagingAreaConfig_addWithoutAreaData_rejected() {
+        StagingAreaManager manager = mockWarehouseManager();
+
+        ModNetworkHandler.handleStagingAreaConfig(new StagingAreaConfigC2SPacket("s1", "ADD", 0,
+            java.util.Optional.empty()), player, server);
+
+        verify(manager, never()).addStagingArea(any(), any(), any(),
+            anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
+        ArgumentCaptor<StagingAreaConfigResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(StagingAreaConfigResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertFalse(captor.getValue().success());
+        assertEquals("缺少区域数据", captor.getValue().message());
+    }
 }

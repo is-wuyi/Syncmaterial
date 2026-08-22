@@ -327,4 +327,77 @@ public class StagingAreaScanGameTest {
             throw ctx.createError("自动管线测试失败: " + e.getMessage());
         }
     }
+
+    // ==================== 跨区块区域的区块加载补扫 ====================
+
+    /**
+     * 场景：区域跨两个区块，箱子里物品早已放好（服务器重启后区块逐一加载补扫、
+     * 或圈区时部分区块未加载的路径）。两个区块都补扫后，统计应包含两个区块的物品。
+     *
+     * ⚠️ 已确认红灯（2026-08-22）：scanChunkForArea 用单区块的部分结果全量替换整个区域的
+     * 统计表（updateStagingAreaInventory 是全删全插），跨区块区域只保留最后加载区块的数据。
+     * 修复方案待定，修复后取消下方 @GameTest 注释启用本测试。
+     */
+    // @GameTest(structure = "empty")
+    public void stagingArea_chunkLoadScan_crossChunk_keepsBothChunksItems(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-cross-" + System.currentTimeMillis();
+        final int[] areaId = {-1};
+        final BlockPos[] relB = {null};
+
+        Runnable cleanup = () -> {
+            try {
+                if (areaId[0] > 0) sam.removeStagingArea(areaId[0], testId);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+            ctx.removeBlock(new BlockPos(1, 1, 1));
+            if (relB[0] != null) ctx.removeBlock(relB[0]);
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Cross Chunk Test", "/test.litematic");
+
+            ServerWorld world = (ServerWorld) ctx.getWorld();
+            BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 32));
+
+            // 箱子 B 放到相邻区块（x 方向下一个区块的起点）
+            int bx = ((absA.getX() >> 4) + 1) << 4;
+            BlockPos absB = new BlockPos(bx, absA.getY(), absA.getZ());
+            if (world.getChunkManager().getWorldChunk(bx >> 4, absB.getZ() >> 4) == null) {
+                cleanup.run();
+                throw ctx.createError("相邻区块未加载，测试环境不满足");
+            }
+            relB[0] = ctx.getRelativePos(absB);
+            ctx.setBlockState(relB[0], Blocks.CHEST.getDefaultState());
+            ChestBlockEntity chestB = ctx.getBlockEntity(relB[0], ChestBlockEntity.class);
+            if (chestB == null) {
+                cleanup.run();
+                throw ctx.createError("箱子 B 方块实体未创建");
+            }
+            chestB.setStack(0, new ItemStack(Items.DIAMOND, 5));
+
+            areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Cross Chunk Area",
+                Math.min(absA.getX(), absB.getX()) - 1, absA.getY() - 1, absA.getZ() - 1,
+                Math.max(absA.getX(), absB.getX()) + 1, absA.getY() + 1, absA.getZ() + 1);
+
+            // 逐个区块补扫（模拟区块加载事件的顺序到达）
+            sam.scanChunkForInventoryAreas(
+                world.getChunkManager().getWorldChunk(absA.getX() >> 4, absA.getZ() >> 4), world);
+            sam.scanChunkForInventoryAreas(
+                world.getChunkManager().getWorldChunk(absB.getX() >> 4, absB.getZ() >> 4), world);
+
+            cleanup.run();
+            ctx.assertEquals(32, sam.getStagingCountForMaterial(testId, "minecraft:stone"),
+                Text.literal("区块 A 的石头应保留（跨区块区域不应被单区块结果覆盖）"));
+            ctx.assertEquals(5, sam.getStagingCountForMaterial(testId, "minecraft:diamond"),
+                Text.literal("区块 B 的钻石应计入"));
+            ctx.complete();
+
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("跨区块补扫测试失败: " + e.getMessage());
+        }
+    }
 }
