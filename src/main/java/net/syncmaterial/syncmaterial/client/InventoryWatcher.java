@@ -86,34 +86,45 @@ public class InventoryWatcher {
         return currentCounts;
     }
 
+    /**
+     * 计算背包变化的 diff 列表（纯函数，可 JUnit 测试）。
+     * @param currentCounts 当前背包中各材料的数量
+     * @param lastKnownCounts 上次已知的各材料数量
+     * @return 发生变化的材料列表（materialId + 新数量，消失的材料数量为 0）
+     */
+    public static List<InventoryDiff> computeDiffs(Map<Integer, Integer> currentCounts, Map<Integer, Integer> lastKnownCounts) {
+        List<InventoryDiff> diffs = new ArrayList<>();
+        // 变化和新增的
+        for (var entry : currentCounts.entrySet()) {
+            int last = lastKnownCounts.getOrDefault(entry.getKey(), -1);
+            if (entry.getValue() != last) {
+                diffs.add(new InventoryDiff(entry.getKey(), entry.getValue()));
+            }
+        }
+        // 消失的
+        for (int key : lastKnownCounts.keySet()) {
+            if (!currentCounts.containsKey(key)) {
+                diffs.add(new InventoryDiff(key, 0));
+            }
+        }
+        return diffs;
+    }
+
+    public record InventoryDiff(int materialId, int newCount) {}
+
     private static void checkInventoryChanges(PlayerInventory inventory) {
         Map<Integer, Integer> currentCounts = getCurrentCounts();
+        List<InventoryDiff> diffs = computeDiffs(currentCounts, lastKnownCounts);
 
-        for (Map.Entry<Integer, Integer> entry : currentCounts.entrySet()) {
-            int materialId = entry.getKey();
-            int currentCount = entry.getValue();
-            int lastCount = lastKnownCounts.getOrDefault(materialId, -1);
-
-            if (currentCount != lastCount) {
-                lastKnownCounts.put(materialId, currentCount);
-                ClientPlayNetworking.send(new InventoryUpdateC2SPacket(currentSchematicId, materialId, currentCount));
-            }
+        for (InventoryDiff diff : diffs) {
+            lastKnownCounts.put(diff.materialId(), diff.newCount());
+            ClientPlayNetworking.send(new InventoryUpdateC2SPacket(currentSchematicId, diff.materialId(), diff.newCount()));
         }
-
-        List<Integer> removedMaterials = new ArrayList<>();
-        lastKnownCounts.keySet().removeIf(k -> {
-            if (!currentCounts.containsKey(k)) {
-                removedMaterials.add(k);
-                return true;
+        if (!diffs.isEmpty()) {
+            long removedCount = diffs.stream().filter(d -> d.newCount() == 0).count();
+            if (removedCount > 0) {
+                LOGGER.info("本次共 {} 种材料从背包消失", removedCount);
             }
-            return false;
-        });
-        for (int materialId : removedMaterials) {
-            LOGGER.info("检测到材料 {} 已从背包消失，发送 count=0 到服务器", materialId);
-            ClientPlayNetworking.send(new InventoryUpdateC2SPacket(currentSchematicId, materialId, 0));
-        }
-        if (!removedMaterials.isEmpty()) {
-            LOGGER.info("本次共 {} 种材料从背包消失", removedMaterials.size());
         }
     }
 }
