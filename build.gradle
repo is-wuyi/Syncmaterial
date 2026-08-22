@@ -34,8 +34,9 @@ dependencies {
     // JSR 305 (javax.annotation.Nullable 等)
     compileOnly "com.google.code.findbugs:jsr305:3.0.2"
 
-    // SQLite 数据库驱动 - 包含在模组 jar 中
+    // SQLite 数据库驱动 - include 嵌入模组 jar（生产）；runtimeOnly 提供 dev 运行时（runServer/GameTest）
     include "org.xerial:sqlite-jdbc:3.45.1.0"
+    runtimeOnly "org.xerial:sqlite-jdbc:3.45.1.0"
 
     // 测试依赖
     testImplementation "net.fabricmc:fabric-loader-junit:0.16.13"
@@ -78,11 +79,18 @@ fabricApi {
     }
 }
 
-// GameTest 运行目录设到本地磁盘（外置硬盘不支持文件锁定）
-loom {
-    runs {
-        gametest {
-            runDir = "/tmp/syncmaterial-gametest/run"
+afterEvaluate {
+    // GameTest 运行目录改到本地磁盘（项目在外置 exFAT 硬盘上，不支持文件锁）
+    // 必须在 afterEvaluate 中设置：configureTests 在此阶段才创建 gameTest run 配置
+    def gameTestRun = loom.runs.findByName("gameTest")
+    if (gameTestRun != null) {
+        gameTestRun.runDir = "/tmp/syncmaterial-gametest/run"
+    }
+
+    // gametest 源集运行时依赖（SQLite 驱动）
+    if (configurations.findByName("gametestRuntimeOnly") != null) {
+        dependencies {
+            gametestRuntimeOnly "org.xerial:sqlite-jdbc:3.45.1.0"
         }
     }
 }
