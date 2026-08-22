@@ -136,6 +136,8 @@ public class DatabaseTest
             "CREATE INDEX idx_staging_inventory_area ON staging_area_inventory(staging_area_id)");
         conn.createStatement().execute(
             "CREATE INDEX idx_staging_inventory_item ON staging_area_inventory(item_id)");
+        conn.createStatement().execute(
+            "CREATE UNIQUE INDEX idx_claim_unique ON claims(schematic_id, material_id, player_name)");
     }
 
     // ========== 基础 CRUD ==========
@@ -260,6 +262,24 @@ public class DatabaseTest
 
         assertEquals(0, countRows("claims"));
         assertEquals(0, countRows("material_entries"));
+    }
+
+    @Test
+    void claim_uniqueConstraint_preventsDuplicates() throws SQLException
+    {
+        conn.createStatement().executeUpdate(
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
+        conn.createStatement().executeUpdate(
+            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
+        int matId = lastInsertId();
+
+        conn.createStatement().executeUpdate(
+            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player1', 'active')");
+
+        // 同一玩家对同一材料不能重复认领
+        assertThrows(SQLException.class, () ->
+            conn.createStatement().executeUpdate(
+                "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player1', 'active')"));
     }
 
     // ========== Deputy Owners（副负责人） ==========
@@ -428,6 +448,7 @@ public class DatabaseTest
     {
         assertIndexExists("idx_staging_inventory_area");
         assertIndexExists("idx_staging_inventory_item");
+        assertIndexExists("idx_claim_unique");
     }
 
     // ========== 事务安全 ==========

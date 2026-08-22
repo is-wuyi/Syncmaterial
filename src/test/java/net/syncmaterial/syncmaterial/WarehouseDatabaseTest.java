@@ -139,6 +139,27 @@ public class WarehouseDatabaseTest
         // （在 deleteWarehouse 方法中处理）
     }
 
+    @Test
+    void warehouseDelete_manualCleanup_removesContainerInventory() throws SQLException
+    {
+        conn.createStatement().executeUpdate(
+            "INSERT INTO warehouses (name, world, x1, y1, z1, x2, y2, z2) VALUES ('仓库A', 'minecraft:overworld', 0, 0, 0, 10, 10, 10)");
+        conn.createStatement().executeUpdate(
+            "INSERT INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (1, 'warehouse', 5, 65, 5, 'minecraft:stone')");
+        conn.createStatement().executeUpdate(
+            "INSERT INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) VALUES (1, 'warehouse', 8, 65, 8, 'minecraft:iron_ingot')");
+
+        // 模拟 deleteWarehouse 的手动清理逻辑
+        conn.createStatement().executeUpdate("DELETE FROM container_inventory WHERE area_id = 1 AND area_type = 'warehouse'");
+
+        // 验证 container_inventory 已清理
+        try (var rs = conn.createStatement().executeQuery("SELECT COUNT(*) FROM container_inventory WHERE area_id = 1"))
+        {
+            rs.next();
+            assertEquals(0, rs.getInt(1));
+        }
+    }
+
     // ========== 原理图-仓库引用 ==========
 
     @Test
