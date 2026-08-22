@@ -35,11 +35,16 @@ public class WarehouseDatabaseTest
     private void createTables() throws SQLException
     {
         conn.createStatement().execute("""
-            CREATE TABLE IF NOT EXISTS schematics (
+            CREATE TABLE schematics (
                 id TEXT PRIMARY KEY,
-                name TEXT NOT NULL
+                name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                uploaded_by TEXT,
+                allow_self_claim INTEGER DEFAULT 1,
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
             )
         """);
+        conn.createStatement().execute("ALTER TABLE schematics ADD COLUMN file_hash TEXT DEFAULT ''");
         conn.createStatement().execute("""
             CREATE TABLE IF NOT EXISTS warehouses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

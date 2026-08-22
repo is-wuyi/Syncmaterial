@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 /**
  * SchematicDatabase SQL 逻辑测试。
  * 使用内存 SQLite，不依赖 Minecraft 运行时。
+ * DDL 与 SchematicDatabase.createTables() 保持一致。
  */
 public class DatabaseTest
 {
@@ -33,18 +34,27 @@ public class DatabaseTest
         if (conn != null && !conn.isClosed()) conn.close();
     }
 
+    /**
+     * 复刻 SchematicDatabase.createTables() 的完整 DDL（含迁移列）。
+     * 若真实 schema 变了，此处必须同步更新。
+     */
     private void createTables() throws SQLException
     {
+        // 原理图基础信息表
         conn.createStatement().execute("""
             CREATE TABLE schematics (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                file_path TEXT,
+                file_path TEXT NOT NULL,
                 uploaded_by TEXT,
-                file_hash TEXT,
-                material_count INTEGER DEFAULT 0
+                allow_self_claim INTEGER DEFAULT 1,
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
             )
         """);
+        // 迁移列：file_hash
+        conn.createStatement().execute("ALTER TABLE schematics ADD COLUMN file_hash TEXT DEFAULT ''");
+
+        // 材料条目表
         conn.createStatement().execute("""
             CREATE TABLE material_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,48 +64,49 @@ public class DatabaseTest
                 FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE
             )
         """);
+
+        // 协作认领记录表
         conn.createStatement().execute("""
             CREATE TABLE claims (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 schematic_id TEXT NOT NULL,
                 material_id INTEGER NOT NULL,
                 player_name TEXT NOT NULL,
-                count INTEGER NOT NULL DEFAULT 0,
+                status TEXT DEFAULT 'active',
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
                 FOREIGN KEY (material_id) REFERENCES material_entries(id) ON DELETE CASCADE
             )
         """);
+
+        // 副负责人表
         conn.createStatement().execute("""
             CREATE TABLE deputy_owners (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 schematic_id TEXT NOT NULL,
                 player_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
                 UNIQUE(schematic_id, player_name)
             )
         """);
-        conn.createStatement().execute("""
-            CREATE TABLE player_inventories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schematic_id TEXT NOT NULL,
-                player_name TEXT NOT NULL,
-                material_id INTEGER NOT NULL,
-                count INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
-                UNIQUE(schematic_id, player_name, material_id)
-            )
-        """);
+
+        // 备货区区域定义表
         conn.createStatement().execute("""
             CREATE TABLE staging_areas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 schematic_id TEXT NOT NULL,
-                name TEXT NOT NULL,
                 world TEXT NOT NULL,
                 x1 INTEGER, y1 INTEGER, z1 INTEGER,
                 x2 INTEGER, y2 INTEGER, z2 INTEGER,
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE
             )
         """);
+        // 迁移列：name
+        conn.createStatement().execute("ALTER TABLE staging_areas ADD COLUMN name TEXT NOT NULL DEFAULT '未命名'");
+
+        // 备货区内容物统计表
         conn.createStatement().execute("""
             CREATE TABLE staging_area_inventory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +116,22 @@ public class DatabaseTest
                 FOREIGN KEY (staging_area_id) REFERENCES staging_areas(id) ON DELETE CASCADE
             )
         """);
+
+        // 玩家背包缓存表
+        conn.createStatement().execute("""
+            CREATE TABLE player_inventories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schematic_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                material_id INTEGER NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
+                UNIQUE(schematic_id, player_name, material_id)
+            )
+        """);
+
+        // 索引
         conn.createStatement().execute(
             "CREATE INDEX idx_staging_inventory_area ON staging_area_inventory(staging_area_id)");
         conn.createStatement().execute(
@@ -117,14 +144,15 @@ public class DatabaseTest
     void insertAndQuerySchematic() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, material_count) VALUES ('s1', 'test', 10)");
+            "INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES ('s1', 'test', '/test.litematic', 'Player1')");
 
         try (var rs = conn.createStatement().executeQuery(
-                "SELECT name, material_count FROM schematics WHERE id = 's1'"))
+                "SELECT name, uploaded_by, allow_self_claim FROM schematics WHERE id = 's1'"))
         {
             assertTrue(rs.next());
             assertEquals("test", rs.getString("name"));
-            assertEquals(10, rs.getInt("material_count"));
+            assertEquals("Player1", rs.getString("uploaded_by"));
+            assertEquals(1, rs.getInt("allow_self_claim"));
         }
     }
 
@@ -132,11 +160,10 @@ public class DatabaseTest
     void insertOrIgnore_duplicateId_doesNotOverwrite() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_hash) VALUES ('s1', 'original', 'hash1')");
+            "INSERT INTO schematics (id, name, file_path, file_hash) VALUES ('s1', 'original', '/test.litematic', 'hash1')");
 
-        // INSERT OR IGNORE 应该静默跳过重复主键
         conn.createStatement().executeUpdate(
-            "INSERT OR IGNORE INTO schematics (id, name, file_hash) VALUES ('s1', 'duplicate', 'hash2')");
+            "INSERT OR IGNORE INTO schematics (id, name, file_path, file_hash) VALUES ('s1', 'duplicate', '/test.litematic', 'hash2')");
 
         try (var rs = conn.createStatement().executeQuery(
                 "SELECT name, file_hash FROM schematics WHERE id = 's1'"))
@@ -152,12 +179,11 @@ public class DatabaseTest
     void fileHash_updateByDeleteAndReinsert() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_hash) VALUES ('s1', 'test', 'old_hash')");
+            "INSERT INTO schematics (id, name, file_path, file_hash) VALUES ('s1', 'test', '/test.litematic', 'old_hash')");
 
-        // 模拟原理图更新流程：删除旧记录，重新插入
         conn.createStatement().executeUpdate("DELETE FROM schematics WHERE id = 's1'");
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name, file_hash) VALUES ('s1', 'test', 'new_hash')");
+            "INSERT INTO schematics (id, name, file_path, file_hash) VALUES ('s1', 'test', '/test.litematic', 'new_hash')");
 
         try (var rs = conn.createStatement().executeQuery(
                 "SELECT file_hash FROM schematics WHERE id = 's1'"))
@@ -173,21 +199,21 @@ public class DatabaseTest
     void claim_insertAndQuery() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
         int matId = lastInsertId();
 
         conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, count) " +
-            "VALUES ('s1', " + matId + ", 'player1', 32)");
+            "INSERT INTO claims (schematic_id, material_id, player_name, status) " +
+            "VALUES ('s1', " + matId + ", 'player1', 'active')");
 
         try (var rs = conn.createStatement().executeQuery(
-                "SELECT player_name, count FROM claims WHERE schematic_id = 's1'"))
+                "SELECT player_name, status FROM claims WHERE schematic_id = 's1'"))
         {
             assertTrue(rs.next());
             assertEquals("player1", rs.getString("player_name"));
-            assertEquals(32, rs.getInt("count"));
+            assertEquals("active", rs.getString("status"));
         }
     }
 
@@ -195,24 +221,26 @@ public class DatabaseTest
     void claim_multiplePlayersSameMaterial() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 128)");
         int matId = lastInsertId();
 
+        // 多个玩家认领同一材料
         conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, count) VALUES ('s1', " + matId + ", 'player1', 64)");
+            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player1', 'active')");
         conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, count) VALUES ('s1', " + matId + ", 'player2', 32)");
+            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player2', 'active')");
 
+        // 验证有两个认领记录
         try (var ps = conn.prepareStatement(
-                "SELECT SUM(count) as total FROM claims WHERE material_id = ?"))
+                "SELECT COUNT(*) as total FROM claims WHERE material_id = ? AND status = 'active'"))
         {
             ps.setInt(1, matId);
             try (var rs = ps.executeQuery())
             {
                 assertTrue(rs.next());
-                assertEquals(96, rs.getInt("total"));
+                assertEquals(2, rs.getInt("total"));
             }
         }
     }
@@ -221,12 +249,12 @@ public class DatabaseTest
     void claim_cascadeDeleteOnSchematic() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
         int matId = lastInsertId();
         conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, count) VALUES ('s1', " + matId + ", 'player1', 32)");
+            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'player1', 'active')");
 
         conn.createStatement().executeUpdate("DELETE FROM schematics WHERE id = 's1'");
 
@@ -240,7 +268,7 @@ public class DatabaseTest
     void deputyOwner_insertAndQuery() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'deputy1')");
 
@@ -256,7 +284,7 @@ public class DatabaseTest
     void deputyOwner_uniqueConstraint_preventsDuplicates() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'deputy1')");
 
@@ -269,7 +297,7 @@ public class DatabaseTest
     void deputyOwner_multipleDeputiesPerSchematic() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'deputy1')");
         conn.createStatement().executeUpdate(
@@ -284,17 +312,15 @@ public class DatabaseTest
     void playerInventory_upsertPattern() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
         int matId = lastInsertId();
 
-        // 首次插入
         conn.createStatement().executeUpdate(
             "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) " +
             "VALUES ('s1', 'player1', " + matId + ", 10)");
 
-        // 更新（SQLite INSERT OR REPLACE 模式）
         conn.createStatement().executeUpdate(
             "INSERT OR REPLACE INTO player_inventories (schematic_id, player_name, material_id, count) " +
             "VALUES ('s1', 'player1', " + matId + ", 25)");
@@ -312,7 +338,7 @@ public class DatabaseTest
     void playerInventory_uniqueConstraint() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
         int matId = lastInsertId();
@@ -321,7 +347,6 @@ public class DatabaseTest
             "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) " +
             "VALUES ('s1', 'player1', " + matId + ", 10)");
 
-        // 相同 (schematic, player, material) 不能重复插入
         assertThrows(SQLException.class, () ->
             conn.createStatement().executeUpdate(
                 "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) " +
@@ -334,7 +359,7 @@ public class DatabaseTest
     void stagingInventoryQuery_correctCount() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.createStatement().executeUpdate(
             "INSERT INTO staging_areas (schematic_id, name, world, x1, y1, z1, x2, y2, z2) " +
             "VALUES ('s1', 'area1', 'overworld', 0, 0, 0, 10, 10, 10)");
@@ -365,20 +390,18 @@ public class DatabaseTest
     void cascadeDelete_removesAllRelatedData() throws SQLException
     {
         conn.createStatement().executeUpdate(
-            "INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
 
-        // 材料 + 认领 + 副负责人 + 玩家背包
         conn.createStatement().executeUpdate(
             "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1', 'minecraft:stone', 64)");
         int matId = lastInsertId();
         conn.createStatement().executeUpdate(
-            "INSERT INTO claims (schematic_id, material_id, player_name, count) VALUES ('s1', " + matId + ", 'p1', 32)");
+            "INSERT INTO claims (schematic_id, material_id, player_name, status) VALUES ('s1', " + matId + ", 'p1', 'active')");
         conn.createStatement().executeUpdate(
             "INSERT INTO deputy_owners (schematic_id, player_name) VALUES ('s1', 'p2')");
         conn.createStatement().executeUpdate(
             "INSERT INTO player_inventories (schematic_id, player_name, material_id, count) VALUES ('s1', 'p1', " + matId + ", 10)");
 
-        // 备货区 + 库存
         conn.createStatement().executeUpdate(
             "INSERT INTO staging_areas (schematic_id, name, world, x1, y1, z1, x2, y2, z2) " +
             "VALUES ('s1', 'area1', 'overworld', 0, 0, 0, 10, 10, 10)");
@@ -387,7 +410,6 @@ public class DatabaseTest
             "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) " +
             "VALUES (" + areaId + ", 'minecraft:stone', 64)");
 
-        // 全部删光
         conn.createStatement().executeUpdate("DELETE FROM schematics WHERE id = 's1'");
 
         assertEquals(0, countRows("schematics"));
@@ -414,7 +436,8 @@ public class DatabaseTest
     void transactionRollback_doesNotPersist() throws SQLException
     {
         conn.setAutoCommit(false);
-        conn.createStatement().executeUpdate("INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+        conn.createStatement().executeUpdate(
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.rollback();
         assertEquals(0, countRows("schematics"));
     }
@@ -423,7 +446,8 @@ public class DatabaseTest
     void transactionCommit_persists() throws SQLException
     {
         conn.setAutoCommit(false);
-        conn.createStatement().executeUpdate("INSERT INTO schematics (id, name) VALUES ('s1', 'test')");
+        conn.createStatement().executeUpdate(
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
         conn.commit();
         assertEquals(1, countRows("schematics"));
     }
