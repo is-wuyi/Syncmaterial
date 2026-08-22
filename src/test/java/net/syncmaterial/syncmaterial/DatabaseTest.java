@@ -21,6 +21,7 @@ public class DatabaseTest
     @BeforeEach
     void setUp() throws SQLException
     {
+        try { Class.forName("org.sqlite.JDBC"); } catch (ClassNotFoundException ignored) {}
         conn = DriverManager.getConnection("jdbc:sqlite::memory:");
         conn.createStatement().execute("PRAGMA foreign_keys = ON");
         createTables();
