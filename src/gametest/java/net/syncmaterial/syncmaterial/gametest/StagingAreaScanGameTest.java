@@ -400,4 +400,221 @@ public class StagingAreaScanGameTest {
             throw ctx.createError("跨区块补扫测试失败: " + e.getMessage());
         }
     }
+
+    // ==================== 数据新鲜度警告（区域未初始化 = 本次启动后未扫完全部区块） ====================
+
+    /** 构造跨两区块的区域（箱子 A 所在区块 + 相邻区块），返回相邻区块起点 */
+    private int nextChunkStartX(BlockPos absA) {
+        return ((absA.getX() >> 4) + 1) << 4;
+    }
+
+    @GameTest(structure = "empty")
+    public void stagingArea_partialChunks_freshnessWarningUntilComplete(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-fresh-" + System.currentTimeMillis();
+        final int[] areaId = {-1};
+
+        Runnable cleanup = () -> {
+            try {
+                if (areaId[0] > 0) sam.removeStagingArea(areaId[0], testId);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Freshness Test", "/test.litematic");
+            db.executeUpdate("INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?)",
+                testId, "minecraft:stone", 100);
+            int matId;
+            try (var qr = db.executeQuery("SELECT last_insert_rowid()")) {
+                qr.next();
+                matId = qr.getInt(1);
+            }
+
+            ServerWorld world = (ServerWorld) ctx.getWorld();
+            BlockPos absA = ctx.getAbsolutePos(new BlockPos(1, 1, 1));
+            int bx = nextChunkStartX(absA);
+            areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Fresh Area",
+                absA.getX(), absA.getY(), absA.getZ(), bx, absA.getY(), absA.getZ());
+
+            var cm = new net.syncmaterial.syncmaterial.server.CollaborationManager(db);
+            cm.setStagingAreaManager(sam);
+
+            // 只补扫第一个区块：区域未初始化，状态里应带过时警告
+            sam.scanChunkForInventoryAreas(
+                world.getChunkManager().getWorldChunk(absA.getX() >> 4, absA.getZ() >> 4), world);
+            var status1 = cm.getCollaborationStatus(testId, matId);
+            ctx.assertTrue(status1 != null, Text.literal("状态不应为 null"));
+            boolean warned1 = status1.freshnessInfo().stream()
+                .anyMatch(f -> "staging_area".equals(f.areaType()) && f.areaId() == areaId[0]);
+            ctx.assertTrue(warned1, Text.literal("只扫了部分区块时应显示数据过时警告"));
+
+            // 补扫第二个区块：区域初始化完成，警告应消失
+            sam.scanChunkForInventoryAreas(
+                world.getChunkManager().getWorldChunk(bx >> 4, absA.getZ() >> 4), world);
+            var status2 = cm.getCollaborationStatus(testId, matId);
+            ctx.assertTrue(status2.freshnessInfo().stream().noneMatch(f -> f.areaId() == areaId[0]),
+                Text.literal("全部区块扫完后过时警告应消失"));
+
+            cleanup.run();
+            ctx.complete();
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("新鲜度警告测试失败: " + e.getMessage());
+        }
+    }
+
+    @GameTest(structure = "empty")
+    public void stagingArea_resize_resetsInitialization(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-resize-" + System.currentTimeMillis();
+        final int[] areaId = {-1};
+
+        Runnable cleanup = () -> {
+            try {
+                if (areaId[0] > 0) sam.removeStagingArea(areaId[0], testId);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+            ctx.removeBlock(new BlockPos(1, 1, 1));
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Resize Test", "/test.litematic");
+
+            ServerWorld world = (ServerWorld) ctx.getWorld();
+            BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 8));
+            // 初始区域 1x1x1（单区块），重扫后应完成初始化
+            areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Resize Area",
+                absA.getX(), absA.getY(), absA.getZ(), absA.getX(), absA.getY(), absA.getZ());
+            sam.rescanStagingArea(areaId[0]);
+            ctx.assertTrue(sam.isStagingAreaInitialized(areaId[0]),
+                Text.literal("单区块区域重扫后应已初始化"));
+            // 扩大到相邻区块：必须回到未初始化（否则新领土永远不会被补扫，也不会有警告）
+            int bx = nextChunkStartX(absA);
+            sam.updateStagingArea(areaId[0], testId, "Resize Area",
+                absA.getX(), absA.getY(), absA.getZ(), bx, absA.getY(), absA.getZ());
+            ctx.assertFalse(sam.isStagingAreaInitialized(areaId[0]),
+                Text.literal("区域扩大后应重置为未初始化"));
+
+            // 补扫两个区块后应重新完成初始化
+            sam.scanChunkForInventoryAreas(
+                world.getChunkManager().getWorldChunk(absA.getX() >> 4, absA.getZ() >> 4), world);
+            sam.scanChunkForInventoryAreas(
+                world.getChunkManager().getWorldChunk(bx >> 4, absA.getZ() >> 4), world);
+            ctx.assertTrue(sam.isStagingAreaInitialized(areaId[0]),
+                Text.literal("扩大后的两个区块都扫过后应重新初始化"));
+
+            cleanup.run();
+            ctx.complete();
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("区域修改重置测试失败: " + e.getMessage());
+        }
+    }
+
+    @GameTest(structure = "empty")
+    public void areaAndWarehouse_remove_clearsInitState(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-rminit-" + System.currentTimeMillis();
+        final int[] areaId = {-1};
+        final int[] warehouseId = {-1};
+
+        Runnable cleanup = () -> {
+            try {
+                if (areaId[0] > 0) sam.removeStagingArea(areaId[0], testId);
+                if (warehouseId[0] > 0) sam.deleteWarehouse(warehouseId[0]);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+            ctx.removeBlock(new BlockPos(1, 1, 1));
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Remove Init Test", "/test.litematic");
+
+            ServerWorld world = (ServerWorld) ctx.getWorld();
+            BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 8));
+
+            // 备货区：初始化后删除，状态应清理
+            areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Rm Area",
+                absA.getX(), absA.getY(), absA.getZ(), absA.getX(), absA.getY(), absA.getZ());
+            sam.rescanStagingArea(areaId[0]);
+            ctx.assertTrue(sam.isStagingAreaInitialized(areaId[0]), Text.literal("备货区应已初始化"));
+            int removedAreaId = areaId[0];
+            sam.removeStagingArea(removedAreaId, testId);
+            areaId[0] = -1;
+            ctx.assertFalse(sam.isStagingAreaInitialized(removedAreaId),
+                Text.literal("删除后备货区初始化状态应清理"));
+
+            // 仓库：初始化后删除，状态应清理
+            warehouseId[0] = sam.addWarehouse("Rm Warehouse", "minecraft:overworld",
+                absA.getX(), absA.getY(), absA.getZ(), absA.getX(), absA.getY(), absA.getZ());
+            sam.rescanWarehouseAndMarkChunks(warehouseId[0]);
+            ctx.assertTrue(sam.isWarehouseInitialized(warehouseId[0]), Text.literal("仓库应已初始化"));
+            sam.deleteWarehouse(warehouseId[0]);
+            ctx.assertFalse(sam.isWarehouseInitialized(warehouseId[0]),
+                Text.literal("删除后仓库初始化状态应清理"));
+            warehouseId[0] = -1;
+
+            cleanup.run();
+            ctx.complete();
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("删除清理测试失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 回归：备货区和仓库的自增 ID 各自独立，同号时初始化状态不得互相串。
+     * （修复前：备货区 1 初始化后，从未扫描的仓库 1 也被误判为已初始化）
+     */
+    @GameTest(structure = "empty")
+    public void warehouse_idCollision_independentFromStagingArea(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-collide-" + System.currentTimeMillis();
+        final int[] areaId = {-1};
+        final int[] warehouseId = {-1};
+
+        Runnable cleanup = () -> {
+            try {
+                if (areaId[0] > 0) sam.removeStagingArea(areaId[0], testId);
+                if (warehouseId[0] > 0) sam.deleteWarehouse(warehouseId[0]);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+            ctx.removeBlock(new BlockPos(1, 1, 1));
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Collision Test", "/test.litematic");
+
+            BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 8));
+            areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Collide Area",
+                absA.getX(), absA.getY(), absA.getZ(), absA.getX(), absA.getY(), absA.getZ());
+            sam.rescanStagingArea(areaId[0]);
+            ctx.assertTrue(sam.isStagingAreaInitialized(areaId[0]), Text.literal("备货区应已初始化"));
+
+            // 用裸 SQL 插入一个与备货区同号的仓库（两张表自增独立，实际很容易同号）
+            db.executeUpdate(
+                "INSERT INTO warehouses (id, name, world) VALUES (?, ?, ?)",
+                areaId[0], "Collide Warehouse", "minecraft:overworld");
+            warehouseId[0] = areaId[0];
+            sam.loadWarehousesFromDb();
+
+            ctx.assertFalse(sam.isWarehouseInitialized(warehouseId[0]),
+                Text.literal("同号仓库从未扫描，不应因同号备货区已初始化而被误判"));
+
+            cleanup.run();
+            ctx.complete();
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("ID 碰撞回归测试失败: " + e.getMessage());
+        }
+    }
 }

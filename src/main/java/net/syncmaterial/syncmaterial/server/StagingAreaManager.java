@@ -35,7 +35,9 @@ public class StagingAreaManager {
     private final Set<BlockPos> processedRemovals = ConcurrentHashMap.newKeySet();
     private final Map<String, Set<ServerPlayerEntity>> subscribers = new ConcurrentHashMap<>();
     // Phase 5: 初始化跟踪（服务器重启后，区域首次全部区块加载完成即标记为已初始化）
-    private final Set<Integer> initializedAreas = ConcurrentHashMap.newKeySet();
+    // 初始化状态按 "S:区域id"/"W:仓库id" 记录：备货区和仓库的自增 id 各自独立，
+    // 不加前缀会互相串（备货区 3 已初始化 ≠ 仓库 3 已初始化）
+    private final Set<String> initializedAreas = ConcurrentHashMap.newKeySet();
     // 临时区块跟踪：初始化阶段记录已扫描的区块，全部扫描完成后清除
     private final Map<String, Set<Long>> initChunkTracking = new ConcurrentHashMap<>();
     private MinecraftServer server;
@@ -147,6 +149,8 @@ public class StagingAreaManager {
                 name, x1, y1, z1, x2, y2, z2, areaId
             );
             refreshCache(schematicId);
+            // 范围变了：重置初始化状态，扩大的新领土重新按区块跟踪补扫
+            resetInitState("staging_area", areaId);
             SyncMaterial.LOGGER.info("Updated staging area {} coordinates to [{},{},{}]~[{},{},{}]", areaId, x1, y1, z1, x2, y2, z2);
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("Failed to update staging area", e);
@@ -157,6 +161,7 @@ public class StagingAreaManager {
         try {
             database.executeUpdate("DELETE FROM staging_areas WHERE id = ?", areaId);
             refreshCache(schematicId);
+            resetInitState("staging_area", areaId);
             SyncMaterial.LOGGER.info("Removed staging area {}", areaId);
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("Failed to remove staging area", e);
@@ -498,7 +503,7 @@ public class StagingAreaManager {
                 }
 
                 // 扫描成功，标记该区块并检查是否完成初始化
-                markChunkAndCheckInit(areaId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL),
+                markChunkAndCheckInit("staging_area", areaId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL),
                     area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
             }
         }
@@ -843,7 +848,7 @@ public class StagingAreaManager {
                 }
 
                 // 扫描成功，标记该区块并检查是否完成初始化
-                markChunkAndCheckInit(warehouseId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL),
+                markChunkAndCheckInit("warehouse", warehouseId, ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL),
                     wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
             }
         }
@@ -965,10 +970,31 @@ public class StagingAreaManager {
     }
 
     /**
-     * 区域是否已初始化（服务器重启后所有区块至少扫描过一次）
+     * 备货区是否已初始化（本次启动后所有区块至少扫描过一次）
      */
-    public boolean isAreaInitialized(int areaId) {
-        return initializedAreas.contains(areaId);
+    public boolean isStagingAreaInitialized(int areaId) {
+        return initializedAreas.contains(initKey("staging_area", areaId));
+    }
+
+    /**
+     * 仓库是否已初始化（本次启动后所有区块至少扫描过一次）
+     */
+    public boolean isWarehouseInitialized(int warehouseId) {
+        return initializedAreas.contains(initKey("warehouse", warehouseId));
+    }
+
+    private static String initKey(String areaType, int id) {
+        return ("warehouse".equals(areaType) ? "W:" : "S:") + id;
+    }
+
+    /**
+     * 重置区域的初始化状态（区域被修改或删除后调用）：
+     * 修改后必须按新范围重新跟踪，否则扩大的新领土永远不会被补扫，也不会再出现过时警告
+     */
+    private void resetInitState(String areaType, int id) {
+        String key = initKey(areaType, id);
+        initializedAreas.remove(key);
+        initChunkTracking.remove(key);
     }
 
     /**
@@ -976,11 +1002,12 @@ public class StagingAreaManager {
      *
      * @return 本次调用是否刚好完成初始化（用于触发全量校正）
      */
-    private boolean markChunkAndCheckInit(int areaId, long chunkPos,
+    private boolean markChunkAndCheckInit(String areaType, int areaId, long chunkPos,
             int x1, int y1, int z1, int x2, int y2, int z2) {
-        if (initializedAreas.contains(areaId)) return false;
+        String key = initKey(areaType, areaId);
+        if (initializedAreas.contains(key)) return false;
 
-        initChunkTracking.computeIfAbsent(String.valueOf(areaId), k -> ConcurrentHashMap.newKeySet()).add(chunkPos);
+        initChunkTracking.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet()).add(chunkPos);
 
         // 检查是否所有区块都已扫描
         int minChunkX = Math.min(x1, x2) >> 4;
@@ -988,7 +1015,7 @@ public class StagingAreaManager {
         int minChunkZ = Math.min(z1, z2) >> 4;
         int maxChunkZ = Math.max(z1, z2) >> 4;
 
-        Set<Long> scanned = initChunkTracking.get(String.valueOf(areaId));
+        Set<Long> scanned = initChunkTracking.get(key);
         for (int cx = minChunkX; cx <= maxChunkX; cx++) {
             for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
                 if (!scanned.contains(((long) cx << 32) | (cz & 0xFFFFFFFFL))) {
@@ -998,9 +1025,9 @@ public class StagingAreaManager {
         }
 
         // 所有区块已扫描，标记为已初始化，清除临时跟踪
-        initializedAreas.add(areaId);
-        initChunkTracking.remove(String.valueOf(areaId));
-        SyncMaterial.LOGGER.info("[StagingArea] areaId={} 初始化完成（所有区块已扫描）", areaId);
+        initializedAreas.add(key);
+        initChunkTracking.remove(key);
+        SyncMaterial.LOGGER.info("[StagingArea] {} id={} 初始化完成（所有区块已扫描）", areaType, areaId);
         return true;
     }
 
@@ -1017,12 +1044,12 @@ public class StagingAreaManager {
         List<StagingArea> areas = stagingAreasByWorld.get(worldId);
         if (areas != null) {
             for (StagingArea area : areas) {
-                if (initializedAreas.contains(area.id)) continue;
+                if (initializedAreas.contains(initKey("staging_area", area.id))) continue;
                 if (chunkIntersectsArea(chunkX, chunkZ, area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
                     clearTotalsOnFirstChunk("staging_area", area.id);
                     scanChunkForArea(chunk, world, area.id, "staging_area",
                         area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
-                    if (markChunkAndCheckInit(area.id, chunkPos,
+                    if (markChunkAndCheckInit("staging_area", area.id, chunkPos,
                         area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
                         correctTotalsIfFullyLoaded(world, "staging_area", area.id,
                             area.x1, area.z1, area.x2, area.z2);
@@ -1035,12 +1062,12 @@ public class StagingAreaManager {
         List<Warehouse> warehouses = warehousesByWorld.get(worldId);
         if (warehouses != null) {
             for (Warehouse wh : warehouses) {
-                if (initializedAreas.contains(wh.id())) continue;
+                if (initializedAreas.contains(initKey("warehouse", wh.id()))) continue;
                 if (chunkIntersectsArea(chunkX, chunkZ, wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
                     clearTotalsOnFirstChunk("warehouse", wh.id());
                     scanChunkForArea(chunk, world, wh.id(), "warehouse",
                         wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
-                    if (markChunkAndCheckInit(wh.id(), chunkPos,
+                    if (markChunkAndCheckInit("warehouse", wh.id(), chunkPos,
                         wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
                         correctTotalsIfFullyLoaded(world, "warehouse", wh.id(),
                             wh.x1(), wh.z1(), wh.x2(), wh.z2());
@@ -1055,7 +1082,7 @@ public class StagingAreaManager {
      * 之后逐区块增量合并，避免重启后重复累计。
      */
     private void clearTotalsOnFirstChunk(String areaType, int areaId) {
-        if (initChunkTracking.containsKey(String.valueOf(areaId))) return;
+        if (initChunkTracking.containsKey(initKey(areaType, areaId))) return;
         try {
             if ("warehouse".equals(areaType)) {
                 database.executeUpdate("DELETE FROM warehouse_inventory WHERE warehouse_id = ?", areaId);
@@ -1260,6 +1287,8 @@ public class StagingAreaManager {
                 warehousesById.put(id, wh);
                 rebuildWarehouseWorldIndex();
             }
+            // 范围变了：重置初始化状态，扩大的新领土重新按区块跟踪补扫
+            resetInitState("warehouse", id);
             SyncMaterial.LOGGER.info("[StagingArea] 更新仓库: id={}, name={}", id, name);
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("[StagingArea] 更新仓库失败: id={}", id, e);
@@ -1277,6 +1306,7 @@ public class StagingAreaManager {
             database.executeUpdate("DELETE FROM warehouses WHERE id = ?", id);
             warehousesById.remove(id);
             rebuildWarehouseWorldIndex();
+            resetInitState("warehouse", id);
             SyncMaterial.LOGGER.info("[StagingArea] 删除仓库: id={}", id);
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("[StagingArea] 删除仓库失败: id={}", id, e);

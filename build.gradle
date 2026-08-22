@@ -4,7 +4,7 @@ plugins {
     id 'jacoco'
 }
 
-version = "1.21.7-0.3.0-beta.9"
+version = "1.21.7-0.3.0-beta.10"
 group = "net.syncmaterial"
 
 repositories {

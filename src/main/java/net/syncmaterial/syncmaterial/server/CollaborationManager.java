@@ -210,11 +210,12 @@ public class CollaborationManager {
      */
     private List<CollaborationStatusS2CPacket.AreaFreshnessInfo> buildFreshnessInfo(String schematicId) {
         List<CollaborationStatusS2CPacket.AreaFreshnessInfo> result = new ArrayList<>();
+        if (stagingAreaManager == null) return result;
 
         // 检查备货区
         var stagingAreas = stagingAreaManager.getStagingAreas(schematicId);
         for (var area : stagingAreas) {
-            if (!stagingAreaManager.isAreaInitialized(area.id())) {
+            if (!stagingAreaManager.isStagingAreaInitialized(area.id())) {
                 result.add(new CollaborationStatusS2CPacket.AreaFreshnessInfo(
                     "staging_area", area.id(), area.name(), "区域尚未初始化"));
             }
@@ -223,7 +224,7 @@ public class CollaborationManager {
         // 检查仓库
         var warehouses = stagingAreaManager.getWarehousesForSchematic(schematicId);
         for (var wh : warehouses) {
-            if (!stagingAreaManager.isAreaInitialized(wh.id())) {
+            if (!stagingAreaManager.isWarehouseInitialized(wh.id())) {
                 result.add(new CollaborationStatusS2CPacket.AreaFreshnessInfo(
                     "warehouse", wh.id(), wh.name(), "区域尚未初始化"));
             }
