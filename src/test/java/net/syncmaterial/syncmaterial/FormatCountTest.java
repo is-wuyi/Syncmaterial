@@ -103,4 +103,31 @@ public class FormatCountTest
         String result = MaterialListBase.getFormattedCountStringHud(261, 64, SHULKER);
         assertFalse(result.contains("="), "HUD 格式不应包含 = 号");
     }
+
+    // ========== SortCriteria.fromStringStatic ==========
+
+    @Test
+    void sortCriteria_validName_roundTrip()
+    {
+        assertEquals(MaterialListBase.SortCriteria.COUNT_MISSING,
+            MaterialListBase.SortCriteria.fromStringStatic("COUNT_MISSING"));
+        assertEquals(MaterialListBase.SortCriteria.COUNT_WAREHOUSE,
+            MaterialListBase.SortCriteria.fromStringStatic("COUNT_WAREHOUSE"));
+    }
+
+    @Test
+    void sortCriteria_caseInsensitive()
+    {
+        assertEquals(MaterialListBase.SortCriteria.COUNT_AVAILABLE,
+            MaterialListBase.SortCriteria.fromStringStatic("count_available"));
+    }
+
+    @Test
+    void sortCriteria_unknownName_fallsBackToTotal()
+    {
+        assertEquals(MaterialListBase.SortCriteria.COUNT_TOTAL,
+            MaterialListBase.SortCriteria.fromStringStatic("NOT_A_CRITERIA"));
+        assertEquals(MaterialListBase.SortCriteria.COUNT_TOTAL,
+            MaterialListBase.SortCriteria.fromStringStatic(""));
+    }
 }

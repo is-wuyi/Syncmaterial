@@ -227,7 +227,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 java.util.Set<String> needed = new java.util.HashSet<>();
                 java.util.Map<String, Integer> counts = new java.util.HashMap<>();
                 for (var entry : this.materialList.getMaterialsAll()) {
-                    int pickupMissing = Math.max(0, Math.min(entry.getCountTotal() - entry.getStagingCount() - entry.getCountAvailable(), entry.getWarehouseCount()));
+                    int pickupMissing = (int) net.syncmaterial.syncmaterial.api.ProgressFormulas.pickupMissing(
+                        entry.getCountTotal(), entry.getStagingCount(), entry.getCountAvailable(), entry.getWarehouseCount());
                     if (pickupMissing > 0) {
                         String itemId = entry.getStack().getItem().toString();
                         needed.add(itemId);

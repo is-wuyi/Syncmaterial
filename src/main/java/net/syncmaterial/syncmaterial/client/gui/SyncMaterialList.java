@@ -99,7 +99,8 @@ public class SyncMaterialList extends MaterialListBase {
                     }
                 }
                 int otherPlayersCount = allPlayersCount - myCount;
-                int realMissing = Math.max(0, status.totalCount() - status.stagingCount() - status.warehouseCount() - allPlayersCount);
+                int realMissing = (int) net.syncmaterial.syncmaterial.api.ProgressFormulas.collectedMissing(
+                    status.totalCount(), status.stagingCount(), status.warehouseCount(), allPlayersCount);
 
                 entry.setCountMissing(realMissing);
                 entry.setCountAvailable(myCount);
@@ -113,7 +114,8 @@ public class SyncMaterialList extends MaterialListBase {
                 // 无人协作，缺失 = 总数 - 备货区 - 仓库（可能备货区/仓库有物品但无人认领）
                 int stagingCount = status != null ? status.stagingCount() : 0;
                 int warehouseCount = status != null ? status.warehouseCount() : 0;
-                int realMissing = Math.max(0, entry.getCountTotal() - stagingCount - warehouseCount);
+                int realMissing = (int) net.syncmaterial.syncmaterial.api.ProgressFormulas.collectedMissing(
+                    entry.getCountTotal(), stagingCount, warehouseCount, 0);
                 entry.setCountMissing(realMissing);
                 entry.setCountAvailable(0);
                 entry.setStagingCount(stagingCount);

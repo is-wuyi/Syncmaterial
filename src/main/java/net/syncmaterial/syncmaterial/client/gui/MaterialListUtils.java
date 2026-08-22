@@ -29,7 +29,8 @@ public class MaterialListUtils {
             String itemId = net.minecraft.registry.Registries.ITEM.getId(entry.getStack().getItem()).toString();
             int playerCount = playerCounts.getOrDefault(itemId, 0);
             entry.setCountAvailable(playerCount);
-            entry.setCountMissing(Math.max(0, entry.getCountTotal() - playerCount));
+            entry.setCountMissing((int) net.syncmaterial.syncmaterial.api.ProgressFormulas.inventoryOnlyMissing(
+                entry.getCountTotal(), playerCount));
         }
     }
 
