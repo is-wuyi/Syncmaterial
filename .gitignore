@@ -22,6 +22,10 @@ bin/
 opencode.json
 .sisyphus/
 .claude/
+.zcode/
+
+# OS files
+.DS_Store
 
 # Test runs
 run/
