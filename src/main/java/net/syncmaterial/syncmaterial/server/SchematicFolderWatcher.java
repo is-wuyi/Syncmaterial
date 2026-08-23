@@ -17,13 +17,15 @@ public class SchematicFolderWatcher {
     private final Path syncamaticaFolder;
     private final Path placementsFile;
     private final Path syncmaticsRootFolder;
-    private WatchService watchService;
+    // volatile：主线程 start()/stop() 写入，watch 线程读取
+    private volatile WatchService watchService;
     private final ExecutorService watchExecutor;
     private final ExecutorService parseExecutor;
     private final SchematicDatabase database;
     private final DatabaseQueryService queryService;
     private final LitematicaParser parser;
-    private MinecraftServer server;
+    // volatile：主线程 setServer() 写入，watch 线程在广播时读取
+    private volatile MinecraftServer server;
     private final Gson gson = new Gson();
     private final Set<String> processedHashes = ConcurrentHashMap.newKeySet();
     private final Map<String, String> hashToSchematicId = new ConcurrentHashMap<>();
@@ -268,12 +270,12 @@ public class SchematicFolderWatcher {
     private void processNewSchematic(String id, String hash, String displayName, String owner, Path filePath) {
         SyncMaterial.LOGGER.debug("processNewSchematic 被调用: id={}, hash={}", id, hash);
         
-        // processedHashes 快速去重，避免重复解析同一文件
-        if (processedHashes.contains(hash)) {
+        // processedHashes 快速去重，避免重复解析同一文件。
+        // Set.add 的返回值本身是原子的存在性判断，无需 contains + add 两步
+        if (!processedHashes.add(hash)) {
             SyncMaterial.LOGGER.debug("hash 已在处理队列中，跳过: {}", hash);
             return;
         }
-        processedHashes.add(hash);
         hashToSchematicId.put(hash, id);
 
         SyncMaterial.LOGGER.debug("准备提交异步任务...");
@@ -311,21 +313,37 @@ public class SchematicFolderWatcher {
                     aggregatedMaterials.merge(itemId, count, Long::sum);
                 }
 
-                // 存储聚合后的材料
-                for (var entry : aggregatedMaterials.entrySet()) {
-                    String itemId = entry.getKey();
-                    long count = entry.getValue();
-                    int countInt = (int) Math.min(count, Integer.MAX_VALUE);
+                // 存储聚合后的材料：清空旧记录与写入新记录必须原子完成，
+                // 否则中途失败会留下残缺的材料清单（且 hash 已入库导致不再重试）。
+                // 不复用 database.deleteSchematicRecords()：它自带 begin/commit，
+                // 嵌套调用会提前提交外层事务并使 rollback 失效。
+                database.beginTransaction();
+                try {
+                    database.executeUpdate("DELETE FROM material_entries WHERE schematic_id = ?", id);
 
-                    database.executeUpdate(
-                        "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?)",
-                        id, itemId, countInt
-                    );
+                    for (var entry : aggregatedMaterials.entrySet()) {
+                        String itemId = entry.getKey();
+                        long count = entry.getValue();
+                        int countInt = (int) Math.min(count, Integer.MAX_VALUE);
+
+                        // 快照语义：材料清单是"该原理图需要多少"的声明，重复写入应覆盖而非累加
+                        database.executeUpdate(
+                            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?) " +
+                            "ON CONFLICT(schematic_id, item_id) DO UPDATE SET count = excluded.count",
+                            id, itemId, countInt
+                        );
+                    }
+                    database.commitTransaction();
+                } catch (Exception e) {
+                    database.rollbackTransaction();
+                    throw e;
                 }
 
                 SyncMaterial.LOGGER.info("原理图处理完成: {} ({} 项材料)", displayName, aggregatedMaterials.size());
             } catch (Throwable t) {
                 SyncMaterial.LOGGER.error("处理原理图失败: {}", displayName, t);
+                // 解析失败必须撤销 hash 标记，否则该原理图直到服务端重启前都不会再被尝试解析
+                processedHashes.remove(hash);
             }
         });
     }
@@ -334,15 +352,17 @@ public class SchematicFolderWatcher {
      * 向所有在线客户端广播备货区移除通知（确保在主线程发送网络包）
      */
     private void notifyClientsStagingAreaRemoved(String schematicId) {
-        if (this.server == null) {
+        // 取局部变量：避免 null 检查与后续使用之间字段被并发改写（TOCTOU）
+        MinecraftServer srv = this.server;
+        if (srv == null) {
             return;
         }
         // 在后台线程调用，必须切到主线程发送网络包
-        this.server.execute(() -> {
+        srv.execute(() -> {
             try {
                 var packet = new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(
                     "SCHEMATIC_DELETED", schematicId, "", true, "", java.util.List.of());
-                for (var player : this.server.getPlayerManager().getPlayerList()) {
+                for (var player : srv.getPlayerManager().getPlayerList()) {
                     net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, packet);
                 }
                 SyncMaterial.LOGGER.info("已通知客户端清理备货区渲染: {}", schematicId);
@@ -354,7 +374,10 @@ public class SchematicFolderWatcher {
 
     public void stop() {
         try {
-            watchService.close();
+            WatchService ws = this.watchService;
+            if (ws != null) {
+                ws.close();
+            }
             watchExecutor.shutdownNow();
             parseExecutor.shutdownNow();
             

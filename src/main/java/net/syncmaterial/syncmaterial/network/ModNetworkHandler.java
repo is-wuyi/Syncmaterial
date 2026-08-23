@@ -389,6 +389,10 @@ public class ModNetworkHandler {
     public static void pushWarehouseContainerUpdate(StagingAreaManager manager) {
         for (var playerEntry : playerSchematicWarehouses.entrySet()) {
             var player = playerEntry.getKey();
+            // 存活检查：断线玩家的条目可能尚未被清理，避免向失效连接发包
+            if (!player.isAlive() || player.networkHandler == null) {
+                continue;
+            }
             Set<Integer> allWarehouseIds = new HashSet<>();
             for (var ids : playerEntry.getValue().values()) {
                 allWarehouseIds.addAll(ids);
@@ -397,6 +401,23 @@ public class ModNetworkHandler {
 
             List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers = manager.getContainerEntriesForWarehouses(allWarehouseIds);
             ServerPlayNetworking.send(player, new WarehouseContainerResponseS2CPacket(containers));
+        }
+    }
+
+    /**
+     * 玩家断开连接时清理其全部订阅状态。
+     * 客户端正常退出会主动发退订包，但拔线/崩溃不会，
+     * 若不清理则 ServerPlayerEntity 引用永久驻留（内存泄漏 + 向死连接发包）。
+     */
+    public static void onPlayerDisconnect(net.minecraft.server.network.ServerPlayerEntity player) {
+        if (player == null) return;
+
+        playerSchematicWarehouses.remove(player);
+        Phase4Handler.unsubscribeAllMaterialList(player);
+
+        var manager = SyncMaterial.getServerStagingAreaManager();
+        if (manager != null) {
+            manager.unsubscribeAll(player);
         }
     }
 

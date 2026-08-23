@@ -66,9 +66,9 @@ public class PlacementsUtil
             return schematicId;
         }
 
-        try
+        try (var reader = Files.newBufferedReader(placementsFile))
         {
-            JsonArray placements = JsonParser.parseReader(Files.newBufferedReader(placementsFile))
+            JsonArray placements = JsonParser.parseReader(reader)
                     .getAsJsonObject().getAsJsonArray("placements");
 
             if (placements != null)

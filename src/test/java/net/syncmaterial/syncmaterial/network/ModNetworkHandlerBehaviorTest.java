@@ -251,6 +251,7 @@ class ModNetworkHandlerBehaviorTest {
         when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
             new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
         when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+        alivePlayer();
 
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", true), player);
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", false), player);
@@ -268,6 +269,7 @@ class ModNetworkHandlerBehaviorTest {
         when(manager.getWarehousesForSchematic("s2")).thenReturn(List.of(
             new StagingAreaManager.Warehouse(2, "w2", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
         when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+        alivePlayer();
 
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", true), player);
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s2", true), player);
@@ -279,6 +281,67 @@ class ModNetworkHandlerBehaviorTest {
             ids.size() == 2 && ids.contains(1) && ids.contains(2)));
         // 每个原理图订阅各一次 + 推送一次 = 3 次
         networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), times(3));
+    }
+
+    // ========== 断线清理（客户端未主动退订的路径） ==========
+
+    /** pushWarehouseContainerUpdate 有存活检查，测试推送需让 mock 玩家"在线" */
+    private void alivePlayer() {
+        when(player.isAlive()).thenReturn(true);
+        player.networkHandler = mock(net.minecraft.server.network.ServerPlayNetworkHandler.class);
+    }
+
+    @Test
+    void playerDisconnect_clearsWarehouseSubscription() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
+        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+        alivePlayer();
+
+        // 玩家订阅取货模式后直接掉线（不发退订包）
+        ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", true), player);
+        ModNetworkHandler.onPlayerDisconnect(player);
+
+        // 断线后推送不应再给该玩家发包：唯一的 send 来自订阅时那次
+        ModNetworkHandler.pushWarehouseContainerUpdate(manager);
+        networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), times(1));
+    }
+
+    @Test
+    void playerDisconnect_clearsMaterialListAndStagingSubscriptions() {
+        StagingAreaManager manager = mockWarehouseManager();
+
+        Phase4Handler.subscribeMaterialList(player, "s1");
+        assertTrue(Phase4Handler.getMaterialListSubscribers().containsKey("s1"));
+
+        ModNetworkHandler.onPlayerDisconnect(player);
+
+        assertFalse(Phase4Handler.getMaterialListSubscribers().containsKey("s1"),
+            "断线后材料列表订阅应被清理");
+        verify(manager).unsubscribeAll(player);
+    }
+
+    @Test
+    void playerDisconnect_nullPlayer_doesNotThrow() {
+        assertDoesNotThrow(() -> ModNetworkHandler.onPlayerDisconnect(null));
+    }
+
+    @Test
+    void warehousePush_skipsDeadPlayer() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
+        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+        alivePlayer();
+
+        ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", true), player);
+
+        // 模拟连接已失效但条目尚未清理（DISCONNECT 事件与推送竞争的窗口）
+        when(player.isAlive()).thenReturn(false);
+        ModNetworkHandler.pushWarehouseContainerUpdate(manager);
+
+        networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), times(1));
     }
 
     // ========== 备货区网络配置入口（ADD） ==========

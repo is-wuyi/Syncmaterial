@@ -195,6 +195,36 @@ public class SchematicFolderWatcherTest {
         }
     }
 
+    // ========== 解析失败后允许重试 ==========
+
+    @Test
+    void parseFailure_allowsRetryOnNextScan() throws Exception {
+        // 第一次解析抛异常：hash 不应被永久标记为已处理
+        LitematicaParser parser = mock(LitematicaParser.class);
+        when(parser.parseAsync(anyString()))
+            .thenReturn(CompletableFuture.failedFuture(new RuntimeException("文件损坏")));
+
+        // 先落盘再启动：start() 的 scanExistingPlacements() 会同步走到解析入口，
+        // 确保失败的那次解析确实发生（否则断言会空转）
+        writeLitematic("hash1");
+        writePlacements("s1", "hash1", "主城堡");
+        watcher = startWatcher(parser);
+        Thread.sleep(300);
+        verify(parser, atLeastOnce()).parseAsync(anyString());
+        assertFalse(new DatabaseQueryService(db).schematicExists("s1"), "解析失败不应写入数据库");
+
+        // 同一实例、同一 mock 重新 stub 为成功，再次扫描应重试而非跳过
+        when(parser.parseAsync(anyString()))
+            .thenReturn(CompletableFuture.completedFuture(List.of(
+                new MaterialEntry(0, new ItemStack(Items.STONE), 10))));
+        watcher.start();
+
+        assertTrue(await(() -> {
+            try { return materialCount("s1", "minecraft:stone") == 10; }
+            catch (Exception e) { return false; }
+        }), "解析失败过的原理图应在下次扫描时重试并入库");
+    }
+
     // ========== placement 移除后清理数据库 ==========
     // 注意：移除检测依赖同一 watcher 实例的记忆（processedHashes 是实例级），
     // 服务器重启后新实例不会清理残留记录——这是现有行为限制，见提交说明。

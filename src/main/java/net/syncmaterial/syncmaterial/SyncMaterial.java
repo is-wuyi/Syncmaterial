@@ -1,7 +1,6 @@
 package net.syncmaterial.syncmaterial;
 
 import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
@@ -109,10 +108,7 @@ public class SyncMaterial implements ModInitializer {
 
         // 4. 注册玩家断开连接事件，清理订阅
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-            if (sharedStagingAreaManager != null) {
-                sharedStagingAreaManager.unsubscribeAll(handler.player);
-            }
-            net.syncmaterial.syncmaterial.network.Phase4Handler.unsubscribeAllMaterialList(handler.player);
+            net.syncmaterial.syncmaterial.network.ModNetworkHandler.onPlayerDisconnect(handler.player);
         });
 
         // 5. 注册服务器关闭事件，释放资源

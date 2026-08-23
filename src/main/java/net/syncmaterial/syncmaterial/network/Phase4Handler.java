@@ -66,8 +66,9 @@ public class Phase4Handler {
         Set<ServerPlayerEntity> set = materialListSubscribers.get(schematicId);
         if (set != null) {
             set.remove(player);
+            // 两参数 remove 做值比对：避免误删并发场景下刚被其他玩家重新填充的集合
             if (set.isEmpty()) {
-                materialListSubscribers.remove(schematicId);
+                materialListSubscribers.remove(schematicId, set);
             }
         }
     }
