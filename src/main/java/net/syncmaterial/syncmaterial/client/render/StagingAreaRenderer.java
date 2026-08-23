@@ -33,8 +33,9 @@ public class StagingAreaRenderer implements IRenderer
     private final Map<String, Boolean> renderEnabled = new ConcurrentHashMap<>();
     private final Map<String, String> schematicNames = new ConcurrentHashMap<>();
     // Phase 5: 仓库容器缓存（从服务端推送的 container_inventory 数据）
-    private final java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> warehouseContainers =
-            Collections.synchronizedList(new java.util.ArrayList<>());
+    // volatile + 整体替换：渲染线程遍历期间网络线程不会改动同一个 List
+    // （与本类 selections 等并发容器一致的原子替换模式，避免 clear+addAll 的窗口期与迭代器竞态）
+    private volatile java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> warehouseContainers = java.util.List.of();
     private volatile String warehouseContainersWorld = "";
     // 编辑器打开时，标记当前选中的 box 名称（仅用于视觉高亮）
     @Nullable private String highlightedSchematicId;
@@ -115,14 +116,14 @@ public class StagingAreaRenderer implements IRenderer
      */
     public void updateWarehouseContainers(java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers, String worldId)
     {
-        this.warehouseContainers.clear();
-        this.warehouseContainers.addAll(containers);
+        // 整体替换而非原地改写：读线程要么看到旧列表要么看到新列表，不会看到中间状态
+        this.warehouseContainers = containers != null ? java.util.List.copyOf(containers) : java.util.List.of();
         this.warehouseContainersWorld = worldId != null ? worldId : "";
     }
 
     public void clearWarehouseContainers()
     {
-        this.warehouseContainers.clear();
+        this.warehouseContainers = java.util.List.of();
         this.warehouseContainersWorld = "";
     }
 
@@ -195,7 +196,9 @@ public class StagingAreaRenderer implements IRenderer
         StagingAreaSelector.getInstance().onRenderWorld(this, posMatrix);
 
         // Phase 5: 仓库容器蓝色线框高亮
-        if (!this.warehouseContainers.isEmpty() && mc.player != null) {
+        // 取局部快照：整个渲染过程用同一份列表，避免中途被网络线程替换引用
+        var containersSnapshot = this.warehouseContainers;
+        if (!containersSnapshot.isEmpty() && mc.player != null) {
             String playerWorldId = mc.player.getWorld().getRegistryKey().getValue().toString();
             // 跨世界过滤：只渲染玩家所在世界的仓库容器
             if (playerWorldId.equals(this.warehouseContainersWorld)) {
@@ -209,7 +212,7 @@ public class StagingAreaRenderer implements IRenderer
 
                 // 1. 过滤出需要渲染的容器
                 java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> toRender = new java.util.ArrayList<>();
-                for (WarehouseContainerResponseS2CPacket.ContainerEntry container : this.warehouseContainers) {
+                for (WarehouseContainerResponseS2CPacket.ContainerEntry container : containersSnapshot) {
                     if (isPickupMode && neededItemIds != null) {
                         boolean hasNeeded = false;
                         for (String itemId : container.itemIds()) {

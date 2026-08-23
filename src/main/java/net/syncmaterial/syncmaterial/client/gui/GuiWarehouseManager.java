@@ -8,21 +8,14 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
-import fi.dy.masa.malilib.gui.button.ButtonBase;
-import fi.dy.masa.malilib.gui.button.IButtonActionListener;
 import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
-import fi.dy.masa.malilib.gui.Message;
-import fi.dy.masa.malilib.gui.Message.MessageType;
-import fi.dy.masa.malilib.util.InfoUtils;
 import fi.dy.masa.malilib.util.StringUtils;
 
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListWarehouses;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetWarehouseEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
-import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
-import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket.AreaInfo;
 
 /**
  * 全局仓库管理界面（Phase 5）

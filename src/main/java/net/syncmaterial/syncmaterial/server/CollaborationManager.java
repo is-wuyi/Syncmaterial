@@ -120,7 +120,6 @@ public class CollaborationManager {
             }
 
             int stagingCount = stagingAreaManager.getStagingCountForMaterial(schematicId, itemId);
-            int stagingOnlyCount = stagingAreaManager.getStagingOnlyCountForMaterial(schematicId, itemId);
             int warehouseCount = stagingAreaManager.getWarehouseCountForMaterial(schematicId, itemId);
 
             List<CollaborationStatusS2CPacket.ParticipantInfo> participants = new ArrayList<>();
@@ -140,17 +139,19 @@ public class CollaborationManager {
                 }
             }
 
-            int collected = stagingCount;
+            int playersSum = 0;
             for (var p : participants) {
-                collected += p.count();
+                playersSum += p.count();
             }
+            // 与 ModNetworkHandler/HUD 保持同一口径：已收集含备货区 + 仓库 + 参与者背包
+            int collected = stagingCount + warehouseCount + playersSum;
             SyncMaterial.LOGGER.debug("getCollaborationStatus: material={}, total={}, staging={}, warehouse={}, participants={}, collected={}",
-                materialId, totalCount, stagingOnlyCount, warehouseCount, participants.size(), collected);
+                materialId, totalCount, stagingCount, warehouseCount, participants.size(), collected);
 
             // 构建数据新鲜度列表
             List<CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessInfo = buildFreshnessInfo(schematicId);
 
-            return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingOnlyCount, warehouseCount, participants, freshnessInfo);
+            return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingCount, warehouseCount, participants, freshnessInfo);
 
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("获取协作状态失败", e);

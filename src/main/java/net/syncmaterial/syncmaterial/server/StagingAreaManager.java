@@ -59,8 +59,9 @@ public class StagingAreaManager {
         Set<ServerPlayerEntity> set = subscribers.get(schematicId);
         if (set != null) {
             set.remove(player);
+            // 两参数 remove 做值比对：避免误删并发场景下刚被其他玩家重新填充的集合
             if (set.isEmpty()) {
-                subscribers.remove(schematicId);
+                subscribers.remove(schematicId, set);
             }
         }
     }
@@ -397,23 +398,6 @@ public class StagingAreaManager {
     }
 
     /**
-     * 查询指定位置在 container_inventory 中的现有记录
-     */
-    private Set<String> getContainerItemsAt(int areaId, String areaType, BlockPos pos) {
-        Set<String> items = new HashSet<>();
-        try (var rs = database.executeQuery(
-                "SELECT item_id FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
-                areaId, areaType, pos.getX(), pos.getY(), pos.getZ())) {
-            while (rs.next()) {
-                items.add(rs.getString("item_id"));
-            }
-        } catch (java.sql.SQLException e) {
-            SyncMaterial.LOGGER.error("[StagingArea] 查询容器记录失败", e);
-        }
-        return items;
-    }
-
-    /**
      * 推送更新给取货模式玩家
      */
     private void pushDirtyUpdateWithCooldown() {
@@ -558,17 +542,6 @@ public class StagingAreaManager {
         return null;
     }
 
-    private String findSchematicIdByAreaId(int areaId) {
-        for (var entry : stagingAreasBySchematic.entrySet()) {
-            for (StagingArea area : entry.getValue()) {
-                if (area.id == areaId) {
-                    return entry.getKey();
-                }
-            }
-        }
-        return null;
-    }
-
     private void updateStagingAreaInventory(int areaId, Map<String, Integer> itemCounts) {
         if (itemCounts == null || itemCounts.isEmpty()) {
             SyncMaterial.LOGGER.info("[StagingArea] updateStagingAreaInventory: areaId={} itemCounts is empty, clearing old records", areaId);
@@ -582,14 +555,23 @@ public class StagingAreaManager {
 
         SyncMaterial.LOGGER.info("[StagingArea] updateStagingAreaInventory: areaId={} with {} items", areaId, itemCounts.size());
 
+        // 事务包裹：清空 + 逐条插入是一次逻辑替换，中途失败会留下残缺库存；
+        // 同时把 N 次自动提交合并为 1 次，物品种类多时差异显著
         try {
-            database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id = ?", areaId);
+            database.beginTransaction();
+            try {
+                database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id = ?", areaId);
 
-            for (Map.Entry<String, Integer> entry : itemCounts.entrySet()) {
-                database.executeUpdate(
-                    "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, ?)",
-                    areaId, entry.getKey(), entry.getValue()
-                );
+                for (Map.Entry<String, Integer> entry : itemCounts.entrySet()) {
+                    database.executeUpdate(
+                        "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, ?)",
+                        areaId, entry.getKey(), entry.getValue()
+                    );
+                }
+                database.commitTransaction();
+            } catch (SQLException e) {
+                database.rollbackTransaction();
+                throw e;
             }
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("Failed to update staging area inventory", e);
@@ -610,13 +592,6 @@ public class StagingAreaManager {
             SyncMaterial.LOGGER.error("Failed to get staging count for material", e);
         }
         return 0;
-    }
-
-    /**
-     * 仅统计备货区库存（不含仓库）
-     */
-    public int getStagingOnlyCountForMaterial(String schematicId, String itemId) {
-        return getStagingCountForMaterial(schematicId, itemId);
     }
 
     /**
@@ -860,77 +835,21 @@ public class StagingAreaManager {
      */
     private void updateWarehouseInventory(int warehouseId, Map<String, Integer> itemCounts) {
         try {
-            database.executeUpdate("DELETE FROM warehouse_inventory WHERE warehouse_id = ?", warehouseId);
-            for (Map.Entry<String, Integer> entry : itemCounts.entrySet()) {
-                database.executeUpdate(
-                    "INSERT INTO warehouse_inventory (warehouse_id, item_id, count) VALUES (?, ?, ?)",
-                    warehouseId, entry.getKey(), entry.getValue());
+            database.beginTransaction();
+            try {
+                database.executeUpdate("DELETE FROM warehouse_inventory WHERE warehouse_id = ?", warehouseId);
+                for (Map.Entry<String, Integer> entry : itemCounts.entrySet()) {
+                    database.executeUpdate(
+                        "INSERT INTO warehouse_inventory (warehouse_id, item_id, count) VALUES (?, ?, ?)",
+                        warehouseId, entry.getKey(), entry.getValue());
+                }
+                database.commitTransaction();
+            } catch (SQLException e) {
+                database.rollbackTransaction();
+                throw e;
             }
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("Failed to update warehouse inventory", e);
-        }
-    }
-
-    /**
-     * 更新容器明细表（全量重写指定区域的 container_inventory）
-     */
-    private void updateContainerInventoryForArea(int areaId, String areaType) {
-        try {
-            // 清空旧数据
-            database.executeUpdate("DELETE FROM container_inventory WHERE area_id = ? AND area_type = ?", areaId, areaType);
-
-            // 获取区域坐标
-            int x1, y1, z1, x2, y2, z2;
-            String worldId;
-            if ("warehouse".equals(areaType)) {
-                Warehouse wh = warehousesById.get(areaId);
-                if (wh == null) return;
-                x1 = wh.x1(); y1 = wh.y1(); z1 = wh.z1();
-                x2 = wh.x2(); y2 = wh.y2(); z2 = wh.z2();
-                worldId = wh.world();
-            } else {
-                StagingArea area = findStagingAreaById(areaId);
-                if (area == null) return;
-                x1 = area.x1; y1 = area.y1; z1 = area.z1;
-                x2 = area.x2; y2 = area.y2; z2 = area.z2;
-                worldId = area.world;
-            }
-
-            ServerWorld world = server.getWorld(net.minecraft.registry.RegistryKey.of(
-                    net.minecraft.registry.RegistryKeys.WORLD, Identifier.of(worldId)));
-            if (world == null) return;
-
-            int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
-            int minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
-            int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
-
-            int minChunkX = minX >> 4, maxChunkX = maxX >> 4;
-            int minChunkZ = minZ >> 4, maxChunkZ = maxZ >> 4;
-
-            for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
-                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-                    if (world.getChunkManager().getWorldChunk(chunkX, chunkZ) == null) continue;
-
-                    int startX = Math.max(chunkX << 4, minX);
-                    int endX = Math.min((chunkX << 4) + 15, maxX);
-                    int startZ = Math.max(chunkZ << 4, minZ);
-                    int endZ = Math.min((chunkZ << 4) + 15, maxZ);
-
-                    for (int x = startX; x <= endX; x++) {
-                        for (int y = minY; y <= maxY; y++) {
-                            for (int z = startZ; z <= endZ; z++) {
-                                BlockEntity be = world.getBlockEntity(new BlockPos(x, y, z));
-                                if (be instanceof Inventory) {
-                                    Inventory inventory = (Inventory) be;
-                                    writeContainerInventory(areaId, areaType, x, y, z, inventory);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            SyncMaterial.LOGGER.error("Failed to update container inventory for area {} type {}", areaId, areaType, e);
         }
     }
 
@@ -1165,21 +1084,30 @@ public class StagingAreaManager {
 
     /** 逐条合并区块扫描结果到备货区总数（无则插入，有则累加） */
     private void mergeStagingAreaInventory(int areaId, Map<String, Integer> items) {
+        // 不用 upsert：staging_area_inventory 无 (staging_area_id, item_id) 唯一索引，
+        // ON CONFLICT 无匹配约束会直接报错。事务化足以消除逐条自动提交的开销。
         try {
-            for (Map.Entry<String, Integer> e : items.entrySet()) {
-                try (var rs = database.executeQuery(
-                        "SELECT count FROM staging_area_inventory WHERE staging_area_id = ? AND item_id = ?",
-                        areaId, e.getKey())) {
-                    if (rs.next()) {
-                        database.executeUpdate(
-                            "UPDATE staging_area_inventory SET count = ? WHERE staging_area_id = ? AND item_id = ?",
-                            rs.getInt("count") + e.getValue(), areaId, e.getKey());
-                    } else {
-                        database.executeUpdate(
-                            "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, ?)",
-                            areaId, e.getKey(), e.getValue());
+            database.beginTransaction();
+            try {
+                for (Map.Entry<String, Integer> e : items.entrySet()) {
+                    try (var rs = database.executeQuery(
+                            "SELECT count FROM staging_area_inventory WHERE staging_area_id = ? AND item_id = ?",
+                            areaId, e.getKey())) {
+                        if (rs.next()) {
+                            database.executeUpdate(
+                                "UPDATE staging_area_inventory SET count = ? WHERE staging_area_id = ? AND item_id = ?",
+                                rs.getInt("count") + e.getValue(), areaId, e.getKey());
+                        } else {
+                            database.executeUpdate(
+                                "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, ?)",
+                                areaId, e.getKey(), e.getValue());
+                        }
                     }
                 }
+                database.commitTransaction();
+            } catch (SQLException ex) {
+                database.rollbackTransaction();
+                throw ex;
             }
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("[StagingArea] 合并备货区统计失败: areaId={}", areaId, e);
@@ -1189,20 +1117,27 @@ public class StagingAreaManager {
     /** 逐条合并区块扫描结果到仓库总数（无则插入，有则累加） */
     private void mergeWarehouseInventory(int warehouseId, Map<String, Integer> items) {
         try {
-            for (Map.Entry<String, Integer> e : items.entrySet()) {
-                try (var rs = database.executeQuery(
-                        "SELECT count FROM warehouse_inventory WHERE warehouse_id = ? AND item_id = ?",
-                        warehouseId, e.getKey())) {
-                    if (rs.next()) {
-                        database.executeUpdate(
-                            "UPDATE warehouse_inventory SET count = ? WHERE warehouse_id = ? AND item_id = ?",
-                            rs.getInt("count") + e.getValue(), warehouseId, e.getKey());
-                    } else {
-                        database.executeUpdate(
-                            "INSERT INTO warehouse_inventory (warehouse_id, item_id, count) VALUES (?, ?, ?)",
-                            warehouseId, e.getKey(), e.getValue());
+            database.beginTransaction();
+            try {
+                for (Map.Entry<String, Integer> e : items.entrySet()) {
+                    try (var rs = database.executeQuery(
+                            "SELECT count FROM warehouse_inventory WHERE warehouse_id = ? AND item_id = ?",
+                            warehouseId, e.getKey())) {
+                        if (rs.next()) {
+                            database.executeUpdate(
+                                "UPDATE warehouse_inventory SET count = ? WHERE warehouse_id = ? AND item_id = ?",
+                                rs.getInt("count") + e.getValue(), warehouseId, e.getKey());
+                        } else {
+                            database.executeUpdate(
+                                "INSERT INTO warehouse_inventory (warehouse_id, item_id, count) VALUES (?, ?, ?)",
+                                warehouseId, e.getKey(), e.getValue());
+                        }
                     }
                 }
+                database.commitTransaction();
+            } catch (SQLException ex) {
+                database.rollbackTransaction();
+                throw ex;
             }
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("[StagingArea] 合并仓库统计失败: warehouseId={}", warehouseId, e);

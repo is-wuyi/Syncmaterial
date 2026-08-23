@@ -10,7 +10,6 @@ import net.syncmaterial.syncmaterial.network.InventoryUpdateC2SPacket;
 
 import java.util.*;
 import org.slf4j.Logger;
-import net.minecraft.item.ItemStack;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 
 public class InventoryWatcher {
@@ -122,7 +121,9 @@ public class InventoryWatcher {
     public record InventoryDiff(int materialId, int newCount) {}
 
     private static void checkInventoryChanges(PlayerInventory inventory) {
-        Map<Integer, Integer> currentCounts = getCurrentCounts();
+        // 用传入的 inventory 调纯函数，而非绕回 getCurrentCounts() 重取全局单例，
+        // 保持 getCounts(PlayerInventory) 的可注入设计不被调用链绕过
+        Map<Integer, Integer> currentCounts = getCounts(inventory);
         List<InventoryDiff> diffs = computeDiffs(currentCounts, lastKnownCounts);
 
         for (InventoryDiff diff : diffs) {

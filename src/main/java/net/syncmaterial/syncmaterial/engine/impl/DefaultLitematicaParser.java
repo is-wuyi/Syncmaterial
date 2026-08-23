@@ -1,6 +1,5 @@
 package net.syncmaterial.syncmaterial.engine.impl;
 
-import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;

@@ -21,19 +21,16 @@ import fi.dy.masa.malilib.gui.button.ButtonGeneric;
 import fi.dy.masa.malilib.gui.button.IButtonActionListener;
 import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
 import fi.dy.masa.malilib.gui.widgets.WidgetCheckBox;
-import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
-import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.syncmaterial.syncmaterial.selection.Box;
 import fi.dy.masa.litematica.gui.Icons;
-import fi.dy.masa.litematica.util.PositionUtils;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
 /**

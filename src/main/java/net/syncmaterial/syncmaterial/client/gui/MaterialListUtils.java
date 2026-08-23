@@ -1,7 +1,6 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
 import java.util.ArrayList;

@@ -1,8 +1,6 @@
 package net.syncmaterial.syncmaterial.engine.internal;
 
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
