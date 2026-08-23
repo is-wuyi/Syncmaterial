@@ -13,6 +13,14 @@ import java.util.Map;
 public class SchematicDatabase implements AutoCloseable {
     private static final String DB_FILE = "syncmaterial.db";
     private Connection connection;
+    // 事务嵌套深度。单 Connection 被多线程共享（watch/parse/主线程/异步上传任务），
+    // 若各自裸调 setAutoCommit，内层的 commit 会提前提交外层事务并使其 rollback
+    // 抛出 "database in auto-commit mode"。计数保证只有最外层真正开启/提交事务。
+    private int transactionDepth = 0;
+    // 内层发生回滚时标记，避免外层误以为提交成功
+    private boolean transactionRollbackOnly = false;
+    // 当前持有事务的线程。其他线程必须等待，否则两个线程的事务会互相吞并
+    private Thread transactionOwner = null;
 
     // 手动注册 SQLite JDBC 驱动
     static {
@@ -368,28 +376,80 @@ public class SchematicDatabase implements AutoCloseable {
     }
 
     /**
-     * 开始事务
+     * 开始事务。同一线程可重入（仅最外层真正切换 autoCommit）；
+     * 其他线程若已持有事务，则等待其结束——单 Connection 无法承载并行事务，
+     * 强行并发会让两个事务互相吞并（先开始者 commit 时报 auto-commit mode）。
      */
     public synchronized void beginTransaction() throws SQLException {
-        connection.setAutoCommit(false);
+        Thread self = Thread.currentThread();
+        while (transactionOwner != null && transactionOwner != self) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new SQLException("等待事务释放时被中断", e);
+            }
+        }
+        if (transactionDepth == 0) {
+            connection.setAutoCommit(false);
+            transactionRollbackOnly = false;
+            transactionOwner = self;
+        }
+        transactionDepth++;
     }
 
     /**
-     * 提交事务
+     * 提交事务（同线程可重入）。仅最外层真正提交；
+     * 若任一内层已回滚，则外层整体回滚而非提交，避免提交半成品数据。
      */
     public synchronized void commitTransaction() throws SQLException {
-        connection.commit();
-        connection.setAutoCommit(true);
+        if (transactionDepth == 0 || transactionOwner != Thread.currentThread()) {
+            // 未持有事务时调用：保持幂等而非抛错，兼容旧调用点
+            return;
+        }
+        transactionDepth--;
+        if (transactionDepth > 0) {
+            return;
+        }
+        try {
+            if (transactionRollbackOnly) {
+                connection.rollback();
+                throw new SQLException("事务已被内层标记为回滚，外层提交被拒绝");
+            }
+            connection.commit();
+        } finally {
+            endOutermostTransaction();
+        }
     }
 
     /**
-     * 回滚事务
+     * 回滚事务（同线程可重入）。内层回滚只做标记，实际回滚在最外层执行，
+     * 保证 autoCommit 状态不被中途破坏。
      */
     public synchronized void rollbackTransaction() throws SQLException {
+        if (transactionDepth == 0 || transactionOwner != Thread.currentThread()) {
+            return;
+        }
+        transactionDepth--;
+        if (transactionDepth > 0) {
+            transactionRollbackOnly = true;
+            return;
+        }
         try {
             connection.rollback();
         } finally {
+            endOutermostTransaction();
+        }
+    }
+
+    /** 释放事务归属并唤醒等待中的线程 */
+    private void endOutermostTransaction() throws SQLException {
+        transactionRollbackOnly = false;
+        transactionOwner = null;
+        try {
             connection.setAutoCommit(true);
+        } finally {
+            notifyAll();
         }
     }
 

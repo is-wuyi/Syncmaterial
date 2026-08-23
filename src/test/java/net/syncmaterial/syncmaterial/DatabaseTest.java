@@ -382,6 +382,86 @@ public class DatabaseTest
         assertEquals(1, countRows("schematics"));
     }
 
+    // ========== 事务的可重入与跨线程隔离 ==========
+
+    @Test
+    void transaction_nestedSameThread_onlyOutermostCommits() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+
+        // 内层 commit 不应提前结束外层事务（旧实现会在此销毁事务上下文）
+        db.beginTransaction();
+        insertMaterial("s1", "minecraft:stone", 10);
+        db.beginTransaction();
+        insertMaterial("s1", "minecraft:oak_log", 20);
+        db.commitTransaction();          // 内层
+        insertMaterial("s1", "minecraft:diamond", 30);
+        db.rollbackTransaction();        // 外层回滚，三条都应消失
+
+        assertEquals(0, countRows("material_entries"),
+            "外层回滚应撤销全部写入，说明内层 commit 没有提前提交");
+    }
+
+    @Test
+    void transaction_nestedRollback_preventsOuterCommit() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+
+        db.beginTransaction();
+        insertMaterial("s1", "minecraft:stone", 10);
+        db.beginTransaction();
+        insertMaterial("s1", "minecraft:oak_log", 20);
+        db.rollbackTransaction();        // 内层标记回滚
+
+        // 外层 commit 必须被拒绝，否则会提交半成品数据
+        assertThrows(SQLException.class, () -> db.commitTransaction(),
+            "内层已回滚时外层提交应被拒绝");
+        assertEquals(0, countRows("material_entries"), "数据应被整体回滚");
+    }
+
+    @Test
+    void transaction_concurrentThreads_doNotSwallowEachOther() throws Exception
+    {
+        insertSchematic("s1", "Owner1");
+
+        // 两个线程各自跑完整事务：单 Connection 无法并行事务，
+        // 必须串行化，否则先开始者 commit 时会报 "database in auto-commit mode"
+        var errors = java.util.Collections.synchronizedList(new java.util.ArrayList<Exception>());
+        var latch = new java.util.concurrent.CountDownLatch(2);
+        Runnable task = () -> {
+            try
+            {
+                String item = "minecraft:item_" + Thread.currentThread().getId();
+                db.beginTransaction();
+                for (int i = 0; i < 5; i++)
+                {
+                    db.executeUpdate(
+                        "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?) " +
+                        "ON CONFLICT(schematic_id, item_id) DO UPDATE SET count = count + 1",
+                        "s1", item, 1);
+                    Thread.sleep(10);
+                }
+                db.commitTransaction();
+            }
+            catch (Exception e) { errors.add(e); }
+            finally { latch.countDown(); }
+        };
+        new Thread(task).start();
+        new Thread(task).start();
+        assertTrue(latch.await(10, java.util.concurrent.TimeUnit.SECONDS), "两个事务应在超时前完成");
+
+        assertTrue(errors.isEmpty(), "并发事务不应抛异常，实际: " + errors);
+        assertEquals(2, countRows("material_entries"), "两个线程各写入一种物品");
+    }
+
+    @Test
+    void transaction_commitWithoutBegin_isNoop() throws SQLException
+    {
+        // 兼容旧调用点：未开启事务时调用不应抛错
+        assertDoesNotThrow(() -> db.commitTransaction());
+        assertDoesNotThrow(() -> db.rollbackTransaction());
+    }
+
     @Test
     void materialEntries_uniqueIndex_preventsDuplicates() throws SQLException
     {
