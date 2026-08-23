@@ -392,6 +392,77 @@ class ModNetworkHandlerBehaviorTest {
         assertEquals("缺少区域数据", captor.getValue().message());
     }
 
+    // ========== 仓库网络配置入口（创建/修改后立即重扫） ==========
+
+    @Test
+    void warehouseConfig_add_rescansImmediatelyAndResponds() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.addWarehouse(eq("新仓库"), eq("minecraft:overworld"),
+            anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt())).thenReturn(9);
+
+        ModNetworkHandler.handleStagingAreaConfig(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
+            java.util.Optional.of(new StagingAreaConfigC2SPacket.AreaData(
+                "新仓库", 0, 64, 0, 10, 70, 10,
+                java.util.Optional.of("minecraft:overworld")))),
+            player, server);
+
+        // 核心回归断言：新建仓库必须立即扫描，不应等到箱子物品发生变化
+        verify(manager).rescanWarehouseAndMarkChunks(9);
+
+        ArgumentCaptor<StagingAreaConfigResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(StagingAreaConfigResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertTrue(captor.getValue().success());
+        assertEquals("仓库已创建", captor.getValue().message());
+    }
+
+    @Test
+    void warehouseConfig_addFailure_doesNotRescan() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.addWarehouse(any(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+            .thenReturn(-1);
+
+        ModNetworkHandler.handleStagingAreaConfig(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
+            java.util.Optional.of(new StagingAreaConfigC2SPacket.AreaData(
+                "失败仓库", 0, 64, 0, 10, 70, 10,
+                java.util.Optional.of("minecraft:overworld")))),
+            player, server);
+
+        verify(manager, never()).rescanWarehouseAndMarkChunks(anyInt());
+    }
+
+    @Test
+    void warehouseConfig_update_rescansNewBoundsAndBroadcastsReferences() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.getSchematicsReferencingWarehouse(9)).thenReturn(java.util.Set.of("s1"));
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+
+        ModNetworkHandler.handleStagingAreaConfig(new StagingAreaConfigC2SPacket("", "UPDATE_WAREHOUSE", 9,
+            java.util.Optional.of(new StagingAreaConfigC2SPacket.AreaData(
+                "修改后的仓库", 10, 64, 10, 20, 70, 20,
+                java.util.Optional.of("minecraft:overworld")))),
+            player, server);
+
+        verify(manager).updateWarehouse(eq(9), eq("修改后的仓库"),
+            eq(10), eq(64), eq(10), eq(20), eq(70), eq(20));
+        verify(manager).rescanWarehouseAndMarkChunks(9);
+        verify(cm).getAllMaterialIds("s1");
+    }
+
+    @Test
+    void warehouseReference_add_broadcastsMaterialStatus() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of());
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+
+        ModNetworkHandler.handleStagingAreaConfig(
+            new StagingAreaConfigC2SPacket("s1", "ADD_WAREHOUSE_REF", 9, java.util.Optional.empty()),
+            player, server);
+
+        verify(manager).addWarehouseReference("s1", 9);
+        verify(cm).getAllMaterialIds("s1");
+    }
+
     // ========== 材料清单请求（服务端核心读路径） ==========
 
     @Test

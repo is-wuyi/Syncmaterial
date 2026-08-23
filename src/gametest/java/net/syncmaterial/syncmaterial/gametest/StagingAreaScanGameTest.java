@@ -682,6 +682,69 @@ public class StagingAreaScanGameTest {
         }
     }
 
+    // ==================== 新建仓库立即初始化 ====================
+
+    /**
+     * 复现实机问题：玩家站在已加载区块里圈选一个已有物品的箱子作为仓库。
+     * 不调用 scheduleContainerScan/processDirtyContainers（即不做“取出再放回”动作），
+     * 仅执行新建仓库后 handler 应调用的同步重扫路径。
+     */
+    @GameTest(structure = "empty")
+    public void warehouse_createdInLoadedChunk_immediatelyInitializedAndCounted(TestContext ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-wh-create-" + System.currentTimeMillis();
+        final int[] warehouseId = {-1};
+
+        Runnable cleanup = () -> {
+            try {
+                if (warehouseId[0] > 0) sam.deleteWarehouse(warehouseId[0]);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+            ctx.removeBlock(new BlockPos(1, 1, 1));
+        };
+
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Immediate Warehouse Test", "/test.litematic");
+
+            BlockPos chestPos = placeChestWith(ctx,
+                new ItemStack(Items.GOLD_INGOT, 7),
+                new ItemStack(Items.DIAMOND, 3));
+
+            warehouseId[0] = sam.addWarehouse("Immediate Warehouse", "minecraft:overworld",
+                chestPos.getX() - 1, chestPos.getY() - 1, chestPos.getZ() - 1,
+                chestPos.getX() + 1, chestPos.getY() + 1, chestPos.getZ() + 1);
+            sam.addWarehouseReference(testId, warehouseId[0]);
+
+            // 生产中的 ADD_WAREHOUSE handler 必须立即调用此方法；测试刻意不走脏容器管线
+            sam.rescanWarehouseAndMarkChunks(warehouseId[0]);
+
+            ctx.assertTrue(sam.isWarehouseInitialized(warehouseId[0]),
+                Text.literal("已加载区块中新建的仓库应立即完成初始化，不应显示数据可能过时"));
+            ctx.assertEquals(7, sam.getWarehouseCountForMaterial(testId, "minecraft:gold_ingot"),
+                Text.literal("新建仓库应立即统计已有的 7 个金锭，无需取出再放回"));
+            ctx.assertEquals(3, sam.getWarehouseCountForMaterial(testId, "minecraft:diamond"),
+                Text.literal("新建仓库应立即统计已有的 3 个钻石"));
+
+            var containers = sam.getContainerEntriesForWarehouses(Set.of(warehouseId[0]));
+            boolean detailPresent = containers.stream().anyMatch(entry ->
+                entry.posX() == chestPos.getX()
+                    && entry.posY() == chestPos.getY()
+                    && entry.posZ() == chestPos.getZ()
+                    && entry.itemIds().contains("minecraft:gold_ingot")
+                    && entry.itemIds().contains("minecraft:diamond"));
+            ctx.assertTrue(detailPresent,
+                Text.literal("同步重扫应同时建立 container_inventory 明细，保证取货模式箱子高亮立即可用"));
+
+            cleanup.run();
+            ctx.complete();
+        } catch (Exception e) {
+            cleanup.run();
+            throw ctx.createError("新建仓库立即初始化测试失败: " + e.getMessage());
+        }
+    }
+
     // ==================== 双箱（大箱子）聚合 ====================
 
     @GameTest(structure = "empty")

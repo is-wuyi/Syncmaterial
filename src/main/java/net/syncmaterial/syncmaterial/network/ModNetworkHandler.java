@@ -490,45 +490,63 @@ public class ModNetworkHandler {
                 }
                 // Phase 5: 仓库管理操作
                 case "LIST_WAREHOUSES" -> {
-                    var warehouses = manager.getAllWarehouses();
-                    var areaInfos = warehouses.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("LIST_WAREHOUSES", schematicId, "", true, "ok", areaInfos));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                        "LIST_WAREHOUSES", schematicId, "", true, "ok",
+                        StagingAreaManager.buildWarehouseInfos(manager.getAllWarehouses())));
                 }
                 case "ADD_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
                     int id = manager.addWarehouse(data.name(), data.world().orElse("minecraft:overworld"),
                         data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    if (id > 0) {
+                        // 立即扫描：否则新仓库一直是"未初始化"状态，前端显示数据过时且库存为 0，
+                        // 直到玩家手动改动某个容器才被动触发扫描
+                        manager.rescanWarehouseAndMarkChunks(id);
+                        pushWarehouseContainerUpdate(manager);
+                    }
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD_WAREHOUSE", schematicId, "", id > 0, id > 0 ? "仓库已创建" : "创建失败", List.of()));
                 }
                 case "UPDATE_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
                     manager.updateWarehouse(payload.areaId(), data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    // 范围可能变了：updateWarehouse 已重置初始化状态，这里按新范围立即重扫
+                    manager.rescanWarehouseAndMarkChunks(payload.areaId());
+                    pushWarehouseContainerUpdate(manager);
+                    for (String affected : manager.getSchematicsReferencingWarehouse(payload.areaId())) {
+                        Phase4Handler.broadcastAllMaterialStatus(server, affected);
+                    }
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE_WAREHOUSE", schematicId, "", true, "仓库已更新", List.of()));
                 }
                 case "DELETE_WAREHOUSE" -> {
+                    // 先取引用方：deleteWarehouse 会级联清掉 schematic_warehouses
+                    var affectedSchematics = manager.getSchematicsReferencingWarehouse(payload.areaId());
                     manager.deleteWarehouse(payload.areaId());
+                    pushWarehouseContainerUpdate(manager);
+                    for (String affected : affectedSchematics) {
+                        Phase4Handler.broadcastAllMaterialStatus(server, affected);
+                    }
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("DELETE_WAREHOUSE", schematicId, "", true, "仓库已删除", List.of()));
                 }
                 case "ADD_WAREHOUSE_REF" -> {
                     manager.addWarehouseReference(schematicId, payload.areaId());
-                    var refs = manager.getWarehousesForSchematic(schematicId);
-                    var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD_WAREHOUSE_REF", schematicId, "", true, "已添加仓库引用", areaInfos));
+                    // 引用关系变了：材料的仓库计数与新鲜度提示都会变，必须重新广播状态，
+                    // 否则界面停留在旧数据（仓库计数为 0 且显示"数据可能过时"）
+                    Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                        "ADD_WAREHOUSE_REF", schematicId, "", true, "已添加仓库引用",
+                        StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
                 }
                 case "REMOVE_WAREHOUSE_REF" -> {
                     manager.removeWarehouseReference(schematicId, payload.areaId());
-                    var refs = manager.getWarehousesForSchematic(schematicId);
-                    var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("REMOVE_WAREHOUSE_REF", schematicId, "", true, "已移除仓库引用", areaInfos));
+                    Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                        "REMOVE_WAREHOUSE_REF", schematicId, "", true, "已移除仓库引用",
+                        StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
                 }
                 case "LIST_WAREHOUSE_REFS" -> {
-                    var refs = manager.getWarehousesForSchematic(schematicId);
-                    var areaInfos = refs.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                        w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("LIST_WAREHOUSE_REFS", schematicId, "", true, "ok", areaInfos));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                        "LIST_WAREHOUSE_REFS", schematicId, "", true, "ok",
+                        StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
                 }
                 default -> {
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("", schematicId, "", false, "未知操作: " + action, List.of()));

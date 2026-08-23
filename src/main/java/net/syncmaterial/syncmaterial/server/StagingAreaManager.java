@@ -340,15 +340,7 @@ public class StagingAreaManager {
                 } else {
                     Map<String, Integer> result = scanWarehouseContents(areaId);
                     if (result != null) updateWarehouseInventory(areaId, result);
-                    // 查找引用该仓库的原理图
-                    try (var rs = database.executeQuery(
-                            "SELECT DISTINCT schematic_id FROM schematic_warehouses WHERE warehouse_id = ?", areaId)) {
-                        while (rs.next()) {
-                            affectedSchematics.add(rs.getString("schematic_id"));
-                        }
-                    } catch (java.sql.SQLException e) {
-                        SyncMaterial.LOGGER.error("[StagingArea] 查询仓库关联原理图失败", e);
-                    }
+                    affectedSchematics.addAll(getSchematicsReferencingWarehouse(areaId));
                 }
             }
 
@@ -665,15 +657,7 @@ public class StagingAreaManager {
                         dirtyContainers.put(pos, world);
                         SyncMaterial.LOGGER.info("[StagingArea] 容器被移除(延迟): area={} type=warehouse pos={},{},{}", wh.id(), pos.getX(), pos.getY(), pos.getZ());
                         found = true;
-                        // 查找引用该仓库的原理图
-                        try (var rs = database.executeQuery(
-                                "SELECT DISTINCT schematic_id FROM schematic_warehouses WHERE warehouse_id = ?", wh.id())) {
-                            while (rs.next()) {
-                                affectedSchematics.add(rs.getString("schematic_id"));
-                            }
-                        } catch (java.sql.SQLException e) {
-                            SyncMaterial.LOGGER.error("[StagingArea] 查询仓库关联原理图失败", e);
-                        }
+                        affectedSchematics.addAll(getSchematicsReferencingWarehouse(wh.id()));
                         break;
                     }
                 }
@@ -758,7 +742,25 @@ public class StagingAreaManager {
     // ========== Phase 5: 仓库扫描 + container_inventory 维护 ==========
 
     /**
-     * 启动时扫描仓库并标记区块为已扫描
+     * 查询引用了指定仓库的原理图 ID 集合（仓库库存变动后需广播这些原理图的材料状态）
+     */
+    public Set<String> getSchematicsReferencingWarehouse(int warehouseId) {
+        Set<String> result = new HashSet<>();
+        try (var rs = database.executeQuery(
+                "SELECT DISTINCT schematic_id FROM schematic_warehouses WHERE warehouse_id = ?", warehouseId)) {
+            while (rs.next()) {
+                result.add(rs.getString("schematic_id"));
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("[StagingArea] 查询仓库关联原理图失败: warehouseId={}", warehouseId, e);
+        }
+        return result;
+    }
+
+    /**
+     * 扫描仓库并标记区块为已扫描。
+     * 启动时以及新建/修改仓库后调用：后者若不调用，仓库会一直停留在"未初始化"
+     * 状态（前端显示"数据可能过时"且库存为 0），直到有容器变动才被动触发扫描。
      */
     public void rescanWarehouseAndMarkChunks(int warehouseId) {
         Warehouse wh = warehousesById.get(warehouseId);
@@ -772,7 +774,8 @@ public class StagingAreaManager {
     }
 
     /**
-     * 扫描仓库内容物（复用 scanAreaContents 的逻辑，针对仓库坐标）
+     * 扫描仓库内容物（复用 scanAreaContents 的逻辑，针对仓库坐标）。
+     * 同时重建 container_inventory 明细，取货模式的箱子高亮依赖该表。
      */
     private Map<String, Integer> scanWarehouseContents(int warehouseId) {
         Warehouse wh = warehousesById.get(warehouseId);
@@ -781,6 +784,14 @@ public class StagingAreaManager {
         ServerWorld world = server.getWorld(net.minecraft.registry.RegistryKey.of(
                 net.minecraft.registry.RegistryKeys.WORLD, Identifier.of(wh.world())));
         if (world == null) return null;
+
+        // 全量重扫前清空旧明细，避免已移除的容器残留在取货模式高亮里
+        try {
+            database.executeUpdate(
+                "DELETE FROM container_inventory WHERE area_id = ? AND area_type = 'warehouse'", warehouseId);
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("[StagingArea] 清理仓库容器明细失败: id={}", warehouseId, e);
+        }
 
         Map<String, Integer> totalItems = new HashMap<>();
         int minX = Math.min(wh.x1(), wh.x2());
@@ -811,6 +822,7 @@ public class StagingAreaManager {
                             if (be instanceof Inventory) {
                                 Inventory inventory = (Inventory) be;
                                 countInventoryItems(inventory, totalItems);
+                                writeContainerInventory(warehouseId, "warehouse", x, y, z, inventory);
                             }
                         }
                     }
@@ -1315,6 +1327,12 @@ public class StagingAreaManager {
     public static List<StagingAreaConfigResponseS2CPacket.AreaInfo> buildAreaInfos(List<StagingArea> areas) {
         return areas.stream().map(a -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
             a.id(), a.name(), a.x1(), a.y1(), a.z1(), a.x2(), a.y2(), a.z2(), a.world())).toList();
+    }
+
+    /** 仓库列表转网络包结构（原先在 handler 里重复了四次） */
+    public static List<StagingAreaConfigResponseS2CPacket.AreaInfo> buildWarehouseInfos(List<Warehouse> warehouses) {
+        return warehouses.stream().map(w -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+            w.id(), w.name(), w.x1(), w.y1(), w.z1(), w.x2(), w.y2(), w.z2(), w.world())).toList();
     }
 
     // ========== Phase 5: 容器数据查询 ==========
