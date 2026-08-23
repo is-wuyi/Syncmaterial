@@ -99,18 +99,22 @@ public class MaterialCacheTest {
         Path file = writeFile("v1");
         MaterialCache cache = new MaterialCache();
         AtomicInteger calls = new AtomicInteger();
+        // 手动控制完成时机的 future：在两次请求之间解析任务必须仍处于进行中，
+        // 不用 sleep 避免时序不稳定
+        CompletableFuture<List<MaterialEntry>> pending = new CompletableFuture<>();
         Function<String, CompletableFuture<List<MaterialEntry>>> computer =
-            path -> CompletableFuture.supplyAsync(() -> {
+            path -> {
                 calls.incrementAndGet();
-                try { Thread.sleep(100); } catch (InterruptedException ignored) {}
-                return materials(1);
-            });
+                return pending;
+            };
 
         var f1 = cache.getOrCompute(file.toString(), computer);
         var f2 = cache.getOrCompute(file.toString(), computer);
 
-        assertEquals(1, calls.get(), "并发请求应合并为一次解析");
-        assertSame(f1.join(), f2.join());
+        assertEquals(1, calls.get(), "进行中的任务应被复用，不触发第二次解析");
+        pending.complete(materials(1));
+        assertEquals(1, f1.join().get(0).getCountTotal());
+        assertEquals(1, f2.join().get(0).getCountTotal(), "两个请求应拿到同一份结果");
     }
 
     @Test
