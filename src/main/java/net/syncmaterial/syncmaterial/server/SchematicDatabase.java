@@ -237,8 +237,94 @@ public class SchematicDatabase implements AutoCloseable {
             );
             """);
 
+        // 安全迁移：合并 material_entries 中的重复 (schematic_id, item_id) 行。
+        // 必须在 createIndexes() 之前执行，否则唯一索引会因存量重复行创建失败。
+        migrateDeduplicateMaterialEntries();
+
         // 创建索引以提升查询性能
         createIndexes();
+    }
+
+    /**
+     * 数据库迁移：合并 material_entries 的重复行，为唯一索引铺路。
+     *
+     * <p>重复行只可能来自同一原理图被解析多次（解析器对同种物品已在内存中聚合），
+     * 因此每行都是同一份清单的副本，合并时必须<b>保留单行原值</b>——
+     * 若对 count 求和会把"材料翻倍"的错误固化成看似正常的数字。
+     *
+     * <p>相反，player_inventories 记录玩家实际持有量，分散在多个重复行上的
+     * 数量必须<b>求和守恒</b>，否则玩家进度会凭空减少。
+     *
+     * <p>claims.material_id 是 ON DELETE CASCADE 外键，若直接删除重复行会
+     * 级联删除玩家认领，因此所有引用必须先重定向到保留行。
+     */
+    private void migrateDeduplicateMaterialEntries() throws SQLException {
+        // 无重复行时直接跳过，避免每次启动都执行迁移语句
+        try (var rs = executeQuery(
+                "SELECT COUNT(*) FROM (SELECT schematic_id, item_id FROM material_entries " +
+                "GROUP BY schematic_id, item_id HAVING COUNT(*) > 1)")) {
+            if (!rs.next() || rs.getInt(1) == 0) {
+                return;
+            }
+        }
+
+        SyncMaterial.LOGGER.warn("数据库迁移：检测到 material_entries 存在重复行，开始合并");
+
+        beginTransaction();
+        try {
+            // 1. 背包记录：保留行累加同玩家在其他重复行上的持有量（守恒）
+            executeUpdate("""
+                UPDATE player_inventories SET count = count + COALESCE((
+                  SELECT SUM(pi2.count) FROM player_inventories pi2
+                  JOIN material_entries me2 ON pi2.material_id = me2.id
+                  JOIN material_entries me1 ON me1.schematic_id = me2.schematic_id
+                                            AND me1.item_id = me2.item_id
+                  WHERE me1.id = player_inventories.material_id
+                    AND pi2.schematic_id = player_inventories.schematic_id
+                    AND pi2.player_name  = player_inventories.player_name
+                    AND pi2.material_id  > player_inventories.material_id), 0)
+                WHERE material_id IN (
+                  SELECT MIN(id) FROM material_entries GROUP BY schematic_id, item_id)
+                """);
+
+            // 2. 仅重定向不在保留行上的背包记录（玩家只持有非保留行的情况）
+            executeUpdate("""
+                UPDATE OR IGNORE player_inventories SET material_id = (
+                  SELECT MIN(m2.id) FROM material_entries m1
+                  JOIN material_entries m2 ON m1.schematic_id = m2.schematic_id
+                                           AND m1.item_id = m2.item_id
+                  WHERE m1.id = player_inventories.material_id)
+                WHERE material_id NOT IN (
+                  SELECT MIN(id) FROM material_entries GROUP BY schematic_id, item_id)
+                """);
+
+            // 3. 认领记录重定向（同玩家对同物品的重复认领合一）
+            executeUpdate("""
+                UPDATE OR IGNORE claims SET material_id = (
+                  SELECT MIN(m2.id) FROM material_entries m1
+                  JOIN material_entries m2 ON m1.schematic_id = m2.schematic_id
+                                           AND m1.item_id = m2.item_id
+                  WHERE m1.id = claims.material_id)
+                WHERE material_id IN (SELECT id FROM material_entries)
+                """);
+
+            // 4. 删除重复行，保留 MIN(id) 的原始 count（不求和）
+            executeUpdate("""
+                DELETE FROM material_entries WHERE id NOT IN (
+                  SELECT MIN(id) FROM material_entries GROUP BY schematic_id, item_id)
+                """);
+
+            // 5. 兜底清扫：重定向冲突等未预见路径可能残留的孤儿引用
+            executeUpdate("DELETE FROM claims WHERE material_id NOT IN (SELECT id FROM material_entries)");
+            executeUpdate("DELETE FROM player_inventories WHERE material_id NOT IN (SELECT id FROM material_entries)");
+
+            commitTransaction();
+            SyncMaterial.LOGGER.info("数据库迁移：material_entries 重复行合并完成");
+        } catch (SQLException e) {
+            rollbackTransaction();
+            SyncMaterial.LOGGER.error("数据库迁移：合并 material_entries 重复行失败", e);
+            throw e;
+        }
     }
 
     /**
@@ -246,6 +332,8 @@ public class SchematicDatabase implements AutoCloseable {
      */
     private void createIndexes() throws SQLException {
         executeUpdate("CREATE INDEX IF NOT EXISTS idx_material_entries_schematic ON material_entries(schematic_id);");
+        // 唯一约束：每个原理图的每种物品只有一行（配合 watcher 的 upsert 保证幂等）
+        executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_material_entries_unique ON material_entries(schematic_id, item_id);");
         
         // Claims indexes
         executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS idx_claim_unique ON claims(schematic_id, material_id, player_name);");

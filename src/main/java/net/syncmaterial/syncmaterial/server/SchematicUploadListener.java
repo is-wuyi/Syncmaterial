@@ -171,7 +171,8 @@ public class SchematicUploadListener implements Consumer<Object> {
                 int count = (int) Math.min(countLong, Integer.MAX_VALUE); // 防止溢出
 
                 database.executeUpdate(
-                    "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?)",
+                    "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?) " +
+                    "ON CONFLICT(schematic_id, item_id) DO UPDATE SET count = excluded.count",
                     schematicId, itemId, count
                 );
             }

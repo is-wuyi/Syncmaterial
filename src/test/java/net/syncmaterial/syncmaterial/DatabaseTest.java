@@ -381,4 +381,200 @@ public class DatabaseTest
         }
         assertEquals(1, countRows("schematics"));
     }
+
+    @Test
+    void materialEntries_uniqueIndex_preventsDuplicates() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        insertMaterial("s1", "minecraft:stone", 64);
+
+        // 同一原理图的同种物品不能有第二行
+        assertThrows(SQLException.class, () ->
+            insertMaterial("s1", "minecraft:stone", 32),
+            "同 (schematic_id, item_id) 应被唯一索引拒绝");
+
+        // 不同原理图、不同物品仍可插入
+        insertSchematic("s2", "Owner1");
+        assertDoesNotThrow(() -> insertMaterial("s2", "minecraft:stone", 10));
+        assertDoesNotThrow(() -> insertMaterial("s1", "minecraft:oak_log", 10));
+    }
+
+    @Test
+    void materialEntries_upsert_overwritesCountNotAccumulates() throws SQLException
+    {
+        insertSchematic("s1", "Owner1");
+        insertMaterial("s1", "minecraft:stone", 100);
+
+        // 快照语义：重复写入同种物品应覆盖而非累加
+        db.executeUpdate(
+            "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?) " +
+            "ON CONFLICT(schematic_id, item_id) DO UPDATE SET count = excluded.count",
+            "s1", "minecraft:stone", 500);
+
+        try (var rs = db.executeQuery(
+            "SELECT count FROM material_entries WHERE schematic_id = 's1' AND item_id = 'minecraft:stone'"))
+        {
+            assertTrue(rs.next());
+            assertEquals(500, rs.getInt("count"), "upsert 应覆盖为最新解析值，不能累加成 600");
+        }
+        assertEquals(1, countRows("material_entries"), "不应产生第二行");
+    }
+
+    // ========== 存量重复数据的迁移（走真实 initialize） ==========
+
+    /**
+     * 构造"旧库"：手写不含唯一索引的 schema 并塞入重复行，
+     * 之后交给真实 initialize() 触发迁移，因此迁移入口也是生产代码本身。
+     */
+    private void buildLegacyDatabaseWithDuplicates(Path dbPath) throws Exception
+    {
+        Class.forName("org.sqlite.JDBC");
+        try (var conn = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+             var st = conn.createStatement())
+        {
+            st.executeUpdate("PRAGMA foreign_keys=ON");
+            st.executeUpdate("""
+                CREATE TABLE schematics (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, file_path TEXT NOT NULL,
+                    uploaded_by TEXT, allow_self_claim INTEGER DEFAULT 1,
+                    created_at INTEGER DEFAULT (strftime('%s','now')*1000))
+                """);
+            // 关键：没有 UNIQUE(schematic_id, item_id)，模拟修复前的 schema
+            st.executeUpdate("""
+                CREATE TABLE material_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, schematic_id TEXT NOT NULL,
+                    item_id TEXT NOT NULL, count INTEGER NOT NULL,
+                    FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE)
+                """);
+            st.executeUpdate("""
+                CREATE TABLE claims (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, schematic_id TEXT NOT NULL,
+                    material_id INTEGER NOT NULL, player_name TEXT NOT NULL,
+                    status TEXT DEFAULT 'active',
+                    created_at INTEGER DEFAULT (strftime('%s','now')*1000),
+                    FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
+                    FOREIGN KEY (material_id) REFERENCES material_entries(id) ON DELETE CASCADE)
+                """);
+            st.executeUpdate("""
+                CREATE TABLE player_inventories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, schematic_id TEXT NOT NULL,
+                    player_name TEXT NOT NULL, material_id INTEGER NOT NULL,
+                    count INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER DEFAULT (strftime('%s','now')*1000),
+                    FOREIGN KEY (schematic_id) REFERENCES schematics(id) ON DELETE CASCADE,
+                    UNIQUE(schematic_id, player_name, material_id))
+                """);
+
+            st.executeUpdate("INSERT INTO schematics (id,name,file_path,uploaded_by) VALUES ('s1','城堡','/p','Alice')");
+            // stone 因重复解析产生 3 行（各 100，实际只需 100）；oak_log 正常 1 行
+            st.executeUpdate("INSERT INTO material_entries (id,schematic_id,item_id,count) VALUES (1,'s1','minecraft:stone',100)");
+            st.executeUpdate("INSERT INTO material_entries (id,schematic_id,item_id,count) VALUES (2,'s1','minecraft:stone',100)");
+            st.executeUpdate("INSERT INTO material_entries (id,schematic_id,item_id,count) VALUES (5,'s1','minecraft:stone',100)");
+            st.executeUpdate("INSERT INTO material_entries (id,schematic_id,item_id,count) VALUES (3,'s1','minecraft:oak_log',50)");
+            // Bob 在三行上都有背包记录（10+20+30=60）；Carol/Dave 只持有非保留行
+            st.executeUpdate("INSERT INTO player_inventories (schematic_id,player_name,material_id,count) VALUES ('s1','Bob',1,10)");
+            st.executeUpdate("INSERT INTO player_inventories (schematic_id,player_name,material_id,count) VALUES ('s1','Bob',2,20)");
+            st.executeUpdate("INSERT INTO player_inventories (schematic_id,player_name,material_id,count) VALUES ('s1','Bob',5,30)");
+            st.executeUpdate("INSERT INTO player_inventories (schematic_id,player_name,material_id,count) VALUES ('s1','Carol',2,15)");
+            st.executeUpdate("INSERT INTO player_inventories (schematic_id,player_name,material_id,count) VALUES ('s1','Dave',5,25)");
+            st.executeUpdate("INSERT INTO player_inventories (schematic_id,player_name,material_id,count) VALUES ('s1','Eve',3,5)");
+            st.executeUpdate("INSERT INTO claims (schematic_id,material_id,player_name) VALUES ('s1',1,'Bob')");
+            st.executeUpdate("INSERT INTO claims (schematic_id,material_id,player_name) VALUES ('s1',2,'Carol')");
+            st.executeUpdate("INSERT INTO claims (schematic_id,material_id,player_name) VALUES ('s1',5,'Dave')");
+            st.executeUpdate("INSERT INTO claims (schematic_id,material_id,player_name) VALUES ('s1',3,'Eve')");
+        }
+    }
+
+    private int scalar(SchematicDatabase database, String sql, Object... params) throws SQLException
+    {
+        try (var rs = database.executeQuery(sql, params))
+        {
+            return rs.next() ? rs.getInt(1) : -1;
+        }
+    }
+
+    @Test
+    void migration_deduplicatesMaterialEntries_preservingClaimsAndInventoryTotals() throws Exception
+    {
+        Path legacyDb = tempDir.resolve("legacy.db");
+        buildLegacyDatabaseWithDuplicates(legacyDb);
+
+        SchematicDatabase migrated = new SchematicDatabase();
+        try
+        {
+            // 真实迁移入口：存量重复行不应让 initialize 失败
+            assertDoesNotThrow(() -> migrated.initialize(legacyDb.toString()),
+                "存量重复行下 initialize 应完成迁移而非抛异常");
+
+            // 断言 1：材料数量等于单次解析值，不能被 SUM 成 300
+            assertEquals(100, scalar(migrated,
+                "SELECT count FROM material_entries WHERE schematic_id='s1' AND item_id='minecraft:stone'"),
+                "重复行合并必须保留单行原值，求和会把翻倍错误固化");
+            assertEquals(1, scalar(migrated,
+                "SELECT COUNT(*) FROM material_entries WHERE schematic_id='s1' AND item_id='minecraft:stone'"),
+                "stone 应只剩一行");
+            assertEquals(50, scalar(migrated,
+                "SELECT count FROM material_entries WHERE item_id='minecraft:oak_log'"),
+                "未重复的材料不应被改动");
+
+            // 断言 2：玩家持有量守恒
+            assertEquals(60, scalar(migrated,
+                "SELECT count FROM player_inventories WHERE player_name='Bob'"),
+                "Bob 分散在三行的 10+20+30 必须合并为 60");
+            assertEquals(15, scalar(migrated,
+                "SELECT count FROM player_inventories WHERE player_name='Carol'"),
+                "Carol 只持有非保留行，应被重定向而非删除");
+            assertEquals(25, scalar(migrated,
+                "SELECT count FROM player_inventories WHERE player_name='Dave'"),
+                "Dave 只持有非保留行，应被重定向而非删除");
+            assertEquals(5, scalar(migrated,
+                "SELECT count FROM player_inventories WHERE player_name='Eve'"),
+                "Eve 持有未重复的材料，不应受影响");
+
+            // 断言 3：认领记录不因 CASCADE 丢失
+            assertEquals(4, scalar(migrated, "SELECT COUNT(*) FROM claims"),
+                "四位玩家的认领都应保留（删除重复行会 CASCADE 删掉它们）");
+
+            // 断言 4：无孤儿引用
+            try (var rs = migrated.executeQuery("PRAGMA foreign_key_check"))
+            {
+                assertFalse(rs.next(), "迁移后不应存在外键违规");
+            }
+            assertEquals(0, scalar(migrated,
+                "SELECT COUNT(*) FROM player_inventories WHERE material_id NOT IN (SELECT id FROM material_entries)"),
+                "player_inventories 无外键，必须手工确认没有孤儿记录");
+
+            // 迁移后唯一索引应已生效
+            assertThrows(SQLException.class, () -> migrated.executeUpdate(
+                "INSERT INTO material_entries (schematic_id, item_id, count) VALUES ('s1','minecraft:stone',1)"),
+                "迁移完成后唯一索引应阻止新的重复行");
+        }
+        finally
+        {
+            migrated.close();
+        }
+    }
+
+    @Test
+    void migration_isIdempotent_onCleanDatabase() throws Exception
+    {
+        // 无重复行的库反复 initialize 不应报错也不应改动数据
+        insertSchematic("s1", "Owner1");
+        insertMaterial("s1", "minecraft:stone", 64);
+        db.close();
+
+        SchematicDatabase again = new SchematicDatabase();
+        try
+        {
+            assertDoesNotThrow(() -> again.initialize(tempDir.resolve("test.db").toString()));
+            assertEquals(64, scalar(again,
+                "SELECT count FROM material_entries WHERE item_id='minecraft:stone'"));
+            assertEquals(1, scalar(again, "SELECT COUNT(*) FROM material_entries"));
+        }
+        finally
+        {
+            again.close();
+            db = null;
+        }
+    }
 }
