@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs 排除规则。
+
+  目标是让报告里只剩"值得看一眼"的条目：首次全量扫描 138 条中约 70% 属于
+  下面这些对本项目无意义的模式，不过滤会导致报告没人看，等于白装。
+-->
+<FindBugsFilter>
+
+    <!--
+      EI_EXPOSE_REP / EI_EXPOSE_REP2 / MS_EXPOSE_REP（96 条）：
+      要求 getter/构造器对可变对象做防御性拷贝。本项目大量传递
+      List<MaterialEntry>、Map、BlockPos 等，走的是"信任内部调用方"的约定，
+      逐一拷贝会带来无谓的 GC 压力（材料清单每 tick 都可能被读取）。
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2,MS_EXPOSE_REP"/>
+    </Match>
+
+    <!--
+      Mixin 类：字节码由 Mixin 注入器改写，结构本身"不正常"
+      （@Shadow 字段、抽象方法体、this 强转目标类），静态分析必然误报。
+    -->
+    <Match>
+        <Package name="~.*\.mixin.*"/>
+    </Match>
+
+    <!--
+      MaLiLib/Litematica 的 GUI 基类要求在构造器中 addButton/setParent，
+      这是上游继承模式的固有产物，不是本项目能修的。
+    -->
+    <Match>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
+
+    <!--
+      SF_SWITCH_NO_DEFAULT：本项目的 action 分发 switch 已有显式 default 分支
+      做未知操作兜底，SpotBugs 对 Java 21 增强 switch 的识别不准。
+    -->
+    <Match>
+        <Bug pattern="SF_SWITCH_NO_DEFAULT"/>
+    </Match>
+
+    <!--
+      客户端 GUI 里对 MinecraftClient.getInstance().player 等的解引用：
+      渲染/交互回调只在游戏内触发，此时 player 必然存在。
+      服务端代码不在此列，仍然接受 NP_* 检查。
+    -->
+    <Match>
+        <Package name="~net\.syncmaterial\.syncmaterial\.client\.gui.*"/>
+        <Bug pattern="NP_NULL_ON_SOME_PATH,NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+    </Match>
+
+</FindBugsFilter>

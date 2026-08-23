@@ -225,14 +225,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 // 进入取货模式时更新需要的物品 ID 列表和缺失数量
                 // 取货模式：还需取货 = 总数 - 备货区 - 背包（不减仓库，因为需要从仓库取货）
                 java.util.Set<String> needed = new java.util.HashSet<>();
-                java.util.Map<String, Integer> counts = new java.util.HashMap<>();
                 for (var entry : this.materialList.getMaterialsAll()) {
                     int pickupMissing = (int) net.syncmaterial.syncmaterial.api.ProgressFormulas.pickupMissing(
                         entry.getCountTotal(), entry.getStagingCount(), entry.getCountAvailable(), entry.getWarehouseCount());
                     if (pickupMissing > 0) {
-                        String itemId = entry.getStack().getItem().toString();
-                        needed.add(itemId);
-                        counts.put(itemId, pickupMissing);
+                        needed.add(entry.getStack().getItem().toString());
                     }
                 }
                 pickupModeNeededItemIds = needed;
@@ -856,7 +853,7 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
 
         if (mouseX >= listX && mouseX < listX + listWidth && mouseY >= listY) {
             List<PlayerInfo> filtered = getFilteredPlayers();
-            int row = (int) ((mouseY - listY) / OVERLAY_ROW_HEIGHT) + overlayScrollOffset;
+            int row = (mouseY - listY) / OVERLAY_ROW_HEIGHT + overlayScrollOffset;
             if (row >= 0 && row < filtered.size()) {
                 String playerName = filtered.get(row).name();
                 // 转让负责人只允许单选

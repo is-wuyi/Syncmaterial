@@ -28,6 +28,39 @@ jobs:
       - name: Build
         run: ./gradlew build --stacktrace
 
+      - name: Static analysis
+        if: always()
+        run: ./gradlew spotbugsMain
+
+      - name: Static analysis summary
+        if: always()
+        run: |
+          echo "## 静态分析（SpotBugs）" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/spotbugs/main.xml ]; then
+            python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
+          import xml.etree.ElementTree as ET, collections
+          root = ET.parse('build/reports/spotbugs/main.xml').getroot()
+          bugs = root.findall('BugInstance')
+          pri = collections.Counter(b.get('priority') for b in bugs)
+          names = {'1': '高', '2': '中', '3': '低'}
+          parts = [f"{names.get(k, k)} {pri[k]}" for k in ('1', '2', '3') if pri[k]]
+          print(f"- 共 {len(bugs)} 条（{'，'.join(parts) if parts else '无'}）")
+          high = [b for b in bugs if b.get('priority') == '1']
+          if high:
+              print("")
+              print("| 类型 | 位置 |")
+              print("|---|---|")
+              for b in high:
+                  cls = b.find('Class')
+                  line = b.find('SourceLine')
+                  name = cls.get('classname', '?').split('.')[-1] if cls is not None else '?'
+                  at = line.get('start', '?') if line is not None else '?'
+                  print(f"| {b.get('type')} | {name}:{at} |")
+          EOF
+          else
+            echo "- 报告未生成" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Test summary
         if: always()
         run: |
@@ -76,4 +109,5 @@ jobs:
             build/reports/tests/
             build/test-results/
             build/reports/jacoco/
+            build/reports/spotbugs/
           retention-days: 7

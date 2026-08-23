@@ -243,7 +243,7 @@ public class StagingAreaScanGameTest {
             sam.addWarehouseReference(testId, warehouseId[0]);
 
             // 手动驱动脏标记 + 批处理（生产中由 markDirty Mixin + 每 4 tick 定时器触发）
-            sam.scheduleContainerScan(chestPos, (ServerWorld) ctx.getWorld());
+            sam.scheduleContainerScan(chestPos, ctx.getWorld());
             sam.processDirtyContainers();
 
             // 实际处理经 server.execute 延迟到下一 tick，等待后再断言
@@ -349,14 +349,14 @@ public class StagingAreaScanGameTest {
                 db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
             } catch (Exception ignored) {}
             ctx.removeBlock(new BlockPos(1, 1, 1));
-            if (absBHolder[0] != null) ((ServerWorld) ctx.getWorld()).removeBlock(absBHolder[0], false);
+            if (absBHolder[0] != null) ctx.getWorld().removeBlock(absBHolder[0], false);
         };
 
         try {
             db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
                 testId, "Cross Chunk Test", "/test.litematic");
 
-            ServerWorld world = (ServerWorld) ctx.getWorld();
+            ServerWorld world = ctx.getWorld();
             BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 32));
 
             // 箱子 B 放到相邻区块（x 方向下一个区块的起点）。
@@ -433,7 +433,7 @@ public class StagingAreaScanGameTest {
                 matId = qr.getInt(1);
             }
 
-            ServerWorld world = (ServerWorld) ctx.getWorld();
+            ServerWorld world = ctx.getWorld();
             BlockPos absA = ctx.getAbsolutePos(new BlockPos(1, 1, 1));
             int bx = nextChunkStartX(absA);
             areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Fresh Area",
@@ -485,7 +485,7 @@ public class StagingAreaScanGameTest {
             db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
                 testId, "Resize Test", "/test.litematic");
 
-            ServerWorld world = (ServerWorld) ctx.getWorld();
+            ServerWorld world = ctx.getWorld();
             BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 8));
             // 初始区域 1x1x1（单区块），重扫后应完成初始化
             areaId[0] = sam.addStagingArea(testId, "minecraft:overworld", "Resize Area",
@@ -537,7 +537,7 @@ public class StagingAreaScanGameTest {
             db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
                 testId, "Remove Init Test", "/test.litematic");
 
-            ServerWorld world = (ServerWorld) ctx.getWorld();
+            ServerWorld world = ctx.getWorld();
             BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 8));
 
             // 备货区：初始化后删除，状态应清理
@@ -634,14 +634,14 @@ public class StagingAreaScanGameTest {
                 db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
             } catch (Exception ignored) {}
             ctx.removeBlock(new BlockPos(1, 1, 1));
-            if (absBHolder[0] != null) ((ServerWorld) ctx.getWorld()).removeBlock(absBHolder[0], false);
+            if (absBHolder[0] != null) ctx.getWorld().removeBlock(absBHolder[0], false);
         };
 
         try {
             db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
                 testId, "Warehouse Cross Chunk Test", "/test.litematic");
 
-            ServerWorld world = (ServerWorld) ctx.getWorld();
+            ServerWorld world = ctx.getWorld();
             BlockPos absA = placeChestWith(ctx, new ItemStack(Items.STONE, 32));
 
             int bx = nextChunkStartX(absA);
@@ -696,7 +696,7 @@ public class StagingAreaScanGameTest {
                 if (areaId[0] > 0) sam.removeStagingArea(areaId[0], testId);
                 db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
             } catch (Exception ignored) {}
-            ServerWorld world = (ServerWorld) ctx.getWorld();
+            ServerWorld world = ctx.getWorld();
             BlockPos absA = ctx.getAbsolutePos(new BlockPos(1, 1, 1));
             world.removeBlock(absA, false);
             world.removeBlock(absA.east(), false);
@@ -706,7 +706,7 @@ public class StagingAreaScanGameTest {
             db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
                 testId, "Double Chest Test", "/test.litematic");
 
-            ServerWorld world = (ServerWorld) ctx.getWorld();
+            ServerWorld world = ctx.getWorld();
             BlockPos absA = ctx.getAbsolutePos(new BlockPos(1, 1, 1));
             BlockPos absB = absA.east();
             var facing = net.minecraft.util.math.Direction.NORTH;

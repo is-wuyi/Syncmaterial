@@ -616,8 +616,6 @@ public class StagingAreaManager {
     public void onContainerRemoved(BlockPos pos, ServerWorld world) {
         String worldId = world.getRegistryKey().getValue().toString();
         boolean found = false;
-        int foundAreaId = -1;
-        String foundAreaType = "";
         Set<String> affectedSchematics = new HashSet<>();
 
         // 检查备货区
@@ -638,8 +636,6 @@ public class StagingAreaManager {
                     pendingDeferredRescans.put(pos, currentServerTick);
                     dirtyContainers.put(pos, world);
                     SyncMaterial.LOGGER.info("[StagingArea] 容器被移除(延迟): area={} pos={},{},{}", area.id, pos.getX(), pos.getY(), pos.getZ());
-                    foundAreaId = area.id;
-                    foundAreaType = "staging_area";
                     affectedSchematics.add(schematicEntry.getKey());
                     found = true;
                     break;
@@ -668,8 +664,6 @@ public class StagingAreaManager {
                         pendingDeferredRescans.put(pos, currentServerTick);
                         dirtyContainers.put(pos, world);
                         SyncMaterial.LOGGER.info("[StagingArea] 容器被移除(延迟): area={} type=warehouse pos={},{},{}", wh.id(), pos.getX(), pos.getY(), pos.getZ());
-                        foundAreaId = wh.id();
-                        foundAreaType = "warehouse";
                         found = true;
                         // 查找引用该仓库的原理图
                         try (var rs = database.executeQuery(

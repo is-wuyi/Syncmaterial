@@ -2,9 +2,10 @@
 plugins {
     id 'fabric-loom' version '1.14.10'
     id 'jacoco'
+    id 'com.github.spotbugs' version '6.5.10'
 }
 
-version = "1.21.7-0.3.0-beta.13"
+version = "1.21.7-0.3.0-beta.14"
 group = "net.syncmaterial"
 
 repositories {
@@ -65,6 +66,12 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
+    // 编译期静态检查。排除对本项目无意义的类别：
+    //   classfile/processing —— 第三方 jar（guava/gson 缺 errorprone 注解）产生，无法修
+    //   this-escape        —— MaLiLib 控件基类要求构造器中 addButton，是上游继承模式固有产物
+    //   serial             —— Minecraft 相关类普遍不声明 serialVersionUID
+    // 不加 -Werror：警告不阻塞构建，避免上游 API 废弃时卡住开发
+    options.compilerArgs << '-Xlint:all,-classfile,-processing,-this-escape,-serial'
 }
 
 tasks.withType(Test).configureEach {
@@ -99,6 +106,25 @@ jacocoTestReport {
 
 test {
     finalizedBy jacocoTestReport
+}
+
+// 静态分析（SpotBugs）。只分析主源集，测试/GameTest 源集不参与：
+// 测试代码里的 mock 与断言模式会产生大量无意义告警。
+spotbugs {
+    ignoreFailures = true          // 不阻塞构建，静态分析是体检而非门禁
+    effort = 'max'
+    reportLevel = 'default'
+    excludeFilter = file('config/spotbugs/exclude.xml')
+}
+tasks.named('spotbugsMain') {
+    reports {
+        xml.required = true        // CI 汇总用
+        html.required = true       // 人工查看用
+    }
+}
+// 测试源集不跑静态分析
+tasks.matching { it.name in ['spotbugsTest', 'spotbugsGametest'] }.configureEach {
+    enabled = false
 }
 
 java {
