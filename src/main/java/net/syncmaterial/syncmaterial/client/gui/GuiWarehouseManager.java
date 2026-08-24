@@ -6,12 +6,16 @@ import java.util.Optional;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
+import net.minecraft.client.MinecraftClient;
+
+import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiListBase;
+import fi.dy.masa.malilib.gui.GuiTextInput;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
 import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
+import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
 import fi.dy.masa.malilib.util.StringUtils;
 
-import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListWarehouses;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetWarehouseEntry;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
@@ -25,8 +29,8 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
         implements ISelectionListener<WarehouseEntry>, StagingAreaSelector.SelectionCallback
 {
     private final List<WarehouseEntry> warehouses = new ArrayList<>();
-    private String pendingWarehouseName = null; // 等待准星选区完成后的仓库名
-    private int editingWarehouseId = -1; // 正在编辑的仓库ID（-1表示新建模式）
+    /** 待创建仓库的名称：先由名称弹窗填入，准星选区确认时取用 */
+    private String pendingWarehouseName = null;
 
     public GuiWarehouseManager()
     {
@@ -73,12 +77,14 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
         int x = 10;
         int y = 24;
 
-        // 添加仓库按钮 — 直接进入准星选区
+        // 添加仓库：先输入名称，确认后进入准星选区（与备货区一致）
         String label = StringUtils.translate("syncmaterial.gui.button.add_warehouse");
         ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
         this.addButton(button, (btn, mouseButton) -> {
-            this.pendingWarehouseName = "仓库";
-            StagingAreaSelector.getInstance().start(this, this, null, null, null);
+            GuiTextInput gui = new GuiTextInput(128,
+                    "syncmaterial.gui.title.warehouse_name", "", null, new WarehouseCreator(this));
+            gui.setParent(this);
+            GuiBase.openGui(gui);
         });
     }
 
@@ -88,15 +94,44 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     }
 
     /**
-     * 开始编辑仓库（进入准星选区模式）
+     * 打开仓库编辑界面（坐标编辑 + 准星选区），与备货区的"配置"按钮对应
      */
     public void startEditWarehouse(WarehouseEntry entry)
     {
-        this.editingWarehouseId = entry.warehouseId();
-        this.pendingWarehouseName = entry.name();
-        StagingAreaSelector.getInstance().start(this, this, entry.name(),
-            new net.minecraft.util.math.BlockPos(entry.x1(), entry.y1(), entry.z1()),
-            new net.minecraft.util.math.BlockPos(entry.x2(), entry.y2(), entry.z2()));
+        GuiWarehouseEditor editor = new GuiWarehouseEditor(entry, this);
+        editor.setParent(this);
+        GuiBase.openGui(editor);
+    }
+
+    /**
+     * 名称输入完成后进入准星选区。
+     * MaLiLib 弹窗在 setString 返回 true 后会 setScreen(parent)，
+     * 若此处直接启动选区（内部 setScreen(null)）会被随后的 setScreen 盖掉，
+     * 所以推迟到下一帧执行。
+     */
+    private static class WarehouseCreator implements IStringConsumerFeedback
+    {
+        private final GuiWarehouseManager gui;
+
+        private WarehouseCreator(GuiWarehouseManager gui)
+        {
+            this.gui = gui;
+        }
+
+        @Override
+        public boolean setString(String string)
+        {
+            if (string == null || string.trim().isEmpty())
+            {
+                return false;
+            }
+
+            this.gui.pendingWarehouseName = string.trim();
+
+            MinecraftClient.getInstance().execute(() ->
+                    StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null));
+            return true;
+        }
     }
 
     private void requestWarehouseList()
@@ -142,31 +177,25 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
                                       @javax.annotation.Nullable net.minecraft.util.math.BlockPos pos1,
                                       @javax.annotation.Nullable net.minecraft.util.math.BlockPos pos2)
     {
-        SyncMaterial.LOGGER.info("[WarehouseManager] onSelectionConfirmed: pos1={}, pos2={}", pos1, pos2);
-        if (pos1 != null && pos2 != null) {
-            String name = pendingWarehouseName != null ? pendingWarehouseName : "仓库";
-            String world = net.minecraft.client.MinecraftClient.getInstance().player != null
-                ? net.minecraft.client.MinecraftClient.getInstance().player.getWorld().getRegistryKey().getValue().toString()
-                : "minecraft:overworld";
+        // 编辑已改由 GuiWarehouseEditor 处理，本回调只服务"新建"流程
+        String name = this.pendingWarehouseName;
+        this.pendingWarehouseName = null;
 
-            if (editingWarehouseId >= 0) {
-                // 编辑模式：更新仓库
-                SyncMaterial.LOGGER.info("[WarehouseManager] 发送 UPDATE_WAREHOUSE: id={}, name={}", editingWarehouseId, name);
-                var areaData = new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData(
-                    name, pos1.getX(), pos1.getY(), pos1.getZ(),
-                    pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world));
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                    "", "UPDATE_WAREHOUSE", editingWarehouseId, Optional.of(areaData)));
-                editingWarehouseId = -1;
-            } else {
-                // 新建模式
-                SyncMaterial.LOGGER.info("[WarehouseManager] 发送 ADD_WAREHOUSE: name={}, world={}", name, world);
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
-                    Optional.of(new StagingAreaConfigC2SPacket.AreaData(name, pos1.getX(), pos1.getY(), pos1.getZ(),
-                        pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world)))));
-            }
-            pendingWarehouseName = null;
-            requestWarehouseList();
+        if (pos1 == null || pos2 == null || name == null)
+        {
+            return;
         }
+
+        // 取一次局部引用，避免两次 getInstance().player 之间状态变化
+        var clientPlayer = MinecraftClient.getInstance().player;
+        String world = clientPlayer != null
+            ? clientPlayer.getWorld().getRegistryKey().getValue().toString()
+            : "minecraft:overworld";
+
+        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
+            Optional.of(new StagingAreaConfigC2SPacket.AreaData(name,
+                pos1.getX(), pos1.getY(), pos1.getZ(),
+                pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world)))));
+        requestWarehouseList();
     }
 }

@@ -61,6 +61,13 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         return this.addButton(new ButtonGeneric(x, y, -1, true, type.getDisplayName()), new ButtonListener(type, this)).getX() - 1;
     }
 
+    /** 维度 ID 去掉命名空间前缀，界面上更紧凑 */
+    static String shortWorldName(String worldId)
+    {
+        int idx = worldId.indexOf(':');
+        return idx >= 0 && idx < worldId.length() - 1 ? worldId.substring(idx + 1) : worldId;
+    }
+
     @Override
     public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
     {
@@ -103,6 +110,20 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                 this.entryData.x2(), this.entryData.y2(), this.entryData.z2());
         this.drawString(drawContext, this.x + 2 + tagWidth, this.y + 7, 0xFFFFFFFF, display);
 
+        String world = this.entryData.world();
+        if (world != null && !world.isEmpty())
+        {
+            // 与玩家当前维度不一致时标黄，提示线框和扫描都不会在此维度生效
+            var clientPlayer = net.minecraft.client.MinecraftClient.getInstance().player;
+            String currentWorld = clientPlayer != null
+                    ? clientPlayer.getWorld().getRegistryKey().getValue().toString()
+                    : null;
+            int color = world.equals(currentWorld) ? 0xFF888888 : 0xFFFFAA00;
+            this.drawString(drawContext,
+                    this.x + 2 + tagWidth + fi.dy.masa.malilib.util.StringUtils.getStringWidth(display),
+                    this.y + 7, color, "  @" + shortWorldName(world));
+        }
+
         super.render(drawContext, mouseX, mouseY, selected);
     }
 
@@ -122,6 +143,13 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
         int sizeZ = Math.abs(this.entryData.z2() - this.entryData.z1()) + 1;
         text.add("§7" + fi.dy.masa.malilib.util.StringUtils.translate(
                 "syncmaterial.gui.label.size", sizeX, sizeY, sizeZ));
+
+        String world = this.entryData.world();
+        if (world != null && !world.isEmpty())
+        {
+            text.add("§7" + fi.dy.masa.malilib.util.StringUtils.translate(
+                    "syncmaterial.gui.label.area_world", shortWorldName(world)));
+        }
 
         int offset = 12;
         if (GuiBase.isMouseOver(mouseX, mouseY, this.x, this.y, this.buttonsStartX - offset, this.height))

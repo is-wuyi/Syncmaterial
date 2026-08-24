@@ -144,11 +144,28 @@ public class StagingAreaManager {
     }
 
     public void updateStagingArea(int areaId, String schematicId, String name, int x1, int y1, int z1, int x2, int y2, int z2) {
+        updateStagingArea(areaId, schematicId, name, null, x1, y1, z1, x2, y2, z2);
+    }
+
+    /**
+     * 更新备货区，可同时迁移维度。
+     * world 传 null 表示保持原维度；与 updateWarehouse 同理，
+     * 只改坐标不改 world 会让数据自相矛盾（渲染与扫描都按 world 过滤）。
+     */
+    public void updateStagingArea(int areaId, String schematicId, String name, @javax.annotation.Nullable String world,
+                                  int x1, int y1, int z1, int x2, int y2, int z2) {
         try {
-            database.executeUpdate(
-                "UPDATE staging_areas SET name = ?, x1 = ?, y1 = ?, z1 = ?, x2 = ?, y2 = ?, z2 = ? WHERE id = ?",
-                name, x1, y1, z1, x2, y2, z2, areaId
-            );
+            if (world != null) {
+                database.executeUpdate(
+                    "UPDATE staging_areas SET name = ?, world = ?, x1 = ?, y1 = ?, z1 = ?, x2 = ?, y2 = ?, z2 = ? WHERE id = ?",
+                    name, world, x1, y1, z1, x2, y2, z2, areaId
+                );
+            } else {
+                database.executeUpdate(
+                    "UPDATE staging_areas SET name = ?, x1 = ?, y1 = ?, z1 = ?, x2 = ?, y2 = ?, z2 = ? WHERE id = ?",
+                    name, x1, y1, z1, x2, y2, z2, areaId
+                );
+            }
             refreshCache(schematicId);
             // 范围变了：重置初始化状态，扩大的新领土重新按区块跟踪补扫
             resetInitState("staging_area", areaId);
@@ -1218,13 +1235,33 @@ public class StagingAreaManager {
      * 编辑全局仓库
      */
     public void updateWarehouse(int id, String name, int x1, int y1, int z1, int x2, int y2, int z2) {
+        updateWarehouse(id, name, null, x1, y1, z1, x2, y2, z2);
+    }
+
+    /**
+     * 编辑全局仓库，可同时迁移维度。
+     * world 传 null 表示保持原维度；传新值则连同坐标一起迁移，
+     * 否则坐标改到了新维度而 world 仍是旧值，会导致线框渲染不出来、扫描扫错维度。
+     */
+    public void updateWarehouse(int id, String name, @javax.annotation.Nullable String world,
+                                int x1, int y1, int z1, int x2, int y2, int z2) {
         try {
-            database.executeUpdate(
-                "UPDATE warehouses SET name=?, x1=?, y1=?, z1=?, x2=?, y2=?, z2=? WHERE id=?",
-                name, x1, y1, z1, x2, y2, z2, id);
             Warehouse old = warehousesById.get(id);
+            String finalWorld = world != null ? world : (old != null ? old.world() : null);
+
+            if (finalWorld != null) {
+                database.executeUpdate(
+                    "UPDATE warehouses SET name=?, world=?, x1=?, y1=?, z1=?, x2=?, y2=?, z2=? WHERE id=?",
+                    name, finalWorld, x1, y1, z1, x2, y2, z2, id);
+            } else {
+                database.executeUpdate(
+                    "UPDATE warehouses SET name=?, x1=?, y1=?, z1=?, x2=?, y2=?, z2=? WHERE id=?",
+                    name, x1, y1, z1, x2, y2, z2, id);
+            }
+
             if (old != null) {
-                Warehouse wh = new Warehouse(id, name, old.world(), x1, y1, z1, x2, y2, z2);
+                Warehouse wh = new Warehouse(id, name, finalWorld != null ? finalWorld : old.world(),
+                        x1, y1, z1, x2, y2, z2);
                 warehousesById.put(id, wh);
                 rebuildWarehouseWorldIndex();
             }

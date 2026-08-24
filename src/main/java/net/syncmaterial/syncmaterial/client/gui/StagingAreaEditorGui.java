@@ -9,4 +9,7 @@ public interface StagingAreaEditorGui extends ISelectionListener<StagingAreaEntr
     void deleteArea(int areaId);
 
     void refreshAreas();
+
+    /** 备货区所属维度；未知时返回空串 */
+    String getAreaWorld(String areaName);
 }

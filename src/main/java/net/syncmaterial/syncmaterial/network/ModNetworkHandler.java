@@ -540,7 +540,8 @@ public class ModNetworkHandler {
                     AreaData data = ad.get();
                     SyncMaterial.LOGGER.debug("[StagingArea] UPDATE: areaId={} schematicId='{}' name='{}'",
                             payload.areaId(), schematicId, data.name());
-                    manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.world().orElse(null),
+                            data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     manager.rescanStagingArea(payload.areaId());
                     sendStagingAreaResponse(player, manager, schematicId, true, "备货区已更新");
                     manager.broadcastUpdate(schematicId);
@@ -574,7 +575,8 @@ public class ModNetworkHandler {
                 }
                 case "UPDATE_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
-                    manager.updateWarehouse(payload.areaId(), data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    manager.updateWarehouse(payload.areaId(), data.name(), data.world().orElse(null),
+                            data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     // 范围可能变了：updateWarehouse 已重置初始化状态，这里按新范围立即重扫
                     manager.rescanWarehouseAndMarkChunks(payload.areaId());
                     pushWarehouseContainerUpdate(manager);

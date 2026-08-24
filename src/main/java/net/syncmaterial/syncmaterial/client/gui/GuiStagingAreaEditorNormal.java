@@ -63,6 +63,17 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
     protected boolean needsWarehouseRefLoad = true;
+    /**
+     * 待创建备货区的名称。新建流程先弹输入框拿到名字，再进准星选区，
+     * 选区确认时靠这个字段区分"新建"与"改已有区域坐标"（不能再用 boxName == null 判断）。
+     */
+    @Nullable protected String pendingAreaName;
+    /**
+     * 备货区名称 → 所属维度。
+     * 列表条目由 AreaSelection/Box 重建，而 Box（Litematica 模型）不带维度字段，
+     * 所以维度只能在收服务端响应时单独记一份。
+     */
+    protected final java.util.Map<String, String> areaWorlds = new java.util.HashMap<>();
 
     // 双列表
     @Nullable protected WidgetListStagingAreas stagingListWidget;
@@ -76,6 +87,23 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         return new StagingAreaConfigC2SPacket.AreaData(name,
             pos1.getX(), pos1.getY(), pos1.getZ(),
             pos2.getX(), pos2.getY(), pos2.getZ(), Optional.empty());
+    }
+
+    /** 带维度的重载：world 为 null 时退化为不改维度 */
+    protected static StagingAreaConfigC2SPacket.AreaData toAreaData(String name, BlockPos pos1, BlockPos pos2,
+                                                                    @Nullable String world) {
+        return new StagingAreaConfigC2SPacket.AreaData(name,
+            pos1.getX(), pos1.getY(), pos1.getZ(),
+            pos2.getX(), pos2.getY(), pos2.getZ(), Optional.ofNullable(world));
+    }
+
+    /** 玩家当前所在维度 ID；玩家不存在时返回 null，表示不改维度 */
+    @Nullable
+    protected static String currentWorldId() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        return mc.player != null
+                ? mc.player.getWorld().getRegistryKey().getValue().toString()
+                : null;
     }
 
     @Nullable
@@ -182,6 +210,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             for (var area : packet.areas())
             {
                 serverNames.add(area.name());
+                this.areaWorlds.put(area.name(), area.world());
                 Box existing = this.selection.getSubRegionBox(area.name());
                 if (existing != null)
                 {
@@ -209,6 +238,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             {
                 this.selection.removeSubRegionBox(name);
                 this.selection.removeServerId(name);
+                this.areaWorlds.remove(name);
             }
 
             this.refreshStagingList();
@@ -218,6 +248,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         {
             for (var area : packet.areas())
             {
+                this.areaWorlds.put(area.name(), area.world());
                 if (this.selection.getServerId(area.name()) == null)
                 {
                     this.selection.setServerId(area.name(), area.areaId());
@@ -225,6 +256,12 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             }
             StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
         }
+    }
+
+    /** 备货区所属维度；未知时返回空串 */
+    public String getAreaWorld(String areaName)
+    {
+        return this.areaWorlds.getOrDefault(areaName, "");
     }
 
     // ========== GUI 生命周期 ==========
@@ -281,18 +318,8 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         int x = 10;
         int y = 26;
 
-        // 添加备货区
-        x += this.createButton(x, y, -1, ButtonListener.Type.CREATE_SUB_REGION) + 4;
-
-        // 选区
-        {
-            String selectLabel = ButtonListener.Type.SELECT_AREA.getDisplayName();
-            String selectHover = StringUtils.translate("syncmaterial.gui.button.select_area.hover");
-            int selectWidth = StringUtils.getStringWidth(selectLabel) + 10;
-            ButtonGeneric selectButton = new ButtonGeneric(x, y, selectWidth, 20, selectLabel, selectHover);
-            this.addButton(selectButton, new ButtonListener(ButtonListener.Type.SELECT_AREA, null, null, this));
-            x += selectWidth + 12;
-        }
+        // 添加备货区：先输入名称，确认后进入准星选区
+        x += this.createButton(x, y, -1, ButtonListener.Type.CREATE_SUB_REGION) + 16;
 
         // 备货区数量
         String str = String.valueOf(this.selection.getAllSubRegionNames().size());
@@ -526,7 +553,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 BlockPos pos2 = box.getPos2();
                 entries.add(new StagingAreaEntry(id++, name,
                         pos1.getX(), pos1.getY(), pos1.getZ(),
-                        pos2.getX(), pos2.getY(), pos2.getZ(), ""));
+                        pos2.getX(), pos2.getY(), pos2.getZ(), this.getAreaWorld(name)));
             }
         }
         return entries;
@@ -534,21 +561,25 @@ public class GuiStagingAreaEditorNormal extends GuiBase
 
     public void onSelectionConfirmed(@Nullable String boxName, BlockPos pos1, BlockPos pos2)
     {
-        if (boxName == null)
+        // 新建模式由 pendingAreaName 标记：名称已在弹窗中拿到，这里只补范围。
+        // 取完立即清空，避免下次改坐标时被误判成新建。
+        String newAreaName = this.pendingAreaName;
+        this.pendingAreaName = null;
+
+        if (newAreaName != null)
         {
-            String newName = StringUtils.translate("syncmaterial.gui.label.staging_area_default", this.selection.getAllSubRegionNames().size() + 1);
-            Box newBox = new Box(pos1, pos2, newName);
+            Box newBox = new Box(pos1, pos2, newAreaName);
             this.selection.addSubRegionBox(newBox, true);
-            this.selection.setSelectedSubRegionBox(newName);
+            this.selection.setSelectedSubRegionBox(newAreaName);
 
             if (this.schematicId != null && !this.schematicId.isEmpty())
             {
-                AreaData areaData = toAreaData(newName, pos1, pos2);
+                AreaData areaData = toAreaData(newAreaName, pos1, pos2, currentWorldId());
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                         this.schematicId, "ADD", -1, Optional.of(areaData)));
             }
         }
-        else
+        else if (boxName != null)
         {
             Box box = this.selection.getSubRegionBox(boxName);
             if (box != null)
@@ -559,7 +590,9 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 Integer serverId = this.selection.getServerId(boxName);
                 if (serverId != null && this.schematicId != null && !this.schematicId.isEmpty())
                 {
-                    AreaData areaData = toAreaData(boxName, pos1, pos2);
+                    // 带上当前维度：准星选区只能在玩家所在维度进行，
+                    // 若跨维度重选范围，world 必须一起迁移，否则坐标与维度不一致
+                    AreaData areaData = toAreaData(boxName, pos1, pos2, currentWorldId());
                     ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                             this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
                 }
@@ -841,17 +874,6 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                     }
                     break;
 
-                case SELECT_AREA:
-                {
-                    Box selectedBox = this.parent.selection.getSelectedSubRegionBox();
-                    String boxName = selectedBox != null ? selectedBox.getName() : null;
-                    BlockPos pos1 = selectedBox != null ? selectedBox.getPos1() : null;
-                    BlockPos pos2 = selectedBox != null ? selectedBox.getPos2() : null;
-
-                    StagingAreaSelector.getInstance().start(this.parent, this.parent, boxName, pos1, pos2);
-                    return;
-                }
-
                 case CLOSE:
                     GuiBase.openGui(this.parent.getParent());
                     return;
@@ -864,7 +886,6 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         {
             SET_BOX_NAME            ("syncmaterial.gui.button.rename_staging_area"),
             CREATE_SUB_REGION       ("syncmaterial.gui.button.add_staging_area"),
-            SELECT_AREA             ("syncmaterial.gui.button.select_area"),
             MOVE_TO_PLAYER          ("litematica.gui.button.move_to_player"),
             CLOSE                   ("gui.back"),
             NUDGE_COORD_X           (""),
@@ -933,20 +954,27 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         @Override
         public boolean setString(String string)
         {
-            BlockPos pos = fi.dy.masa.malilib.util.position.PositionUtils.getEntityBlockPos(this.gui.mc.player);
-            this.gui.selection.createNewSubRegionBox(pos, string);
-
-            Box box = this.gui.selection.getSubRegionBox(string);
-            if (box != null && this.gui.schematicId != null)
+            if (string == null || string.trim().isEmpty())
             {
-                BlockPos p1 = box.getPos1();
-                BlockPos p2 = box.getPos2();
-                AreaData areaData = toAreaData(string, p1, p2);
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                        this.gui.schematicId, "ADD", -1, Optional.of(areaData)));
+                return false;
             }
 
-            this.gui.initGui();
+            String name = string.trim();
+            if (this.gui.selection.getSubRegionBox(name) != null)
+            {
+                fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(MessageType.ERROR,
+                        StringUtils.translate("syncmaterial.gui.error.duplicate_area_name", name));
+                return false;
+            }
+
+            this.gui.pendingAreaName = name;
+
+            // MaLiLib 在 applyValue 返回 true 后会执行 openGui(parent)，即 setScreen(编辑器)。
+            // 若此处直接 start()（内部 setScreen(null)），随后的 setScreen(parent) 会把编辑器盖回来，
+            // 结果是选区模式已激活但屏幕上仍是 GUI，准星无法点方块。
+            // 用 execute() 推到下一帧，等弹窗关闭流程走完再进选区。
+            MinecraftClient.getInstance().execute(() ->
+                    StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null));
             return true;
         }
     }

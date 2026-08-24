@@ -93,12 +93,27 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
             RenderUtils.drawOutline(drawContext, this.x, this.y, this.width, this.height, 0xFFE0E0E0);
         }
 
-        // 显示仓库名称 + 坐标
+        // 显示仓库名称 + 坐标 + 所属维度
         String display = String.format("%s  [%d,%d,%d]~[%d,%d,%d]",
                 this.entryData.name(),
                 this.entryData.x1(), this.entryData.y1(), this.entryData.z1(),
                 this.entryData.x2(), this.entryData.y2(), this.entryData.z2());
         this.drawString(drawContext, this.x + 2, this.y + 7, 0xFFFFFFFF, display);
+
+        String world = this.entryData.world();
+        if (world != null && !world.isEmpty())
+        {
+            // 与玩家当前维度不一致时标黄，提示线框和扫描都不会在此维度生效
+            var clientPlayer = net.minecraft.client.MinecraftClient.getInstance().player;
+            String currentWorld = clientPlayer != null
+                    ? clientPlayer.getWorld().getRegistryKey().getValue().toString()
+                    : null;
+            int color = world.equals(currentWorld) ? 0xFF888888 : 0xFFFFAA00;
+            String tag = "  @" + WidgetStagingAreaEntry.shortWorldName(world);
+            this.drawString(drawContext,
+                    this.x + 2 + fi.dy.masa.malilib.util.StringUtils.getStringWidth(display),
+                    this.y + 7, color, tag);
+        }
 
         super.render(drawContext, mouseX, mouseY, selected);
     }
@@ -117,6 +132,14 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
         int sizeY = Math.abs(this.entryData.y2() - this.entryData.y1()) + 1;
         int sizeZ = Math.abs(this.entryData.z2() - this.entryData.z1()) + 1;
         text.add("§7" + sizeX + " x " + sizeY + " x " + sizeZ);
+
+        String hoverWorld = this.entryData.world();
+        if (hoverWorld != null && !hoverWorld.isEmpty())
+        {
+            text.add("§7" + fi.dy.masa.malilib.util.StringUtils.translate(
+                    "syncmaterial.gui.label.area_world",
+                    WidgetStagingAreaEntry.shortWorldName(hoverWorld)));
+        }
 
         int offset = 12;
         if (GuiBase.isMouseOver(mouseX, mouseY, this.x, this.y, this.buttonsStartX - offset, this.height))

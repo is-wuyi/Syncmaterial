@@ -139,7 +139,8 @@ class StagingAreaConfigHandlerTest {
         var resp = handle(packet("UPDATE", 7, Optional.of(areaData("改名扩区", Optional.empty()))));
 
         // 改坐标后必须立即重扫（联动初始化状态重置：新领土的已有物品靠这一步统计）
-        verify(manager).updateStagingArea(eq(7), eq("s1"), eq("改名扩区"),
+        // world 传 null：客户端未指定维度时保持原维度
+        verify(manager).updateStagingArea(eq(7), eq("s1"), eq("改名扩区"), isNull(),
             anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
         verify(manager).rescanStagingArea(7);
         verify(manager).broadcastUpdate("s1");
@@ -148,10 +149,22 @@ class StagingAreaConfigHandlerTest {
     }
 
     @Test
+    void update_withWorld_migratesDimension() {
+        when(manager.getStagingAreas("s1")).thenReturn(List.of());
+
+        var resp = handle(packet("UPDATE", 7,
+                Optional.of(areaData("跨维度", Optional.of("minecraft:the_nether")))));
+
+        verify(manager).updateStagingArea(eq(7), eq("s1"), eq("跨维度"), eq("minecraft:the_nether"),
+            anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
+        assertTrue(resp.success());
+    }
+
+    @Test
     void update_withoutData_rejected() {
         var resp = handle(packet("UPDATE", 7, Optional.empty()));
 
-        verify(manager, never()).updateStagingArea(anyInt(), any(), any(),
+        verify(manager, never()).updateStagingArea(anyInt(), any(), any(), any(),
             anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
         assertFalse(resp.success());
     }
@@ -224,10 +237,21 @@ class StagingAreaConfigHandlerTest {
     void updateWarehouse_updates() {
         var resp = handle(packet("UPDATE_WAREHOUSE", 9, Optional.of(areaData("改名", Optional.empty()))));
 
-        verify(manager).updateWarehouse(eq(9), eq("改名"),
+        // world 传 null：客户端未指定维度时保持原维度
+        verify(manager).updateWarehouse(eq(9), eq("改名"), isNull(),
             anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
         assertTrue(resp.success());
         assertEquals("仓库已更新", resp.message());
+    }
+
+    @Test
+    void updateWarehouse_withWorld_migratesDimension() {
+        var resp = handle(packet("UPDATE_WAREHOUSE", 9,
+                Optional.of(areaData("跨维度仓库", Optional.of("minecraft:the_end")))));
+
+        verify(manager).updateWarehouse(eq(9), eq("跨维度仓库"), eq("minecraft:the_end"),
+            anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
+        assertTrue(resp.success());
     }
 
     @Test

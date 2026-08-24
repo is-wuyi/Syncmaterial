@@ -114,6 +114,84 @@ public class WarehouseDatabaseTest
         assertEquals(0, countRows("SELECT COUNT(*) FROM container_inventory WHERE area_id = ?", warehouseId));
     }
 
+    // ========== 跨维度迁移（beta.18） ==========
+
+    @Test
+    void updateWarehouse_withWorld_migratesDimension() throws SQLException
+    {
+        var manager = new net.syncmaterial.syncmaterial.server.StagingAreaManager(db);
+        int id = manager.addWarehouse("仓库A", "minecraft:overworld", 0, 0, 0, 10, 10, 10);
+
+        manager.updateWarehouse(id, "仓库A", "minecraft:the_nether", 100, 20, 100, 110, 30, 110);
+
+        try (var rs = db.executeQuery("SELECT world, x1, y1 FROM warehouses WHERE id = ?", id))
+        {
+            assertTrue(rs.next());
+            assertEquals("minecraft:the_nether", rs.getString("world"),
+                "传入 world 时应连同坐标一起迁移维度，否则坐标与维度自相矛盾");
+            assertEquals(100, rs.getInt("x1"));
+            assertEquals(20, rs.getInt("y1"));
+        }
+
+        var reloaded = manager.getAllWarehouses().stream()
+            .filter(w -> w.id() == id).findFirst().orElseThrow();
+        assertEquals("minecraft:the_nether", reloaded.world(),
+            "内存缓存也必须同步为新维度，否则线框按旧维度过滤会渲染不出来");
+    }
+
+    @Test
+    void updateWarehouse_withoutWorld_keepsDimension() throws SQLException
+    {
+        var manager = new net.syncmaterial.syncmaterial.server.StagingAreaManager(db);
+        int id = manager.addWarehouse("仓库A", "minecraft:the_end", 0, 0, 0, 10, 10, 10);
+
+        manager.updateWarehouse(id, "仓库A", null, 5, 5, 5, 15, 15, 15);
+
+        try (var rs = db.executeQuery("SELECT world, x1 FROM warehouses WHERE id = ?", id))
+        {
+            assertTrue(rs.next());
+            assertEquals("minecraft:the_end", rs.getString("world"),
+                "world 传 null 表示只改坐标，维度必须保持原值");
+            assertEquals(5, rs.getInt("x1"));
+        }
+    }
+
+    @Test
+    void updateStagingArea_withWorld_migratesDimension() throws SQLException
+    {
+        db.executeUpdate(
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
+        var manager = new net.syncmaterial.syncmaterial.server.StagingAreaManager(db);
+        int id = manager.addStagingArea("s1", "minecraft:overworld", "备货区A", 0, 0, 0, 10, 10, 10);
+
+        manager.updateStagingArea(id, "s1", "备货区A", "minecraft:the_nether", 50, 60, 70, 55, 65, 75);
+
+        try (var rs = db.executeQuery("SELECT world, x1 FROM staging_areas WHERE id = ?", id))
+        {
+            assertTrue(rs.next());
+            assertEquals("minecraft:the_nether", rs.getString("world"));
+            assertEquals(50, rs.getInt("x1"));
+        }
+    }
+
+    @Test
+    void updateStagingArea_withoutWorld_keepsDimension() throws SQLException
+    {
+        db.executeUpdate(
+            "INSERT INTO schematics (id, name, file_path) VALUES ('s1', 'test', '/test.litematic')");
+        var manager = new net.syncmaterial.syncmaterial.server.StagingAreaManager(db);
+        int id = manager.addStagingArea("s1", "minecraft:the_end", "备货区A", 0, 0, 0, 10, 10, 10);
+
+        manager.updateStagingArea(id, "s1", "备货区A", null, 1, 2, 3, 4, 5, 6);
+
+        try (var rs = db.executeQuery("SELECT world, x1 FROM staging_areas WHERE id = ?", id))
+        {
+            assertTrue(rs.next());
+            assertEquals("minecraft:the_end", rs.getString("world"));
+            assertEquals(1, rs.getInt("x1"));
+        }
+    }
+
     // ========== 原理图-仓库引用 ==========
 
     @Test

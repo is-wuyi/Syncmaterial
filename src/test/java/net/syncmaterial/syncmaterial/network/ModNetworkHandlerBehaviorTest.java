@@ -555,10 +555,25 @@ class ModNetworkHandlerBehaviorTest {
                 java.util.Optional.of("minecraft:overworld")))),
             player, server);
 
-        verify(manager).updateWarehouse(eq(9), eq("修改后的仓库"),
+        verify(manager).updateWarehouse(eq(9), eq("修改后的仓库"), eq("minecraft:overworld"),
             eq(10), eq(64), eq(10), eq(20), eq(70), eq(20));
         verify(manager).rescanWarehouseAndMarkChunks(9);
         verify(cm).getAllMaterialIds("s1");
+    }
+
+    @Test
+    void warehouseConfig_update_withoutWorld_passesNullToKeepDimension() {
+        StagingAreaManager manager = mockWarehouseManager();
+        when(manager.getSchematicsReferencingWarehouse(9)).thenReturn(java.util.Set.of());
+
+        ModNetworkHandler.handleStagingAreaConfig(new StagingAreaConfigC2SPacket("", "UPDATE_WAREHOUSE", 9,
+            java.util.Optional.of(new StagingAreaConfigC2SPacket.AreaData(
+                "仓库", 10, 64, 10, 20, 70, 20, java.util.Optional.empty()))),
+            player, server);
+
+        // 客户端未提供维度时必须传 null，让数据层保持原维度而不是写成默认值
+        verify(manager).updateWarehouse(eq(9), eq("仓库"), isNull(),
+            eq(10), eq(64), eq(10), eq(20), eq(70), eq(20));
     }
 
     @Test

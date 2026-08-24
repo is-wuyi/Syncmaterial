@@ -37,6 +37,7 @@ import fi.dy.masa.litematica.util.PositionUtils.Corner;
  * 子区域编辑器：显示两个角的坐标编辑界面，独立于主列表界面
  */
 public class GuiStagingAreaEditorSubRegion extends GuiBase
+        implements StagingAreaSelector.SelectionCallback
 {
     protected final AreaSelection selection;
     protected final String schematicId;
@@ -77,7 +78,15 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         this.textFieldBoxName.setTextWrapper(this.box.getName());
         this.addTextField(this.textFieldBoxName, new TextFieldListenerDummy());
         this.createButton(x + width + 4, y, -1, SubRegionButtonListener.Type.SET_BOX_NAME);
-        y += 20;
+        y += 22;
+
+        // 准星选区：用视线重新框定范围，替代逐个改坐标
+        String selectHover = StringUtils.translate("syncmaterial.gui.button.select_area.hover");
+        String selectLabel = SubRegionButtonListener.Type.SELECT_AREA.getDisplayName();
+        int selectWidth = StringUtils.getStringWidth(selectLabel) + 10;
+        ButtonGeneric selectButton = new ButtonGeneric(x, y, selectWidth, 20, selectLabel, selectHover);
+        this.addButton(selectButton, new SubRegionButtonListener(SubRegionButtonListener.Type.SELECT_AREA, null, null, this));
+        y += 24;
 
         // 两个角的坐标
         x = 12;
@@ -256,6 +265,39 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         }
     }
 
+    // ========== 准星选区回调 ==========
+
+    @Override
+    public void onSelectionConfirmed(@Nullable String boxName, @Nullable BlockPos pos1, @Nullable BlockPos pos2)
+    {
+        if (pos1 == null || pos2 == null)
+        {
+            return;
+        }
+
+        this.box.setPos1(pos1);
+        this.box.setPos2(pos2);
+
+        if (this.schematicId != null && !this.schematicId.isEmpty())
+        {
+            Integer serverId = this.selection.getServerId(this.box.getName());
+            if (serverId != null)
+            {
+                // 带当前维度：准星只能在玩家所在维度选点，跨维度重选必须一起迁移 world
+                AreaData areaData = GuiStagingAreaEditorNormal.toAreaData(
+                        this.box.getName(), pos1, pos2, GuiStagingAreaEditorNormal.currentWorldId());
+                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                        this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+            }
+
+            // updateSelection 要求 schematicId 非空，必须留在这个分支内
+            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
+                    .updateSelection(this.schematicId, this.selection);
+        }
+
+        this.initGui();
+    }
+
     // ========== 内部类 ==========
 
     private static class SubRegionButtonListener implements IButtonActionListener
@@ -306,6 +348,12 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
                         this.parent.sendCoordinateUpdate(this.corner);
                     }
                     break;
+                case SELECT_AREA:
+                    // 直接 start()：本界面不是 MaLiLib 弹窗，按钮回调里没有后续的 setScreen，
+                    // 不存在 SubRegionCreator 那里的覆盖时序问题
+                    StagingAreaSelector.getInstance().start(this.parent, this.parent,
+                            this.parent.box.getName(), this.parent.box.getPos1(), this.parent.box.getPos2());
+                    return;
                 case BACK:
                     this.parent.closeGui(true);
                     return;
@@ -316,6 +364,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         public enum Type
         {
             SET_BOX_NAME("syncmaterial.gui.button.rename_staging_area"),
+            SELECT_AREA("syncmaterial.gui.button.select_area"),
             MOVE_TO_PLAYER("litematica.gui.button.move_to_player"),
             BACK("gui.back"),
             NUDGE_COORD_X(""),

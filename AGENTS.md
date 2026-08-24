@@ -140,7 +140,7 @@ SQLite（`SchematicDatabase.java`，AutoCloseable）：
 仓库管理与搬运模式：
 - 备货区子区域增加 `type` 字段（`staging_area` / `warehouse`）
 - 收集模式（仓库 + 备货区 + 背包）和搬运模式（仅备货区 + 背包）
-- 仓库标注渲染（按需扫描，线框 + 文字）
+- ~~仓库标注渲染（按需扫描，线框 + 文字）~~ 已完成（beta.17）
 
 ## 代码规范
 
@@ -148,6 +148,20 @@ SQLite（`SchematicDatabase.java`，AutoCloseable）：
 - 修改代码时同步更新 `build.gradle` 中的版本号
 - `README.md` 中的版本号不需要同步更新
 - 版本格式: `{mod_version}+{mc_version}`（如 `2.0.0+1.21.7`）
+
+## 工作流约定
+
+**每次改完代码，验证通过后自行提交并推送，无需等待确认。**
+
+顺序固定为：
+
+1. 跑 `./gradlew build spotbugsMain` —— 单测、GameTest 必须全绿，SpotBugs 条数不得超过基线（当前 28 条）
+2. 扫调试残留（`System.out` / `printStackTrace` / `TODO` / `FIXME`）
+3. 同步 `build.gradle` 版本号
+4. 中文提交信息，说明改了什么、为什么这么改
+5. `git push` 到当前分支，并确认 CI 结果
+
+验证不通过就不要提交，先修好。发布（打 tag）仍需明确指示，不在此约定内。
 
 ## 发布流程
 
