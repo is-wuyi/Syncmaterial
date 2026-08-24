@@ -969,12 +969,10 @@ public class GuiStagingAreaEditorNormal extends GuiBase
 
             this.gui.pendingAreaName = name;
 
-            // MaLiLib 在 applyValue 返回 true 后会执行 openGui(parent)，即 setScreen(编辑器)。
-            // 若此处直接 start()（内部 setScreen(null)），随后的 setScreen(parent) 会把编辑器盖回来，
-            // 结果是选区模式已激活但屏幕上仍是 GUI，准星无法点方块。
-            // 用 execute() 推到下一帧，等弹窗关闭流程走完再进选区。
-            MinecraftClient.getInstance().execute(() ->
-                    StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null));
+            // 直接启动即可：MaLiLib 弹窗基类在本方法返回 true 之后还会执行
+            // openGui(parent) 把编辑器重新打开，但 StagingAreaSelector 会在
+            // onTick 里持续关闭界面直到真正退出，不需要调用方安排时序。
+            StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null);
             return true;
         }
     }

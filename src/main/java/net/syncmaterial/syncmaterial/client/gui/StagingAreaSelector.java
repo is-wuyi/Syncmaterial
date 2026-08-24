@@ -57,6 +57,14 @@ public class StagingAreaSelector {
     private int editingWarehouseId = -1;
     /** 正在编辑的备货区所属原理图，配合 targetBoxName 供正式渲染跳过 */
     @Nullable private String editingSchematicId = null;
+    /**
+     * 是否仍需关闭界面。
+     *
+     * start() 里的 setScreen(null) 未必最终生效：从 MaLiLib 文本弹窗启动时，
+     * 弹窗基类在 applyValue 返回 true 之后还会执行 openGui(parent)，把界面又打开。
+     * 该标记让 onTick 每帧兜底关闭，直到界面真正消失为止。
+     */
+    private boolean pendingScreenClose = false;
     private boolean leftClicked = false;
     private boolean rightClicked = false;
 
@@ -68,6 +76,15 @@ public class StagingAreaSelector {
 
     public boolean isActive() {
         return this.active;
+    }
+
+    /**
+     * 是否仍在等待界面关闭。
+     * 该标记为真期间 onTick 会持续调用 setScreen(null)，
+     * 因此退出选区时必须清掉，否则会把正常打开的界面也关掉。
+     */
+    public boolean isPendingScreenClose() {
+        return this.pendingScreenClose;
     }
 
     @Nullable
@@ -108,8 +125,17 @@ public class StagingAreaSelector {
         this.editingWarehouseId = editingWarehouseId;
 
         MinecraftClient mc = MinecraftClient.getInstance();
+        // 这里先关一次，随后由 onTick 每帧兜底，直到界面真正消失。
+        //
+        // 单关一次不够：从 MaLiLib 文本弹窗启动时，弹窗基类会在 applyValue 返回 true
+        // 之后执行 openGui(parent)，把界面重新打开，导致选区模式已激活但屏幕仍是 GUI。
+        // 曾试图用 MinecraftClient.execute() 推迟一帧，但那是错的 ——
+        // ThreadExecutor.execute 仅在 shouldExecuteAsync() 为真时入队，
+        // 而 GUI 回调本就在主线程且 runningTasks 为 0，因此是当场同步执行，起不到延迟作用。
+        //
         // mc 为 null 只出现在无客户端实例的环境（单元测试）；
         // 选区状态此时已设置完毕，不应因为关不掉界面而整体抛出
+        this.pendingScreenClose = true;
         if (mc != null && mc.currentScreen != null) {
             mc.setScreen(null);
         }
@@ -157,6 +183,8 @@ public class StagingAreaSelector {
         this.editingSchematicId = null;
         this.editingWarehouseId = -1;
         this.targetType = TargetType.STAGING_AREA;
+        // 不清会导致断连后持续关闭界面（连主菜单都会被关掉）
+        this.pendingScreenClose = false;
         this.leftClicked = false;
         this.rightClicked = false;
     }
@@ -178,6 +206,9 @@ public class StagingAreaSelector {
     }
 
     private void returnToGui() {
+        // 必须先清标记再 setScreen：否则 onTick 会把刚恢复的界面又关掉
+        this.pendingScreenClose = false;
+
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc != null && this.returnScreen != null) {
             mc.setScreen(this.returnScreen);
@@ -200,6 +231,16 @@ public class StagingAreaSelector {
         if (mc.player == null || mc.world == null) {
             this.cancel();
             return;
+        }
+
+        // 兜底关闭界面：start() 之后 MaLiLib 弹窗基类可能又把父界面打开，
+        // 这里持续关到界面真正消失，避免"选区已激活但屏幕仍是 GUI"
+        if (this.pendingScreenClose) {
+            if (mc.currentScreen != null) {
+                mc.setScreen(null);
+            } else {
+                this.pendingScreenClose = false;
+            }
         }
 
         HitResult hitResult = mc.crosshairTarget;

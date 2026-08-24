@@ -117,6 +117,49 @@ public class SelectorEditContextTest
         assertTrue(selector.isEditingStagingArea("s1", "备货区A"));
     }
 
+    // ========== 界面关闭标记（beta.20） ==========
+    //
+    // beta.18 曾用 MinecraftClient.execute() 试图把 start() 推迟一帧，
+    // 但 ThreadExecutor.execute 只在 shouldExecuteAsync() 为真时入队，
+    // GUI 回调本就在主线程且 runningTasks 为 0，实际是当场同步执行。
+    // 于是 MaLiLib 弹窗随后的 openGui(parent) 把界面又打开，
+    // 表现为"选区已激活但屏幕仍是 GUI，能透过半透明看到准星提示"。
+    // 现在改为 onTick 每帧兜底关闭，标记的生命周期必须严格正确。
+
+    @Test
+    void start_marksScreenPendingClose()
+    {
+        var selector = StagingAreaSelector.getInstance();
+        selector.start(dummyCallback(), null, null, null, null);
+
+        assertTrue(selector.isPendingScreenClose(),
+            "启动后必须标记待关闭，否则弹窗重开的界面无人关掉");
+    }
+
+    @Test
+    void cancel_clearsPendingScreenClose()
+    {
+        var selector = StagingAreaSelector.getInstance();
+        selector.start(dummyCallback(), null, null, null, null);
+
+        selector.cancel();
+
+        assertFalse(selector.isPendingScreenClose(),
+            "取消后必须停止关闭界面，否则恢复的界面会被 onTick 立刻关掉");
+    }
+
+    @Test
+    void reset_clearsPendingScreenClose()
+    {
+        var selector = StagingAreaSelector.getInstance();
+        selector.start(dummyCallback(), null, null, null, null);
+
+        selector.reset();
+
+        assertFalse(selector.isPendingScreenClose(),
+            "断连重置后必须停止关闭界面，否则连主菜单都会被关掉");
+    }
+
     private static StagingAreaSelector.SelectionCallback dummyCallback()
     {
         return (boxName, pos1, pos2) -> { };

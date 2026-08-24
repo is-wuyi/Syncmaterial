@@ -126,7 +126,7 @@
   "syncmaterial.gui.error.no_selection": "No selection",
   "syncmaterial.gui.label.corner_1": "Corner 1",
   "syncmaterial.gui.label.corner_2": "Corner 2",
-  "syncmaterial.gui.button.hover.plus_minus_tip": "Ctrl+Click: ±10 | Shift+Click: ±100 | Alt+Click: ±1000",
+  "syncmaterial.gui.button.hover.plus_minus_tip": "Left click: +1 | Right click: -1\nHold Ctrl: x100 | Shift: x10 | Alt: x5 (stackable)",
   "syncmaterial.gui.button.settings": "SyncMaterial Settings",
   "syncmaterial.gui.title.settings": "SyncMaterial Settings",
   "syncmaterial.gui.tab.generic": "General",
