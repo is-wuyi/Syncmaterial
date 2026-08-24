@@ -94,6 +94,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 | BatchAssignResponseS2CPacket | 批量分配结果 |
 | KickFromMaterialResponseS2CPacket | 踢出结果 |
 | PlayerListResponseS2CPacket | 玩家列表（名称 + 在线状态） |
+| WarehouseAreaResponseS2CPacket | 仓库区域线框（全局广播，含被引用仓库 ID） |
 
 ### Mixin 规范
 

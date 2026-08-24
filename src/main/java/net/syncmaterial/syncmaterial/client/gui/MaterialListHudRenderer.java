@@ -20,7 +20,8 @@ import net.syncmaterial.syncmaterial.client.infohud.RenderPhase;
 public class MaterialListHudRenderer implements IInfoHudRenderer {
     protected final MaterialListBase materialList;
     protected final MaterialListSorter sorter;
-    protected boolean shouldRender;
+    // 分闸：独立于 Configs.Generic.HUD_ENABLED 总闸，默认开启
+    protected boolean shouldRender = true;
     protected long lastUpdateTime;
     private List<MaterialListEntry> lastRenderedList = Collections.emptyList();
 

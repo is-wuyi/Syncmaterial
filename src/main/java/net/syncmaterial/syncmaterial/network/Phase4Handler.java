@@ -80,6 +80,20 @@ public class Phase4Handler {
         materialListSubscribers.entrySet().removeIf(e -> e.getValue().isEmpty());
     }
 
+    /**
+     * 该玩家当前打开着材料清单的原理图集合。
+     * 仓库线框据此判断哪些仓库属于"当前关注的原理图"，用高亮色区分。
+     */
+    public static Set<String> getSubscribedSchematics(ServerPlayerEntity player) {
+        Set<String> result = new java.util.HashSet<>();
+        for (var entry : materialListSubscribers.entrySet()) {
+            if (entry.getValue().contains(player)) {
+                result.add(entry.getKey());
+            }
+        }
+        return result;
+    }
+
     // ========== Phase 4: 负责人管理 ==========
 
     static void validateOwnerAction(String action) {

@@ -38,4 +38,7 @@ public class ModPackets {
     // Phase 5: 仓库容器数据（取货模式订阅）
     public static final Identifier WAREHOUSE_CONTAINER_REQUEST = Identifier.of("syncmaterial", "warehouse_container_request");
     public static final Identifier WAREHOUSE_CONTAINER_RESPONSE = Identifier.of("syncmaterial", "warehouse_container_response");
+
+    // Phase 5: 仓库区域线框（全局广播，不按原理图订阅）
+    public static final Identifier WAREHOUSE_AREA_RESPONSE = Identifier.of("syncmaterial", "warehouse_area_response");
 }

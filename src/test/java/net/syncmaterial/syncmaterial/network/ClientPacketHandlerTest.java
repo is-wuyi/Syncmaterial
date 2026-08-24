@@ -49,6 +49,7 @@ class ClientPacketHandlerTest {
         clientMock.close();
         StagingAreaRenderer.getInstance().removeRenderData(SCHEMATIC);
         StagingAreaRenderer.getInstance().clearWarehouseContainers();
+        StagingAreaRenderer.getInstance().clearWarehouseAreas();
     }
 
     private static StagingAreaConfigResponseS2CPacket.AreaInfo area(int id, String name) {
@@ -117,5 +118,46 @@ class ClientPacketHandlerTest {
 
         assertEquals(containers, StagingAreaRenderer.getInstance().getWarehouseContainers(),
             "取货模式容器数据应进入客户端缓存");
+    }
+
+    // ========== 仓库区域线框 ==========
+
+    @Test
+    void warehouseAreas_cachedWithReferencedFlags() {
+        var warehouses = List.of(area(3, "仓库A"), area(4, "仓库B"));
+
+        ModNetworkHandlerClient.handleWarehouseAreaResponse(
+            new WarehouseAreaResponseS2CPacket(warehouses, List.of(3)));
+
+        var renderer = StagingAreaRenderer.getInstance();
+        assertEquals(warehouses, renderer.getWarehouseAreas(), "仓库区域数据应进入客户端缓存");
+        assertTrue(renderer.isWarehouseReferenced(3), "被引用的仓库应标记为高亮");
+        assertFalse(renderer.isWarehouseReferenced(4), "未被引用的仓库不应高亮");
+    }
+
+    @Test
+    void warehouseAreas_emptyBroadcast_clearsCache() {
+        ModNetworkHandlerClient.handleWarehouseAreaResponse(
+            new WarehouseAreaResponseS2CPacket(List.of(area(3, "仓库A")), List.of(3)));
+
+        ModNetworkHandlerClient.handleWarehouseAreaResponse(
+            new WarehouseAreaResponseS2CPacket(List.of(), List.of()));
+
+        assertTrue(StagingAreaRenderer.getInstance().getWarehouseAreas().isEmpty(),
+            "仓库全部删除后应清空线框数据");
+        assertFalse(StagingAreaRenderer.getInstance().isWarehouseReferenced(3));
+    }
+
+    @Test
+    void warehouseAreas_doNotLeakIntoStagingSelections() {
+        // 仓库类响应的 schematicId 是空串；若不拦截，仓库会被当成备货区
+        // 写进 key 为 "" 的 selections，并按备货区颜色渲染
+        var payload = new StagingAreaConfigResponseS2CPacket(
+            "LIST_WAREHOUSES", "", "", true, "ok", List.of(area(3, "仓库A")));
+
+        ModNetworkHandlerClient.handleStagingAreaConfigResponseForWorld(payload);
+
+        assertNull(StagingAreaRenderer.getInstance().getSelection(""),
+            "仓库响应不得污染备货区选区数据");
     }
 }

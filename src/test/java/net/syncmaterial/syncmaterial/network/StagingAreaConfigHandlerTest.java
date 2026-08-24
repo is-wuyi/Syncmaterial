@@ -77,10 +77,17 @@ class StagingAreaConfigHandlerTest {
 
     private StagingAreaConfigResponseS2CPacket handle(StagingAreaConfigC2SPacket payload) {
         ModNetworkHandler.handleStagingAreaConfig(payload, player, server);
-        ArgumentCaptor<StagingAreaConfigResponseS2CPacket> captor =
-            ArgumentCaptor.forClass(StagingAreaConfigResponseS2CPacket.class);
-        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
-        return captor.getValue();
+        // 仓库操作还会广播 WarehouseAreaResponseS2CPacket，而 ArgumentCaptor 不按类型过滤，
+        // 直接 getValue() 会拿到最后一次调用（可能是仓库区域包），必须自己筛类型
+        ArgumentCaptor<net.minecraft.network.packet.CustomPayload> captor =
+            ArgumentCaptor.forClass(net.minecraft.network.packet.CustomPayload.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()),
+            atLeastOnce());
+        return captor.getAllValues().stream()
+            .filter(StagingAreaConfigResponseS2CPacket.class::isInstance)
+            .map(StagingAreaConfigResponseS2CPacket.class::cast)
+            .reduce((first, second) -> second)
+            .orElseThrow(() -> new AssertionError("未发送 StagingAreaConfigResponseS2CPacket"));
     }
 
     private static StagingAreaConfigC2SPacket packet(String action, int areaId, Optional<AreaData> data) {

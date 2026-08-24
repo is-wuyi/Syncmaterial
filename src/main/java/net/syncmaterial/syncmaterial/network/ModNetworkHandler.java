@@ -69,6 +69,7 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playS2C().register(PlayerListResponseS2CPacket.ID, PlayerListResponseS2CPacket.CODEC);
         // Phase 5
         PayloadTypeRegistry.playS2C().register(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.playS2C().register(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
     }
 
     static boolean validateSchematicId(String schematicId) {
@@ -339,10 +340,13 @@ public class ModNetworkHandler {
         for (int materialId : materialIds) {
             sendStatusToPlayer(player, schematicId, materialId);
         }
+        // 订阅集合变了：该原理图引用的仓库现在应当高亮显示
+        sendWarehouseAreasTo(player);
     }
 
     static void handleMaterialListClose(MaterialListCloseC2SPacket payload, net.minecraft.server.network.ServerPlayerEntity player) {
         Phase4Handler.unsubscribeMaterialList(player, payload.schematicId());
+        sendWarehouseAreasTo(player);
     }
 
     // Phase 5: 取货模式订阅管理
@@ -402,6 +406,67 @@ public class ModNetworkHandler {
             List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers = manager.getContainerEntriesForWarehouses(allWarehouseIds);
             ServerPlayNetworking.send(player, new WarehouseContainerResponseS2CPacket(containers));
         }
+    }
+
+    /**
+     * 广播仓库区域数据给全部在线玩家（线框渲染用）。
+     *
+     * 仓库是全局资源而非按原理图订阅，所以是全员广播；
+     * 但 referencedIds 因人而异（取决于各自打开了哪个原理图的材料清单），
+     * 因此逐玩家单独组包。
+     */
+    public static void broadcastWarehouseAreas(MinecraftServer server) {
+        if (server == null) return;
+
+        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+        if (manager == null) return;
+
+        // 线框广播是纯展示功能，不能因为它出错而中断调用方的业务流程
+        try {
+            var playerList = server.getPlayerManager() != null
+                ? server.getPlayerManager().getPlayerList() : null;
+            if (playerList == null) return;
+
+            var warehouseInfos = StagingAreaManager.buildWarehouseInfos(manager.getAllWarehouses());
+            for (var player : playerList) {
+                sendWarehouseAreas(player, manager, warehouseInfos);
+            }
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("[Phase5] 广播仓库区域数据失败", e);
+        }
+    }
+
+    /**
+     * 向单个玩家推送仓库区域数据（玩家加入时的初始同步）。
+     */
+    public static void sendWarehouseAreasTo(net.minecraft.server.network.ServerPlayerEntity player) {
+        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+        if (manager == null) return;
+
+        try {
+            sendWarehouseAreas(player, manager,
+                StagingAreaManager.buildWarehouseInfos(manager.getAllWarehouses()));
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("[Phase5] 推送仓库区域数据失败", e);
+        }
+    }
+
+    private static void sendWarehouseAreas(net.minecraft.server.network.ServerPlayerEntity player,
+                                           StagingAreaManager manager,
+                                           List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouseInfos) {
+        if (player == null || !player.isAlive() || player.networkHandler == null) {
+            return;
+        }
+
+        Set<Integer> referenced = new HashSet<>();
+        for (String schematicId : Phase4Handler.getSubscribedSchematics(player)) {
+            for (var wh : manager.getWarehousesForSchematic(schematicId)) {
+                referenced.add(wh.id());
+            }
+        }
+
+        ServerPlayNetworking.send(player,
+            new WarehouseAreaResponseS2CPacket(warehouseInfos, List.copyOf(referenced)));
     }
 
     /**
@@ -503,6 +568,7 @@ public class ModNetworkHandler {
                         // 直到玩家手动改动某个容器才被动触发扫描
                         manager.rescanWarehouseAndMarkChunks(id);
                         pushWarehouseContainerUpdate(manager);
+                        broadcastWarehouseAreas(server);
                     }
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD_WAREHOUSE", schematicId, "", id > 0, id > 0 ? "仓库已创建" : "创建失败", List.of()));
                 }
@@ -512,6 +578,7 @@ public class ModNetworkHandler {
                     // 范围可能变了：updateWarehouse 已重置初始化状态，这里按新范围立即重扫
                     manager.rescanWarehouseAndMarkChunks(payload.areaId());
                     pushWarehouseContainerUpdate(manager);
+                    broadcastWarehouseAreas(server);
                     for (String affected : manager.getSchematicsReferencingWarehouse(payload.areaId())) {
                         Phase4Handler.broadcastAllMaterialStatus(server, affected);
                     }
@@ -522,6 +589,7 @@ public class ModNetworkHandler {
                     var affectedSchematics = manager.getSchematicsReferencingWarehouse(payload.areaId());
                     manager.deleteWarehouse(payload.areaId());
                     pushWarehouseContainerUpdate(manager);
+                    broadcastWarehouseAreas(server);
                     for (String affected : affectedSchematics) {
                         Phase4Handler.broadcastAllMaterialStatus(server, affected);
                     }
@@ -532,6 +600,8 @@ public class ModNetworkHandler {
                     // 引用关系变了：材料的仓库计数与新鲜度提示都会变，必须重新广播状态，
                     // 否则界面停留在旧数据（仓库计数为 0 且显示"数据可能过时"）
                     Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                    // 引用集合变化会改变线框高亮色，必须重推区域数据
+                    broadcastWarehouseAreas(server);
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                         "ADD_WAREHOUSE_REF", schematicId, "", true, "已添加仓库引用",
                         StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
@@ -539,6 +609,7 @@ public class ModNetworkHandler {
                 case "REMOVE_WAREHOUSE_REF" -> {
                     manager.removeWarehouseReference(schematicId, payload.areaId());
                     Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                    broadcastWarehouseAreas(server);
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                         "REMOVE_WAREHOUSE_REF", schematicId, "", true, "已移除仓库引用",
                         StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));

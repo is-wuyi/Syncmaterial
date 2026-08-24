@@ -102,6 +102,9 @@ public class SyncMaterial implements ModInitializer {
                                 new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket("LIST", schematicId, schematicName, true, "", areaInfos));
                         }
                     }
+
+                    // 仓库是全局资源，与原理图无关，单独推送一次供线框渲染
+                    net.syncmaterial.syncmaterial.network.ModNetworkHandler.sendWarehouseAreasTo(handler.player);
                 });
             }
         });

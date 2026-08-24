@@ -112,6 +112,11 @@ public class ModNetworkHandlerClient {
         ClientPlayNetworking.registerGlobalReceiver(WarehouseContainerResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> handleWarehouseContainerResponse(payload));
         });
+
+        // Phase 5: 仓库区域线框数据（全局广播）
+        ClientPlayNetworking.registerGlobalReceiver(WarehouseAreaResponseS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> handleWarehouseAreaResponse(payload));
+        });
     }
 
     /**
@@ -120,6 +125,12 @@ public class ModNetworkHandlerClient {
      */
     static void handleStagingAreaConfigResponseForWorld(StagingAreaConfigResponseS2CPacket payload) {
         var renderer = StagingAreaRenderer.getInstance();
+
+        // 仓库类响应的 schematicId 是空串，其 areas 是仓库而非备货区。
+        // 若不拦截，仓库会被写进 key 为 "" 的 selections 并按备货区颜色渲染。
+        if (payload.schematicId() == null || payload.schematicId().isEmpty()) {
+            return;
+        }
 
         // 设置原理图名称（用于框线文字标注）
         if (payload.schematicName() != null && !payload.schematicName().isEmpty()) {
@@ -156,6 +167,15 @@ public class ModNetworkHandlerClient {
                 selection.setServerId(area.name(), area.areaId());
             }
         }
+    }
+
+    /** 仓库区域数据响应：更新客户端仓库线框缓存 */
+    static void handleWarehouseAreaResponse(WarehouseAreaResponseS2CPacket payload) {
+        StagingAreaRenderer.getInstance()
+            .updateWarehouseAreas(payload.warehouses(), payload.referencedIds());
+        net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.debug(
+            "[Phase5] 收到仓库区域数据: {} 个仓库，其中 {} 个被当前原理图引用",
+            payload.warehouses().size(), payload.referencedIds().size());
     }
 
     /** 仓库容器数据响应：更新客户端容器缓存（取货模式高亮用） */

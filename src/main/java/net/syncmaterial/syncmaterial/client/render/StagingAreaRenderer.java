@@ -21,6 +21,7 @@ import fi.dy.masa.malilib.util.data.Color4f;
 
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
+import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.syncmaterial.syncmaterial.selection.Box;
@@ -37,6 +38,9 @@ public class StagingAreaRenderer implements IRenderer
     // （与本类 selections 等并发容器一致的原子替换模式，避免 clear+addAll 的窗口期与迭代器竞态）
     private volatile java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> warehouseContainers = java.util.List.of();
     private volatile String warehouseContainersWorld = "";
+    // Phase 5: 仓库区域线框数据（服务端全局广播，不隶属任何原理图）
+    private volatile java.util.List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouseAreas = java.util.List.of();
+    private volatile java.util.Set<Integer> referencedWarehouseIds = java.util.Set.of();
     // 编辑器打开时，标记当前选中的 box 名称（仅用于视觉高亮）
     @Nullable private String highlightedSchematicId;
     @Nullable private String highlightedBoxName;
@@ -132,15 +136,63 @@ public class StagingAreaRenderer implements IRenderer
         return this.warehouseContainers;
     }
 
+    // Phase 5: 仓库区域线框数据管理
+
+    /**
+     * 更新仓库区域数据（从 WarehouseAreaResponseS2CPacket 接收）
+     */
+    public void updateWarehouseAreas(java.util.List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouses,
+                                     java.util.List<Integer> referencedIds)
+    {
+        this.warehouseAreas = warehouses != null ? java.util.List.copyOf(warehouses) : java.util.List.of();
+        this.referencedWarehouseIds = referencedIds != null
+                ? java.util.Set.copyOf(referencedIds) : java.util.Set.of();
+    }
+
+    public void clearWarehouseAreas()
+    {
+        this.warehouseAreas = java.util.List.of();
+        this.referencedWarehouseIds = java.util.Set.of();
+    }
+
+    public java.util.List<StagingAreaConfigResponseS2CPacket.AreaInfo> getWarehouseAreas()
+    {
+        return this.warehouseAreas;
+    }
+
+    public boolean isWarehouseReferenced(int warehouseId)
+    {
+        return this.referencedWarehouseIds.contains(warehouseId);
+    }
+
+    /**
+     * 当前连接的服务器标识，用于隔离不同服务器的仓库隐藏状态。
+     * 仓库 ID 是服务端自增值，跨服会重复，必须带服务器前缀。
+     */
+    public static String getServerKey()
+    {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        var serverInfo = mc.getCurrentServerEntry();
+        if (serverInfo != null && serverInfo.address != null && !serverInfo.address.isBlank())
+        {
+            return serverInfo.address;
+        }
+        return "singleplayer";
+    }
+
+    /**
+     * 该仓库当前是否应当渲染：全局开关 + 单仓库开关同时成立。
+     */
+    public static boolean shouldRenderWarehouse(int warehouseId)
+    {
+        return net.syncmaterial.syncmaterial.client.config.Configs.Generic.WAREHOUSE_RENDER_ENABLED.getBooleanValue()
+                && !net.syncmaterial.syncmaterial.client.config.Configs.isWarehouseHidden(getServerKey(), warehouseId);
+    }
+
     @Override
     public void onRenderWorldLastAdvanced(Framebuffer fb, Matrix4f posMatrix, Matrix4f projMatrix,
             Frustum frustum, Camera camera, BufferBuilderStorage buffers, Profiler profiler)
     {
-        if (this.selections.isEmpty())
-        {
-            return;
-        }
-
         MinecraftClient mc = MinecraftClient.getInstance();
 
         if (mc.player == null)
@@ -194,6 +246,9 @@ public class StagingAreaRenderer implements IRenderer
         }
 
         StagingAreaSelector.getInstance().onRenderWorld(this, posMatrix);
+
+        // Phase 5: 仓库区域线框
+        this.renderWarehouseAreas(mc, posMatrix);
 
         // Phase 5: 仓库容器蓝色线框高亮
         // 取局部快照：整个渲染过程用同一份列表，避免中途被网络线程替换引用
@@ -271,5 +326,70 @@ public class StagingAreaRenderer implements IRenderer
         }
 
         profiler.pop();
+    }
+
+    /**
+     * 渲染仓库区域线框。
+     *
+     * 与备货区的区别：
+     * - 仓库是全局资源，不按原理图分组，因此不复用 selections/AreaSelection
+     * - 每个仓库自带 world 字段，需逐个做跨维度过滤（仓库可能分布在不同维度）
+     * - 被当前原理图引用的仓库用高亮色区分
+     */
+    private void renderWarehouseAreas(MinecraftClient mc, Matrix4f posMatrix)
+    {
+        if (!net.syncmaterial.syncmaterial.client.config.Configs.Generic.WAREHOUSE_RENDER_ENABLED.getBooleanValue())
+        {
+            return;
+        }
+
+        // 取局部快照：遍历期间网络线程可能替换引用
+        var areasSnapshot = this.warehouseAreas;
+        if (areasSnapshot.isEmpty() || mc.player == null)
+        {
+            return;
+        }
+
+        String playerWorldId = mc.player.getWorld().getRegistryKey().getValue().toString();
+        String serverKey = getServerKey();
+
+        Color4f normalLine = net.syncmaterial.syncmaterial.client.config.Configs.Render.WAREHOUSE_LINE_COLOR.getColor();
+        Color4f sideColor = net.syncmaterial.syncmaterial.client.config.Configs.Render.WAREHOUSE_SIDE_COLOR.getColor();
+        Color4f referencedLine = net.syncmaterial.syncmaterial.client.config.Configs.Render.WAREHOUSE_REFERENCED_LINE_COLOR.getColor();
+        boolean labelEnabled = net.syncmaterial.syncmaterial.client.config.Configs.Render.LABEL_ENABLED.getBooleanValue();
+        float labelScale = (float) net.syncmaterial.syncmaterial.client.config.Configs.Render.LABEL_SCALE.getDoubleValue();
+
+        for (var warehouse : areasSnapshot)
+        {
+            // 逐个维度过滤：仓库是全局的，可能位于其他维度
+            if (!playerWorldId.equals(warehouse.world()))
+            {
+                continue;
+            }
+
+            // 单仓库开关：在仓库管理界面被单独隐藏
+            if (net.syncmaterial.syncmaterial.client.config.Configs.isWarehouseHidden(serverKey, warehouse.areaId()))
+            {
+                continue;
+            }
+
+            BlockPos pos1 = new BlockPos(warehouse.x1(), warehouse.y1(), warehouse.z1());
+            BlockPos pos2 = new BlockPos(warehouse.x2(), warehouse.y2(), warehouse.z2());
+
+            boolean referenced = this.referencedWarehouseIds.contains(warehouse.areaId());
+            Color4f lineColor = referenced ? referencedLine : normalLine;
+
+            RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, lineColor, lineColor, lineColor);
+            RenderUtils.renderAreaSides(pos1, pos2, sideColor, posMatrix);
+
+            if (labelEnabled)
+            {
+                double cx = (pos1.getX() + pos2.getX()) / 2.0 + 0.5;
+                double cy = Math.max(pos1.getY(), pos2.getY()) + 0.5;
+                double cz = (pos1.getZ() + pos2.getZ()) / 2.0 + 0.5;
+                RenderUtils.drawTextPlate(
+                    Collections.singletonList(warehouse.name()), cx, cy, cz, labelScale);
+            }
+        }
     }
 }

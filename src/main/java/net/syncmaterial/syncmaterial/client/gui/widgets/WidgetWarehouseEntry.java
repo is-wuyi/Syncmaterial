@@ -35,16 +35,35 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
         int posX = x + width - 2;
         int posY = y + 1;
 
+        // 按钮从右往左创建（ButtonGeneric 右对齐），所以创建顺序与屏幕顺序相反。
+        // 屏幕上从左到右为：[显示框线][编辑][删除]，与备货区列表保持一致（删除在最右）
+        posX = this.createButton(posX, posY, ButtonListener.ButtonType.DELETE) - 1;
         posX = this.createButton(posX, posY, ButtonListener.ButtonType.EDIT) - 1;
-        posX = this.createButton(posX, posY, ButtonListener.ButtonType.DELETE);
+        posX = this.createButton(posX, posY, ButtonListener.ButtonType.TOGGLE_RENDER);
 
         this.buttonsStartX = posX;
     }
 
     private int createButton(int x, int y, ButtonListener.ButtonType type)
     {
-        return this.addButton(new ButtonGeneric(x, y, -1, true, type.getDisplayName()),
+        String label = type == ButtonListener.ButtonType.TOGGLE_RENDER
+                ? renderToggleLabel(this.entryData.warehouseId())
+                : type.getDisplayName();
+        return this.addButton(new ButtonGeneric(x, y, -1, true, label),
                 new ButtonListener(type, this)).getX() - 1;
+    }
+
+    /**
+     * 框线按钮文字随当前状态变化（显示/隐藏）
+     */
+    private static String renderToggleLabel(int warehouseId)
+    {
+        boolean hidden = net.syncmaterial.syncmaterial.client.config.Configs.isWarehouseHidden(
+                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getServerKey(), warehouseId);
+        return fi.dy.masa.malilib.util.StringUtils.translate(
+                "syncmaterial.gui.button.warehouse_wireframe",
+                fi.dy.masa.malilib.util.StringUtils.translate(
+                        hidden ? "syncmaterial.gui.label.hide" : "syncmaterial.gui.label.show"));
     }
 
     @Override
@@ -140,6 +159,16 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
                 // 进入准星选区编辑仓库
                 this.widget.parent.getWarehouseGui().startEditWarehouse(this.widget.entryData);
             }
+            else if (this.type == ButtonType.TOGGLE_RENDER)
+            {
+                int warehouseId = this.widget.entryData.warehouseId();
+                String serverKey = net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getServerKey();
+                boolean nowHidden = !net.syncmaterial.syncmaterial.client.config.Configs
+                        .isWarehouseHidden(serverKey, warehouseId);
+                net.syncmaterial.syncmaterial.client.config.Configs
+                        .setWarehouseHidden(serverKey, warehouseId, nowHidden);
+                button.setDisplayString(renderToggleLabel(warehouseId));
+            }
         }
 
         private static boolean hasShiftDown() {
@@ -150,6 +179,8 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
 
         public enum ButtonType
         {
+            // TOGGLE_RENDER 的文字随开关状态变化，实际标签由 renderToggleLabel() 动态生成
+            TOGGLE_RENDER (""),
             EDIT    (GuiBase.TXT_AQUA + fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.button.edit")),
             DELETE  (GuiBase.TXT_RED + fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.button.shift_delete"));
 

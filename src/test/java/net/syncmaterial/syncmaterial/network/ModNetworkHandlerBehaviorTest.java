@@ -218,6 +218,35 @@ class ModNetworkHandlerBehaviorTest {
         return manager;
     }
 
+    /**
+     * broadcastWarehouseAreas 会遍历在线玩家，测试里需要可用的 PlayerManager。
+     * 同时让 player 通过 sendWarehouseAreas 的存活检查。
+     */
+    private void stubOnlinePlayer() {
+        var playerManager = mock(net.minecraft.server.PlayerManager.class);
+        when(playerManager.getPlayerList()).thenReturn(List.of(player));
+        when(server.getPlayerManager()).thenReturn(playerManager);
+        when(player.isAlive()).thenReturn(true);
+        player.networkHandler = mock(net.minecraft.server.network.ServerPlayNetworkHandler.class);
+    }
+
+    /**
+     * 取出发给该玩家的最后一个指定类型封包。
+     * ArgumentCaptor 不按类型过滤，仓库操作会同时发出配置响应和区域广播两种包，
+     * 直接 getValue() 可能拿到另一种类型。
+     */
+    private <T> T lastPacketOfType(Class<T> type) {
+        ArgumentCaptor<net.minecraft.network.packet.CustomPayload> captor =
+            ArgumentCaptor.forClass(net.minecraft.network.packet.CustomPayload.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()),
+            atLeastOnce());
+        return captor.getAllValues().stream()
+            .filter(type::isInstance)
+            .map(type::cast)
+            .reduce((first, second) -> second)
+            .orElseThrow(() -> new AssertionError("未发送 " + type.getSimpleName()));
+    }
+
     @Test
     void warehouseSubscribe_sendsContainerEntriesOfReferencedWarehouses() {
         StagingAreaManager manager = mockWarehouseManager();
@@ -395,6 +424,91 @@ class ModNetworkHandlerBehaviorTest {
     // ========== 仓库网络配置入口（创建/修改后立即重扫） ==========
 
     @Test
+    void warehouseAreas_addWarehouse_broadcastsAreaPacket() {
+        StagingAreaManager manager = mockWarehouseManager();
+        stubOnlinePlayer();
+        when(manager.addWarehouse(any(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+            .thenReturn(9);
+        when(manager.getAllWarehouses()).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(9, "新仓库", "minecraft:overworld", 0, 64, 0, 10, 70, 10)));
+
+        ModNetworkHandler.handleStagingAreaConfig(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
+            java.util.Optional.of(new StagingAreaConfigC2SPacket.AreaData(
+                "新仓库", 0, 64, 0, 10, 70, 10,
+                java.util.Optional.of("minecraft:overworld")))),
+            player, server);
+
+        // 核心断言：新建仓库后必须广播区域数据，否则客户端没有线框可画
+        ArgumentCaptor<WarehouseAreaResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(WarehouseAreaResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertEquals(1, captor.getValue().warehouses().size());
+        assertEquals(9, captor.getValue().warehouses().get(0).areaId());
+        assertEquals("minecraft:overworld", captor.getValue().warehouses().get(0).world());
+    }
+
+    @Test
+    void warehouseAreas_deleteWarehouse_broadcastsRemainingAreas() {
+        StagingAreaManager manager = mockWarehouseManager();
+        stubOnlinePlayer();
+        when(manager.getSchematicsReferencingWarehouse(9)).thenReturn(java.util.Set.of());
+        when(manager.getAllWarehouses()).thenReturn(List.of());
+
+        ModNetworkHandler.handleStagingAreaConfig(
+            new StagingAreaConfigC2SPacket("", "DELETE_WAREHOUSE", 9, java.util.Optional.empty()),
+            player, server);
+
+        ArgumentCaptor<WarehouseAreaResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(WarehouseAreaResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertTrue(captor.getValue().warehouses().isEmpty(),
+            "删除后应广播空列表，客户端据此清掉线框");
+    }
+
+    @Test
+    void warehouseAreas_referencedByOpenSchematic_markedAsReferenced() {
+        StagingAreaManager manager = mockWarehouseManager();
+        stubOnlinePlayer();
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+        when(manager.getAllWarehouses()).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(3, "被引用仓库", "minecraft:overworld", 0, 64, 0, 5, 70, 5),
+            new StagingAreaManager.Warehouse(4, "未引用仓库", "minecraft:overworld", 20, 64, 20, 25, 70, 25)));
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(3, "被引用仓库", "minecraft:overworld", 0, 64, 0, 5, 70, 5)));
+
+        // 打开材料清单会订阅原理图，进而触发仓库区域推送
+        ModNetworkHandler.handleQueryMaterialStatus(
+            new QueryMaterialStatusC2SPacket("s1"), player);
+
+        ArgumentCaptor<WarehouseAreaResponseS2CPacket> captor =
+            ArgumentCaptor.forClass(WarehouseAreaResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertEquals(2, captor.getValue().warehouses().size(), "全部仓库都要下发");
+        assertEquals(List.of(3), captor.getValue().referencedIds(),
+            "只有被当前原理图引用的仓库进入高亮集合");
+    }
+
+    @Test
+    void warehouseAreas_addReference_rebroadcastsSoHighlightUpdates() {
+        StagingAreaManager manager = mockWarehouseManager();
+        stubOnlinePlayer();
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+        when(manager.getAllWarehouses()).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(3, "w3", "minecraft:overworld", 0, 64, 0, 5, 70, 5)));
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(3, "w3", "minecraft:overworld", 0, 64, 0, 5, 70, 5)));
+
+        ModNetworkHandler.handleStagingAreaConfig(
+            new StagingAreaConfigC2SPacket("s1", "ADD_WAREHOUSE_REF", 3, java.util.Optional.empty()),
+            player, server);
+
+        verify(manager).addWarehouseReference("s1", 3);
+        // 引用集合变化必须重推，否则高亮色停留在旧状态
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player),
+            any(WarehouseAreaResponseS2CPacket.class)));
+    }
+
+    @Test
     void warehouseConfig_add_rescansImmediatelyAndResponds() {
         StagingAreaManager manager = mockWarehouseManager();
         when(manager.addWarehouse(eq("新仓库"), eq("minecraft:overworld"),
@@ -409,11 +523,9 @@ class ModNetworkHandlerBehaviorTest {
         // 核心回归断言：新建仓库必须立即扫描，不应等到箱子物品发生变化
         verify(manager).rescanWarehouseAndMarkChunks(9);
 
-        ArgumentCaptor<StagingAreaConfigResponseS2CPacket> captor =
-            ArgumentCaptor.forClass(StagingAreaConfigResponseS2CPacket.class);
-        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
-        assertTrue(captor.getValue().success());
-        assertEquals("仓库已创建", captor.getValue().message());
+        var resp = lastPacketOfType(StagingAreaConfigResponseS2CPacket.class);
+        assertTrue(resp.success());
+        assertEquals("仓库已创建", resp.message());
     }
 
     @Test
