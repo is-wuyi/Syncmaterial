@@ -341,8 +341,11 @@ public class GuiWarehouseEditor extends GuiBase
                     break;
 
                 case SELECT_AREA:
+                    // 传入仓库上下文：区域框用仓库配色，且正式渲染跳过这个仓库，
+                    // 视觉上就是在就地改它的框
                     StagingAreaSelector.getInstance().start(this.parent, this.parent,
-                            this.parent.name, this.parent.pos1, this.parent.pos2);
+                            this.parent.name, this.parent.pos1, this.parent.pos2,
+                            StagingAreaSelector.TargetType.WAREHOUSE, null, this.parent.warehouseId);
                     return;
 
                 case BACK:

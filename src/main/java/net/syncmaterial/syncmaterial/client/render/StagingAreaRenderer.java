@@ -219,6 +219,13 @@ public class StagingAreaRenderer implements IRenderer
                     continue;
                 }
 
+                // 正在被选区编辑：交由 StagingAreaSelector 按同一配色渲染，
+                // 这里跳过以免同一区域出现两个重叠的框
+                if (StagingAreaSelector.getInstance().isEditingStagingArea(entry.getKey(), box.getName()))
+                {
+                    continue;
+                }
+
                 boolean isHighlighted = java.util.Objects.equals(entry.getKey(), this.highlightedSchematicId)
                     && java.util.Objects.equals(box.getName(), this.highlightedBoxName);
                 Color4f lineColor = isHighlighted
@@ -369,6 +376,13 @@ public class StagingAreaRenderer implements IRenderer
 
             // 单仓库开关：在仓库管理界面被单独隐藏
             if (net.syncmaterial.syncmaterial.client.config.Configs.isWarehouseHidden(serverKey, warehouse.areaId()))
+            {
+                continue;
+            }
+
+            // 正在被选区编辑：交由 StagingAreaSelector 按同一配色渲染，
+            // 这里跳过以免同一区域出现两个重叠的框
+            if (StagingAreaSelector.getInstance().isEditingWarehouse(warehouse.areaId()))
             {
                 continue;
             }

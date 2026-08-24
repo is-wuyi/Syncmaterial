@@ -128,8 +128,10 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
 
             this.gui.pendingWarehouseName = string.trim();
 
+            // 新建：还没有仓库 ID，但仍用仓库配色，避免确认后框的颜色突变
             MinecraftClient.getInstance().execute(() ->
-                    StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null));
+                    StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null,
+                            StagingAreaSelector.TargetType.WAREHOUSE, null, -1));
             return true;
         }
     }

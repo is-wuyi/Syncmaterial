@@ -350,9 +350,11 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
                     break;
                 case SELECT_AREA:
                     // 直接 start()：本界面不是 MaLiLib 弹窗，按钮回调里没有后续的 setScreen，
-                    // 不存在 SubRegionCreator 那里的覆盖时序问题
+                    // 不存在 SubRegionCreator 那里的覆盖时序问题。
+                    // 传入备货区上下文：正式渲染跳过这个 box，选区用备货区配色接手绘制
                     StagingAreaSelector.getInstance().start(this.parent, this.parent,
-                            this.parent.box.getName(), this.parent.box.getPos1(), this.parent.box.getPos2());
+                            this.parent.box.getName(), this.parent.box.getPos1(), this.parent.box.getPos2(),
+                            StagingAreaSelector.TargetType.STAGING_AREA, this.parent.schematicId, -1);
                     return;
                 case BACK:
                     this.parent.closeGui(true);

@@ -17,6 +17,7 @@ import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
 
 import net.syncmaterial.syncmaterial.SyncMaterial;
+import net.syncmaterial.syncmaterial.client.config.Configs;
 
 public class StagingAreaSelector {
     private static final StagingAreaSelector INSTANCE = new StagingAreaSelector();
@@ -28,10 +29,18 @@ public class StagingAreaSelector {
         void onSelectionConfirmed(@Nullable String boxName, @Nullable BlockPos pos1, @Nullable BlockPos pos2);
     }
 
+    /**
+     * 选区目标类型：决定区域框用哪套配置颜色，
+     * 让"编辑"看起来就是在就地改这个框，而不是旁边冒出一个陌生的预览框。
+     */
+    public enum TargetType {
+        STAGING_AREA,
+        WAREHOUSE
+    }
+
     private static final Color4f COLOR_POS1 = new Color4f(1.0f, 0.0f, 0.0f, 1.0f);
     private static final Color4f COLOR_POS2 = new Color4f(0.0f, 0.0f, 1.0f, 1.0f);
     private static final Color4f COLOR_LOOKING = new Color4f(1.0f, 1.0f, 0.0f, 0.5f);
-    private static final Color4f COLOR_AREA = new Color4f(0.0f, 1.0f, 0.0f, 0.3f);
 
     private boolean active = false;
     @Nullable private BlockPos pos1 = null;
@@ -40,6 +49,14 @@ public class StagingAreaSelector {
     @Nullable private SelectionCallback callback = null;
     @Nullable private Screen returnScreen = null;
     @Nullable private String targetBoxName = null;
+    private TargetType targetType = TargetType.STAGING_AREA;
+    /**
+     * 正在编辑的仓库 ID（-1 表示不是在编辑仓库）。
+     * 正式渲染据此跳过该仓库，避免同一个区域被画两遍（原框 + 预览框重叠）。
+     */
+    private int editingWarehouseId = -1;
+    /** 正在编辑的备货区所属原理图，配合 targetBoxName 供正式渲染跳过 */
+    @Nullable private String editingSchematicId = null;
     private boolean leftClicked = false;
     private boolean rightClicked = false;
 
@@ -65,6 +82,20 @@ public class StagingAreaSelector {
 
     public void start(SelectionCallback callback, Screen returnScreen,
                       @Nullable String boxName, @Nullable BlockPos initialPos1, @Nullable BlockPos initialPos2) {
+        this.start(callback, returnScreen, boxName, initialPos1, initialPos2,
+                TargetType.STAGING_AREA, null, -1);
+    }
+
+    /**
+     * 启动准星选区。
+     *
+     * @param targetType         决定区域框配色，使编辑时与该对象平时的线框颜色一致
+     * @param editingSchematicId 编辑备货区时传所属原理图；新建传 null
+     * @param editingWarehouseId 编辑仓库时传仓库 ID；新建或编辑备货区传 -1
+     */
+    public void start(SelectionCallback callback, Screen returnScreen,
+                      @Nullable String boxName, @Nullable BlockPos initialPos1, @Nullable BlockPos initialPos2,
+                      TargetType targetType, @Nullable String editingSchematicId, int editingWarehouseId) {
         this.active = true;
         this.callback = callback;
         this.returnScreen = returnScreen;
@@ -72,20 +103,62 @@ public class StagingAreaSelector {
         this.pos1 = initialPos1;
         this.pos2 = initialPos2;
         this.posLookingAt = null;
+        this.targetType = targetType != null ? targetType : TargetType.STAGING_AREA;
+        this.editingSchematicId = editingSchematicId;
+        this.editingWarehouseId = editingWarehouseId;
 
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.currentScreen != null) {
+        // mc 为 null 只出现在无客户端实例的环境（单元测试）；
+        // 选区状态此时已设置完毕，不应因为关不掉界面而整体抛出
+        if (mc != null && mc.currentScreen != null) {
             mc.setScreen(null);
         }
 
-        SyncMaterial.LOGGER.info("[StagingAreaSelector] 启动选区模式: boxName={}, pos1={}, pos2={}",
-                boxName, initialPos1, initialPos2);
+        SyncMaterial.LOGGER.info("[StagingAreaSelector] 启动选区模式: boxName={}, pos1={}, pos2={}, type={}",
+                boxName, initialPos1, initialPos2, this.targetType);
+    }
+
+    /**
+     * 正式渲染是否应跳过该仓库：正在选区编辑它，交由选区渲染，避免同一区域画两遍。
+     */
+    public boolean isEditingWarehouse(int warehouseId) {
+        return this.active && this.targetType == TargetType.WAREHOUSE
+                && this.editingWarehouseId >= 0 && this.editingWarehouseId == warehouseId;
+    }
+
+    /**
+     * 正式渲染是否应跳过该备货区，理由同 isEditingWarehouse。
+     */
+    public boolean isEditingStagingArea(@Nullable String schematicId, @Nullable String boxName) {
+        return this.active && this.targetType == TargetType.STAGING_AREA
+                && this.editingSchematicId != null && this.targetBoxName != null
+                && this.editingSchematicId.equals(schematicId)
+                && this.targetBoxName.equals(boxName);
     }
 
     public void cancel() {
         SyncMaterial.LOGGER.info("[StagingAreaSelector] 取消选区");
         this.active = false;
         this.returnToGui();
+    }
+
+    /**
+     * 断连时的强制重置：不回到上一个界面（那属于已断开的服务器），
+     * 只把状态清干净。否则 active 残留会让选区模式在下次进服时仍然生效。
+     */
+    public void reset() {
+        this.active = false;
+        this.pos1 = null;
+        this.pos2 = null;
+        this.posLookingAt = null;
+        this.callback = null;
+        this.returnScreen = null;
+        this.targetBoxName = null;
+        this.editingSchematicId = null;
+        this.editingWarehouseId = -1;
+        this.targetType = TargetType.STAGING_AREA;
+        this.leftClicked = false;
+        this.rightClicked = false;
     }
 
     public void confirm() {
@@ -106,11 +179,16 @@ public class StagingAreaSelector {
 
     private void returnToGui() {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (this.returnScreen != null) {
+        if (mc != null && this.returnScreen != null) {
             mc.setScreen(this.returnScreen);
         }
         this.returnScreen = null;
         this.targetBoxName = null;
+        // 编辑上下文必须一并清掉：否则正式渲染会继续跳过该对象，
+        // 而选区已退出不再绘制，那个框就永久消失了
+        this.editingSchematicId = null;
+        this.editingWarehouseId = -1;
+        this.targetType = TargetType.STAGING_AREA;
     }
 
     public void onTick() {
@@ -174,6 +252,26 @@ public class StagingAreaSelector {
             return;
         }
 
+        // 区域框用该对象平时的配色，让编辑看起来就是在就地改这个框。
+        // 正式渲染会跳过被编辑的对象（见 isEditingWarehouse/isEditingStagingArea），
+        // 所以这里画的就是"那一个框"本身，不会与原框重叠。
+        Color4f areaLine;
+        Color4f areaSide;
+        if (this.targetType == TargetType.WAREHOUSE) {
+            areaLine = Configs.Render.WAREHOUSE_LINE_COLOR.getColor();
+            areaSide = Configs.Render.WAREHOUSE_SIDE_COLOR.getColor();
+        } else {
+            areaLine = Configs.Render.AREA_LINE_COLOR.getColor();
+            areaSide = Configs.Render.AREA_SIDE_COLOR.getColor();
+        }
+
+        if (this.pos1 != null && this.pos2 != null) {
+            RenderUtils.renderAreaOutline(this.pos1, this.pos2, 2.0f, areaLine, areaLine, areaLine);
+            RenderUtils.renderAreaSides(this.pos1, this.pos2, areaSide, posMatrix);
+        }
+
+        // 角点标记在区域框之后绘制：红/蓝是"哪个角是 pos1、是否已点过"的必要反馈，
+        // 需要盖在区域框上才看得清
         if (this.pos1 != null) {
             RenderUtils.renderAreaOutline(this.pos1, this.pos1, 3.0f, COLOR_POS1, COLOR_POS1, COLOR_POS1);
             RenderUtils.renderAreaSides(this.pos1, this.pos1, new Color4f(1.0f, 0.0f, 0.0f, 0.25f), posMatrix);
@@ -182,11 +280,6 @@ public class StagingAreaSelector {
         if (this.pos2 != null) {
             RenderUtils.renderAreaOutline(this.pos2, this.pos2, 3.0f, COLOR_POS2, COLOR_POS2, COLOR_POS2);
             RenderUtils.renderAreaSides(this.pos2, this.pos2, new Color4f(0.0f, 0.0f, 1.0f, 0.25f), posMatrix);
-        }
-
-        if (this.pos1 != null && this.pos2 != null) {
-            RenderUtils.renderAreaOutline(this.pos1, this.pos2, 2.0f, COLOR_AREA, COLOR_AREA, COLOR_AREA);
-            RenderUtils.renderAreaSides(this.pos1, this.pos2, COLOR_AREA, posMatrix);
         }
 
         if (this.posLookingAt != null) {

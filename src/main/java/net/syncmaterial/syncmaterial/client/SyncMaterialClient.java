@@ -77,6 +77,9 @@ public class SyncMaterialClient implements ClientModInitializer {
             // 仓库数据按服务器隔离：不清理会导致换服后渲染上一个服务器的仓库线框
             StagingAreaRenderer.getInstance().clearWarehouseAreas();
             StagingAreaRenderer.getInstance().clearWarehouseContainers();
+            // 选区状态也要清：中途断线时 active 会残留，导致下次进服仍处于选区模式，
+            // 且编辑上下文残留会让对应区域被正式渲染永久跳过
+            StagingAreaSelector.getInstance().reset();
         });
 
         // 准星选区模式下屏蔽方块交互
