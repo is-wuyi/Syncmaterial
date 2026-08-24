@@ -126,7 +126,7 @@
   "syncmaterial.gui.error.no_selection": "未选择区域",
   "syncmaterial.gui.label.corner_1": "角点 1",
   "syncmaterial.gui.label.corner_2": "角点 2",
-  "syncmaterial.gui.button.hover.plus_minus_tip": "左键: +1 | 右键: -1\n按住 Ctrl: ×100 | Shift: ×10 | Alt: ×5（可叠加）",
+  "syncmaterial.gui.button.hover.plus_minus_tip": "左键: +1 | 右键: -1\n按住 Shift: ×8 | Alt: ×4（可叠加）",
   "syncmaterial.gui.button.settings": "共享材料表设置",
   "syncmaterial.gui.title.settings": "SyncMaterial 设置",
   "syncmaterial.gui.tab.generic": "通用",

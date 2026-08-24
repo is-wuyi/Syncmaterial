@@ -315,10 +315,7 @@ public class GuiWarehouseEditor extends GuiBase
         @Override
         public void actionPerformedWithButton(ButtonBase button, int mouseButton)
         {
-            int amount = mouseButton == 1 ? -1 : 1;
-            if (GuiBase.isCtrlDown()) { amount *= 100; }
-            if (GuiBase.isShiftDown()) { amount *= 10; }
-            if (GuiBase.isAltDown()) { amount *= 5; }
+            int amount = CoordinateNudge.amount(mouseButton);
 
             switch (this.type)
             {

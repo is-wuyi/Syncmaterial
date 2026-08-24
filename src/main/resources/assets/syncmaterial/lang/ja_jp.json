@@ -104,7 +104,7 @@
   "syncmaterial.gui.error.no_selection": "選択されていません",
   "syncmaterial.gui.label.corner_1": "コーナー 1",
   "syncmaterial.gui.label.corner_2": "コーナー 2",
-  "syncmaterial.gui.button.hover.plus_minus_tip": "左クリック: +1 | 右クリック: -1\nCtrl: ×100 | Shift: ×10 | Alt: ×5（重複可）",
+  "syncmaterial.gui.button.hover.plus_minus_tip": "左クリック: +1 | 右クリック: -1\nShift: ×8 | Alt: ×4（重複可）",
   "syncmaterial.gui.button.settings": "共有材料表設定",
   "syncmaterial.gui.title.settings": "SyncMaterial 設定",
   "syncmaterial.gui.tab.generic": "一般",
