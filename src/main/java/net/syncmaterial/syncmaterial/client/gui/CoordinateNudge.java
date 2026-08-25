@@ -60,11 +60,12 @@ public final class CoordinateNudge
     }
 
     /**
-     * 排查 Alt 修饰键失效：同时输出 MaLiLib 的判断结果与 GLFW 原始按键状态。
+     * 输出 MaLiLib 的修饰键判断、GLFW 原始按键状态与物理鼠标键，用于排查步长异常。
      *
-     * 两者不一致说明 MaLiLib/原版的判断有问题；两者都为 false 则说明
-     * 系统层（如 macOS 的 Option 键）没有把按键状态传给窗口。
-     * mouseButton 一并打印，用于确认左键是否被改写成了右键。
+     * 已借此定位到一个平台行为：macOS 上原版 Mouse.onMouseButton 会把
+     * Control + 左键改写成右键（GLFW_MOD_CONTROL 命中时 button 置 1），
+     * 这是 macOS 的 Control+click 约定，Litematica 同样如此，无法在我们这层规避。
+     * 因此当"物理左键按下但 mouseButton 报 1"时会额外打一行结论，免去逐字段比对。
      */
     private static void logDiagnostics(int mouseButton, boolean shiftDown, boolean altDown, int result)
     {
@@ -77,20 +78,45 @@ public final class CoordinateNudge
             }
 
             long window = mc.getWindow().getHandle();
+            boolean physicalLeft = isMouseDown(window, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+            boolean physicalRight = isMouseDown(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
 
             SyncMaterial.LOGGER.info(
-                "[坐标步长] mouseButton={} 结果={} | MaLiLib: shift={} alt={} | "
-                    + "GLFW 原始: leftAlt={} rightAlt={} leftShift={} rightShift={} "
-                    + "leftSuper={} rightSuper={} 鼠标左键={} 鼠标右键={}",
-                mouseButton, result, shiftDown, altDown,
+                "[坐标步长] mouseButton={} 结果={} | MaLiLib: shift={} alt={} ctrl={} | "
+                    + "GLFW 原始: leftCtrl={} rightCtrl={} leftAlt={} rightAlt={} "
+                    + "leftShift={} rightShift={} leftSuper={} rightSuper={} "
+                    + "鼠标左键={} 鼠标右键={}",
+                mouseButton, result, shiftDown, altDown, GuiBase.isCtrlDown(),
+                isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL),
+                isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL),
                 isKeyDown(window, GLFW.GLFW_KEY_LEFT_ALT),
                 isKeyDown(window, GLFW.GLFW_KEY_RIGHT_ALT),
                 isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT),
                 isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT),
                 isKeyDown(window, GLFW.GLFW_KEY_LEFT_SUPER),
                 isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SUPER),
-                isMouseDown(window, GLFW.GLFW_MOUSE_BUTTON_LEFT),
-                isMouseDown(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT));
+                physicalLeft, physicalRight);
+
+            if (mouseButton == 1 && physicalLeft && !physicalRight)
+            {
+                SyncMaterial.LOGGER.info(
+                    "[坐标步长] 物理左键被当成右键：这是 macOS 上 Control+左键=右键的系统约定，"
+                        + "由原版 Mouse.onMouseButton 改写，Litematica 表现相同。"
+                        + "请改用 Option(Alt) 或 Shift 作为倍率键。");
+            }
+
+            // 明确指出这次点击到底按的是哪个修饰键，避免事后回忆混淆
+            boolean ctrlPhysical = isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL)
+                    || isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
+            boolean altPhysical = isKeyDown(window, GLFW.GLFW_KEY_LEFT_ALT)
+                    || isKeyDown(window, GLFW.GLFW_KEY_RIGHT_ALT);
+            SyncMaterial.LOGGER.info(
+                "[坐标步长] 本次按键判定 → Control(物理)={} Option/Alt(物理)={} "
+                    + "Shift(物理)={} 最终步长={}",
+                ctrlPhysical, altPhysical,
+                isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT)
+                    || isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT),
+                result);
         }
         catch (Exception e)
         {
