@@ -19,48 +19,54 @@ repositories {
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:1.21.7"
-    mappings "net.fabricmc:yarn:1.21.7+build.1:v2"
-    modImplementation "net.fabricmc:fabric-loader:0.16.13"
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
 
-    // ✅ 修复：MC 1.21.7 官方正版 Fabric API
-    modImplementation "net.fabricmc.fabric-api:fabric-api:0.129.0+1.21.7"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
 
     // MaLiLib for GUI classes (compile-time only)
-    modCompileOnly "maven.modrinth:malilib:0.25.7"
+    modCompileOnly "maven.modrinth:malilib:${malilib_version}"
 
     // Litematica for reference (compile-time only, not required at runtime)
     // 0.23.6 已从 Modrinth 下架，改用 0.23.7（同系列补丁版本，支持 1.21.6~1.21.8）
-    modCompileOnly "maven.modrinth:litematica:0.23.7"
+    modCompileOnly "maven.modrinth:litematica:${litematica_version}"
 
     // JSR 305 (javax.annotation.Nullable 等)
     compileOnly "com.google.code.findbugs:jsr305:3.0.2"
 
     // SQLite 数据库驱动 - include 嵌入模组 jar（生产）；runtimeOnly 提供 dev 运行时（runServer/GameTest）
-    include "org.xerial:sqlite-jdbc:3.45.1.0"
-    runtimeOnly "org.xerial:sqlite-jdbc:3.45.1.0"
+    include "org.xerial:sqlite-jdbc:${sqlite_version}"
+    runtimeOnly "org.xerial:sqlite-jdbc:${sqlite_version}"
 
     // 测试依赖
-    testImplementation "net.fabricmc:fabric-loader-junit:0.16.13"
+    testImplementation "net.fabricmc:fabric-loader-junit:${loader_version}"
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
     testImplementation "org.mockito:mockito-core:5.11.0"
-    testImplementation "org.xerial:sqlite-jdbc:3.45.1.0"
+    testImplementation "org.xerial:sqlite-jdbc:${sqlite_version}"
     // 单测 JVM 的日志输出（此前无 slf4j 绑定，生产代码吞掉的异常在单测里完全不可见）
     testRuntimeOnly "org.slf4j:slf4j-simple:2.0.13"
     // selection 包的 Box/AreaSelection 引用 litematica 的 Corner 枚举，
     // 单测加载这些类需要重映射后的 mod jar（loom 把 modCompileOnly 重映射产物
     // 放在 .gradle/loom-cache/remapped_mods，只挂在编译类路径，这里补到运行时）
     testRuntimeOnly fileTree(".gradle/loom-cache/remapped_mods/remapped/maven/modrinth") {
-        include "litematica-*/0.23.7/*.jar"
-        include "malilib-*/0.25.7/*.jar"
+        include "litematica-*/${litematica_version}/*.jar"
+        include "malilib-*/${malilib_version}/*.jar"
     }
 }
 
 processResources {
+    // 版本号统一从 gradle.properties 注入，避免 fabric.mod.json 里写死后与构建配置漂移
     inputs.property "version", project.version
+    inputs.property "minecraft_dependency", minecraft_dependency
+    inputs.property "loader_dependency", loader_dependency
     filesMatching("fabric.mod.json") {
-        expand "version": project.version
+        expand(
+            "version": project.version,
+            "minecraft_dependency": minecraft_dependency,
+            "loader_dependency": loader_dependency
+        )
     }
 }
 
