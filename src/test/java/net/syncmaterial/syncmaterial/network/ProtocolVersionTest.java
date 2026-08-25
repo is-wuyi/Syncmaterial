@@ -77,6 +77,28 @@ class ProtocolVersionTest
     }
 
     @Test
+    void recordHandshake_withPlayerName_recordsSameAsWithout()
+    {
+        // 带玩家名的重载只影响日志可读性，记录行为必须完全一致
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        assertTrue(ProtocolHandshake.recordHandshake(a, "Alice", ProtocolVersion.CURRENT, "test"));
+        assertTrue(ProtocolHandshake.recordHandshake(b, ProtocolVersion.CURRENT, "test"));
+
+        assertEquals(ProtocolHandshake.getVersion(b), ProtocolHandshake.getVersion(a));
+        assertTrue(ProtocolHandshake.hasHandshaked(a));
+    }
+
+    @Test
+    void recordHandshake_blankPlayerNameStillRecords()
+    {
+        // 玩家名取不到时不应影响记录本身
+        UUID player = UUID.randomUUID();
+        assertTrue(ProtocolHandshake.recordHandshake(player, "  ", ProtocolVersion.CURRENT, "test"));
+        assertTrue(ProtocolHandshake.hasHandshaked(player));
+    }
+
+    @Test
     void recordHandshake_acceptsNewerClient()
     {
         UUID player = UUID.randomUUID();

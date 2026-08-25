@@ -78,6 +78,7 @@ public class SyncMaterialClient implements ClientModInitializer {
             sender.sendPacket(new net.syncmaterial.syncmaterial.network.HelloC2SPacket(
                     net.syncmaterial.syncmaterial.network.ProtocolVersion.CURRENT,
                     SyncMaterial.getModVersion()));
+            net.syncmaterial.syncmaterial.network.ClientProtocolState.onHandshakeSent();
         });
 
         // 断开连接时清除编辑器状态

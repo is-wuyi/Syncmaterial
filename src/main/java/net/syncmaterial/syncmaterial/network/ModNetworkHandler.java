@@ -87,7 +87,8 @@ public class ModNetworkHandler {
             if (!validatePlayer(player)) return;
 
             boolean accepted = ProtocolHandshake.recordHandshake(
-                    player.getUuid(), payload.protocolVersion(), payload.modVersion());
+                    player.getUuid(), player.getName().getString(),
+                    payload.protocolVersion(), payload.modVersion());
 
             context.server().execute(() -> {
                 if (player.networkHandler == null) return;
@@ -100,6 +101,9 @@ public class ModNetworkHandler {
                 }
             });
         });
+
+        SyncMaterial.LOGGER.info("版本握手接收器已注册，服务端协议版本 {}（mod 版本 {}）",
+                ProtocolVersion.CURRENT, SyncMaterial.getModVersion());
     }
 
     /**

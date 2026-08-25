@@ -24,6 +24,18 @@ public final class ClientProtocolState
 
     private ClientProtocolState() {}
 
+    /**
+     * 已向服务端发出握手时调用。
+     *
+     * 单独打这条日志是为了让链路可诊断：只有"已发出"而始终没有"握手成功"，
+     * 就说明服务端没装本 mod 或没处理握手；两条都没有则是客户端自己没发出去。
+     */
+    public static void onHandshakeSent()
+    {
+        SyncMaterial.LOGGER.info("已向服务端发出版本握手：本地协议版本 {}（mod 版本 {}）",
+                ProtocolVersion.CURRENT, SyncMaterial.getModVersion());
+    }
+
     /** 收到服务端握手回应时调用。 */
     public static void onHandshakeResponse(int protocolVersion, String modVersion, boolean accepted)
     {

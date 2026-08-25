@@ -28,32 +28,49 @@ public final class ProtocolHandshake
      * 记录握手并返回该客户端是否被接受。
      * 版本过低时不写入记录 —— 后续所有"是否装了 mod"的判断都会视其为未握手，
      * 服务端因此不会给它推任何业务包。
+     *
+     * playerName 仅用于日志：UUID 对运维没有可读性，管理员需要据此确认
+     * 某个具体玩家究竟装没装本 mod、装的是什么版本。
      */
-    public static boolean recordHandshake(UUID playerId, int clientProtocolVersion, String clientModVersion)
+    public static boolean recordHandshake(UUID playerId, String playerName,
+                                          int clientProtocolVersion, String clientModVersion)
     {
         if (playerId == null)
         {
             return false;
         }
 
+        String who = playerName != null && !playerName.isBlank() ? playerName : playerId.toString();
+
         if (!ProtocolVersion.isClientAcceptable(clientProtocolVersion))
         {
             SyncMaterial.LOGGER.warn(
                     "拒绝客户端 {}：协议版本 {} 低于服务端要求的最低版本 {}（客户端 mod 版本 {}）",
-                    playerId, clientProtocolVersion, ProtocolVersion.MIN_COMPATIBLE, clientModVersion);
+                    who, clientProtocolVersion, ProtocolVersion.MIN_COMPATIBLE, clientModVersion);
             return false;
         }
 
         PLAYER_VERSIONS.put(playerId, clientProtocolVersion);
 
+        // 正常握手也要打日志：这是管理员确认"该玩家装了本 mod"的唯一途径
+        SyncMaterial.LOGGER.info(
+                "版本握手成功：玩家 {} 协议版本 {}（mod 版本 {}），服务端协议版本 {}",
+                who, clientProtocolVersion, clientModVersion, ProtocolVersion.CURRENT);
+
         if (ProtocolVersion.isPeerNewer(clientProtocolVersion))
         {
             SyncMaterial.LOGGER.info(
-                    "客户端 {} 的协议版本 {} 高于服务端的 {}，服务端将按自身版本提供功能（客户端 mod 版本 {}）",
-                    playerId, clientProtocolVersion, ProtocolVersion.CURRENT, clientModVersion);
+                    "玩家 {} 的客户端比服务端新，服务端将按自身版本 {} 提供功能",
+                    who, ProtocolVersion.CURRENT);
         }
 
         return true;
+    }
+
+    /** 兼容旧签名，playerName 缺省时日志退化为 UUID。 */
+    public static boolean recordHandshake(UUID playerId, int clientProtocolVersion, String clientModVersion)
+    {
+        return recordHandshake(playerId, null, clientProtocolVersion, clientModVersion);
     }
 
     /** 该玩家是否完成过握手，即是否装了本 mod 且版本被接受。 */
