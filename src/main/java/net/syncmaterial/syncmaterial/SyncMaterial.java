@@ -83,31 +83,10 @@ public class SyncMaterial implements ModInitializer {
             }
         });
 
-        // 3. 注册玩家加入世界事件，推送备货区数据
-        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-            if (sharedStagingAreaManager != null) {
-                server.execute(() -> {
-                    for (var entry : SchematicFolderWatcher.placementNames.entrySet()) {
-                        String schematicId = entry.getKey();
-                        var areas = sharedStagingAreaManager.getStagingAreas(schematicId);
-                        if (!areas.isEmpty()) {
-                            String schematicName = "";
-                            if (sharedDatabase != null) {
-                                try (var rs = sharedDatabase.executeQuery("SELECT name FROM schematics WHERE id = ?", schematicId)) {
-                                    if (rs.next()) schematicName = rs.getString("name");
-                                } catch (Exception ignored) {}
-                            }
-                            var areaInfos = StagingAreaManager.buildAreaInfos(areas);
-                            net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(handler.player,
-                                new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket("LIST", schematicId, schematicName, true, "", areaInfos));
-                        }
-                    }
-
-                    // 仓库是全局资源，与原理图无关，单独推送一次供线框渲染
-                    net.syncmaterial.syncmaterial.network.ModNetworkHandler.sendWarehouseAreasTo(handler.player);
-                });
-            }
-        });
+        // 3. 初始数据推送不在 JOIN 时进行。
+        // 玩家刚进服时服务端还不知道对方装没装本 mod、是什么协议版本，
+        // 盲推会给原版客户端白发一堆读不懂的包。改由客户端握手触发，
+        // 见 ModNetworkHandler.registerHandshakeReceiver。
 
         // 4. 注册玩家断开连接事件，清理订阅
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
@@ -235,5 +214,15 @@ public class SyncMaterial implements ModInitializer {
      */
     public static LitematicaParser getSharedParser() {
         return sharedParser;
+    }
+
+    /**
+     * 本 mod 的版本号，从 Fabric 元数据读取，避免与 gradle.properties 里的版本号双份维护。
+     * 仅用于握手时展示给用户，任何判断逻辑都应依赖 ProtocolVersion。
+     */
+    public static String getModVersion() {
+        return FabricLoader.getInstance().getModContainer(MOD_ID)
+                .map(container -> container.getMetadata().getVersion().getFriendlyString())
+                .orElse("unknown");
     }
 }

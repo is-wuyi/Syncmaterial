@@ -41,6 +41,7 @@ public class ModNetworkHandler {
      */
     public static void registerPayloadTypes() {
         // C2S (客户端到服务端)
+        PayloadTypeRegistry.playC2S().register(HelloC2SPacket.ID, HelloC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(MaterialStatsRequestC2SPacket.ID, MaterialStatsRequestC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(JoinCollaborationC2SPacket.ID, JoinCollaborationC2SPacket.CODEC);
         PayloadTypeRegistry.playC2S().register(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
@@ -58,6 +59,7 @@ public class ModNetworkHandler {
         PayloadTypeRegistry.playC2S().register(WarehouseContainerRequestC2SPacket.ID, WarehouseContainerRequestC2SPacket.CODEC);
 
         // S2C (服务端到客户端)
+        PayloadTypeRegistry.playS2C().register(HelloS2CPacket.ID, HelloS2CPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
@@ -70,6 +72,75 @@ public class ModNetworkHandler {
         // Phase 5
         PayloadTypeRegistry.playS2C().register(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
         PayloadTypeRegistry.playS2C().register(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
+    }
+
+    /**
+     * 注册版本握手接收器。
+     *
+     * 客户端进服后主动发 HelloC2SPacket，服务端在此记录其协议版本并回应自己的版本。
+     * 握手成功后才推送初始数据 —— 相比原先在 JOIN 事件里盲推，
+     * 这样能避免给没装本 mod 的原版客户端白发一堆它读不懂的包。
+     */
+    private static void registerHandshakeReceiver() {
+        ServerPlayNetworking.registerGlobalReceiver(HelloC2SPacket.ID, (payload, context) -> {
+            var player = context.player();
+            if (!validatePlayer(player)) return;
+
+            boolean accepted = ProtocolHandshake.recordHandshake(
+                    player.getUuid(), payload.protocolVersion(), payload.modVersion());
+
+            context.server().execute(() -> {
+                if (player.networkHandler == null) return;
+
+                ServerPlayNetworking.send(player, new HelloS2CPacket(
+                        ProtocolVersion.CURRENT, SyncMaterial.getModVersion(), accepted));
+
+                if (accepted) {
+                    sendInitialData(player);
+                }
+            });
+        });
+    }
+
+    /**
+     * 握手通过后向该玩家推送初始数据：各原理图的备货区，以及全局仓库区域。
+     * 仅在确认对端装了本 mod 且版本兼容后调用。
+     */
+    private static void sendInitialData(net.minecraft.server.network.ServerPlayerEntity player) {
+        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+        if (manager == null) return;
+
+        try {
+            for (var entry : net.syncmaterial.syncmaterial.server.SchematicFolderWatcher.placementNames.entrySet()) {
+                String schematicId = entry.getKey();
+                var areas = manager.getStagingAreas(schematicId);
+                if (areas.isEmpty()) continue;
+
+                ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                        "LIST", schematicId, lookupSchematicName(schematicId), true, "",
+                        StagingAreaManager.buildAreaInfos(areas)));
+            }
+
+            // 仓库是全局资源，与原理图无关，单独推送一次供线框渲染
+            sendWarehouseAreasTo(player);
+        } catch (Exception e) {
+            SyncMaterial.LOGGER.error("握手后推送初始数据失败", e);
+        }
+    }
+
+    private static String lookupSchematicName(String schematicId) {
+        var database = SyncMaterial.getSharedDatabase();
+        if (database == null) return "";
+
+        try (var rs = database.executeQuery("SELECT name FROM schematics WHERE id = ?", schematicId)) {
+            if (rs.next()) {
+                String name = rs.getString("name");
+                return name != null ? name : "";
+            }
+        } catch (Exception ignored) {
+            // 名称仅用于界面展示，取不到就留空，不影响备货区数据本身
+        }
+        return "";
     }
 
     static boolean validateSchematicId(String schematicId) {
@@ -108,6 +179,26 @@ public class ModNetworkHandler {
         return true;
     }
 
+    /**
+     * 业务包的统一准入检查：玩家有效且已完成版本握手。
+     *
+     * 未握手有两种情况，都不该继续处理：
+     * 一是客户端协议版本被服务端拒绝（recordHandshake 返回 false 时不写入记录），
+     * 二是伪造的包 —— 正常客户端必定先握手再发业务包。
+     *
+     * 握手包本身不走这里，否则永远无法完成第一次握手。
+     */
+    static boolean validateHandshakedPlayer(net.minecraft.server.network.ServerPlayerEntity player) {
+        if (!validatePlayer(player)) {
+            return false;
+        }
+        if (!ProtocolHandshake.hasHandshaked(player)) {
+            SyncMaterial.LOGGER.warn("拒绝处理来自未完成版本握手的玩家 {} 的业务包", player.getName().getString());
+            return false;
+        }
+        return true;
+    }
+
     static boolean validateStagingAction(String action) {
         return action != null && (action.equals("LIST") || action.equals("ADD") || action.equals("RENAME")
             || action.equals("DELETE") || action.equals("UPDATE") || action.equals("CLEAR")
@@ -118,6 +209,11 @@ public class ModNetworkHandler {
     }
 
     public static void register() {
+        // 握手必须先于 queryService 检查注册：数据库初始化失败时，
+        // 客户端仍应能得到"服务端装了本 mod 但未就绪"的明确回应，
+        // 而不是发包后永久没有任何响应。
+        registerHandshakeReceiver();
+
         if (queryService == null) {
             SyncMaterial.LOGGER.error("DatabaseQueryService未初始化！");
             return;
@@ -127,7 +223,7 @@ public class ModNetworkHandler {
             String schematicId = payload.schematicId();
             var player = context.player();
 
-            if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId)) return;
 
             context.server().execute(() -> {
                 handleMaterialStatsRequest(payload, player, context.server());
@@ -138,7 +234,7 @@ public class ModNetworkHandler {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
 
             context.server().execute(() -> {
                 handleJoinCollaboration(payload, player, context.server());
@@ -149,7 +245,7 @@ public class ModNetworkHandler {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
 
             context.server().execute(() -> {
                 handleLeaveCollaboration(payload, player, context.server());
@@ -161,7 +257,7 @@ public class ModNetworkHandler {
             int materialId = payload.materialId();
             int count = payload.count();
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId) || !validateCount(count)) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId) || !validateCount(count)) return;
 
             context.server().execute(() -> {
                 handleInventoryUpdate(payload, player, context.server());
@@ -171,7 +267,7 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(QueryMaterialStatusC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId)) return;
 
             context.server().execute(() -> {
                 handleQueryMaterialStatus(payload, player);
@@ -181,7 +277,7 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(MaterialListCloseC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(schematicId)) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId)) return;
 
             context.server().execute(() -> {
                 handleMaterialListClose(payload, player);
@@ -190,7 +286,7 @@ public class ModNetworkHandler {
 
         ServerPlayNetworking.registerGlobalReceiver(StagingAreaConfigC2SPacket.ID, (payload, context) -> {
             var player = context.player();
-            if (!validatePlayer(player) || !validateStagingAction(payload.action())) return;
+            if (!validateHandshakedPlayer(player) || !validateStagingAction(payload.action())) return;
             // 仓库操作不需要 schematicId，备货区操作需要
             boolean isWarehouseAction = payload.action().startsWith("LIST_WAREHOUSES")
                 || payload.action().startsWith("ADD_WAREHOUSE")
@@ -204,7 +300,7 @@ public class ModNetworkHandler {
 
         ServerPlayNetworking.registerGlobalReceiver(RescanStagingAreaC2SPacket.ID, (payload, context) -> {
             var player = context.player();
-            if (!validatePlayer(player)) return;
+            if (!validateHandshakedPlayer(player)) return;
             context.server().execute(() -> {
                 handleRescanStagingArea(payload, context);
             });
@@ -216,7 +312,7 @@ public class ModNetworkHandler {
         // Phase 5: 取货模式容器数据订阅
         ServerPlayNetworking.registerGlobalReceiver(WarehouseContainerRequestC2SPacket.ID, (payload, context) -> {
             var player = context.player();
-            if (!validatePlayer(player)) return;
+            if (!validateHandshakedPlayer(player)) return;
             context.server().execute(() -> {
                 handleWarehouseContainerRequest(payload, player);
             });
@@ -458,6 +554,11 @@ public class ModNetworkHandler {
             return;
         }
 
+        // 这是全员广播的共同出口：没握手过说明对方没装本 mod（或版本被拒），不必白发
+        if (!ProtocolHandshake.hasHandshaked(player)) {
+            return;
+        }
+
         Set<Integer> referenced = new HashSet<>();
         for (String schematicId : Phase4Handler.getSubscribedSchematics(player)) {
             for (var wh : manager.getWarehousesForSchematic(schematicId)) {
@@ -479,6 +580,7 @@ public class ModNetworkHandler {
 
         playerSchematicWarehouses.remove(player);
         Phase4Handler.unsubscribeAllMaterialList(player);
+        ProtocolHandshake.remove(player);
 
         var manager = SyncMaterial.getServerStagingAreaManager();
         if (manager != null) {

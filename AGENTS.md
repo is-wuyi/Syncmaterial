@@ -70,6 +70,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 
 | C2S 包 | 用途 |
 |---|---|
+| HelloC2SPacket | 版本握手，上报客户端协议版本（**格式永久冻结**） |
 | MaterialStatsRequestC2SPacket | 请求材料清单 |
 | MaterialListCloseC2SPacket | 材料列表关闭通知 |
 | JoinCollaborationC2SPacket | 加入协作（schematicId, materialId, inventoryCounts） |
@@ -85,6 +86,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 
 | S2C 包 | 用途 |
 |---|---|
+| HelloS2CPacket | 版本握手回应，含服务端协议版本与是否接受该客户端（**格式永久冻结**） |
 | MaterialStatsResponseS2CPacket | 材料清单响应 |
 | MaterialStatusS2CPacket | 材料状态（认领数 + 认领者） |
 | CollaborationStatusS2CPacket | 协作状态（含参与者列表） |
@@ -95,6 +97,23 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 | KickFromMaterialResponseS2CPacket | 踢出结果 |
 | PlayerListResponseS2CPacket | 玩家列表（名称 + 在线状态） |
 | WarehouseAreaResponseS2CPacket | 仓库区域线框（全局广播，含被引用仓库 ID） |
+
+### 协议版本兼容（必读）
+
+客户端与服务端版本可能不一致（服务器不可能要求所有玩家同时更新），因此有以下约束。
+
+**进服流程**：客户端 JOIN 时发 `HelloC2SPacket` 上报协议版本 → 服务端记录并回 `HelloS2CPacket` → 握手通过后才推送备货区与仓库的初始数据。未握手的玩家视为没装本 mod，服务端不给它发任何包。
+
+**四条硬规矩**：
+
+1. **`HelloC2SPacket` / `HelloS2CPacket` 的字段结构永久冻结。** 它们是全部版本协商的地基，自己变了就无法得知对端是谁。要传新信息一律新开包。
+2. **已发布的包，字段顺序和类型不要改。** 字节流里没有标签，接收方完全靠顺序去数，插一个字段就会让旧版本从那里开始全部错位 —— 表现为客户端被踢下线且只显示 `Internal Exception`，玩家无法自诊断。要改语义就新开包，老包留着。
+3. **协议版本号独立于 mod 版本号。** 只有线格式或语义真变了才 bump `ProtocolVersion.CURRENT`。纯 UI 调整、渲染修复不要动它，无谓 bump 会让旧客户端凭空丢功能。
+4. **新增能力必须带版本判断。** 服务端侧 `ProtocolHandshake.supports(player, N)`，客户端侧 `ClientProtocolState.serverSupports(N)`。客户端发现服务端不支持时应置灰按钮并提示，而非静默失败。
+
+**优先靠字段扩展而非新开包。** `StagingAreaConfigC2SPacket` 用一个 `action` 字符串支撑了 13 种操作，加第 14 种不需要改包结构 —— 这是控制包数量膨胀的主要手段。但注意：加 `action` 新取值属于**语义变更**，旧服务端的白名单会静默丢弃它，因此仍需 bump 协议版本并加判断。
+
+**服务端比客户端宽容。** 服务端只在旧客户端会真正写坏数据时才抬高 `ProtocolVersion.MIN_COMPATIBLE` 硬性拒绝（应极力避免）；客户端发现服务端旧了则自行减少功能，不阻断游戏。
 
 ### Mixin 规范
 

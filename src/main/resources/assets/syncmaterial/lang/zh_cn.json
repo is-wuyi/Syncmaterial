@@ -176,5 +176,9 @@
   "syncmaterial.config.name.top_left": "左上",
   "syncmaterial.config.name.top_right": "右上",
   "syncmaterial.config.name.bottom_left": "左下",
-  "syncmaterial.config.name.bottom_right": "右下"
+  "syncmaterial.config.name.bottom_right": "右下",
+
+  "syncmaterial.message.protocol.client_too_old": "你的 SyncMaterial 版本过旧，无法在此服务器使用。服务端版本：%s，请更新后重新进入。",
+  "syncmaterial.message.protocol.server_newer": "服务端的 SyncMaterial 版本较新（%s），部分新功能在你的客户端上不可用，建议更新。",
+  "syncmaterial.message.protocol.server_too_old": "服务端的 SyncMaterial 版本较旧（%s），此功能不可用。"
 }

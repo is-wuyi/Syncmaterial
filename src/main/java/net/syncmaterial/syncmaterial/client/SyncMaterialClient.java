@@ -71,6 +71,15 @@ public class SyncMaterialClient implements ClientModInitializer {
             StagingAreaSelector.getInstance().onRenderHUD(drawContext);
         });
 
+        // 进服后立刻发版本握手：服务端据此得知本客户端装了本 mod 及其协议版本，
+        // 握手通过后才会推送备货区与仓库的初始数据
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
+            sender.sendPacket(new net.syncmaterial.syncmaterial.network.HelloC2SPacket(
+                    net.syncmaterial.syncmaterial.network.ProtocolVersion.CURRENT,
+                    SyncMaterial.getModVersion()));
+        });
+
         // 断开连接时清除编辑器状态
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal.clearCurrentEditor();
@@ -80,6 +89,8 @@ public class SyncMaterialClient implements ClientModInitializer {
             // 选区状态也要清：中途断线时 active 会残留，导致下次进服仍处于选区模式，
             // 且编辑上下文残留会让对应区域被正式渲染永久跳过
             StagingAreaSelector.getInstance().reset();
+            // 协议状态也要清：不清会把上一个服务器的版本信息带到下一个服务器
+            net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
         });
 
         // 准星选区模式下屏蔽方块交互

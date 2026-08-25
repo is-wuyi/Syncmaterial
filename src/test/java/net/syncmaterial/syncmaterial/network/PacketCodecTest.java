@@ -47,6 +47,33 @@ class PacketCodecTest {
         }
     }
 
+    // ==================== 版本握手包 ====================
+    // 这两个包的字段结构永久冻结，测试同时起到"格式未被改动"的看门作用
+
+    @Test
+    void helloC2S_roundtrip() {
+        var original = new HelloC2SPacket(3, "1.21.7-0.3.0-beta.25");
+        var decoded = roundtrip(HelloC2SPacket.CODEC, original);
+        assertEquals(original.protocolVersion(), decoded.protocolVersion());
+        assertEquals(original.modVersion(), decoded.modVersion());
+    }
+
+    @Test
+    void helloS2C_roundtrip() {
+        var original = new HelloS2CPacket(5, "1.21.7-0.4.0", true);
+        var decoded = roundtrip(HelloS2CPacket.CODEC, original);
+        assertEquals(original.protocolVersion(), decoded.protocolVersion());
+        assertEquals(original.modVersion(), decoded.modVersion());
+        assertEquals(original.accepted(), decoded.accepted());
+    }
+
+    @Test
+    void helloS2C_rejected_roundtrip() {
+        var decoded = roundtrip(HelloS2CPacket.CODEC, new HelloS2CPacket(9, "unknown", false));
+        assertFalse(decoded.accepted());
+        assertEquals(9, decoded.protocolVersion());
+    }
+
     // ==================== S2C 包 ====================
 
     @Test

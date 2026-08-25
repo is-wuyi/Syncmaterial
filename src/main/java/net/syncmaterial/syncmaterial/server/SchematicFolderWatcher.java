@@ -363,6 +363,10 @@ public class SchematicFolderWatcher {
                 var packet = new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(
                     "SCHEMATIC_DELETED", schematicId, "", true, "", java.util.List.of());
                 for (var player : srv.getPlayerManager().getPlayerList()) {
+                    // 没握手过说明对方没装本 mod（或版本被拒），不必白发
+                    if (!net.syncmaterial.syncmaterial.network.ProtocolHandshake.hasHandshaked(player)) {
+                        continue;
+                    }
                     net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, packet);
                 }
                 SyncMaterial.LOGGER.info("已通知客户端清理备货区渲染: {}", schematicId);

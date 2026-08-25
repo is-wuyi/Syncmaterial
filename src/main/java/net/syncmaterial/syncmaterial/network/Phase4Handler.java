@@ -22,7 +22,7 @@ public class Phase4Handler {
         // 负责人操作
         ServerPlayNetworking.registerGlobalReceiver(OwnerActionC2SPacket.ID, (payload, context) -> {
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(payload.schematicId())) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())) return;
             context.server().execute(() -> {
                 handleOwnerAction(payload, player, context.server());
             });
@@ -31,7 +31,7 @@ public class Phase4Handler {
         // 批量分配
         ServerPlayNetworking.registerGlobalReceiver(BatchAssignC2SPacket.ID, (payload, context) -> {
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(payload.schematicId())) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())) return;
             context.server().execute(() -> {
                 handleBatchAssign(payload, player, context.server());
             });
@@ -40,7 +40,7 @@ public class Phase4Handler {
         // 按材料踢出
         ServerPlayNetworking.registerGlobalReceiver(KickFromMaterialC2SPacket.ID, (payload, context) -> {
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(payload.schematicId())) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())) return;
             context.server().execute(() -> {
                 handleKickFromMaterial(payload, player, context.server());
             });
@@ -49,7 +49,7 @@ public class Phase4Handler {
         // 玩家列表请求
         ServerPlayNetworking.registerGlobalReceiver(PlayerListRequestC2SPacket.ID, (payload, context) -> {
             var player = context.player();
-            if (!validatePlayer(player) || !validateSchematicId(payload.schematicId())) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())) return;
             context.server().execute(() -> {
                 handlePlayerListRequest(payload, player, context.server());
             });
@@ -334,24 +334,17 @@ public class Phase4Handler {
     }
 
     // ========== 内部工具方法 ==========
+    // 校验逻辑统一委托给 ModNetworkHandler，避免两份拷贝各自漂移
 
     static boolean validateSchematicId(String schematicId) {
-        if (schematicId == null || schematicId.isBlank()) {
-            SyncMaterial.LOGGER.warn("收到无效的 schematicId (null/blank)");
-            return false;
-        }
-        if (schematicId.length() > 100) {
-            SyncMaterial.LOGGER.warn("收到过长的 schematicId: {} 字符", schematicId.length());
-            return false;
-        }
-        return true;
+        return ModNetworkHandler.validateSchematicId(schematicId);
     }
 
     static boolean validatePlayer(ServerPlayerEntity player) {
-        if (player == null) {
-            SyncMaterial.LOGGER.warn("收到来自 null player 的网络包");
-            return false;
-        }
-        return true;
+        return ModNetworkHandler.validatePlayer(player);
+    }
+
+    static boolean validateHandshakedPlayer(ServerPlayerEntity player) {
+        return ModNetworkHandler.validateHandshakedPlayer(player);
     }
 }

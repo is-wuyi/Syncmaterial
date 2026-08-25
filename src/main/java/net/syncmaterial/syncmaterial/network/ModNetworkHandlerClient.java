@@ -10,6 +10,27 @@ import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 public class ModNetworkHandlerClient {
 
     public static void register() {
+        ClientPlayNetworking.registerGlobalReceiver(HelloS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                ClientProtocolState.onHandshakeResponse(
+                        payload.protocolVersion(), payload.modVersion(), payload.accepted());
+
+                if (!payload.accepted()) {
+                    fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                            fi.dy.masa.malilib.gui.Message.MessageType.ERROR,
+                            fi.dy.masa.malilib.util.StringUtils.translate(
+                                    "syncmaterial.message.protocol.client_too_old",
+                                    payload.modVersion()));
+                } else if (ClientProtocolState.isServerNewer()) {
+                    fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                            fi.dy.masa.malilib.gui.Message.MessageType.WARNING,
+                            fi.dy.masa.malilib.util.StringUtils.translate(
+                                    "syncmaterial.message.protocol.server_newer",
+                                    payload.modVersion()));
+                }
+            });
+        });
+
         ClientPlayNetworking.registerGlobalReceiver(MaterialStatsResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 SyncMaterialClient.openMaterialListScreen(payload.schematicId(), payload.schematicName(), payload.materials(), payload.isOwner(), payload.isMainOwner(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());

@@ -3,6 +3,10 @@ package net.syncmaterial.syncmaterial.network;
 import net.minecraft.util.Identifier;
 
 public class ModPackets {
+    // 版本握手：进服后互报协议版本。这两个频道及其包格式永久冻结，详见 HelloC2SPacket
+    public static final Identifier HELLO_C2S = Identifier.of("syncmaterial", "hello_c2s");
+    public static final Identifier HELLO_S2C = Identifier.of("syncmaterial", "hello_s2c");
+
     public static final Identifier REQUEST_MATERIAL_LIST = Identifier.of("syncmaterial", "request_material_list");
     public static final Identifier MATERIAL_LIST_RESPONSE = Identifier.of("syncmaterial", "material_list_response");
 

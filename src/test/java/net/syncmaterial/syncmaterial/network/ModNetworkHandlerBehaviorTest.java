@@ -59,8 +59,12 @@ class ModNetworkHandlerBehaviorTest {
         cm = mock(CollaborationManager.class);
         server = mock(MinecraftServer.class);
         player = mock(ServerPlayerEntity.class);
-        when(player.getGameProfile()).thenReturn(new GameProfile(UUID.randomUUID(), "Player1"));
+        UUID playerId = UUID.randomUUID();
+        when(player.getGameProfile()).thenReturn(new GameProfile(playerId, "Player1"));
         when(player.getName()).thenReturn(Text.literal("Player1"));
+        when(player.getUuid()).thenReturn(playerId);
+        // 广播出口会跳过未完成版本握手的玩家（视为没装本 mod），测试需先完成握手
+        ProtocolHandshake.recordHandshake(playerId, ProtocolVersion.CURRENT, "test");
 
         syncMaterialMock = mockStatic(SyncMaterial.class);
         syncMaterialMock.when(SyncMaterial::getSharedDatabase).thenReturn(db);
@@ -80,6 +84,7 @@ class ModNetworkHandlerBehaviorTest {
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", false), player);
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s2", false), player);
         Phase4Handler.unsubscribeAllMaterialList(player);
+        ProtocolHandshake.remove(player.getUuid());
         syncMaterialMock.close();
         networkingMock.close();
         placementsMock.close();
@@ -445,6 +450,28 @@ class ModNetworkHandlerBehaviorTest {
         assertEquals(1, captor.getValue().warehouses().size());
         assertEquals(9, captor.getValue().warehouses().get(0).areaId());
         assertEquals("minecraft:overworld", captor.getValue().warehouses().get(0).world());
+    }
+
+    @Test
+    void warehouseAreas_unhandshakedPlayer_receivesNoBroadcast() {
+        // 未完成版本握手 = 没装本 mod（或版本被拒），不该给它推任何包
+        ProtocolHandshake.remove(player.getUuid());
+
+        StagingAreaManager manager = mockWarehouseManager();
+        stubOnlinePlayer();
+        when(manager.addWarehouse(any(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+            .thenReturn(9);
+        when(manager.getAllWarehouses()).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(9, "新仓库", "minecraft:overworld", 0, 64, 0, 10, 70, 10)));
+
+        ModNetworkHandler.handleStagingAreaConfig(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
+            java.util.Optional.of(new StagingAreaConfigC2SPacket.AreaData(
+                "新仓库", 0, 64, 0, 10, 70, 10,
+                java.util.Optional.of("minecraft:overworld")))),
+            player, server);
+
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player),
+            any(WarehouseAreaResponseS2CPacket.class)), never());
     }
 
     @Test

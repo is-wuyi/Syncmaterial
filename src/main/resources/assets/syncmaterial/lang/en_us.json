@@ -176,5 +176,9 @@
   "syncmaterial.config.name.top_left": "Top Left",
   "syncmaterial.config.name.top_right": "Top Right",
   "syncmaterial.config.name.bottom_left": "Bottom Left",
-  "syncmaterial.config.name.bottom_right": "Bottom Right"
+  "syncmaterial.config.name.bottom_right": "Bottom Right",
+
+  "syncmaterial.message.protocol.client_too_old": "Your SyncMaterial version is too old for this server. Server version: %s. Please update and rejoin.",
+  "syncmaterial.message.protocol.server_newer": "The server runs a newer SyncMaterial (%s). Some new features are unavailable on your client; updating is recommended.",
+  "syncmaterial.message.protocol.server_too_old": "The server runs an older SyncMaterial (%s); this feature is unavailable."
 }

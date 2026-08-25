@@ -154,5 +154,9 @@
   "syncmaterial.config.name.top_left": "左上",
   "syncmaterial.config.name.top_right": "右上",
   "syncmaterial.config.name.bottom_left": "左下",
-  "syncmaterial.config.name.bottom_right": "右下"
+  "syncmaterial.config.name.bottom_right": "右下",
+
+  "syncmaterial.message.protocol.client_too_old": "SyncMaterial のバージョンが古いため、このサーバーでは利用できません。サーバー側のバージョン: %s。更新してから再接続してください。",
+  "syncmaterial.message.protocol.server_newer": "サーバー側の SyncMaterial が新しいバージョン (%s) です。一部の新機能はこのクライアントでは利用できません。更新を推奨します。",
+  "syncmaterial.message.protocol.server_too_old": "サーバー側の SyncMaterial が古いバージョン (%s) のため、この機能は利用できません。"
 }
