@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import fi.dy.masa.malilib.util.ItemType;
+import fi.dy.masa.malilib.util.data.ItemType;
 import net.minecraft.world.item.ItemStack;
 
 public class MaterialListEntry
@@ -81,7 +81,7 @@ public class MaterialListEntry
     public boolean isCurrentPlayerClaimed() {
         var player = net.minecraft.client.Minecraft.getInstance().player;
         if (player == null) return false;
-        String playerName = player.getGameProfile().getName();
+        String playerName = player.getName().getString();
         for (ParticipantData p : participants) {
             if (p.playerName().equals(playerName)) return true;
         }

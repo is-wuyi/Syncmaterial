@@ -16,7 +16,7 @@ public record QueryMaterialStatusC2SPacket(String schematicId) implements Custom
     );
 
     @Override
-    public CustomPacketPayload.Type<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

@@ -22,7 +22,7 @@ public record BatchAssignResponseS2CPacket(
     );
 
     @Override
-    public Id<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

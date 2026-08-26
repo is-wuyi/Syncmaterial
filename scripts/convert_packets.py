@@ -28,7 +28,23 @@ REPLACEMENTS = [
     ("PacketCodecs.BOOLEAN", "ByteBufCodecs.BOOL"),
     ("PacketCodecs.VAR_INT", "ByteBufCodecs.VAR_INT"),
     ("PacketCodecs.INTEGER", "ByteBufCodecs.VAR_INT"),
+    ("PacketCodecs.optional(", "ByteBufCodecs.optional("),
+    # Fabric 26.2 注册入口改名
+    ("PayloadTypeRegistry.playC2S()", "PayloadTypeRegistry.serverboundPlay()"),
+    ("PayloadTypeRegistry.playS2C()", "PayloadTypeRegistry.clientboundPlay()"),
+    ("PacketCodecs.VAR_LONG", "ByteBufCodecs.VAR_LONG"),
     ("PacketCodecs.toList()", "ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)"),
+    # getId() 方法：必须在 "? extends" 通配规则之前整体替换
+    ("public Id<? extends CustomPayload> getId()",
+     "public CustomPacketPayload.Type<? extends CustomPacketPayload> type()"),
+    # ItemStack codec 常量
+    ("ItemStack.PACKET_CODEC", "ItemStack.STREAM_CODEC"),
+    # getId() 方法：必须放在 "? extends" 通配规则之前，否则通配先改串导致匹配失败
+    ("public Id<? extends CustomPayload> getId()",
+     "public CustomPacketPayload.Type<? extends CustomPacketPayload> type()"),
+    # 兜底：原文若带 CustomPayload. 前缀，上面的整体替换匹配不到，方法名会残留 getId
+    ("CustomPacketPayload.Type<? extends CustomPacketPayload> getId()",
+     "CustomPacketPayload.Type<? extends CustomPacketPayload> type()"),
     ("CustomPayload.Id<", "CustomPacketPayload.Type<"),
     ("new CustomPayload.Id<>", "new CustomPacketPayload.Type<>"),
     ("CustomPayload.Id<? extends CustomPayload>", "CustomPacketPayload.Type<? extends CustomPacketPayload>"),
@@ -39,6 +55,10 @@ REPLACEMENTS = [
      "    @Override\n    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {"),
     ("public Id<? extends CustomPayload> getId()",
      "public CustomPacketPayload.Type<? extends CustomPacketPayload> type()"),
+    ("PacketCodecs.map(", "ByteBufCodecs.map("),
+    # 终极兜底：类型替换全部完成后，若方法名仍残留 getId 则在此修正
+    ("CustomPacketPayload.Type<? extends CustomPacketPayload> getId()",
+     "CustomPacketPayload.Type<? extends CustomPacketPayload> type()"),
 ]
 
 def convert(text: str) -> str:

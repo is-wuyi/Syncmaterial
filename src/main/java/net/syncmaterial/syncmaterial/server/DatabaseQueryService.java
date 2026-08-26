@@ -38,7 +38,7 @@ public class DatabaseQueryService {
                     continue;
                 }
 
-                var itemRegistry = net.minecraft.registry.BuiltInRegistries.ITEM;
+                var itemRegistry = net.minecraft.core.registries.BuiltInRegistries.ITEM;
                 var identifier = net.minecraft.resources.Identifier.fromNamespaceAndPath(itemId);
                 var item = itemRegistry.get(identifier);
 

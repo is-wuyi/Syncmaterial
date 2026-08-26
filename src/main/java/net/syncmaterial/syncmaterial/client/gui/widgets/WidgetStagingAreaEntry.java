@@ -195,7 +195,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                     selection.setSelectedSubRegionBox(box.getName());
                     GuiStagingAreaEditorSubRegion sub = new GuiStagingAreaEditorSubRegion(
                             selection, box, null, this.widget.parent.getEditorGui().getSchematicId());
-                    sub.setParent(net.minecraft.client.Minecraft.getInstance().currentScreen);
+                    sub.setParent(net.minecraft.client.Minecraft.getInstance().screen);
                     GuiBase.openGui(sub);
                 }
             }

@@ -137,7 +137,7 @@ public class StagingAreaSelector {
         // mc 为 null 只出现在无客户端实例的环境（单元测试）；
         // 选区状态此时已设置完毕，不应因为关不掉界面而整体抛出
         this.pendingScreenClose = true;
-        if (mc != null && mc.currentScreen != null) {
+        if (mc != null && mc.screen != null) {
             mc.setScreen(null);
         }
 
@@ -237,7 +237,7 @@ public class StagingAreaSelector {
         // 兜底关闭界面：start() 之后 MaLiLib 弹窗基类可能又把父界面打开，
         // 这里持续关到界面真正消失，避免"选区已激活但屏幕仍是 GUI"
         if (this.pendingScreenClose) {
-            if (mc.currentScreen != null) {
+            if (mc.screen != null) {
                 mc.setScreen(null);
             } else {
                 this.pendingScreenClose = false;

@@ -167,7 +167,7 @@ public class SchematicUploadListener implements Consumer<Object> {
         try {
             for (MaterialEntry entry : materials) {
                 // 从ItemStack获取物品ID
-                String itemId = net.minecraft.registry.BuiltInRegistries.ITEM.getId(entry.getStack().getItem()).toString();
+                String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.getStack().getItem()).toString();
                 long countLong = entry.getCountTotal();
                 int count = (int) Math.min(countLong, Integer.MAX_VALUE); // 防止溢出
 

@@ -25,7 +25,7 @@ public record StagingAreaConfigC2SPacket(
             ByteBufCodecs.VAR_INT, AreaData::x2,
             ByteBufCodecs.VAR_INT, AreaData::y2,
             ByteBufCodecs.VAR_INT, AreaData::z2,
-            PacketCodecs.optional(ByteBufCodecs.STRING_UTF8), AreaData::world,
+            ByteBufCodecs.optional(ByteBufCodecs.STRING_UTF8), AreaData::world,
             AreaData::new
     );
 
@@ -33,12 +33,12 @@ public record StagingAreaConfigC2SPacket(
             ByteBufCodecs.STRING_UTF8, StagingAreaConfigC2SPacket::schematicId,
             ByteBufCodecs.STRING_UTF8, StagingAreaConfigC2SPacket::action,
             ByteBufCodecs.VAR_INT, StagingAreaConfigC2SPacket::areaId,
-            PacketCodecs.optional(AREA_DATA_CODEC), StagingAreaConfigC2SPacket::areaData,
+            ByteBufCodecs.optional(AREA_DATA_CODEC), StagingAreaConfigC2SPacket::areaData,
             StagingAreaConfigC2SPacket::new
     );
 
     @Override
-    public CustomPacketPayload.Type<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 

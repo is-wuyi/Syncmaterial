@@ -61,7 +61,7 @@ public class SyncMaterialList extends MaterialListBase {
             String itemId = entry.getStack().getItem().getRegistryEntry().getKey().map(k -> k.getValue().toString()).orElse("");
             itemIdToMaterialId.put(itemId, entry.getDatabaseId());
         }
-        net.syncmaterial.syncmaterial.client.ContainerWatcher.setContext(schematicId, itemIdToMaterialId);
+        net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(schematicId, itemIdToMaterialId);
     }
 
     public void requestCollaborationStatus() {
@@ -76,7 +76,7 @@ public class SyncMaterialList extends MaterialListBase {
         }
         updateEntriesWithCollaborationStatus();
         // Phase 5: 更新数据新鲜度警告（取最新的 freshnessInfo，所有材料共享同一份）
-        if (!status.freshnessInfo().isEmpty() && Minecraft.getInstance().currentScreen instanceof GuiMaterialList gui) {
+        if (!status.freshnessInfo().isEmpty() && Minecraft.getInstance().screen instanceof GuiMaterialList gui) {
             gui.updateFreshnessWarnings(status.freshnessInfo());
         }
         if (onStatusUpdate != null) {
@@ -85,7 +85,7 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     private void updateEntriesWithCollaborationStatus() {
-        String myName = Minecraft.getInstance().player.getGameProfile().getName();
+        String myName = Minecraft.getInstance().player.getName().getString();
         List<MaterialListEntry> entries = this.getMaterialsAll();
         for (MaterialListEntry entry : entries) {
             CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
@@ -133,7 +133,7 @@ public class SyncMaterialList extends MaterialListBase {
         if (entry == null) return;
 
         CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
-        if (status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(Minecraft.getInstance().player.getGameProfile().getName()))) {
+        if (status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(Minecraft.getInstance().player.getName().getString()))) {
             // 已认领 → 退出协作（任何时候都允许）
             ClientPlayNetworking.send(new LeaveCollaborationC2SPacket(schematicId, entry.getDatabaseId()));
         } else {
@@ -143,14 +143,14 @@ public class SyncMaterialList extends MaterialListBase {
                     new net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket(schematicId));
                 return;
             }
-            Map<Integer, Integer> inventoryCounts = net.syncmaterial.syncmaterial.client.ContainerWatcher.getCurrentCounts();
+            Map<Integer, Integer> inventoryCounts = net.syncmaterial.syncmaterial.client.InventoryWatcher.getCurrentCounts();
             ClientPlayNetworking.send(new JoinCollaborationC2SPacket(schematicId, entry.getDatabaseId(), inventoryCounts));
         }
     }
 
     public boolean isCollaborating(MaterialListEntry entry) {
         CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
-        return status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(Minecraft.getInstance().player.getGameProfile().getName()));
+        return status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(Minecraft.getInstance().player.getName().getString()));
     }
 }
 //?} else {

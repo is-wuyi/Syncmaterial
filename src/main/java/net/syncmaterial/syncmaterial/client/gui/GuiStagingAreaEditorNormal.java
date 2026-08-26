@@ -103,7 +103,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     protected static String currentWorldId() {
         Minecraft mc = Minecraft.getInstance();
         return mc.player != null
-                ? mc.player.getWorld().getRegistryKey().getValue().toString()
+                ? mc.player.level().dimension().identifier().toString()
                 : null;
     }
 

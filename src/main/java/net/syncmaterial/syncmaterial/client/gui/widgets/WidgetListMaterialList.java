@@ -101,15 +101,15 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     protected List<String> getEntryStringsForFilter(MaterialListEntry entry)
     {
         ItemStack stack = entry.getStack();
-        Identifier rl = BuiltInRegistries.ITEM.getId(stack.getItem());
+        Identifier rl = BuiltInRegistries.ITEM.getKey(stack.getItem());
 
         if (rl != null)
         {
-            return ImmutableList.of(stack.getName().getString().toLowerCase(), rl.toString().toLowerCase());
+            return ImmutableList.of(stack.getHoverName().getString().toLowerCase(), rl.toString().toLowerCase());
         }
         else
         {
-            return ImmutableList.of(stack.getName().getString().toLowerCase());
+            return ImmutableList.of(stack.getHoverName().getString().toLowerCase());
         }
     }
 

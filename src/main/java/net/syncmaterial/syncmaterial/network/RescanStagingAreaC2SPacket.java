@@ -14,7 +14,7 @@ public record RescanStagingAreaC2SPacket(String schematicId) implements CustomPa
     );
 
     @Override
-    public Id<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

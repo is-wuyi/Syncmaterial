@@ -31,7 +31,7 @@ public class AreaSelection
     {
         this.subRegionBoxes = new HashMap<>();
         this.serverIdMap = new HashMap<>();
-        this.calculatedOrigin = BlockPos.ORIGIN;
+        this.calculatedOrigin = BlockPos.ZERO;
         this.calculatedOriginDirty = true;
         this.explicitOrigin = null;
     }
@@ -118,7 +118,7 @@ public class AreaSelection
 
     protected void updateCalculatedOrigin()
     {
-        this.calculatedOrigin = BlockPos.ORIGIN;
+        this.calculatedOrigin = BlockPos.ZERO;
         this.calculatedOriginDirty = false;
     }
 

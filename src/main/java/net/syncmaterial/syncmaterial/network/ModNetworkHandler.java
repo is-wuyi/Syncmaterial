@@ -24,7 +24,7 @@ public class ModNetworkHandler {
 
     public static void sendToPlayers(Set<net.minecraft.server.level.ServerPlayer> players, net.minecraft.network.protocol.common.custom.CustomPacketPayload packet) {
         for (var player : players) {
-            if (player.isAlive() && player.networkHandler != null) {
+            if (player.isAlive() && player.connection != null) {
                 ServerPlayNetworking.send(player, packet);
             }
         }
@@ -42,37 +42,37 @@ public class ModNetworkHandler {
      */
     public static void registerPayloadTypes() {
         // C2S (客户端到服务端)
-        PayloadTypeRegistry.playC2S().register(HelloC2SPacket.ID, HelloC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(MaterialStatsRequestC2SPacket.ID, MaterialStatsRequestC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(JoinCollaborationC2SPacket.ID, JoinCollaborationC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(ContainerUpdateC2SPacket.ID, ContainerUpdateC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(StagingAreaConfigC2SPacket.ID, StagingAreaConfigC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(RescanStagingAreaC2SPacket.ID, RescanStagingAreaC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(HelloC2SPacket.ID, HelloC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(MaterialStatsRequestC2SPacket.ID, MaterialStatsRequestC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(JoinCollaborationC2SPacket.ID, JoinCollaborationC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(InventoryUpdateC2SPacket.ID, InventoryUpdateC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(StagingAreaConfigC2SPacket.ID, StagingAreaConfigC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(RescanStagingAreaC2SPacket.ID, RescanStagingAreaC2SPacket.CODEC);
         // Phase 4
-        PayloadTypeRegistry.playC2S().register(OwnerActionC2SPacket.ID, OwnerActionC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(BatchAssignC2SPacket.ID, BatchAssignC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(KickFromMaterialC2SPacket.ID, KickFromMaterialC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(PlayerListRequestC2SPacket.ID, PlayerListRequestC2SPacket.CODEC);
-        PayloadTypeRegistry.playC2S().register(MaterialListCloseC2SPacket.ID, MaterialListCloseC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(OwnerActionC2SPacket.ID, OwnerActionC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(BatchAssignC2SPacket.ID, BatchAssignC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(KickFromMaterialC2SPacket.ID, KickFromMaterialC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(PlayerListRequestC2SPacket.ID, PlayerListRequestC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(MaterialListCloseC2SPacket.ID, MaterialListCloseC2SPacket.CODEC);
         // Phase 5
-        PayloadTypeRegistry.playC2S().register(WarehouseContainerRequestC2SPacket.ID, WarehouseContainerRequestC2SPacket.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(WarehouseContainerRequestC2SPacket.ID, WarehouseContainerRequestC2SPacket.CODEC);
 
         // S2C (服务端到客户端)
-        PayloadTypeRegistry.playS2C().register(HelloS2CPacket.ID, HelloS2CPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(RescanStagingAreaResponseS2CPacket.ID, RescanStagingAreaResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(HelloS2CPacket.ID, HelloS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(RescanStagingAreaResponseS2CPacket.ID, RescanStagingAreaResponseS2CPacket.CODEC);
         // Phase 4
-        PayloadTypeRegistry.playS2C().register(OwnerActionResponseS2CPacket.ID, OwnerActionResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(BatchAssignResponseS2CPacket.ID, BatchAssignResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(KickFromMaterialResponseS2CPacket.ID, KickFromMaterialResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(PlayerListResponseS2CPacket.ID, PlayerListResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(OwnerActionResponseS2CPacket.ID, OwnerActionResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(BatchAssignResponseS2CPacket.ID, BatchAssignResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(KickFromMaterialResponseS2CPacket.ID, KickFromMaterialResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(PlayerListResponseS2CPacket.ID, PlayerListResponseS2CPacket.CODEC);
         // Phase 5
-        PayloadTypeRegistry.playS2C().register(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.playS2C().register(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
     }
 
     /**
@@ -88,11 +88,11 @@ public class ModNetworkHandler {
             if (!validatePlayer(player)) return;
 
             boolean accepted = ProtocolHandshake.recordHandshake(
-                    player.getUuid(), player.getName().getString(),
+                    player.getUUID(), player.getName().getString(),
                     payload.protocolVersion(), payload.modVersion());
 
             context.server().execute(() -> {
-                if (player.networkHandler == null) return;
+                if (player.connection == null) return;
 
                 ServerPlayNetworking.send(player, new HelloS2CPacket(
                         ProtocolVersion.CURRENT, SyncMaterial.getModVersion(), accepted));
@@ -257,7 +257,7 @@ public class ModNetworkHandler {
             });
         });
 
-        ServerPlayNetworking.registerGlobalReceiver(ContainerUpdateC2SPacket.ID, (payload, context) -> {
+        ServerPlayNetworking.registerGlobalReceiver(InventoryUpdateC2SPacket.ID, (payload, context) -> {
             String schematicId = payload.schematicId();
             int materialId = payload.materialId();
             int count = payload.count();
@@ -328,7 +328,7 @@ public class ModNetworkHandler {
         String schematicId = payload.schematicId();
         int materialId = payload.materialId();
         Map<Integer, Integer> inventoryCounts = payload.inventoryCounts();
-        String playerName = player.getGameProfile().getName();
+        String playerName = player.getName().getString();
 
         try {
             var db = SyncMaterial.getSharedDatabase();
@@ -346,21 +346,21 @@ public class ModNetworkHandler {
 
         if (collaborationManager.joinCollaboration(schematicId, materialId, playerName)) {
             for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
-                collaborationManager.updateInventory(playerName, schematicId, entry.getKey(), entry.getValue());
+                collaborationManager.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
             }
             broadcastStatus(server, schematicId, materialId);
         }
     }
 
-    static void handleContainerUpdate(ContainerUpdateC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
+    static void handleContainerUpdate(InventoryUpdateC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         int materialId = payload.materialId();
         int count = payload.count();
-        String playerName = player.getGameProfile().getName();
+        String playerName = player.getName().getString();
 
         SyncMaterial.LOGGER.debug("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
         if (collaborationManager.isCollaborating(schematicId, materialId, playerName)) {
-            collaborationManager.updateInventory(playerName, schematicId, materialId, count);
+            collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
             broadcastStatus(server, schematicId, materialId);
         } else {
             SyncMaterial.LOGGER.debug("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
@@ -370,7 +370,7 @@ public class ModNetworkHandler {
     static void handleMaterialStatsRequest(MaterialStatsRequestC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         try {
-            SyncMaterial.LOGGER.debug("收到玩家 {} 的材料统计请求: {}", player.getGameProfile().getName(), schematicId);
+            SyncMaterial.LOGGER.debug("收到玩家 {} 的材料统计请求: {}", player.getName().getString(), schematicId);
 
             var materials = queryService.getMaterials(schematicId);
             var statuses = new java.util.ArrayList<CollaborationStatusS2CPacket>();
@@ -394,7 +394,7 @@ public class ModNetworkHandler {
 
             // Phase 4: 查询负责人状态
             var db = SyncMaterial.getSharedDatabase();
-            String playerName = player.getGameProfile().getName();
+            String playerName = player.getName().getString();
             boolean isOwner = db != null && db.isOwner(schematicId, playerName);
             boolean isMainOwner = db != null && db.isMainOwner(schematicId, playerName);
             String ownerName = "";
@@ -425,7 +425,7 @@ public class ModNetworkHandler {
     static void handleLeaveCollaboration(LeaveCollaborationC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         int materialId = payload.materialId();
-        String playerName = player.getGameProfile().getName();
+        String playerName = player.getName().getString();
 
         if (collaborationManager.leaveCollaboration(schematicId, materialId, playerName)) {
             broadcastStatus(server, schematicId, materialId);
@@ -435,7 +435,7 @@ public class ModNetworkHandler {
 
     static void handleQueryMaterialStatus(QueryMaterialStatusC2SPacket payload, net.minecraft.server.level.ServerPlayer player) {
         String schematicId = payload.schematicId();
-        SyncMaterial.LOGGER.debug("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getGameProfile().getName(), schematicId);
+        SyncMaterial.LOGGER.debug("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getName().getString(), schematicId);
         Phase4Handler.subscribeMaterialList(player, schematicId);
         List<Integer> materialIds = collaborationManager.getAllMaterialIds(schematicId);
         for (int materialId : materialIds) {
@@ -495,7 +495,7 @@ public class ModNetworkHandler {
         for (var playerEntry : playerSchematicWarehouses.entrySet()) {
             var player = playerEntry.getKey();
             // 存活检查：断线玩家的条目可能尚未被清理，避免向失效连接发包
-            if (!player.isAlive() || player.networkHandler == null) {
+            if (!player.isAlive() || player.connection == null) {
                 continue;
             }
             Set<Integer> allWarehouseIds = new HashSet<>();
@@ -524,8 +524,8 @@ public class ModNetworkHandler {
 
         // 线框广播是纯展示功能，不能因为它出错而中断调用方的业务流程
         try {
-            var playerList = server.getPlayerManager() != null
-                ? server.getPlayerManager().getPlayerList() : null;
+            var playerList = server.getPlayerList() != null
+                ? server.getPlayerList().getPlayers() : null;
             if (playerList == null) return;
 
             var warehouseInfos = StagingAreaManager.buildWarehouseInfos(manager.getAllWarehouses());
@@ -555,7 +555,7 @@ public class ModNetworkHandler {
     private static void sendWarehouseAreas(net.minecraft.server.level.ServerPlayer player,
                                            StagingAreaManager manager,
                                            List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouseInfos) {
-        if (player == null || !player.isAlive() || player.networkHandler == null) {
+        if (player == null || !player.isAlive() || player.connection == null) {
             return;
         }
 
@@ -615,7 +615,7 @@ public class ModNetworkHandler {
                         return;
                     }
                     AreaData data = ad.get();
-                    String world = data.world().orElse(player.getWorld().getRegistryKey().getValue().toString());
+                    String world = data.world().orElse(player.level().dimension().identifier().toString());
                     int areaId = manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     if (areaId > 0) {
                         manager.rescanStagingArea(areaId);
@@ -812,7 +812,7 @@ public class ModNetworkHandler {
 
         List<String> participants = collaborationManager.getParticipants(schematicId, materialId);
         for (String name : participants) {
-            var player = server.getPlayerManager().getPlayer(name);
+            var player = server.getPlayerList().getPlayer(name);
             if (player != null) {
                 recipients.add(player);
             }

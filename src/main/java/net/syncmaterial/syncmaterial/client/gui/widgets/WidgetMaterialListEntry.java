@@ -553,7 +553,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             String header3 = GuiBase.TXT_BOLD + StringUtils.translate(missingKey);
 
             ItemStack stack = this.entry.getStack();
-            String stackName = stack.getName().getString();
+            String stackName = stack.getHoverName().getString();
             int multiplier = this.materialList.getMultiplier();
             int total = this.entry.getCountTotal() * multiplier;
             int missing = multiplier == 1 ? this.entry.getCountMissing() : total;

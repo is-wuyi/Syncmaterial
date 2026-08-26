@@ -18,7 +18,7 @@ public record InventoryUpdateC2SPacket(String schematicId, int materialId, int c
     );
 
     @Override
-    public CustomPacketPayload.Type<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

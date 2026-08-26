@@ -77,16 +77,16 @@ public class MaterialEntry
 
     public String getDisplayName()
     {
-        return this.stack.getName().getString();
+        return this.stack.getHoverName().getString();
     }
 
     public static final StreamCodec<RegistryFriendlyByteBuf, MaterialEntry> PACKET_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, MaterialEntry::getDatabaseId,
-            ItemStack.PACKET_CODEC, MaterialEntry::getStack,
-            PacketCodecs.VAR_LONG, MaterialEntry::getCountTotal,
-            PacketCodecs.VAR_LONG, MaterialEntry::getCountMissing,
-            PacketCodecs.VAR_LONG, MaterialEntry::getCountMismatched,
-            PacketCodecs.VAR_LONG, MaterialEntry::getCountAvailable,
+            ItemStack.STREAM_CODEC, MaterialEntry::getStack,
+            ByteBufCodecs.VAR_LONG, MaterialEntry::getCountTotal,
+            ByteBufCodecs.VAR_LONG, MaterialEntry::getCountMissing,
+            ByteBufCodecs.VAR_LONG, MaterialEntry::getCountMismatched,
+            ByteBufCodecs.VAR_LONG, MaterialEntry::getCountAvailable,
             MaterialEntry::new
     );
 
@@ -96,7 +96,7 @@ public class MaterialEntry
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         MaterialEntry that = (MaterialEntry) o;
-        return ItemStack.areEqual(this.stack, that.stack);
+        return ItemStack.isSameItem(this.stack, that.stack);
     }
 
     @Override
@@ -188,11 +188,11 @@ public class MaterialEntry
 
     public static final StreamCodec<RegistryFriendlyByteBuf, MaterialEntry> PACKET_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, MaterialEntry::getDatabaseId,
-            ItemStack.PACKET_CODEC, MaterialEntry::getStack,
-            PacketCodecs.VAR_LONG, MaterialEntry::getCountTotal,
-            PacketCodecs.VAR_LONG, MaterialEntry::getCountMissing,
-            PacketCodecs.VAR_LONG, MaterialEntry::getCountMismatched,
-            PacketCodecs.VAR_LONG, MaterialEntry::getCountAvailable,
+            ItemStack.STREAM_CODEC, MaterialEntry::getStack,
+            ByteBufCodecs.VAR_LONG, MaterialEntry::getCountTotal,
+            ByteBufCodecs.VAR_LONG, MaterialEntry::getCountMissing,
+            ByteBufCodecs.VAR_LONG, MaterialEntry::getCountMismatched,
+            ByteBufCodecs.VAR_LONG, MaterialEntry::getCountAvailable,
             MaterialEntry::new
     );
 
@@ -291,7 +291,7 @@ public class MaterialEntry
 
     public String getDisplayName()
     {
-        return this.stack.getName().getString();
+        return this.stack.getHoverName().getString();
     }
 
     public static final PacketCodec<RegistryByteBuf, MaterialEntry> PACKET_CODEC = PacketCodec.tuple(
@@ -310,7 +310,7 @@ public class MaterialEntry
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         MaterialEntry that = (MaterialEntry) o;
-        return ItemStack.areEqual(this.stack, that.stack);
+        return ItemStack.isSameItem(this.stack, that.stack);
     }
 
     @Override

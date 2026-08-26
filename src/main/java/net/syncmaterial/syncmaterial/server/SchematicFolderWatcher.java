@@ -309,7 +309,7 @@ public class SchematicFolderWatcher {
                         continue;
                     }
                     // 安全：注册表在游戏启动后冻结为只读，可在任意线程读取
-                    String itemId = net.minecraft.registry.BuiltInRegistries.ITEM.getId(entry.getStack().getItem()).toString();
+                    String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.getStack().getItem()).toString();
                     long count = entry.getCountTotal();
                     aggregatedMaterials.merge(itemId, count, Long::sum);
                 }
@@ -363,7 +363,7 @@ public class SchematicFolderWatcher {
             try {
                 var packet = new net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket(
                     "SCHEMATIC_DELETED", schematicId, "", true, "", java.util.List.of());
-                for (var player : srv.getPlayerManager().getPlayerList()) {
+                for (var player : srv.getPlayerList().getPlayers()) {
                     // 没握手过说明对方没装本 mod（或版本被拒），不必白发
                     if (!net.syncmaterial.syncmaterial.network.ProtocolHandshake.hasHandshaked(player)) {
                         continue;

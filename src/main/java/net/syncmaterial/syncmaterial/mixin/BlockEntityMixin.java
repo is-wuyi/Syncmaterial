@@ -37,12 +37,12 @@ public abstract class BlockEntityMixin {
             return;
         }
 
-        if (self.getWorld() == null || self.getWorld().isClient()) {
+        if (self.getLevel() == null || self.getLevel().isClientSide()) {
             return;
         }
 
-        ServerLevel world = (ServerLevel) self.getWorld();
-        BlockPos pos = self.getPos();
+        ServerLevel world = (ServerLevel) self.getLevel();
+        BlockPos pos = self.getBlockPos();
 
         if (mgr.isInAnyContainerArea(pos, world)) {
             action.accept(pos, world);

@@ -51,8 +51,8 @@ public abstract class HandledScreenMixin<T extends AbstractContainerMenu> {
             List<Slot> slots = this.handler.slots;
             for (int i = 0; i < slots.size(); i++) {
                 Slot slot = slots.get(i);
-                if (!slot.hasStack()) continue;
-                ItemStack stack = slot.getStack();
+                if (!slot.hasItem()) continue;
+                ItemStack stack = slot.getItem();
                 String itemId = stack.getItem().toString();
                 if (shouldHighlight(itemId, stack.getCount(), remaining)) {
                     cachedHighlightSlots.add(i);
@@ -61,9 +61,9 @@ public abstract class HandledScreenMixin<T extends AbstractContainerMenu> {
                 // 潜影盒内容物
                 if (stack.getItem() instanceof BlockItem blockItem &&
                     blockItem.getBlock() instanceof ShulkerBoxBlock) {
-                    var container = stack.get(DataComponentTypes.CONTAINER);
+                    var container = stack.get(DataComponents.CONTAINER);
                     if (container != null) {
-                        for (var stored : container.streamNonEmpty().toList()) {
+                        for (var stored : container.nonEmptyItemCopyStream().toList()) {
                             if (shouldHighlight(stored.getItem().toString(), stored.getCount(), remaining)) {
                                 cachedHighlightSlots.add(i);
                                 break;
@@ -72,9 +72,9 @@ public abstract class HandledScreenMixin<T extends AbstractContainerMenu> {
                     }
                 }
                 // Bundle 内容物
-                var bundleContents = stack.get(DataComponentTypes.BUNDLE_CONTENTS);
+                var bundleContents = stack.get(DataComponents.BUNDLE_CONTENTS);
                 if (bundleContents != null) {
-                    for (var stored : bundleContents.stream().toList()) {
+                    for (var stored : bundleContents.itemCopyStream().toList()) {
                         if (shouldHighlight(stored.getItem().toString(), stored.getCount(), remaining)) {
                             cachedHighlightSlots.add(i);
                             break;

@@ -17,7 +17,7 @@ public record LeaveCollaborationC2SPacket(String schematicId, int materialId) im
     );
 
     @Override
-    public CustomPacketPayload.Type<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

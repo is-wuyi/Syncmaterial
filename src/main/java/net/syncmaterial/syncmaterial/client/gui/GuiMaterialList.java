@@ -1005,7 +1005,7 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
             return;
         }
         ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(materialList.getSchematicId()));
-        net.syncmaterial.syncmaterial.client.ContainerWatcher.clearContext();
+        net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
         super.close();
     }
 

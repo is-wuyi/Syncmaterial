@@ -41,7 +41,7 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         this.useTitleHierarchy = false;
         this.title = StringUtils.translate("syncmaterial.gui.title.select_warehouse");
 
-        this.setParent(net.minecraft.client.Minecraft.getInstance().currentScreen);
+        this.setParent(net.minecraft.client.Minecraft.getInstance().screen);
         this.setWidthAndHeight(320, 200);
         this.centerOnScreen();
     }

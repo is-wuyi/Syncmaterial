@@ -15,7 +15,7 @@ public record RescanStagingAreaResponseS2CPacket(boolean success, String message
     );
 
     @Override
-    public Id<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

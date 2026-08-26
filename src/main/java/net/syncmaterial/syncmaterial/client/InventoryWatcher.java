@@ -4,10 +4,10 @@ package net.syncmaterial.syncmaterial.client;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
-import net.minecraft.entity.player.Inventory;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.syncmaterial.syncmaterial.network.ContainerUpdateC2SPacket;
+import net.syncmaterial.syncmaterial.network.InventoryUpdateC2SPacket;
 
 import java.util.*;
 import org.slf4j.Logger;
@@ -54,7 +54,7 @@ public class InventoryWatcher {
             blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
             var container = stack.get(net.minecraft.core.component.DataComponents.CONTAINER);
             if (container != null) {
-                return container.streamNonEmpty().toList();
+                return container.nonEmptyItemCopyStream().toList();
             }
         }
         return List.of();
@@ -74,18 +74,18 @@ public class InventoryWatcher {
     public static Map<Integer, Integer> getCounts(Inventory inventory) {
         Map<Integer, Integer> currentCounts = new HashMap<>();
 
-        for (int i = 0; i < inventory.size(); i++) {
-            ItemStack stack = inventory.getStack(i);
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
             if (stack.isEmpty()) continue;
 
-            String itemId = BuiltInRegistries.ITEM.getId(stack.getItem()).toString();
+            String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
             Integer materialId = itemIdToMaterialId.get(itemId);
             if (materialId != null) {
                 currentCounts.merge(materialId, stack.getCount(), Integer::sum);
             }
 
             for (var stored : getShulkerContents(stack)) {
-                String storedId = BuiltInRegistries.ITEM.getId(stored.getItem()).toString();
+                String storedId = BuiltInRegistries.ITEM.getKey(stored.getItem()).toString();
                 Integer storedMaterialId = itemIdToMaterialId.get(storedId);
                 if (storedMaterialId != null) {
                     currentCounts.merge(storedMaterialId, stored.getCount(), Integer::sum);
@@ -129,7 +129,7 @@ public class InventoryWatcher {
 
         for (ContainerDiff diff : diffs) {
             lastKnownCounts.put(diff.materialId(), diff.newCount());
-            ClientPlayNetworking.send(new ContainerUpdateC2SPacket(currentSchematicId, diff.materialId(), diff.newCount()));
+            ClientPlayNetworking.send(new InventoryUpdateC2SPacket(currentSchematicId, diff.materialId(), diff.newCount()));
         }
         if (!diffs.isEmpty()) {
             long removedCount = diffs.stream().filter(d -> d.newCount() == 0).count();

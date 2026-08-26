@@ -123,7 +123,7 @@ public class GuiWarehouseEditor extends GuiBase
     {
         Minecraft mc = Minecraft.getInstance();
         return mc.player != null
-                ? mc.player.getWorld().getRegistryKey().getValue().toString()
+                ? mc.player.level().dimension().identifier().toString()
                 : null;
     }
 

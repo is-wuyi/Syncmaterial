@@ -25,7 +25,7 @@ public record OwnerActionC2SPacket(
     );
 
     @Override
-    public Id<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

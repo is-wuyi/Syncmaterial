@@ -48,7 +48,7 @@ public class SyncMaterialClient implements ClientModInitializer {
                 });
 
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
-        ContainerWatcher.register();
+        InventoryWatcher.register();
 
         HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
             if (activeMaterialList != null && Configs.Generic.HUD_ENABLED.getBooleanValue()
@@ -135,7 +135,7 @@ public class SyncMaterialClient implements ClientModInitializer {
     public static void clearActiveSchematic(String schematicId) {
         // 关闭当前打开的材料列表 GUI（如果属于被删除的原理图）
         Minecraft mc = Minecraft.getInstance();
-        if (mc.currentScreen instanceof GuiMaterialList gui) {
+        if (mc.screen instanceof GuiMaterialList gui) {
             if (schematicId.equals(gui.getMaterialList().getSchematicId())) {
                 mc.setScreen(null);
             }

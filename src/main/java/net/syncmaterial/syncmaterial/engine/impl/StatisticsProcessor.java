@@ -33,8 +33,8 @@ public class StatisticsProcessor {
             result.getGlobalBlockMap().size(), result.getGlobalTileEntityMap().size());
 
         // 1. 处理方块统计
-        for (Map.Entry<BlockPos, BlockState> entry : result.getGlobalBlockMap().entrySet()) {
-            BlockState state = entry.getValue();
+        for (Map.Entry<BlockPos, net.minecraft.world.level.block.state.BlockState> entry : result.getGlobalBlockMap().entrySet()) {
+            net.minecraft.world.level.block.state.BlockState state = entry.getValue();
 
             if (isInvalidBlock(state)) {
                 continue;
@@ -43,15 +43,15 @@ public class StatisticsProcessor {
             Block block = state.getBlock();
 
             // Waterlogged 状态
-            if (state.contains(Properties.WATERLOGGED) && state.get(Properties.WATERLOGGED)) {
+            if (state.hasProperty(BlockStateProperties.WATERLOGGED) && state.getValue(BlockStateProperties.WATERLOGGED)) {
                 waterBucketCount++;
-                state = state.with(Properties.WATERLOGGED, false);
+                state = state.setValue(BlockStateProperties.WATERLOGGED, false);
             }
 
             // 水流转换：只统计 level=0 的水源块
-            if (state.isOf(Blocks.WATER)) {
-                int level = state.contains(net.minecraft.state.property.Properties.LEVEL_15) 
-                    ? state.get(net.minecraft.state.property.Properties.LEVEL_15) : -1;
+            if (state.is(Blocks.WATER)) {
+                int level = state.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.LEVEL) 
+                    ? state.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.LEVEL) : -1;
                 if (level == 0) {
                     waterBucketCount++;
                 }
@@ -59,9 +59,9 @@ public class StatisticsProcessor {
             }
             
             // 岩浆转换
-            if (state.isOf(Blocks.LAVA)) {
-                int level = state.contains(net.minecraft.state.property.Properties.LEVEL_15) 
-                    ? state.get(net.minecraft.state.property.Properties.LEVEL_15) : -1;
+            if (state.is(Blocks.LAVA)) {
+                int level = state.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.LEVEL) 
+                    ? state.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.LEVEL) : -1;
                 if (level == 0) {
                     lavaBucketCount++;
                 }
@@ -71,7 +71,7 @@ public class StatisticsProcessor {
             // 花盆拆分
             if (block instanceof FlowerPotBlock && block != Blocks.FLOWER_POT) {
                 blockCountMap.merge(Blocks.FLOWER_POT, 1L, Long::sum);
-                Block content = ((FlowerPotBlock) block).getContent();
+                Block content = ((FlowerPotBlock) block).getPotted();
                 if (content != null) {
                     blockCountMap.merge(content, 1L, Long::sum);
                 }
@@ -86,7 +86,7 @@ public class StatisticsProcessor {
                 } else if (block == Blocks.POWDER_SNOW_CAULDRON) {
                     itemCountMap.merge(Items.POWDER_SNOW_BUCKET, 1L, Long::sum);
                 } else if (block == Blocks.WATER_CAULDRON) {
-                    int level = state.get(LeveledCauldronBlock.LEVEL);
+                    int level = state.getValue(LayeredCauldronBlock.LEVEL);
                     if (level == 3) {
                         waterBucketCount++;
                     } else if (level == 2) {
@@ -112,7 +112,7 @@ public class StatisticsProcessor {
         if (includeContainers) {
             for (CompoundTag teNbt : result.getGlobalTileEntityMap().values()) {
                 if (teNbt.contains("Items")) {
-                    NbtElement itemsElement = teNbt.get("Items");
+                    Tag itemsElement = teNbt.get("Items");
                     if (itemsElement instanceof ListTag itemsList) {
                         // 容器内物品不做统计
                     }
@@ -173,15 +173,15 @@ public class StatisticsProcessor {
             return true;
         }
 
-        if (block instanceof DoorBlock && state.get(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
+        if (block instanceof DoorBlock && state.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
             return true;
         }
 
-        if (block instanceof BedBlock && state.get(BedBlock.PART) == BedPart.HEAD) {
+        if (block instanceof BedBlock && state.getValue(BedBlock.PART) == BedPart.HEAD) {
             return true;
         }
 
-        if (block instanceof TallPlantBlock && state.get(TallPlantBlock.HALF) == DoubleBlockHalf.UPPER) {
+        if (block instanceof DoublePlantBlock && state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER) {
             return true;
         }
 
@@ -191,28 +191,28 @@ public class StatisticsProcessor {
     private long getMultiplierForState(BlockState state) {
         Block block = state.getBlock();
 
-        if (block instanceof SlabBlock && state.get(SlabBlock.TYPE) == SlabType.DOUBLE) {
+        if (block instanceof SlabBlock && state.getValue(SlabBlock.TYPE) == SlabType.DOUBLE) {
             return 2L;
         }
 
         if (block instanceof CandleBlock) {
-            return state.get(Properties.CANDLES);
+            return state.getValue(BlockStateProperties.CANDLES);
         }
 
         if (block == Blocks.SEA_PICKLE) {
-            return state.get(Properties.PICKLES);
+            return state.getValue(BlockStateProperties.PICKLES);
         }
 
         if (block == Blocks.TURTLE_EGG) {
-            return state.get(Properties.EGGS);
+            return state.getValue(BlockStateProperties.EGGS);
         }
 
         if (block == Blocks.SNOW) {
-            return state.get(Properties.LAYERS);
+            return state.getValue(BlockStateProperties.LAYERS);
         }
 
-        if (block instanceof MultifaceGrowthBlock) {
-            return MultifaceGrowthBlock.collectDirections(state).size();
+        if (block instanceof MultifaceBlock) {
+            return MultifaceBlock.availableFaces(state).size();
         }
 
         return 1L;

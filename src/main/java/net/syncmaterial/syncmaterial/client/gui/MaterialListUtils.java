@@ -1,7 +1,7 @@
 //? if >=26 {
 package net.syncmaterial.syncmaterial.client.gui;
 
-import net.minecraft.entity.player.Player;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -16,17 +16,17 @@ public class MaterialListUtils {
             ItemStack stack = player.getContainer().getStack(i);
             if (stack.isEmpty()) continue;
 
-            String itemId = net.minecraft.registry.BuiltInRegistries.ITEM.getId(stack.getItem()).toString();
+            String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
             playerCounts.merge(itemId, stack.getCount(), Integer::sum);
 
-            for (var stored : net.syncmaterial.syncmaterial.client.ContainerWatcher.getShulkerContents(stack)) {
-                String storedId = net.minecraft.registry.BuiltInRegistries.ITEM.getId(stored.getItem()).toString();
+            for (var stored : net.syncmaterial.syncmaterial.client.InventoryWatcher.getShulkerContents(stack)) {
+                String storedId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stored.getItem()).toString();
                 playerCounts.merge(storedId, stored.getCount(), Integer::sum);
             }
         }
 
         for (MaterialListEntry entry : list) {
-            String itemId = net.minecraft.registry.BuiltInRegistries.ITEM.getId(entry.getStack().getItem()).toString();
+            String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.getStack().getItem()).toString();
             int playerCount = playerCounts.getOrDefault(itemId, 0);
             entry.setCountAvailable(playerCount);
             entry.setCountMissing((int) net.syncmaterial.syncmaterial.api.ProgressFormulas.inventoryOnlyMissing(

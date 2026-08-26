@@ -108,7 +108,7 @@ public class Phase4Handler {
         String schematicId = payload.schematicId();
         String action = payload.action();
         String targetPlayer = payload.targetPlayerName();
-        String playerName = player.getGameProfile().getName();
+        String playerName = player.getName().getString();
 
         try {
             validateOwnerAction(action);
@@ -194,7 +194,7 @@ public class Phase4Handler {
         String schematicId = payload.schematicId();
         var materialIds = payload.materialIds();
         var targetPlayers = payload.targetPlayers();
-        String playerName = player.getGameProfile().getName();
+        String playerName = player.getName().getString();
 
         try {
             var db = SyncMaterial.getSharedDatabase();
@@ -239,7 +239,7 @@ public class Phase4Handler {
         String schematicId = payload.schematicId();
         var materialIds = payload.materialIds();
         String targetPlayer = payload.targetPlayer();
-        String playerName = player.getGameProfile().getName();
+        String playerName = player.getName().getString();
 
         try {
             var db = SyncMaterial.getSharedDatabase();
@@ -283,19 +283,19 @@ public class Phase4Handler {
 
         try {
             // 获取在线玩家
-            var onlinePlayers = server.getPlayerManager().getPlayerList();
+            var onlinePlayers = server.getPlayerList().getPlayers();
             var onlineNames = new java.util.HashSet<String>();
             var players = new ArrayList<PlayerListResponseS2CPacket.PlayerInfo>();
 
             for (var onlinePlayer : onlinePlayers) {
-                String name = onlinePlayer.getGameProfile().getName();
+                String name = onlinePlayer.getName().getString();
                 onlineNames.add(name);
                 players.add(new PlayerListResponseS2CPacket.PlayerInfo(name, true));
             }
 
             // 从 usercache.json 获取离线玩家
             try {
-                var userCacheFile = server.getRunDirectory().resolve("usercache.json").toFile();
+                var userCacheFile = server.getServerDirectory().resolve("usercache.json").toFile();
                 if (userCacheFile.exists()) {
                     String content = new String(java.nio.file.Files.readAllBytes(userCacheFile.toPath()));
                     // 简单解析 JSON 数组中的 name 字段

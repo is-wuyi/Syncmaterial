@@ -46,7 +46,7 @@ public record CollaborationStatusS2CPacket(
     );
 
     @Override
-    public CustomPacketPayload.Type<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 

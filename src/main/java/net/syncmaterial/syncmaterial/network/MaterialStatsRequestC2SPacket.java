@@ -20,7 +20,7 @@ public record MaterialStatsRequestC2SPacket(String schematicId) implements Custo
     );
 
     @Override
-    public CustomPacketPayload.Type<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

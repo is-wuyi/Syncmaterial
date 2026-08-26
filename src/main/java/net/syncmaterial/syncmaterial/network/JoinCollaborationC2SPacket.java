@@ -16,12 +16,12 @@ public record JoinCollaborationC2SPacket(String schematicId, int materialId, Map
     public static final StreamCodec<RegistryFriendlyByteBuf, JoinCollaborationC2SPacket> CODEC = StreamCodec.composite(
             ByteBufCodecs.STRING_UTF8, JoinCollaborationC2SPacket::schematicId,
             ByteBufCodecs.VAR_INT, JoinCollaborationC2SPacket::materialId,
-            PacketCodecs.map(HashMap::new, ByteBufCodecs.VAR_INT, ByteBufCodecs.VAR_INT, 50), JoinCollaborationC2SPacket::inventoryCounts,
+            ByteBufCodecs.map(HashMap::new, ByteBufCodecs.VAR_INT, ByteBufCodecs.VAR_INT, 50), JoinCollaborationC2SPacket::inventoryCounts,
             JoinCollaborationC2SPacket::new
     );
 
     @Override
-    public CustomPacketPayload.Type<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

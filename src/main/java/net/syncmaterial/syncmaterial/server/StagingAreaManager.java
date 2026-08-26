@@ -201,7 +201,7 @@ public class StagingAreaManager {
      * 检查位置是否在任何备货区或仓库区域内（脏容器检测用）
      */
     public boolean isInAnyContainerArea(BlockPos pos, ServerLevel world) {
-        String worldId = world.dimension().location().toString();
+        String worldId = world.dimension().identifier().toString();
         // 检查备货区
         List<StagingArea> areas = stagingAreasByWorld.get(worldId);
         if (areas != null) {
@@ -385,8 +385,8 @@ public class StagingAreaManager {
         BlockEntity be = world.getBlockEntity(pos);
         if (be instanceof Container) {
             Container inventory = (Container) be;
-            for (int i = 0; i < inventory.size(); i++) {
-                var stack = inventory.getStack(i);
+            for (int i = 0; i < inventory.getContainerSize(); i++) {
+                var stack = inventory.getItem(i);
                 if (stack.isEmpty()) continue;
                 items.add(stack.getItem().toString());
 
@@ -395,7 +395,7 @@ public class StagingAreaManager {
                     blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
                     var container = stack.get(net.minecraft.core.component.DataComponents.CONTAINER);
                     if (container != null) {
-                        for (var stored : container.streamNonEmpty().toList()) {
+                        for (var stored : container.nonEmptyItemCopyStream().toList()) {
                             if (!stored.isEmpty()) {
                                 items.add(stored.getItem().toString());
                             }
@@ -416,7 +416,7 @@ public class StagingAreaManager {
 
 
     private Integer findAreaId(BlockPos pos, ServerLevel world) {
-        String worldId = world.dimension().location().toString();
+        String worldId = world.dimension().identifier().toString();
         List<StagingArea> areas = stagingAreasByWorld.get(worldId);
         if (areas != null) {
             for (StagingArea area : areas) {
@@ -432,7 +432,7 @@ public class StagingAreaManager {
      * 查找位置所在的仓库 ID
      */
     private Integer findWarehouseId(BlockPos pos, ServerLevel world) {
-        String worldId = world.dimension().location().toString();
+        String worldId = world.dimension().identifier().toString();
         List<Warehouse> warehouses = warehousesByWorld.get(worldId);
         if (warehouses == null) return null;
         for (Warehouse wh : warehouses) {
@@ -452,7 +452,7 @@ public class StagingAreaManager {
         StagingArea area = findStagingAreaById(areaId);
         if (area == null) return null;
 
-        ServerLevel world = server.getWorld(net.minecraft.resources.ResourceKey.of(
+        ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.of(
                 net.minecraft.core.registries.Registries.DIMENSION, Identifier.fromNamespaceAndPath(area.world)));
         if (world == null) return null;
 
@@ -474,7 +474,7 @@ public class StagingAreaManager {
         for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
                 // 只扫描已加载的区块，绝不触发区块加载
-                if (world.getChunkManager().getLevelChunk(chunkX, chunkZ) == null) {
+                if (world.getChunkSource().getChunk(chunkX, chunkZ) == null) {
                     skippedChunks++;
                     continue;
                 }
@@ -522,8 +522,8 @@ public class StagingAreaManager {
 
     /** 统计容器内物品（含潜影盒） */
     private void countContainerItems(Container inventory, Map<String, Integer> totalItems) {
-        for (int i = 0; i < inventory.size(); i++) {
-            var stack = inventory.getStack(i);
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            var stack = inventory.getItem(i);
             if (stack.isEmpty()) continue;
             totalItems.merge(stack.getItem().toString(), stack.getCount(), Integer::sum);
 
@@ -531,7 +531,7 @@ public class StagingAreaManager {
                 blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
                 var container = stack.get(net.minecraft.core.component.DataComponents.CONTAINER);
                 if (container != null) {
-                    for (var stored : container.streamNonEmpty().toList()) {
+                    for (var stored : container.nonEmptyItemCopyStream().toList()) {
                         if (!stored.isEmpty()) {
                             totalItems.merge(stored.getItem().toString(), stored.getCount(), Integer::sum);
                         }
@@ -624,7 +624,7 @@ public class StagingAreaManager {
     }
 
     public void onContainerRemoved(BlockPos pos, ServerLevel world) {
-        String worldId = world.dimension().location().toString();
+        String worldId = world.dimension().identifier().toString();
         boolean found = false;
         Set<String> affectedSchematics = new HashSet<>();
 
@@ -799,7 +799,7 @@ public class StagingAreaManager {
         Warehouse wh = warehousesById.get(warehouseId);
         if (wh == null) return null;
 
-        ServerLevel world = server.getWorld(net.minecraft.resources.ResourceKey.of(
+        ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.of(
                 net.minecraft.core.registries.Registries.DIMENSION, Identifier.fromNamespaceAndPath(wh.world())));
         if (world == null) return null;
 
@@ -826,7 +826,7 @@ public class StagingAreaManager {
 
         for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-                if (world.getChunkManager().getLevelChunk(chunkX, chunkZ) == null) continue;
+                if (world.getChunkSource().getChunk(chunkX, chunkZ) == null) continue;
 
                 int startX = Math.max(chunkX << 4, minX);
                 int endX = Math.min((chunkX << 4) + 15, maxX);
@@ -882,8 +882,8 @@ public class StagingAreaManager {
      */
     private void writeContainerContainer(int areaId, String areaType, int x, int y, int z, Container inventory) {
         Set<String> itemIds = new HashSet<>();
-        for (int i = 0; i < inventory.size(); i++) {
-            var stack = inventory.getStack(i);
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            var stack = inventory.getItem(i);
             if (stack.isEmpty()) continue;
             itemIds.add(stack.getItem().toString());
 
@@ -892,7 +892,7 @@ public class StagingAreaManager {
                 blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
                 var container = stack.get(net.minecraft.core.component.DataComponents.CONTAINER);
                 if (container != null) {
-                    for (var stored : container.streamNonEmpty().toList()) {
+                    for (var stored : container.nonEmptyItemCopyStream().toList()) {
                         if (!stored.isEmpty()) {
                             itemIds.add(stored.getItem().toString());
                         }
@@ -978,7 +978,7 @@ public class StagingAreaManager {
      * 区块加载时扫描：检查该区块内是否有仓库/备货区的箱子，有则扫描写入数据库
      */
     public void scanChunkForContainerAreas(net.minecraft.world.level.chunk.LevelChunk chunk, ServerLevel world) {
-        String worldId = world.dimension().location().toString();
+        String worldId = world.dimension().identifier().toString();
         int chunkX = chunk.getPos().getX();
         int chunkZ = chunk.getPos().getZ();
         long chunkPos = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
@@ -1048,7 +1048,7 @@ public class StagingAreaManager {
         int minCZ = Math.min(z1, z2) >> 4, maxCZ = Math.max(z1, z2) >> 4;
         for (int cx = minCX; cx <= maxCX; cx++) {
             for (int cz = minCZ; cz <= maxCZ; cz++) {
-                if (world.getChunkManager().getLevelChunk(cx, cz) == null) {
+                if (world.getChunkSource().getChunk(cx, cz) == null) {
                     SyncMaterial.LOGGER.info("[StagingArea] areaId={} 部分区块已卸载，跳过全量校正，保留合并统计", areaId);
                     return;
                 }
@@ -1072,7 +1072,7 @@ public class StagingAreaManager {
     /**
      * 扫描区块内属于指定区域的箱子，写入 container_inventory
      */
-    private void scanChunkForArea(LevelChunk chunk, ServerLevel world, int areaId, String areaType,
+    private void scanChunkForArea(WorldChunk chunk, ServerLevel world, int areaId, String areaType,
             int x1, int y1, int z1, int x2, int y2, int z2) {
         int minX = Math.max(chunk.getPos().getX() << 4, Math.min(x1, x2));
         int maxX = Math.min((chunk.getPos().getX() << 4) + 15, Math.max(x1, x2));

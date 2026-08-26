@@ -82,7 +82,7 @@ public final class ProtocolHandshake
 
     public static boolean hasHandshaked(ServerPlayer player)
     {
-        return player != null && hasHandshaked(player.getUuid());
+        return player != null && hasHandshaked(player.getUUID());
     }
 
     /** 该玩家的客户端协议版本；未握手过返回 0。 */
@@ -97,7 +97,7 @@ public final class ProtocolHandshake
 
     public static int getVersion(ServerPlayer player)
     {
-        return player == null ? 0 : getVersion(player.getUuid());
+        return player == null ? 0 : getVersion(player.getUUID());
     }
 
     /**
@@ -108,7 +108,7 @@ public final class ProtocolHandshake
      */
     public static boolean supports(ServerPlayer player, int requiredVersion)
     {
-        return player != null && ProtocolVersion.atLeast(getVersion(player.getUuid()), requiredVersion);
+        return player != null && ProtocolVersion.atLeast(getVersion(player.getUUID()), requiredVersion);
     }
 
     /** 玩家断开时清理，避免版本记录无限累积。 */
@@ -124,7 +124,7 @@ public final class ProtocolHandshake
     {
         if (player != null)
         {
-            remove(player.getUuid());
+            remove(player.getUUID());
         }
     }
 

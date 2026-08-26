@@ -16,7 +16,7 @@ public record MaterialListCloseC2SPacket(String schematicId) implements CustomPa
     );
 
     @Override
-    public CustomPacketPayload.Type<? extends CustomPacketPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

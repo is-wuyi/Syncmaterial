@@ -121,7 +121,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         }
 
         if (list.size() == 0) {
-            TextRenderer font = mc.textRenderer;
+            Font font = mc.textRenderer;
             boolean hasAnyClaimed = this.materialList.getMaterialsAll().stream()
                 .anyMatch(MaterialListEntry::isCurrentPlayerClaimed);
 
@@ -189,7 +189,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             return contentHeight + 4;
         }
 
-        TextRenderer font = mc.textRenderer;
+        Font font = mc.textRenderer;
         String shulkerBoxAbbr = StringUtils.translate("litematica.gui.label.material_list.abbr.shulker_box");
         int maxLines = net.syncmaterial.syncmaterial.client.config.Configs.Hud.HUD_MAX_LINES.getIntegerValue();
         int lineHeight = 16;

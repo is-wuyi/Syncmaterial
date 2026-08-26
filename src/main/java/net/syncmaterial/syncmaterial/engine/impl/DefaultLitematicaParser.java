@@ -6,7 +6,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtSizeTracker;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.core.BlockPos;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.engine.LitematicaParser;
@@ -45,7 +45,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
             throw new IllegalArgumentException("Schematic file not found: " + schematicPath);
         }
 
-        CompoundTag rootNbt = NbtIo.readCompressed(file.toPath(), NbtSizeTracker.ofUnlimitedBytes());
+        CompoundTag rootNbt = NbtIo.readCompressed(file.toPath(), NbtAccounter.ofUnlimitedBytes());
 
         LitematicaParser.ParsingResult result = parseNbtToResult(rootNbt);
 
@@ -62,28 +62,28 @@ public class DefaultLitematicaParser implements LitematicaParser {
         Map<BlockPos, BlockState> globalBlockMap = new HashMap<>();
         Map<BlockPos, CompoundTag> globalTileEntityMap = new HashMap<>();
 
-        LOGGER.info("Root NBT keys: {}", rootNbt.getKeys());
+        LOGGER.info("Root NBT keys: {}", rootNbt.keySet());
 
         if (!rootNbt.contains("Regions")) {
             LOGGER.warn("NBT 不包含 Regions");
             return new SimpleParsingResult(globalBlockMap, globalTileEntityMap);
         }
 
-        NbtElement regionsElement = rootNbt.get("Regions");
+        Tag regionsElement = rootNbt.get("Regions");
         if (!(regionsElement instanceof CompoundTag)) {
             LOGGER.warn("Regions 不是 Compound, type: {}", regionsElement.getType());
             return new SimpleParsingResult(globalBlockMap, globalTileEntityMap);
         }
         CompoundTag regionsNbt = (CompoundTag) regionsElement;
 
-        LOGGER.info("Regions keys: {}", regionsNbt.getKeys());
+        LOGGER.info("Regions keys: {}", regionsNbt.keySet());
 
-        for (String regionName : regionsNbt.getKeys()) {
-            NbtElement regionElement = regionsNbt.get(regionName);
+        for (String regionName : regionsNbt.keySet()) {
+            Tag regionElement = regionsNbt.get(regionName);
             if (!(regionElement instanceof CompoundTag)) continue;
             CompoundTag regionNbt = (CompoundTag) regionElement;
 
-            LOGGER.info("Region '{}' keys: {}", regionName, regionNbt.getKeys());
+            LOGGER.info("Region '{}' keys: {}", regionName, regionNbt.keySet());
 
             int xOffset = regionNbt.getInt("xOffset").orElse(0);
             int yOffset = regionNbt.getInt("yOffset").orElse(0);
@@ -102,7 +102,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
     private void processRegionBlocks(CompoundTag regionNbt, int xOff, int yOff, int zOff, Map<BlockPos, BlockState> globalMap) {
         // Size 是 Vec3i，包含 x=width, y=height, z=length
         // 注意：Size 可以是负数（表示方向），需要结合 Position 计算
-        NbtElement sizeElement = regionNbt.get("Size");
+        Tag sizeElement = regionNbt.get("Size");
         int width = 0, height = 0, length = 0;
         if (sizeElement instanceof CompoundTag sizeNbt) {
             width = sizeNbt.getInt("x").orElse(0);
@@ -111,7 +111,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
         }
         
         // Position 是实际原点
-        NbtElement posElement = regionNbt.get("Position");
+        Tag posElement = regionNbt.get("Position");
         int posX = xOff, posY = yOff, posZ = zOff;
         if (posElement instanceof CompoundTag posNbt) {
             posX = posNbt.getInt("x").orElse(xOff);
@@ -141,7 +141,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
             LOGGER.info("从 NBT 读取 bitsPerBlock: {}", bitsPerBlock);
         }
         
-        NbtElement paletteElement = regionNbt.get("BlockStatePalette");
+        Tag paletteElement = regionNbt.get("BlockStatePalette");
         if (paletteElement == null) {
             paletteElement = regionNbt.get("Palette");
         }
@@ -156,7 +156,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
             }
             
             for (int i = 0; i < paletteList.size(); i++) {
-                NbtElement itemElement = paletteList.get(i);
+                Tag itemElement = paletteList.get(i);
                 if (itemElement instanceof CompoundTag stateNbt) {
                     BlockState state = parseBlockStateFromNbt(stateNbt);
                     palette.add(state);
@@ -248,11 +248,11 @@ public class DefaultLitematicaParser implements LitematicaParser {
 
     private void processRegionTileEntities(CompoundTag regionNbt, int xOff, int yOff, int zOff, Map<BlockPos, CompoundTag> globalMap) {
         if (!regionNbt.contains("TileEntities")) return;
-        NbtElement tileEntityElement = regionNbt.get("TileEntities");
+        Tag tileEntityElement = regionNbt.get("TileEntities");
         if (!(tileEntityElement instanceof ListTag tileEntityList)) return;
 
         for (int i = 0; i < tileEntityList.size(); i++) {
-            NbtElement teElement = tileEntityList.get(i);
+            Tag teElement = tileEntityList.get(i);
             if (!(teElement instanceof CompoundTag teNbt)) continue;
 
             int x = teNbt.getInt("x").orElse(0);
@@ -267,13 +267,13 @@ public class DefaultLitematicaParser implements LitematicaParser {
     // 安全：注册表在游戏启动后冻结为只读，可在任意线程读取
     private BlockState parseBlockStateFromNbt(CompoundTag nbt) {
         try {
-            return net.minecraft.nbt.NbtHelper.toBlockState(
-                net.minecraft.registry.BuiltInRegistries.BLOCK,
+            return net.minecraft.nbt.NbtUtils.readBlockState(
+                net.minecraft.core.registries.BuiltInRegistries.BLOCK,
                 nbt
             );
         } catch (Exception e) {
             LOGGER.error("解析 BlockState 失败: {}", e.getMessage());
-            return net.minecraft.block.Blocks.AIR.getDefaultState();
+            return net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
         }
     }
     

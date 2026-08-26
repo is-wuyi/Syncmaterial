@@ -127,7 +127,7 @@ public class SyncMaterial implements ModInitializer {
                 java.nio.file.Path gameDir = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir();
                 
                 // placements.json 在 world/syncmatica/ 目录
-                java.nio.file.Path worldPath = server.getSavePath(net.minecraft.server.level.ServerLevel.ROOT);
+                java.nio.file.Path worldPath = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
                 java.nio.file.Path syncamaticaFolder = worldPath.resolve("syncmatica");
                 
                 // 原理图文件在服务端根目录的 /syncmatics/ 文件夹
