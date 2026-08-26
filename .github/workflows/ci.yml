@@ -26,20 +26,20 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build
-        run: ./gradlew build --stacktrace
+        run: ./gradlew :1.21.7:build --stacktrace
 
       - name: Static analysis
         if: always()
-        run: ./gradlew spotbugsMain
+        run: ./gradlew :1.21.7:spotbugsMain
 
       - name: Static analysis summary
         if: always()
         run: |
           echo "## 静态分析（SpotBugs）" >> $GITHUB_STEP_SUMMARY
-          if [ -f build/reports/spotbugs/main.xml ]; then
+          if [ -f versions/1.21.7/build/reports/spotbugs/main.xml ]; then
             python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
           import xml.etree.ElementTree as ET, collections
-          root = ET.parse('build/reports/spotbugs/main.xml').getroot()
+          root = ET.parse('versions/1.21.7/build/reports/spotbugs/main.xml').getroot()
           bugs = root.findall('BugInstance')
           pri = collections.Counter(b.get('priority') for b in bugs)
           names = {'1': '高', '2': '中', '3': '低'}
@@ -65,11 +65,11 @@ jobs:
         if: always()
         run: |
           echo "## 测试结果" >> $GITHUB_STEP_SUMMARY
-          if ls build/test-results/test/*.xml >/dev/null 2>&1; then
+          if ls versions/1.21.7/build/test-results/test/*.xml >/dev/null 2>&1; then
             python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
           import glob, xml.etree.ElementTree as ET
           total = failed = skipped = 0
-          for f in glob.glob('build/test-results/test/*.xml'):
+          for f in glob.glob('versions/1.21.7/build/test-results/test/*.xml'):
               root = ET.parse(f).getroot()
               total += int(root.get('tests', 0))
               failed += int(root.get('failures', 0)) + int(root.get('errors', 0))
@@ -79,11 +79,11 @@ jobs:
           else
             echo "- 测试未运行（编译失败？）" >> $GITHUB_STEP_SUMMARY
           fi
-          if [ -f build/reports/jacoco/test/jacocoTestReport.xml ]; then
+          if [ -f versions/1.21.7/build/reports/jacoco/test/jacocoTestReport.xml ]; then
             echo "## 覆盖率（JaCoCo 指令级）" >> $GITHUB_STEP_SUMMARY
             python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
           import xml.etree.ElementTree as ET
-          root = ET.parse('build/reports/jacoco/test/jacocoTestReport.xml').getroot()
+          root = ET.parse('versions/1.21.7/build/reports/jacoco/test/jacocoTestReport.xml').getroot()
           for counter in root.findall('counter'):
               if counter.get('type') == 'INSTRUCTION':
                   missed = int(counter.get('missed')); covered = int(counter.get('covered'))
@@ -97,7 +97,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: SyncMaterial-jar
-          path: build/libs/*.jar
+          path: versions/1.21.7/build/libs/*.jar
           retention-days: 30
 
       - name: Upload test results
@@ -106,8 +106,8 @@ jobs:
         with:
           name: test-results
           path: |
-            build/reports/tests/
-            build/test-results/
-            build/reports/jacoco/
-            build/reports/spotbugs/
+            versions/1.21.7/build/reports/tests/
+            versions/1.21.7/build/test-results/
+            versions/1.21.7/build/reports/jacoco/
+            versions/1.21.7/build/reports/spotbugs/
           retention-days: 7

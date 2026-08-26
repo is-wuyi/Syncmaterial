@@ -1,12 +1,17 @@
 // Gradle settings for SyncMaterial
 plugins {
+    id 'dev.kikugie.stonecutter'
     id 'fabric-loom' version '1.14.10'
     id 'jacoco'
     id 'com.github.spotbugs' version '6.5.10'
 }
 
-version = "1.21.7-0.3.0-beta.26"
+version = "${minecraft_version}-${mod_version}"
 group = "net.syncmaterial"
+
+base {
+    archivesName = "SyncMaterial"
+}
 
 repositories {
     // 核心：Fabric 官方仓库（必须放第一个）
@@ -47,13 +52,10 @@ dependencies {
     testImplementation "org.xerial:sqlite-jdbc:${sqlite_version}"
     // 单测 JVM 的日志输出（此前无 slf4j 绑定，生产代码吞掉的异常在单测里完全不可见）
     testRuntimeOnly "org.slf4j:slf4j-simple:2.0.13"
-    // selection 包的 Box/AreaSelection 引用 litematica 的 Corner 枚举，
-    // 单测加载这些类需要重映射后的 mod jar（loom 把 modCompileOnly 重映射产物
-    // 放在 .gradle/loom-cache/remapped_mods，只挂在编译类路径，这里补到运行时）
-    testRuntimeOnly fileTree(".gradle/loom-cache/remapped_mods/remapped/maven/modrinth") {
-        include "litematica-*/${litematica_version}/*.jar"
-        include "malilib-*/${malilib_version}/*.jar"
-    }
+    // selection 包的 Box/AreaSelection 引用 Litematica 的 Corner 枚举，
+    // 单元测试加载这些类时需要相同的重映射 mod 出现在运行时类路径。
+    modRuntimeOnly "maven.modrinth:malilib:${malilib_version}"
+    modRuntimeOnly "maven.modrinth:litematica:${litematica_version}"
 }
 
 processResources {
@@ -120,7 +122,7 @@ spotbugs {
     ignoreFailures = true          // 不阻塞构建，静态分析是体检而非门禁
     effort = 'max'
     reportLevel = 'default'
-    excludeFilter = file('config/spotbugs/exclude.xml')
+    excludeFilter = rootProject.file('config/spotbugs/exclude.xml')
 }
 tasks.named('spotbugsMain') {
     reports {
@@ -156,13 +158,13 @@ afterEvaluate {
     // 必须在 afterEvaluate 中设置：configureTests 在此阶段才创建 gameTest run 配置
     def gameTestRun = loom.runs.findByName("gameTest")
     if (gameTestRun != null) {
-        gameTestRun.runDir = "/tmp/syncmaterial-gametest/run"
+        gameTestRun.runDir = rootProject.file("/tmp/syncmaterial-gametest/run")
     }
 
     // gametest 源集运行时依赖（SQLite 驱动）
     if (configurations.findByName("gametestRuntimeOnly") != null) {
         dependencies {
-            gametestRuntimeOnly "org.xerial:sqlite-jdbc:3.45.1.0"
+            gametestRuntimeOnly "org.xerial:sqlite-jdbc:${sqlite_version}"
         }
     }
 }

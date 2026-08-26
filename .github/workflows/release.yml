@@ -27,7 +27,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build
-        run: ./gradlew build
+        run: ./gradlew :1.21.7:build
 
       - name: Detect pre-release
         id: prerelease
@@ -63,4 +63,4 @@ jobs:
             --title "SyncMaterial ${{ github.ref_name }}" \
             --notes-file release_body.md \
             $( [[ "${{ steps.prerelease.outputs.pre_release }}" == "true" ]] && echo "--prerelease" ) \
-            build/libs/*.jar
+            versions/1.21.7/build/libs/*.jar
