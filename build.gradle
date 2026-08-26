@@ -1,9 +1,14 @@
 // Gradle settings for SyncMaterial
 plugins {
     id 'dev.kikugie.stonecutter'
-    id 'fabric-loom' version '1.14.10'
     id 'jacoco'
     id 'com.github.spotbugs' version '6.5.10'
+}
+
+if (minecraft_mapping == 'none') {
+    apply plugin: 'net.fabricmc.fabric-loom'
+} else {
+    apply plugin: 'net.fabricmc.fabric-loom-remap'
 }
 
 version = "${minecraft_version}-${mod_version}"
@@ -25,37 +30,44 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
-    mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    if (minecraft_mapping != 'none') {
+        if (minecraft_mapping == 'mojmap') {
+            mappings loom.officialMojangMappings()
+        } else {
+            mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
+        }
+    }
+    if (minecraft_mapping == 'none') {
+        implementation "net.fabricmc:fabric-loader:${loader_version}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+        compileOnly "maven.modrinth:malilib:${malilib_dependency}"
+        compileOnly "maven.modrinth:litematica:${litematica_dependency}"
+        compileOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
+        runtimeOnly "maven.modrinth:malilib:${malilib_dependency}"
+        runtimeOnly "maven.modrinth:litematica:${litematica_dependency}"
+        runtimeOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
+        implementation "com.google.code.findbugs:jsr305:3.0.2"
+        implementation "org.xerial:sqlite-jdbc:${sqlite_version}"
+    } else {
+        modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+        modCompileOnly "maven.modrinth:malilib:${malilib_dependency}"
+        modCompileOnly "maven.modrinth:litematica:${litematica_dependency}"
+        modCompileOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
+        modRuntimeOnly "maven.modrinth:malilib:${malilib_dependency}"
+        modRuntimeOnly "maven.modrinth:litematica:${litematica_dependency}"
+        modRuntimeOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
+        compileOnly "com.google.code.findbugs:jsr305:3.0.2"
+        include "org.xerial:sqlite-jdbc:${sqlite_version}"
+        runtimeOnly "org.xerial:sqlite-jdbc:${sqlite_version}"
+        testImplementation "net.fabricmc:fabric-loader-junit:${loader_version}"
+    }
 
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
-
-    // MaLiLib for GUI classes (compile-time only)
-    modCompileOnly "maven.modrinth:malilib:${malilib_version}"
-
-    // Litematica for reference (compile-time only, not required at runtime)
-    // 0.23.6 已从 Modrinth 下架，改用 0.23.7（同系列补丁版本，支持 1.21.6~1.21.8）
-    modCompileOnly "maven.modrinth:litematica:${litematica_version}"
-
-    // JSR 305 (javax.annotation.Nullable 等)
-    compileOnly "com.google.code.findbugs:jsr305:3.0.2"
-
-    // SQLite 数据库驱动 - include 嵌入模组 jar（生产）；runtimeOnly 提供 dev 运行时（runServer/GameTest）
-    include "org.xerial:sqlite-jdbc:${sqlite_version}"
-    runtimeOnly "org.xerial:sqlite-jdbc:${sqlite_version}"
-
-    // 测试依赖
-    testImplementation "net.fabricmc:fabric-loader-junit:${loader_version}"
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
     testImplementation "org.mockito:mockito-core:5.11.0"
     testImplementation "org.xerial:sqlite-jdbc:${sqlite_version}"
-    // 单测 JVM 的日志输出（此前无 slf4j 绑定，生产代码吞掉的异常在单测里完全不可见）
     testRuntimeOnly "org.slf4j:slf4j-simple:2.0.13"
-    // selection 包的 Box/AreaSelection 引用 Litematica 的 Corner 枚举，
-    // 单元测试加载这些类时需要相同的重映射 mod 出现在运行时类路径。
-    modRuntimeOnly "maven.modrinth:malilib:${malilib_version}"
-    modRuntimeOnly "maven.modrinth:litematica:${litematica_version}"
 }
 
 processResources {
@@ -136,6 +148,9 @@ tasks.matching { it.name in ['spotbugsTest', 'spotbugsGametest'] }.configureEach
 }
 
 java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(minecraft_mapping == 'none' ? 25 : 21)
+    }
     withSourcesJar()
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
@@ -151,6 +166,10 @@ fabricApi {
         eula = true
         clearRunDirectory = true
     }
+}
+
+
+stonecutter {
 }
 
 afterEvaluate {
