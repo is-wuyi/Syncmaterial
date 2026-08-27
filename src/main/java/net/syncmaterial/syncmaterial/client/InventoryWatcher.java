@@ -27,7 +27,7 @@ public class InventoryWatcher {
             tickCounter++;
             if (tickCounter % 20 != 0) return;
 
-            checkContainerChanges(client.player.getContainer());
+            checkContainerChanges(client.player.getInventory());
         });
     }
 
@@ -46,7 +46,7 @@ public class InventoryWatcher {
 
     public static void forceUpdate() {
         if (currentSchematicId == null || Minecraft.getInstance().player == null) return;
-        checkContainerChanges(Minecraft.getInstance().player.getContainer());
+        checkContainerChanges(Minecraft.getInstance().player.getInventory());
     }
 
     public static List<ItemStack> getShulkerContents(ItemStack stack) {
@@ -62,7 +62,7 @@ public class InventoryWatcher {
 
     public static Map<Integer, Integer> getCurrentCounts() {
         if (Minecraft.getInstance().player == null) return Map.of();
-        return getCounts(Minecraft.getInstance().player.getContainer());
+        return getCounts(Minecraft.getInstance().player.getInventory());
     }
 
     /**

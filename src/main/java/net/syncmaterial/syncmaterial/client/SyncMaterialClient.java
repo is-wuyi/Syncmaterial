@@ -2,7 +2,6 @@
 package net.syncmaterial.syncmaterial.client;
 
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.Minecraft;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
@@ -50,6 +49,21 @@ public class SyncMaterialClient implements ClientModInitializer {
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
         InventoryWatcher.register();
 
+        //? if >=26 {
+        // 26.2 移除了 HudRenderCallback，改用 HudElementRegistry
+        net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
+                net.minecraft.resources.Identifier.fromNamespaceAndPath("syncmaterial", "material_list_hud"),
+                (drawContext, tickDelta) -> {
+                    if (activeMaterialList != null && Configs.Generic.HUD_ENABLED.getBooleanValue()
+                            && activeMaterialList.getHudRenderer().getShouldRender()) {
+                        fi.dy.masa.malilib.config.HudAlignment alignment =
+                                ((HudAlignmentOption) Configs.Hud.HUD_ALIGNMENT.getOptionListValue()).toMalilib();
+                        int x = Configs.Hud.HUD_X_OFFSET.getIntegerValue();
+                        int y = Configs.Hud.HUD_Y_OFFSET.getIntegerValue();
+                        activeMaterialList.getHudRenderer().render(fi.dy.masa.malilib.render.GuiContext.fromGuiGraphics(drawContext), x, y, alignment);
+                    }
+                });
+        //?} else {
         HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
             if (activeMaterialList != null && Configs.Generic.HUD_ENABLED.getBooleanValue()
                     && activeMaterialList.getHudRenderer().getShouldRender()) {
@@ -60,6 +74,7 @@ public class SyncMaterialClient implements ClientModInitializer {
                 activeMaterialList.getHudRenderer().render(drawContext, x, y, alignment);
             }
         });
+        //?}
 
         fi.dy.masa.malilib.event.RenderEventHandler.getInstance().registerWorldLastRenderer(
                 StagingAreaRenderer.getInstance());
@@ -68,9 +83,17 @@ public class SyncMaterialClient implements ClientModInitializer {
             StagingAreaSelector.getInstance().onTick();
         });
 
+        //? if >=26 {
+        net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
+                net.minecraft.resources.Identifier.fromNamespaceAndPath("syncmaterial", "staging_selector_hud"),
+                (drawContext, tickDelta) -> {
+                    StagingAreaSelector.getInstance().onRenderHUD(fi.dy.masa.malilib.render.GuiContext.fromGuiGraphics(drawContext));
+                });
+        //?} else {
         net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
             StagingAreaSelector.getInstance().onRenderHUD(drawContext);
         });
+        //?}
 
         // 进服后立刻发版本握手：服务端据此得知本客户端装了本 mod 及其协议版本，
         // 握手通过后才会推送备货区与仓库的初始数据
@@ -101,11 +124,11 @@ public class SyncMaterialClient implements ClientModInitializer {
         });
         net.fabricmc.fabric.api.event.player.UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
             return StagingAreaSelector.getInstance().isActive()
-                    ? net.minecraft.util.ActionResult.FAIL : net.minecraft.util.ActionResult.PASS;
+                    ? net.minecraft.world.InteractionResult.FAIL : net.minecraft.world.InteractionResult.PASS;
         });
         net.fabricmc.fabric.api.event.player.UseItemCallback.EVENT.register((player, world, hand) -> {
             return StagingAreaSelector.getInstance().isActive()
-                    ? net.minecraft.util.ActionResult.FAIL : net.minecraft.util.ActionResult.PASS;
+                    ? net.minecraft.world.InteractionResult.FAIL : net.minecraft.world.InteractionResult.PASS;
         });
     }
 
@@ -118,7 +141,7 @@ public class SyncMaterialClient implements ClientModInitializer {
         GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim);
         activeMaterialList = gui.getMaterialList();
         activeMaterialList.getHudRenderer().setShouldRender(hudState);
-        Minecraft.getInstance().setScreen(gui);
+        Minecraft.getInstance().setScreenAndShow(gui);
     }
 
     public static void onCollaborationStatus(CollaborationStatusS2CPacket status) {
@@ -135,9 +158,9 @@ public class SyncMaterialClient implements ClientModInitializer {
     public static void clearActiveSchematic(String schematicId) {
         // 关闭当前打开的材料列表 GUI（如果属于被删除的原理图）
         Minecraft mc = Minecraft.getInstance();
-        if (mc.screen instanceof GuiMaterialList gui) {
+        if (mc.gui.screen() instanceof GuiMaterialList gui) {
             if (schematicId.equals(gui.getMaterialList().getSchematicId())) {
-                mc.setScreen(null);
+                mc.setScreenAndShow(null);
             }
         }
 

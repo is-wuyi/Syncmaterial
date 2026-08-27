@@ -1,10 +1,14 @@
 //? if >=26 {
+
 package net.syncmaterial.syncmaterial.client.gui.widgets;
+
+import net.minecraft.client.input.MouseButtonEvent;
+
 
 import java.util.List;
 import org.joml.Matrix3x2fStack;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 import net.minecraft.world.item.ItemStack;
 
 import fi.dy.masa.malilib.gui.GuiBase;
@@ -139,7 +143,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int countTotal = entry.getCountTotal() * multiplier;
             int countMissing = multiplier == 1 ? entry.getCountMissing() : countTotal;
 
-            maxNameLength   = Math.max(maxNameLength,   StringUtils.getStringWidth(entry.getStack().getName().getString()));
+            maxNameLength   = Math.max(maxNameLength,   StringUtils.getStringWidth(entry.getStack().getHoverName().getString()));
             maxCountLength1 = Math.max(maxCountLength1, StringUtils.getStringWidth(String.valueOf(countTotal)));
             maxCountLength2 = Math.max(maxCountLength2, StringUtils.getStringWidth(String.valueOf(countMissing)));
             maxCountLength3 = Math.max(maxCountLength3, StringUtils.getStringWidth(String.valueOf(entry.getCountAvailable())));
@@ -151,7 +155,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     }
 
     @Override
-    public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
+    public boolean canSelectAt(MouseButtonEvent event)
     {
         return false;
     }
@@ -198,13 +202,13 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     }
 
     @Override
-    protected boolean onMouseClickedImpl(int mouseX, int mouseY, int mouseButton)
+    protected boolean onMouseClickedImpl(net.minecraft.client.input.MouseButtonEvent event, boolean isDoubleClick)
     {
         // Phase 4: 负责人复选框点击
         if (this.isOwner && this.entry != null) {
             int cbX = this.x + 2;
             int cbY = this.y + 7;
-            if (mouseX >= cbX && mouseX <= cbX + 12 && mouseY >= cbY && mouseY <= cbY + 12) {
+            if (event.x() >= cbX && event.x() <= cbX + 12 && event.y() >= cbY && event.y() <= cbY + 12) {
                 var selected = this.listWidget.getGui().getSelectedMaterialIds();
                 int id = this.entry.getDatabaseId();
                 if (selected.contains(id)) {
@@ -216,7 +220,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             }
         }
 
-        if (super.onMouseClickedImpl(mouseX, mouseY, mouseButton))
+        if (super.onMouseClickedImpl(event, isDoubleClick))
         {
             return true;
         }
@@ -226,7 +230,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             return false;
         }
 
-        int column = this.getMouseOverColumn(mouseX, mouseY);
+        int column = this.getMouseOverColumn((int) event.x(), (int) event.y());
 
         switch (column)
         {
@@ -265,7 +269,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     }
 
     @Override
-    public void render(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, boolean selected)
+    public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         // Draw a lighter background for the hovered and the selected entry
         if (this.header1 == null && (selected || this.isMouseOver(mouseX, mouseY)))
@@ -377,7 +381,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             String gold = GuiBase.TXT_GOLD;
             String red = GuiBase.TXT_RED;
             String pre;
-            this.drawString(drawContext, x1 + 20, y, color, this.entry.getStack().getName().getString());
+            this.drawString(drawContext, x1 + 20, y, color, this.entry.getStack().getHoverName().getString());
 
             // 总数
             this.drawString(drawContext, x2, y, color, String.valueOf(countTotal));
@@ -421,7 +425,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             y = this.y + 3;
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
-            drawContext.drawItem(this.entry.getStack(), x1, y);
+            drawContext.item(this.entry.getStack(), x1, y);
 
             // 进度条止于行高亮框右边缘（this.x + this.width），起点 x1 已含复选框偏移
             int progressWidth = this.x + this.width - x1;
@@ -431,7 +435,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         }
     }
 
-    private void renderProgressBar(GuiGraphicsExtractor drawContext, int x, int y, int totalWidth) {
+    private void renderProgressBar(GuiContext drawContext, int x, int y, int totalWidth) {
         int countTotal = this.entry.getCountTotal();
         int stagingCount = this.entry.getStagingCount();
         int warehouseCount = this.entry.getWarehouseCount();
@@ -540,11 +544,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     }
 
     @Override
-    public void postRenderHovered(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, boolean selected)
+    public void postRenderHovered(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         if (this.entry != null)
         {
-            Matrix3x2fStack matrixStack = drawContext.getMatrices();
+            Matrix3x2fStack matrixStack = drawContext.pose();
             matrixStack.translate(0, 0);
 
             String header1 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[0]);
@@ -557,8 +561,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             int multiplier = this.materialList.getMultiplier();
             int total = this.entry.getCountTotal() * multiplier;
             int missing = multiplier == 1 ? this.entry.getCountMissing() : total;
-            String strCountTotal = MaterialListBase.getFormattedCountString(total, stack.getMaxCount(), this.shulkerBoxAbbr);
-            String strCountMissing = MaterialListBase.getFormattedCountString(missing, stack.getMaxCount(), this.shulkerBoxAbbr);
+            String strCountTotal = MaterialListBase.getFormattedCountString(total, stack.getMaxStackSize(), this.shulkerBoxAbbr);
+            String strCountMissing = MaterialListBase.getFormattedCountString(missing, stack.getMaxStackSize(), this.shulkerBoxAbbr);
 
             var participants = this.entry.getParticipants();
             int stagingCount = this.entry.getStagingCount();
@@ -602,7 +606,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.drawString(drawContext, x2, y, 0xFFFFFFFF, strCountMissing);
 
             RenderUtils.drawRect(drawContext, x2, y1, 16, 16, 0x20FFFFFF);
-            drawContext.drawItem(stack, x2, y1);
+            drawContext.item(stack, x2, y1);
 
             y += 18;
             if (stagingCount > 0 || warehouseCount > 0 || !participants.isEmpty()) {
@@ -680,6 +684,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 }
 //?} else {
 package net.syncmaterial.syncmaterial.client.gui.widgets;
+
+
 
 import java.util.List;
 import org.joml.Matrix3x2fStack;

@@ -90,7 +90,7 @@ public final class CoordinateNudge
                 return;
             }
 
-            long window = mc.getWindow().getHandle();
+            long window = mc.getWindow().handle();
             boolean physicalLeft = isMouseDown(window, GLFW.GLFW_MOUSE_BUTTON_LEFT);
             boolean physicalRight = isMouseDown(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
             boolean ctrlPhysical = isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL)

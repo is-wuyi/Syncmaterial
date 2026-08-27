@@ -1,4 +1,5 @@
 //? if >=26 {
+
 /*
  * This file is part of SyncMaterial, licensed under GNU Lesser General Public License v3 (LGPL-3.0).
  * Original code from Litematica by masa (https://github.com/sakura-kyoko/litematica)
@@ -8,9 +9,12 @@
 
 package net.syncmaterial.syncmaterial.client.gui.widgets;
 
+import net.minecraft.client.input.MouseButtonEvent;
+
+
 import java.util.List;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSubRegion;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
@@ -70,13 +74,13 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     }
 
     @Override
-    public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
+    public boolean canSelectAt(MouseButtonEvent event)
     {
-        return mouseX < this.buttonsStartX && super.canSelectAt(mouseX, mouseY, mouseButton);
+        return event.x() < this.buttonsStartX && super.canSelectAt(event);
     }
 
     @Override
-    public void render(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, boolean selected)
+    public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         // Draw a lighter background for the hovered and the selected entry
         if (selected || this.isMouseOver(mouseX, mouseY))
@@ -117,7 +121,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
             // 与玩家当前维度不一致时标黄，提示线框和扫描都不会在此维度生效
             var clientPlayer = net.minecraft.client.Minecraft.getInstance().player;
             String currentWorld = clientPlayer != null
-                    ? clientPlayer.getWorld().getRegistryKey().getValue().toString()
+                    ? clientPlayer.level().dimension().identifier().toString()
                     : null;
             int color = world.equals(currentWorld) ? 0xFF888888 : 0xFFFFAA00;
             this.drawString(drawContext,
@@ -129,7 +133,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     }
 
     @Override
-    public void postRenderHovered(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, boolean selected)
+    public void postRenderHovered(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         List<String> text = new java.util.ArrayList<>();
 
@@ -163,7 +167,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     {
         private static boolean hasShiftDown() {
             return org.lwjgl.glfw.GLFW.glfwGetKey(
-                net.minecraft.client.Minecraft.getInstance().getWindow().getHandle(),
+                net.minecraft.client.Minecraft.getInstance().getWindow().handle(),
                 org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
         }
 
@@ -184,7 +188,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                 String title = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.title.rename_area");
                 String name = this.widget.entryData.name();
                 AreaRenamer renamer = new AreaRenamer(this.widget.entryData, this.widget.parent.getEditorGui());
-                GuiBase.openGui(new GuiTextInputFeedback(160, title, name, (net.minecraft.client.gui.screen.Screen) this.widget.parent.getEditorGui(), renamer));
+                GuiBase.openGui(new GuiTextInputFeedback(160, title, name, (net.minecraft.client.gui.screens.Screen) this.widget.parent.getEditorGui(), renamer));
             }
             else if (this.type == ButtonType.CONFIGURE)
             {
@@ -195,7 +199,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                     selection.setSelectedSubRegionBox(box.getName());
                     GuiStagingAreaEditorSubRegion sub = new GuiStagingAreaEditorSubRegion(
                             selection, box, null, this.widget.parent.getEditorGui().getSchematicId());
-                    sub.setParent(net.minecraft.client.Minecraft.getInstance().screen);
+                    sub.setParent(net.minecraft.client.Minecraft.getInstance().gui.screen());
                     GuiBase.openGui(sub);
                 }
             }
@@ -270,6 +274,8 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
  */
 
 package net.syncmaterial.syncmaterial.client.gui.widgets;
+
+
 
 import java.util.List;
 

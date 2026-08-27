@@ -20,7 +20,7 @@ public record KickFromMaterialC2SPacket(
     public static final CustomPacketPayload.Type<KickFromMaterialC2SPacket> ID = new CustomPacketPayload.Type<>(ModPackets.KICK_FROM_MATERIAL);
     public static final StreamCodec<RegistryFriendlyByteBuf, KickFromMaterialC2SPacket> CODEC = StreamCodec.composite(
             ByteBufCodecs.STRING_UTF8, KickFromMaterialC2SPacket::schematicId,
-            ByteBufCodecs.VAR_INT.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), KickFromMaterialC2SPacket::materialIds,
+            ByteBufCodecs.VAR_INT.apply(ByteBufCodecs.list()), KickFromMaterialC2SPacket::materialIds,
             ByteBufCodecs.STRING_UTF8, KickFromMaterialC2SPacket::targetPlayer,
             KickFromMaterialC2SPacket::new
     );

@@ -17,7 +17,11 @@ public class MaterialListSorter implements Comparator<MaterialListEntry>
     {
         boolean reverse = this.materialList.getSortInReverse();
         SortCriteria sortCriteria = this.materialList.getSortCriteria();
+        //? if >=26 {
+        int nameCompare = entry1.getStack().getHoverName().getString().compareTo(entry2.getStack().getHoverName().getString());
+        //?} else {
         int nameCompare = entry1.getStack().getName().getString().compareTo(entry2.getStack().getName().getString());
+        //?}
 
         if (sortCriteria == SortCriteria.COUNT_TOTAL)
         {

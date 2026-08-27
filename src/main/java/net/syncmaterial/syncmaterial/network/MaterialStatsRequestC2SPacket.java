@@ -5,7 +5,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.resources.Identifier;
 
 /**
  * 客户端请求服务端进行材料统计的数据包

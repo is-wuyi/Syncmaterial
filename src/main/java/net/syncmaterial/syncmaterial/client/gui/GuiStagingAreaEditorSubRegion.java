@@ -75,7 +75,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         this.addLabel(x, y, -1, 16, 0xFFFFFFFF, label);
         y += 13;
 
-        this.textFieldBoxName = new GuiTextFieldGeneric(x, y + 2, width, 16, this.textRenderer);
+        this.textFieldBoxName = new GuiTextFieldGeneric(x, y + 2, width, 16, this.font);
         this.textFieldBoxName.setTextWrapper(this.box.getName());
         this.addTextField(this.textFieldBoxName, new TextFieldListenerDummy());
         this.createButton(x + width + 4, y, -1, SubRegionButtonListener.Type.SET_BOX_NAME);
@@ -173,7 +173,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
                 break;
         }
 
-        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.textRenderer);
+        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.font);
         TextFieldListener listener = new TextFieldListener(coordType, corner, this);
         textField.setTextWrapper(text);
         this.addTextField(textField, listener);

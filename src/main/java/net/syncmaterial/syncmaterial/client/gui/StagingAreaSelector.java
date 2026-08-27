@@ -6,7 +6,7 @@ import javax.annotation.Nullable;
 import org.lwjgl.glfw.GLFW;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -137,8 +137,8 @@ public class StagingAreaSelector {
         // mc 为 null 只出现在无客户端实例的环境（单元测试）；
         // 选区状态此时已设置完毕，不应因为关不掉界面而整体抛出
         this.pendingScreenClose = true;
-        if (mc != null && mc.screen != null) {
-            mc.setScreen(null);
+        if (mc != null && mc.gui.screen() != null) {
+            mc.setScreenAndShow(null);
         }
 
         SyncMaterial.LOGGER.info("[StagingAreaSelector] 启动选区模式: boxName={}, pos1={}, pos2={}, type={}",
@@ -212,7 +212,7 @@ public class StagingAreaSelector {
 
         Minecraft mc = Minecraft.getInstance();
         if (mc != null && this.returnScreen != null) {
-            mc.setScreen(this.returnScreen);
+            mc.setScreenAndShow(this.returnScreen);
         }
         this.returnScreen = null;
         this.targetBoxName = null;
@@ -229,7 +229,7 @@ public class StagingAreaSelector {
         }
 
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.world == null) {
+        if (mc.player == null || mc.level == null) {
             this.cancel();
             return;
         }
@@ -237,39 +237,39 @@ public class StagingAreaSelector {
         // 兜底关闭界面：start() 之后 MaLiLib 弹窗基类可能又把父界面打开，
         // 这里持续关到界面真正消失，避免"选区已激活但屏幕仍是 GUI"
         if (this.pendingScreenClose) {
-            if (mc.screen != null) {
-                mc.setScreen(null);
+            if (mc.gui.screen() != null) {
+                mc.setScreenAndShow(null);
             } else {
                 this.pendingScreenClose = false;
             }
         }
 
-        HitResult hitResult = mc.crosshairTarget;
+        HitResult hitResult = mc.hitResult;
         if (hitResult != null && hitResult.getType() == HitResult.Type.BLOCK) {
             BlockHitResult blockHit = (BlockHitResult) hitResult;
             this.posLookingAt = blockHit.getBlockPos();
 
-            if (mc.options.sneakKey.isPressed()) {
-                Direction direction = blockHit.getSide();
-                this.posLookingAt = this.posLookingAt.offset(direction);
+            if (mc.options.keyShift.isDown()) {
+                Direction direction = blockHit.getDirection();
+                this.posLookingAt = this.posLookingAt.relative(direction);
             }
         } else {
             this.posLookingAt = null;
         }
 
-        if (GLFW.glfwGetKey(mc.getWindow().getHandle(), GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS) {
+        if (GLFW.glfwGetKey(mc.getWindow().handle(), GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS) {
             this.cancel();
             return;
         }
 
-        if (GLFW.glfwGetKey(mc.getWindow().getHandle(), GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS) {
+        if (GLFW.glfwGetKey(mc.getWindow().handle(), GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS) {
             this.confirm();
             return;
         }
 
         if (this.posLookingAt != null) {
-            boolean attackDown = mc.options.attackKey.isPressed();
-            boolean useDown = mc.options.useKey.isPressed();
+            boolean attackDown = mc.options.keyAttack.isDown();
+            boolean useDown = mc.options.keyUse.isDown();
 
             if (attackDown && !this.leftClicked) {
                 this.pos1 = this.posLookingAt;
@@ -289,7 +289,7 @@ public class StagingAreaSelector {
         }
     }
 
-    public void onRenderWorld(fi.dy.masa.malilib.interfaces.IRenderer renderer, org.joml.Matrix4f posMatrix) {
+    public void onRenderWorld(fi.dy.masa.malilib.interfaces.IRenderer renderer) {
         if (!this.active) {
             return;
         }
@@ -309,35 +309,35 @@ public class StagingAreaSelector {
 
         if (this.pos1 != null && this.pos2 != null) {
             RenderUtils.renderAreaOutline(this.pos1, this.pos2, 2.0f, areaLine, areaLine, areaLine);
-            RenderUtils.renderAreaSides(this.pos1, this.pos2, areaSide, posMatrix);
+            RenderUtils.renderAreaSides(this.pos1, this.pos2, areaSide);
         }
 
         // 角点标记在区域框之后绘制：红/蓝是"哪个角是 pos1、是否已点过"的必要反馈，
         // 需要盖在区域框上才看得清
         if (this.pos1 != null) {
             RenderUtils.renderAreaOutline(this.pos1, this.pos1, 3.0f, COLOR_POS1, COLOR_POS1, COLOR_POS1);
-            RenderUtils.renderAreaSides(this.pos1, this.pos1, new Color4f(1.0f, 0.0f, 0.0f, 0.25f), posMatrix);
+            RenderUtils.renderAreaSides(this.pos1, this.pos1, new Color4f(1.0f, 0.0f, 0.0f, 0.25f));
         }
 
         if (this.pos2 != null) {
             RenderUtils.renderAreaOutline(this.pos2, this.pos2, 3.0f, COLOR_POS2, COLOR_POS2, COLOR_POS2);
-            RenderUtils.renderAreaSides(this.pos2, this.pos2, new Color4f(0.0f, 0.0f, 1.0f, 0.25f), posMatrix);
+            RenderUtils.renderAreaSides(this.pos2, this.pos2, new Color4f(0.0f, 0.0f, 1.0f, 0.25f));
         }
 
         if (this.posLookingAt != null) {
             RenderUtils.renderAreaOutline(this.posLookingAt, this.posLookingAt, 2.0f, COLOR_LOOKING, COLOR_LOOKING, COLOR_LOOKING);
-            RenderUtils.renderAreaSides(this.posLookingAt, this.posLookingAt, COLOR_LOOKING, posMatrix);
+            RenderUtils.renderAreaSides(this.posLookingAt, this.posLookingAt, COLOR_LOOKING);
         }
     }
 
-    public void onRenderHUD(GuiGraphicsExtractor drawContext) {
+    public void onRenderHUD(GuiContext drawContext) {
         if (!this.active) {
             return;
         }
 
         Minecraft mc = Minecraft.getInstance();
-        int centerX = drawContext.getScaledWindowWidth() / 2;
-        int centerY = drawContext.getScaledWindowHeight() / 2;
+        int centerX = drawContext.guiWidth() / 2;
+        int centerY = drawContext.guiHeight() / 2;
 
         String line1 = StringUtils.translate("syncmaterial.gui.hud.left_click_set_pos1") + (this.pos1 != null ? " ✓" : "");
         String line2 = StringUtils.translate("syncmaterial.gui.hud.right_click_set_pos2") + (this.pos2 != null ? " ✓" : "");
@@ -349,11 +349,11 @@ public class StagingAreaSelector {
 
         int textY = centerY - 30;
         drawContext.fill(centerX - 150, textY - 5, centerX + 150, textY + 55, 0xCC000000);
-        drawContext.drawTextWithShadow(mc.textRenderer, line1, centerX - mc.textRenderer.getWidth(line1) / 2, textY, 0xFFFFFFFF);
-        drawContext.drawTextWithShadow(mc.textRenderer, line2, centerX - mc.textRenderer.getWidth(line2) / 2, textY + 14, 0xFFFFFFFF);
-        drawContext.drawTextWithShadow(mc.textRenderer, line3, centerX - mc.textRenderer.getWidth(line3) / 2, textY + 28, 0xFFAAAAAA);
+        drawContext.text(mc.font, line1, centerX - mc.font.width(line1) / 2, textY, 0xFFFFFFFF, true);
+        drawContext.text(mc.font, line2, centerX - mc.font.width(line2) / 2, textY + 14, 0xFFFFFFFF, true);
+        drawContext.text(mc.font, line3, centerX - mc.font.width(line3) / 2, textY + 28, 0xFFAAAAAA, true);
         if (!lineCrosshair.isEmpty()) {
-            drawContext.drawTextWithShadow(mc.textRenderer, lineCrosshair, centerX - mc.textRenderer.getWidth(lineCrosshair) / 2, textY + 42, 0xFF55FFFF);
+            drawContext.text(mc.font, lineCrosshair, centerX - mc.font.width(lineCrosshair) / 2, textY + 42, 0xFF55FFFF, true);
         }
     }
 }

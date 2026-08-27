@@ -109,7 +109,7 @@ public abstract class MaterialListBase
 
     public void setMultiplier(int multiplier)
     {
-        this.multiplier = MathHelper.clamp(multiplier, 1, Integer.MAX_VALUE);
+        this.multiplier = net.minecraft.util.Mth.clamp(multiplier, 1, Integer.MAX_VALUE);
     }
 
     public void updateCounts()

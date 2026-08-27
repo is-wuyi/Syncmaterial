@@ -33,7 +33,7 @@ public record PlayerListResponseS2CPacket(
     };
 
     public static final StreamCodec<RegistryFriendlyByteBuf, PlayerListResponseS2CPacket> CODEC = StreamCodec.composite(
-            PLAYER_INFO_CODEC.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), PlayerListResponseS2CPacket::players,
+            PLAYER_INFO_CODEC.apply(ByteBufCodecs.list()), PlayerListResponseS2CPacket::players,
             PlayerListResponseS2CPacket::new
     );
 

@@ -25,7 +25,7 @@ public record OwnerActionResponseS2CPacket(
             ByteBufCodecs.BOOL, OwnerActionResponseS2CPacket::success,
             ByteBufCodecs.STRING_UTF8, OwnerActionResponseS2CPacket::message,
             ByteBufCodecs.STRING_UTF8, OwnerActionResponseS2CPacket::ownerName,
-            ByteBufCodecs.STRING_UTF8.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), OwnerActionResponseS2CPacket::deputyOwners,
+            ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), OwnerActionResponseS2CPacket::deputyOwners,
             ByteBufCodecs.BOOL, OwnerActionResponseS2CPacket::allowSelfClaim,
             OwnerActionResponseS2CPacket::new
     );

@@ -12,8 +12,8 @@ public class MaterialListUtils {
         if (player == null) return;
 
         java.util.Map<String, Integer> playerCounts = new java.util.HashMap<>();
-        for (int i = 0; i < player.getContainer().size(); i++) {
-            ItemStack stack = player.getContainer().getStack(i);
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = player.getInventory().getItem(i);
             if (stack.isEmpty()) continue;
 
             String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();

@@ -23,12 +23,12 @@ public record WarehouseContainerResponseS2CPacket(
             ByteBufCodecs.VAR_INT, ContainerEntry::posX,
             ByteBufCodecs.VAR_INT, ContainerEntry::posY,
             ByteBufCodecs.VAR_INT, ContainerEntry::posZ,
-            ByteBufCodecs.STRING_UTF8.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), ContainerEntry::itemIds,
+            ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), ContainerEntry::itemIds,
             ContainerEntry::new
     );
 
     public static final StreamCodec<RegistryFriendlyByteBuf, WarehouseContainerResponseS2CPacket> CODEC = StreamCodec.composite(
-            CONTAINER_ENTRY_CODEC.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), WarehouseContainerResponseS2CPacket::containers,
+            CONTAINER_ENTRY_CODEC.apply(ByteBufCodecs.list()), WarehouseContainerResponseS2CPacket::containers,
             WarehouseContainerResponseS2CPacket::new
     );
 

@@ -3,7 +3,7 @@ package net.syncmaterial.syncmaterial.client.infohud;
 
 import java.util.List;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 
 import fi.dy.masa.malilib.config.HudAlignment;
 
@@ -45,7 +45,7 @@ public interface IInfoHudRenderer
      * @param alignment the screen position to render at
      * @return the required y height used up for the rendered content
      */
-    default int render(GuiGraphicsExtractor drawContext, int xOffset, int yOffset, HudAlignment alignment)
+    default int render(GuiContext drawContext, int xOffset, int yOffset, HudAlignment alignment)
     {
         return 0;
     }

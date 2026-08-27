@@ -46,7 +46,7 @@ public class ModNetworkHandlerClient {
 
         ClientPlayNetworking.registerGlobalReceiver(StagingAreaConfigResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                var screen = Minecraft.getInstance().screen;
+                var screen = Minecraft.getInstance().gui.screen();
 
                 // Phase 5: 仓库管理界面响应
                 if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager warehouseMgr)
@@ -83,7 +83,7 @@ public class ModNetworkHandlerClient {
         ClientPlayNetworking.registerGlobalReceiver(RescanStagingAreaResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.info("[Rescan] 收到重新扫描响应: success={}, message={}", payload.success(), payload.message());
-                var screen = Minecraft.getInstance().screen;
+                var screen = Minecraft.getInstance().gui.screen();
                 if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onRescanResponse(payload.success(), payload.message());
                 }
@@ -93,7 +93,7 @@ public class ModNetworkHandlerClient {
         // Phase 4: 负责人操作响应
         ClientPlayNetworking.registerGlobalReceiver(OwnerActionResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                var screen = Minecraft.getInstance().screen;
+                var screen = Minecraft.getInstance().gui.screen();
                 if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
                 }
@@ -103,7 +103,7 @@ public class ModNetworkHandlerClient {
         // Phase 4: 批量分配响应
         ClientPlayNetworking.registerGlobalReceiver(BatchAssignResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                var screen = Minecraft.getInstance().screen;
+                var screen = Minecraft.getInstance().gui.screen();
                 if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onBatchAssignResponse(payload.success(), payload.message());
                 }
@@ -113,7 +113,7 @@ public class ModNetworkHandlerClient {
         // Phase 4: 踢出响应
         ClientPlayNetworking.registerGlobalReceiver(KickFromMaterialResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                var screen = Minecraft.getInstance().screen;
+                var screen = Minecraft.getInstance().gui.screen();
                 if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onKickResponse(payload.success(), payload.message());
                 }
@@ -123,7 +123,7 @@ public class ModNetworkHandlerClient {
         // Phase 4: 玩家列表响应
         ClientPlayNetworking.registerGlobalReceiver(PlayerListResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
-                var screen = Minecraft.getInstance().screen;
+                var screen = Minecraft.getInstance().gui.screen();
                 if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onPlayerListResponse(payload.players());
                 }

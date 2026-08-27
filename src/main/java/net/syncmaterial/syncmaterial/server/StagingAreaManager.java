@@ -452,8 +452,8 @@ public class StagingAreaManager {
         StagingArea area = findStagingAreaById(areaId);
         if (area == null) return null;
 
-        ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.of(
-                net.minecraft.core.registries.Registries.DIMENSION, Identifier.fromNamespaceAndPath(area.world)));
+        ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.create(
+                net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(area.world)));
         if (world == null) return null;
 
         Map<String, Integer> totalItems = new HashMap<>();
@@ -474,7 +474,7 @@ public class StagingAreaManager {
         for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
                 // 只扫描已加载的区块，绝不触发区块加载
-                if (world.getChunkSource().getChunk(chunkX, chunkZ) == null) {
+                if (world.getChunkSource().getChunk(chunkX, chunkZ, false) == null) {
                     skippedChunks++;
                     continue;
                 }
@@ -799,8 +799,8 @@ public class StagingAreaManager {
         Warehouse wh = warehousesById.get(warehouseId);
         if (wh == null) return null;
 
-        ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.of(
-                net.minecraft.core.registries.Registries.DIMENSION, Identifier.fromNamespaceAndPath(wh.world())));
+        ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.create(
+                net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(wh.world())));
         if (world == null) return null;
 
         // 全量重扫前清空旧明细，避免已移除的容器残留在取货模式高亮里
@@ -826,7 +826,7 @@ public class StagingAreaManager {
 
         for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-                if (world.getChunkSource().getChunk(chunkX, chunkZ) == null) continue;
+                if (world.getChunkSource().getChunk(chunkX, chunkZ, false) == null) continue;
 
                 int startX = Math.max(chunkX << 4, minX);
                 int endX = Math.min((chunkX << 4) + 15, maxX);
@@ -979,8 +979,8 @@ public class StagingAreaManager {
      */
     public void scanChunkForContainerAreas(net.minecraft.world.level.chunk.LevelChunk chunk, ServerLevel world) {
         String worldId = world.dimension().identifier().toString();
-        int chunkX = chunk.getPos().getX();
-        int chunkZ = chunk.getPos().getZ();
+        int chunkX = chunk.getPos().x();
+        int chunkZ = chunk.getPos().z();
         long chunkPos = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
 
         // 检查备货区（只处理未初始化的）
@@ -1048,7 +1048,7 @@ public class StagingAreaManager {
         int minCZ = Math.min(z1, z2) >> 4, maxCZ = Math.max(z1, z2) >> 4;
         for (int cx = minCX; cx <= maxCX; cx++) {
             for (int cz = minCZ; cz <= maxCZ; cz++) {
-                if (world.getChunkSource().getChunk(cx, cz) == null) {
+                if (world.getChunkSource().getChunk(cx, cz, false) == null) {
                     SyncMaterial.LOGGER.info("[StagingArea] areaId={} 部分区块已卸载，跳过全量校正，保留合并统计", areaId);
                     return;
                 }
@@ -1072,14 +1072,14 @@ public class StagingAreaManager {
     /**
      * 扫描区块内属于指定区域的箱子，写入 container_inventory
      */
-    private void scanChunkForArea(WorldChunk chunk, ServerLevel world, int areaId, String areaType,
+    private void scanChunkForArea(net.minecraft.world.level.chunk.LevelChunk chunk, ServerLevel world, int areaId, String areaType,
             int x1, int y1, int z1, int x2, int y2, int z2) {
-        int minX = Math.max(chunk.getPos().getX() << 4, Math.min(x1, x2));
-        int maxX = Math.min((chunk.getPos().getX() << 4) + 15, Math.max(x1, x2));
+        int minX = Math.max(chunk.getPos().x() << 4, Math.min(x1, x2));
+        int maxX = Math.min((chunk.getPos().x() << 4) + 15, Math.max(x1, x2));
         int minY = Math.min(y1, y2);
         int maxY = Math.max(y1, y2);
-        int minZ = Math.max(chunk.getPos().getZ() << 4, Math.min(z1, z2));
-        int maxZ = Math.min((chunk.getPos().getZ() << 4) + 15, Math.max(z1, z2));
+        int minZ = Math.max(chunk.getPos().z() << 4, Math.min(z1, z2));
+        int maxZ = Math.min((chunk.getPos().z() << 4) + 15, Math.max(z1, z2));
 
         Map<String, Integer> items = new HashMap<>();
         for (int x = minX; x <= maxX; x++) {

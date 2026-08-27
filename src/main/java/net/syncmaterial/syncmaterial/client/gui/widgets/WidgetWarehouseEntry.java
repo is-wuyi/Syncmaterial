@@ -1,9 +1,13 @@
 //? if >=26 {
+
 package net.syncmaterial.syncmaterial.client.gui.widgets;
+
+import net.minecraft.client.input.MouseButtonEvent;
+
 
 import java.util.List;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 
 import net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager;
 import net.syncmaterial.syncmaterial.client.gui.WarehouseEntry;
@@ -68,13 +72,13 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
     }
 
     @Override
-    public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
+    public boolean canSelectAt(MouseButtonEvent event)
     {
-        return mouseX < this.buttonsStartX && super.canSelectAt(mouseX, mouseY, mouseButton);
+        return event.x() < this.buttonsStartX && super.canSelectAt(event);
     }
 
     @Override
-    public void render(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, boolean selected)
+    public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         if (selected || this.isMouseOver(mouseX, mouseY))
         {
@@ -107,7 +111,7 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
             // 与玩家当前维度不一致时标黄，提示线框和扫描都不会在此维度生效
             var clientPlayer = net.minecraft.client.Minecraft.getInstance().player;
             String currentWorld = clientPlayer != null
-                    ? clientPlayer.getWorld().getRegistryKey().getValue().toString()
+                    ? clientPlayer.level().dimension().identifier().toString()
                     : null;
             int color = world.equals(currentWorld) ? 0xFF888888 : 0xFFFFAA00;
             String tag = "  @" + WidgetStagingAreaEntry.shortWorldName(world);
@@ -120,7 +124,7 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
     }
 
     @Override
-    public void postRenderHovered(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, boolean selected)
+    public void postRenderHovered(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         List<String> text = new java.util.ArrayList<>();
 
@@ -197,7 +201,7 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
 
         private static boolean hasShiftDown() {
             return org.lwjgl.glfw.GLFW.glfwGetKey(
-                net.minecraft.client.Minecraft.getInstance().getWindow().getHandle(),
+                net.minecraft.client.Minecraft.getInstance().getWindow().handle(),
                 org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
         }
 
@@ -224,6 +228,8 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
 }
 //?} else {
 package net.syncmaterial.syncmaterial.client.gui.widgets;
+
+
 
 import java.util.List;
 

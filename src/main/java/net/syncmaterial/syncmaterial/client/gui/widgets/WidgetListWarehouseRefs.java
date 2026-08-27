@@ -5,7 +5,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import fi.dy.masa.malilib.gui.widgets.WidgetListBase;
@@ -32,7 +32,7 @@ public class WidgetListWarehouseRefs extends WidgetListBase<StagingAreaConfigRes
         return this.entries.size();
     }
 
-    public void renderHoverEffects(GuiGraphicsExtractor drawContext, int mouseX, int mouseY)
+    public void renderHoverEffects(GuiContext drawContext, int mouseX, int mouseY)
     {
         this.drawHoveredWidget(drawContext, mouseX, mouseY);
         this.drawButtonHoverTexts(drawContext, mouseX, mouseY, 0f);

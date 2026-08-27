@@ -40,8 +40,8 @@ public record CollaborationStatusS2CPacket(
             ByteBufCodecs.VAR_INT, CollaborationStatusS2CPacket::totalCount,
             ByteBufCodecs.VAR_INT, CollaborationStatusS2CPacket::stagingCount,
             ByteBufCodecs.VAR_INT, CollaborationStatusS2CPacket::warehouseCount,
-            PARTICIPANT_CODEC.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), CollaborationStatusS2CPacket::participants,
-            FRESHNESS_CODEC.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), CollaborationStatusS2CPacket::freshnessInfo,
+            PARTICIPANT_CODEC.apply(ByteBufCodecs.list()), CollaborationStatusS2CPacket::participants,
+            FRESHNESS_CODEC.apply(ByteBufCodecs.list()), CollaborationStatusS2CPacket::freshnessInfo,
             CollaborationStatusS2CPacket::new
     );
 

@@ -1,10 +1,14 @@
 //? if >=26 {
+
 package net.syncmaterial.syncmaterial.client.gui.widgets;
+
+import net.minecraft.client.input.MouseButtonEvent;
+
 
 import java.util.List;
 import java.util.Optional;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
@@ -47,13 +51,13 @@ public class WidgetWarehouseRefEntry extends WidgetListEntryBase<StagingAreaConf
     }
 
     @Override
-    public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
+    public boolean canSelectAt(MouseButtonEvent event)
     {
-        return mouseX < this.buttonsStartX && super.canSelectAt(mouseX, mouseY, mouseButton);
+        return event.x() < this.buttonsStartX && super.canSelectAt(event);
     }
 
     @Override
-    public void render(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, boolean selected)
+    public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         if (selected || this.isMouseOver(mouseX, mouseY))
         {
@@ -90,7 +94,7 @@ public class WidgetWarehouseRefEntry extends WidgetListEntryBase<StagingAreaConf
     }
 
     @Override
-    public void postRenderHovered(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, boolean selected)
+    public void postRenderHovered(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     {
         List<String> text = new java.util.ArrayList<>();
         text.add(String.format("§l%s", this.entryData.name()));
@@ -146,6 +150,8 @@ public class WidgetWarehouseRefEntry extends WidgetListEntryBase<StagingAreaConf
 }
 //?} else {
 package net.syncmaterial.syncmaterial.client.gui.widgets;
+
+
 
 import java.util.List;
 import java.util.Optional;

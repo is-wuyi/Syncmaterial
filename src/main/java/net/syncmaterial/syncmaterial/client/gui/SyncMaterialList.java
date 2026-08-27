@@ -58,7 +58,7 @@ public class SyncMaterialList extends MaterialListBase {
         
         Map<String, Integer> itemIdToMaterialId = new HashMap<>();
         for (MaterialEntry entry : entries) {
-            String itemId = entry.getStack().getItem().getRegistryEntry().getKey().map(k -> k.getValue().toString()).orElse("");
+            String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.getStack().getItem()).toString();
             itemIdToMaterialId.put(itemId, entry.getDatabaseId());
         }
         net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(schematicId, itemIdToMaterialId);
@@ -76,7 +76,7 @@ public class SyncMaterialList extends MaterialListBase {
         }
         updateEntriesWithCollaborationStatus();
         // Phase 5: 更新数据新鲜度警告（取最新的 freshnessInfo，所有材料共享同一份）
-        if (!status.freshnessInfo().isEmpty() && Minecraft.getInstance().screen instanceof GuiMaterialList gui) {
+        if (!status.freshnessInfo().isEmpty() && Minecraft.getInstance().gui.screen() instanceof GuiMaterialList gui) {
             gui.updateFreshnessWarnings(status.freshnessInfo());
         }
         if (onStatusUpdate != null) {

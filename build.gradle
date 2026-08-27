@@ -57,6 +57,11 @@ dependencies {
         modRuntimeOnly "maven.modrinth:malilib:${malilib_dependency}"
         modRuntimeOnly "maven.modrinth:litematica:${litematica_dependency}"
         modRuntimeOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
+        // Syncmatica 运行时需要 Lucko permissions API；Litematica 是 YARN 1.21.7 时 Syncmatica 缺这个库的实体，
+        // 只在通过 remap 的旧分支上手动拉一把（新版不需要）
+        if (minecraft_mapping != 'none') {
+            modRuntimeOnly "me.lucko:fabric-permissions-api:0.4.1"
+        }
         compileOnly "com.google.code.findbugs:jsr305:3.0.2"
         include "org.xerial:sqlite-jdbc:${sqlite_version}"
         runtimeOnly "org.xerial:sqlite-jdbc:${sqlite_version}"
@@ -170,6 +175,17 @@ fabricApi {
 
 
 stonecutter {
+}
+
+// 1.21.7 是 vcsVersion，Stonecutter 默认只对 main sourceSet 预处理；本项目 gametest 也用了
+// //? 条件块，因此两个 sourceSet 都要显式注册 Stonecutter 处理，并把 compiled 输入指向 generated 输出。
+if (minecraft_version == '1.21.7') {
+    def generatedMain = file("${buildDir}/generated/stonecutter/main/java")
+    def generatedGameTest = file("${buildDir}/generated/stonecutter/gametest/java")
+    stonecutter.tasks.configureSource(sourceSets.main)
+    stonecutter.tasks.configureSource(sourceSets.gametest)
+    sourceSets.main.java.setSrcDirs([generatedMain, projectDir.toPath().resolve('src/main/java').toFile()])
+    sourceSets.gametest.java.setSrcDirs([generatedGameTest, projectDir.toPath().resolve('src/gametest/java').toFile()])
 }
 
 afterEvaluate {

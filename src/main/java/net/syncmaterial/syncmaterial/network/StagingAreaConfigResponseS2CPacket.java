@@ -54,7 +54,7 @@ public record StagingAreaConfigResponseS2CPacket(
             ByteBufCodecs.STRING_UTF8, StagingAreaConfigResponseS2CPacket::schematicName,
             ByteBufCodecs.BOOL, StagingAreaConfigResponseS2CPacket::success,
             ByteBufCodecs.STRING_UTF8, StagingAreaConfigResponseS2CPacket::message,
-            AREA_INFO_CODEC.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), StagingAreaConfigResponseS2CPacket::areas,
+            AREA_INFO_CODEC.apply(ByteBufCodecs.list()), StagingAreaConfigResponseS2CPacket::areas,
             StagingAreaConfigResponseS2CPacket::new
     );
 

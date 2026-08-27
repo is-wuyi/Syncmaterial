@@ -72,7 +72,7 @@ public class GuiWarehouseEditor extends GuiBase
         this.addLabel(x, y, -1, 16, 0xFFFFFFFF, StringUtils.translate("syncmaterial.gui.label.warehouse_name"));
         y += 13;
 
-        this.textFieldName = new GuiTextFieldGeneric(x, y + 2, width, 16, this.textRenderer);
+        this.textFieldName = new GuiTextFieldGeneric(x, y + 2, width, 16, this.font);
         this.textFieldName.setTextWrapper(this.name);
         this.addTextField(this.textFieldName, new TextFieldListenerDummy());
         this.createButton(x + width + 4, y, ButtonListener.Type.SET_NAME);
@@ -156,7 +156,7 @@ public class GuiWarehouseEditor extends GuiBase
         BlockPos pos = corner == Corner.CORNER_1 ? this.pos1 : this.pos2;
         String text = String.valueOf(getCoordinate(pos, coordType));
 
-        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.textRenderer);
+        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.font);
         textField.setTextWrapper(text);
         this.addTextField(textField, new CoordinateFieldListener(coordType, corner, this));
 

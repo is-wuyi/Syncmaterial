@@ -14,7 +14,9 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.BlockPos;
 
 import fi.dy.masa.malilib.gui.*;
@@ -26,6 +28,7 @@ import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
 import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
 import fi.dy.masa.malilib.gui.widgets.WidgetCheckBox;
 import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
+import fi.dy.masa.malilib.render.GuiContext;
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.KeyCodes;
 import fi.dy.masa.malilib.util.StringUtils;
@@ -382,7 +385,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     // ========== 渲染 ==========
 
     @Override
-    protected void drawContents(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, float partialTicks)
+    protected void drawContents(GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
     {
         if (this.stagingListWidget != null)
         {
@@ -415,7 +418,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     }
 
     @Override
-    protected void drawHoveredWidget(GuiGraphicsExtractor drawContext, int mouseX, int mouseY)
+    protected void drawHoveredWidget(GuiContext drawContext, int mouseX, int mouseY)
     {
         super.drawHoveredWidget(drawContext, mouseX, mouseY);
 
@@ -434,48 +437,48 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     // ========== 事件分发 ==========
 
     @Override
-    public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton)
+    public boolean onMouseClicked(MouseButtonEvent event, boolean isDoubleClick)
     {
-        if (super.onMouseClicked(mouseX, mouseY, mouseButton))
+        if (super.onMouseClicked(event, isDoubleClick))
         {
             return true;
         }
 
-        if (isMouseInRegion(mouseX, mouseY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
+        if (isMouseInRegion((int) event.x(), (int) event.y(), this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
         {
-            return this.stagingListWidget.onMouseClicked(mouseX, mouseY, mouseButton);
+            return this.stagingListWidget.onMouseClicked(event, isDoubleClick);
         }
-        if (isMouseInRegion(mouseX, mouseY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
+        if (isMouseInRegion((int) event.x(), (int) event.y(), this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
         {
-            return this.warehouseListWidget.onMouseClicked(mouseX, mouseY, mouseButton);
+            return this.warehouseListWidget.onMouseClicked(event, isDoubleClick);
         }
         return false;
     }
 
     @Override
-    public boolean onMouseReleased(int mouseX, int mouseY, int mouseButton)
+    public boolean onMouseReleased(MouseButtonEvent event)
     {
-        if (super.onMouseReleased(mouseX, mouseY, mouseButton))
+        if (super.onMouseReleased(event))
         {
             return true;
         }
-        if (this.stagingListWidget != null) this.stagingListWidget.onMouseReleased(mouseX, mouseY, mouseButton);
-        if (this.warehouseListWidget != null) this.warehouseListWidget.onMouseReleased(mouseX, mouseY, mouseButton);
+        if (this.stagingListWidget != null) this.stagingListWidget.onMouseReleased(event);
+        if (this.warehouseListWidget != null) this.warehouseListWidget.onMouseReleased(event);
         return false;
     }
 
     @Override
-    public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount)
+    public boolean onMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount)
     {
         if (super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount))
         {
             return true;
         }
-        if (isMouseInRegion(mouseX, mouseY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
+        if (isMouseInRegion((int) mouseX, (int) mouseY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
         {
             return this.stagingListWidget.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
-        if (isMouseInRegion(mouseX, mouseY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
+        if (isMouseInRegion((int) mouseX, (int) mouseY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
         {
             return this.warehouseListWidget.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
@@ -483,18 +486,18 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     }
 
     @Override
-    public boolean onKeyTyped(int keyCode, int scanCode, int modifiers)
+    public boolean onKeyTyped(KeyEvent event)
     {
-        if (keyCode != KeyCodes.KEY_ESCAPE && super.onKeyTyped(keyCode, scanCode, modifiers))
+        if (event.key() != KeyCodes.KEY_ESCAPE && super.onKeyTyped(event))
         {
             return true;
         }
         // 键盘事件优先给备货区列表（它有搜索栏）
-        if (this.stagingListWidget != null && this.stagingListWidget.onKeyTyped(keyCode, scanCode, modifiers))
+        if (this.stagingListWidget != null && this.stagingListWidget.onKeyTyped(event))
         {
             return true;
         }
-        if (keyCode == KeyCodes.KEY_ESCAPE && super.onKeyTyped(keyCode, scanCode, modifiers))
+        if (event.key() == KeyCodes.KEY_ESCAPE && super.onKeyTyped(event))
         {
             return true;
         }
@@ -502,25 +505,25 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     }
 
     @Override
-    public boolean onCharTyped(char charIn, int modifiers)
+    public boolean onCharTyped(CharacterEvent event)
     {
-        if (super.onCharTyped(charIn, modifiers))
+        if (super.onCharTyped(event))
         {
             return true;
         }
-        if (this.stagingListWidget != null && this.stagingListWidget.onCharTyped(charIn, modifiers))
+        if (this.stagingListWidget != null && this.stagingListWidget.onCharTyped(event))
         {
             return true;
         }
-        return super.onCharTyped(charIn, modifiers);
+        return super.onCharTyped(event);
     }
 
     @Override
-    public void resize(Minecraft mc, int width, int height)
+    public void resize(int width, int height)
     {
-        super.resize(mc, width, height);
-        if (this.stagingListWidget != null) this.stagingListWidget.resize(mc, width, height);
-        if (this.warehouseListWidget != null) this.warehouseListWidget.resize(mc, width, height);
+        super.resize(width, height);
+        if (this.stagingListWidget != null) this.stagingListWidget.resize(width, height);
+        if (this.warehouseListWidget != null) this.warehouseListWidget.resize(width, height);
     }
 
     private boolean isMouseInRegion(int mouseX, int mouseY, int regionY, int regionHeight)
@@ -690,7 +693,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 break;
         }
 
-        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.textRenderer);
+        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.font);
         TextFieldListener listener = new TextFieldListener(coordType, corner, this);
         textField.setTextWrapper(text);
         this.addTextField(textField, listener);

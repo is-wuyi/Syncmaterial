@@ -174,7 +174,7 @@ public class SyncMaterial implements ModInitializer {
         });
 
         // Phase 5: 区块加载时扫描仓库/备货区箱子
-        ServerChunkEvents.CHUNK_LOAD.register((serverWorld, chunk) -> {
+        ServerChunkEvents.CHUNK_LOAD.register((serverWorld, chunk, isNew) -> {
             if (sharedStagingAreaManager == null) return;
             MinecraftServer srv = serverWorld.getServer();
             srv.execute(() -> {

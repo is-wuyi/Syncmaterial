@@ -21,8 +21,8 @@ public record BatchAssignC2SPacket(
     public static final CustomPacketPayload.Type<BatchAssignC2SPacket> ID = new CustomPacketPayload.Type<>(ModPackets.BATCH_ASSIGN);
     public static final StreamCodec<RegistryFriendlyByteBuf, BatchAssignC2SPacket> CODEC = StreamCodec.composite(
             ByteBufCodecs.STRING_UTF8, BatchAssignC2SPacket::schematicId,
-            ByteBufCodecs.VAR_INT.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), BatchAssignC2SPacket::materialIds,
-            ByteBufCodecs.STRING_UTF8.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)), BatchAssignC2SPacket::targetPlayers,
+            ByteBufCodecs.VAR_INT.apply(ByteBufCodecs.list()), BatchAssignC2SPacket::materialIds,
+            ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), BatchAssignC2SPacket::targetPlayers,
             BatchAssignC2SPacket::new
     );
 

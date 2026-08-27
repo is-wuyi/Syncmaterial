@@ -15,7 +15,7 @@ import java.util.List;
 
 import net.minecraft.core.BlockPos;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
@@ -50,7 +50,7 @@ public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, Wid
         return this.selection;
     }
 
-    public void renderHoverEffects(GuiGraphicsExtractor drawContext, int mouseX, int mouseY)
+    public void renderHoverEffects(GuiContext drawContext, int mouseX, int mouseY)
     {
         this.drawHoveredWidget(drawContext, mouseX, mouseY);
         this.drawButtonHoverTexts(drawContext, mouseX, mouseY, 0f);

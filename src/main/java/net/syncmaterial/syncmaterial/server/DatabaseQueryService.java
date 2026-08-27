@@ -39,11 +39,12 @@ public class DatabaseQueryService {
                 }
 
                 var itemRegistry = net.minecraft.core.registries.BuiltInRegistries.ITEM;
-                var identifier = net.minecraft.resources.Identifier.fromNamespaceAndPath(itemId);
-                var item = itemRegistry.get(identifier);
+                var identifier = net.minecraft.resources.Identifier.parse(itemId);
+                // 26.2 的 Registry.get 返回 Optional<Holder.Reference>，与旧版直接返回 Item 不同
+                var itemRef = itemRegistry.get(identifier);
 
-                if (item != null && item != net.minecraft.world.item.Items.AIR) {
-                    var stack = new net.minecraft.world.item.ItemStack(item, count);
+                if (itemRef.isPresent() && itemRef.get().value() != net.minecraft.world.item.Items.AIR) {
+                    var stack = new net.minecraft.world.item.ItemStack(itemRef.get(), count);
                     materials.add(new MaterialEntry(dbId, stack, count));
                 } else {
                     SyncMaterial.LOGGER.warn("未找到物品: {}", itemId);

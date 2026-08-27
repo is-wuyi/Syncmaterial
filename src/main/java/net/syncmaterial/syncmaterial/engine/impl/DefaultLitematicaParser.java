@@ -45,7 +45,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
             throw new IllegalArgumentException("Schematic file not found: " + schematicPath);
         }
 
-        CompoundTag rootNbt = NbtIo.readCompressed(file.toPath(), NbtAccounter.ofUnlimitedBytes());
+        CompoundTag rootNbt = NbtIo.readCompressed(file.toPath(), NbtAccounter.unlimitedHeap());
 
         LitematicaParser.ParsingResult result = parseNbtToResult(rootNbt);
 

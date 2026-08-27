@@ -102,7 +102,7 @@ public class MaterialEntry
     @Override
     public int hashCode()
     {
-        return ItemStack.hashCode(this.stack);
+        return this.stack.getItem().hashCode();
     }
 }
 //?} else {

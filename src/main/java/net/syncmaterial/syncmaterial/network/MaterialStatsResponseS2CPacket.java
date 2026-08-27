@@ -6,7 +6,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.resources.Identifier;
 
 import java.util.List;
 
@@ -31,11 +31,11 @@ public record MaterialStatsResponseS2CPacket(
         public MaterialStatsResponseS2CPacket decode(RegistryFriendlyByteBuf buf) {
             String schematicId = ByteBufCodecs.STRING_UTF8.decode(buf);
             String schematicName = ByteBufCodecs.STRING_UTF8.decode(buf);
-            List<MaterialEntry> materials = MaterialEntry.PACKET_CODEC.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)).decode(buf);
+            List<MaterialEntry> materials = MaterialEntry.PACKET_CODEC.apply(ByteBufCodecs.list()).decode(buf);
             boolean isOwner = ByteBufCodecs.BOOL.decode(buf);
             boolean isMainOwner = ByteBufCodecs.BOOL.decode(buf);
             String ownerName = ByteBufCodecs.STRING_UTF8.decode(buf);
-            List<String> deputyOwners = ByteBufCodecs.STRING_UTF8.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)).decode(buf);
+            List<String> deputyOwners = ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).decode(buf);
             boolean allowSelfClaim = ByteBufCodecs.BOOL.decode(buf);
             return new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim);
         }
@@ -44,11 +44,11 @@ public record MaterialStatsResponseS2CPacket(
         public void encode(RegistryFriendlyByteBuf buf, MaterialStatsResponseS2CPacket value) {
             ByteBufCodecs.STRING_UTF8.encode(buf, value.schematicId());
             ByteBufCodecs.STRING_UTF8.encode(buf, value.schematicName());
-            MaterialEntry.PACKET_CODEC.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)).encode(buf, value.materials());
+            MaterialEntry.PACKET_CODEC.apply(ByteBufCodecs.list()).encode(buf, value.materials());
             ByteBufCodecs.BOOL.encode(buf, value.isOwner());
             ByteBufCodecs.BOOL.encode(buf, value.isMainOwner());
             ByteBufCodecs.STRING_UTF8.encode(buf, value.ownerName());
-            ByteBufCodecs.STRING_UTF8.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)).encode(buf, value.deputyOwners());
+            ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).encode(buf, value.deputyOwners());
             ByteBufCodecs.BOOL.encode(buf, value.allowSelfClaim());
         }
     };

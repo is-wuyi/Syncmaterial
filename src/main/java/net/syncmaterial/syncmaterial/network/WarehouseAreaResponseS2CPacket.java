@@ -28,9 +28,9 @@ public record WarehouseAreaResponseS2CPacket(
             new CustomPacketPayload.Type<>(ModPackets.WAREHOUSE_AREA_RESPONSE);
 
     public static final StreamCodec<RegistryFriendlyByteBuf, WarehouseAreaResponseS2CPacket> CODEC = StreamCodec.composite(
-            StagingAreaConfigResponseS2CPacket.AREA_INFO_CODEC.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)),
+            StagingAreaConfigResponseS2CPacket.AREA_INFO_CODEC.apply(ByteBufCodecs.list()),
             WarehouseAreaResponseS2CPacket::warehouses,
-            ByteBufCodecs.VAR_INT.collect(ByteBufCodecs.collection(ByteBufCodecs.VAR_INT)),
+            ByteBufCodecs.VAR_INT.apply(ByteBufCodecs.list()),
             WarehouseAreaResponseS2CPacket::referencedIds,
             WarehouseAreaResponseS2CPacket::new
     );

@@ -7,7 +7,7 @@ import java.util.List;
 import com.google.common.collect.ImmutableList;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import fi.dy.masa.malilib.render.GuiContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -40,7 +40,7 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     }
 
     @Override
-    public void drawContents(GuiGraphicsExtractor drawContext, int mouseX, int mouseY, float partialTicks)
+    public void drawContents(GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
     {
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
         lastScrollbarPosition = this.scrollBar.getValue();
@@ -48,10 +48,10 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
         if (this.listWidgets.isEmpty()) {
             String hint = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.hint.no_materials");
             Minecraft mc = Minecraft.getInstance();
-            int textWidth = mc.textRenderer.getWidth(hint);
+            int textWidth = mc.font.width(hint);
             int x = this.posX + (this.browserWidth - textWidth) / 2;
             int y = this.posY + this.browserHeight / 2 - 4;
-            drawContext.drawText(mc.textRenderer, hint, x, y, 0xFFAAAAAA, false);
+            drawContext.text(mc.font, hint, x, y, 0xFFAAAAAA, false);
         }
     }
 
