@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [dev, 'feature/**']
+    branches: [dev, 'feature/**', '*-lts']
   pull_request:
-    branches: [dev, 'feature/**']
+    branches: [dev, 'feature/**', '*-lts']
   workflow_dispatch:
 
 jobs:
@@ -15,12 +15,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # 安装两个 JDK，JAVA_HOME 默认指向最后安装的 21；
+      # Gradle toolchain（languageVersion 按 minecraft_mapping 决定 21 或 25）
+      # 会自动探测到另一个已安装的版本
+      - name: Setup Java 25 (for MC 26.x)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
       - name: Setup Java 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
-          cache: gradle
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
