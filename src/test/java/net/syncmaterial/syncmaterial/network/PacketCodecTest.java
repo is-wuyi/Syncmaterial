@@ -1,14 +1,14 @@
 package net.syncmaterial.syncmaterial.network;
 
 import io.netty.buffer.Unpooled;
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.registry.DynamicRegistryManager;
-import net.minecraft.registry.Registries;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -23,20 +23,22 @@ import static org.junit.jupiter.api.Assertions.*;
  * 网络包 codec roundtrip 测试。
  * 编码后解码，验证数据一致性，防止跨版本 codec 不兼容。
  */
-class PacketCodecTest {
+class StreamCodecTest {
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
-    private RegistryByteBuf createBuf() {
-        return new RegistryByteBuf(Unpooled.buffer(), DynamicRegistryManager.of(Registries.REGISTRIES));
+    private RegistryFriendlyByteBuf createBuf() {
+        return new RegistryFriendlyByteBuf(Unpooled.buffer(),
+            RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
     }
 
-    private <T> T roundtrip(PacketCodec<RegistryByteBuf, T> codec, T original) {
-        RegistryByteBuf buf = createBuf();
+    private <T> T roundtrip(StreamCodec<RegistryFriendlyByteBuf, T> codec, T original) {
+        RegistryFriendlyByteBuf buf = createBuf();
         try {
             codec.encode(buf, original);
             T decoded = codec.decode(buf);

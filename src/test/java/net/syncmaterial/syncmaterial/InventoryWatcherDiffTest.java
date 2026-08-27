@@ -7,7 +7,7 @@ import java.util.*;
 import org.junit.jupiter.api.Test;
 
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
-import net.syncmaterial.syncmaterial.client.InventoryWatcher.InventoryDiff;
+import net.syncmaterial.syncmaterial.client.InventoryWatcher.ContainerDiff;
 
 /**
  * InventoryWatcher.computeDiffs 纯逻辑测试。
@@ -28,7 +28,7 @@ public class InventoryWatcherDiffTest {
         var current = mapOf(1, 10, 2, 20);
         var last = mapOf(1, 10, 2, 20);
 
-        List<InventoryDiff> diffs = InventoryWatcher.computeDiffs(current, last);
+        List<ContainerDiff> diffs = InventoryWatcher.computeDiffs(current, last);
         assertTrue(diffs.isEmpty());
     }
 
@@ -37,7 +37,7 @@ public class InventoryWatcherDiffTest {
         var current = mapOf(1, 10);
         var last = new HashMap<Integer, Integer>();
 
-        List<InventoryDiff> diffs = InventoryWatcher.computeDiffs(current, last);
+        List<ContainerDiff> diffs = InventoryWatcher.computeDiffs(current, last);
         assertEquals(1, diffs.size());
         assertEquals(1, diffs.get(0).materialId());
         assertEquals(10, diffs.get(0).newCount());
@@ -48,7 +48,7 @@ public class InventoryWatcherDiffTest {
         var current = new HashMap<Integer, Integer>();
         var last = mapOf(1, 10);
 
-        List<InventoryDiff> diffs = InventoryWatcher.computeDiffs(current, last);
+        List<ContainerDiff> diffs = InventoryWatcher.computeDiffs(current, last);
         assertEquals(1, diffs.size());
         assertEquals(1, diffs.get(0).materialId());
         assertEquals(0, diffs.get(0).newCount());
@@ -59,7 +59,7 @@ public class InventoryWatcherDiffTest {
         var current = mapOf(1, 15);
         var last = mapOf(1, 10);
 
-        List<InventoryDiff> diffs = InventoryWatcher.computeDiffs(current, last);
+        List<ContainerDiff> diffs = InventoryWatcher.computeDiffs(current, last);
         assertEquals(1, diffs.size());
         assertEquals(1, diffs.get(0).materialId());
         assertEquals(15, diffs.get(0).newCount());
@@ -70,7 +70,7 @@ public class InventoryWatcherDiffTest {
         var current = mapOf(1, 15, 3, 30);   // 1 变化, 3 新增
         var last = mapOf(1, 10, 2, 20);       // 2 消失
 
-        List<InventoryDiff> diffs = InventoryWatcher.computeDiffs(current, last);
+        List<ContainerDiff> diffs = InventoryWatcher.computeDiffs(current, last);
         assertEquals(3, diffs.size());
 
         // 转成 map 方便验证
@@ -88,7 +88,7 @@ public class InventoryWatcherDiffTest {
         var current = mapOf(1, 5, 2, 10);
         var last = new HashMap<Integer, Integer>();
 
-        List<InventoryDiff> diffs = InventoryWatcher.computeDiffs(current, last);
+        List<ContainerDiff> diffs = InventoryWatcher.computeDiffs(current, last);
         assertEquals(2, diffs.size());
     }
 }

@@ -18,10 +18,10 @@ import org.mockito.MockedStatic;
 import com.mojang.authlib.GameProfile;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.level.ServerPlayer;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
@@ -40,13 +40,14 @@ class Phase4HandlerTest {
     private SchematicDatabase db;
     private CollaborationManager cm;
     private MinecraftServer server;
-    private ServerPlayerEntity player;
+    private ServerPlayer player;
 
     @BeforeAll
     static void setup() {
-        // mock ServerPlayerEntity 会触发 Entity 静态初始化，需要注册表（与执行顺序无关）
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        // mock ServerPlayer 会触发 Entity 静态初始化，需要注册表（与执行顺序无关）
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
     @BeforeEach
@@ -81,9 +82,10 @@ class Phase4HandlerTest {
         return s;
     }
 
-    private ServerPlayerEntity mockPlayer(String name) {
-        ServerPlayerEntity p = mock(ServerPlayerEntity.class);
+    private ServerPlayer mockPlayer(String name) {
+        ServerPlayer p = mock(ServerPlayer.class);
         when(p.getGameProfile()).thenReturn(new GameProfile(UUID.randomUUID(), name));
+        when(p.getName()).thenReturn(net.minecraft.network.chat.Component.literal(name));
         return p;
     }
 

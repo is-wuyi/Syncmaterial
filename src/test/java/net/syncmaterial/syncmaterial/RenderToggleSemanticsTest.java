@@ -7,7 +7,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
 import net.syncmaterial.syncmaterial.client.config.Configs;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase;
@@ -25,8 +25,9 @@ class RenderToggleSemanticsTest {
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
     @AfterEach

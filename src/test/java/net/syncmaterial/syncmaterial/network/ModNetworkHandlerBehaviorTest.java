@@ -18,11 +18,11 @@ import org.mockito.MockedStatic;
 import com.mojang.authlib.GameProfile;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
@@ -43,13 +43,14 @@ class ModNetworkHandlerBehaviorTest {
     private DatabaseQueryService queryService;
     private CollaborationManager cm;
     private MinecraftServer server;
-    private ServerPlayerEntity player;
+    private ServerPlayer player;
 
     @BeforeAll
     static void setup() {
-        // mock ServerPlayerEntity 会触发 Entity 静态初始化，需要注册表（与执行顺序无关）
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        // mock ServerPlayer 会触发 Entity 静态初始化，需要注册表（与执行顺序无关）
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
     @BeforeEach
@@ -58,11 +59,11 @@ class ModNetworkHandlerBehaviorTest {
         queryService = mock(DatabaseQueryService.class);
         cm = mock(CollaborationManager.class);
         server = mock(MinecraftServer.class);
-        player = mock(ServerPlayerEntity.class);
+        player = mock(ServerPlayer.class);
         UUID playerId = UUID.randomUUID();
         when(player.getGameProfile()).thenReturn(new GameProfile(playerId, "Player1"));
-        when(player.getName()).thenReturn(Text.literal("Player1"));
-        when(player.getUuid()).thenReturn(playerId);
+        when(player.getName()).thenReturn(Component.literal("Player1"));
+        when(player.getUUID()).thenReturn(playerId);
         // 广播出口会跳过未完成版本握手的玩家（视为没装本 mod），测试需先完成握手
         ProtocolHandshake.recordHandshake(playerId, ProtocolVersion.CURRENT, "test");
 
@@ -84,7 +85,7 @@ class ModNetworkHandlerBehaviorTest {
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s1", false), player);
         ModNetworkHandler.handleWarehouseContainerRequest(new WarehouseContainerRequestC2SPacket("s2", false), player);
         Phase4Handler.unsubscribeAllMaterialList(player);
-        ProtocolHandshake.remove(player.getUuid());
+        ProtocolHandshake.remove(player.getUUID());
         syncMaterialMock.close();
         networkingMock.close();
         placementsMock.close();
@@ -147,7 +148,7 @@ class ModNetworkHandlerBehaviorTest {
     void inventoryUpdate_byNonCollaborator_ignored() throws Exception {
         when(cm.isCollaborating("s1", 42, "Player1")).thenReturn(false);
 
-        ModNetworkHandler.handleInventoryUpdate(
+        ModNetworkHandler.handleContainerUpdate(
             new InventoryUpdateC2SPacket("s1", 42, 64), player, server);
 
         verify(cm, never()).updatePlayerInventory(any(), any(), anyInt(), anyInt());
@@ -157,7 +158,7 @@ class ModNetworkHandlerBehaviorTest {
     void inventoryUpdate_byCollaborator_updatesCount() throws Exception {
         when(cm.isCollaborating("s1", 42, "Player1")).thenReturn(true);
 
-        ModNetworkHandler.handleInventoryUpdate(
+        ModNetworkHandler.handleContainerUpdate(
             new InventoryUpdateC2SPacket("s1", 42, 64), player, server);
 
         verify(cm).updatePlayerInventory("Player1", "s1", 42, 64);
@@ -228,11 +229,11 @@ class ModNetworkHandlerBehaviorTest {
      * 同时让 player 通过 sendWarehouseAreas 的存活检查。
      */
     private void stubOnlinePlayer() {
-        var playerManager = mock(net.minecraft.server.PlayerManager.class);
-        when(playerManager.getPlayerList()).thenReturn(List.of(player));
-        when(server.getPlayerManager()).thenReturn(playerManager);
+        var playerList = mock(net.minecraft.server.players.PlayerList.class);
+        when(playerList.getPlayers()).thenReturn(List.of(player));
+        when(server.getPlayerList()).thenReturn(playerList);
         when(player.isAlive()).thenReturn(true);
-        player.networkHandler = mock(net.minecraft.server.network.ServerPlayNetworkHandler.class);
+        player.connection = mock(net.minecraft.server.network.ServerGamePacketListenerImpl.class);
     }
 
     /**
@@ -241,8 +242,8 @@ class ModNetworkHandlerBehaviorTest {
      * 直接 getValue() 可能拿到另一种类型。
      */
     private <T> T lastPacketOfType(Class<T> type) {
-        ArgumentCaptor<net.minecraft.network.packet.CustomPayload> captor =
-            ArgumentCaptor.forClass(net.minecraft.network.packet.CustomPayload.class);
+        ArgumentCaptor<net.minecraft.network.protocol.common.custom.CustomPacketPayload> captor =
+            ArgumentCaptor.forClass(net.minecraft.network.protocol.common.custom.CustomPacketPayload.class);
         networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()),
             atLeastOnce());
         return captor.getAllValues().stream()
@@ -322,7 +323,7 @@ class ModNetworkHandlerBehaviorTest {
     /** pushWarehouseContainerUpdate 有存活检查，测试推送需让 mock 玩家"在线" */
     private void alivePlayer() {
         when(player.isAlive()).thenReturn(true);
-        player.networkHandler = mock(net.minecraft.server.network.ServerPlayNetworkHandler.class);
+        player.connection = mock(net.minecraft.server.network.ServerGamePacketListenerImpl.class);
     }
 
     @Test
@@ -384,11 +385,11 @@ class ModNetworkHandlerBehaviorTest {
     void stagingAreaConfig_add_rescansImmediatelyAndResponds() {
         StagingAreaManager manager = mockWarehouseManager();
         // handler 解析 world 时 orElse 参数会立即求值（即使 AreaData 已带 world 也调用）
-        var worldKey = net.minecraft.registry.RegistryKey.of(
-            net.minecraft.registry.RegistryKeys.WORLD, net.minecraft.util.Identifier.of("minecraft", "overworld"));
-        var playerWorld = mock(net.minecraft.server.world.ServerWorld.class);
-        when(playerWorld.getRegistryKey()).thenReturn(worldKey);
-        when(player.getWorld()).thenReturn(playerWorld);
+        var worldKey = net.minecraft.resources.ResourceKey.create(
+            net.minecraft.core.registries.Registries.DIMENSION, net.minecraft.resources.Identifier.fromNamespaceAndPath("minecraft", "overworld"));
+        var playerWorld = mock(net.minecraft.server.level.ServerLevel.class);
+        when(playerWorld.dimension()).thenReturn(worldKey);
+        when(player.level()).thenReturn(playerWorld);
         when(manager.addStagingArea(eq("s1"), eq("minecraft:overworld"), eq("新区域"),
             anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt())).thenReturn(7);
         when(manager.getStagingAreas("s1")).thenReturn(List.of());
@@ -455,7 +456,7 @@ class ModNetworkHandlerBehaviorTest {
     @Test
     void warehouseAreas_unhandshakedPlayer_receivesNoBroadcast() {
         // 未完成版本握手 = 没装本 mod（或版本被拒），不该给它推任何包
-        ProtocolHandshake.remove(player.getUuid());
+        ProtocolHandshake.remove(player.getUUID());
 
         StagingAreaManager manager = mockWarehouseManager();
         stubOnlinePlayer();
@@ -621,7 +622,7 @@ class ModNetworkHandlerBehaviorTest {
 
     @Test
     void materialStatsRequest_assemblesOwnerInfoAndProgress() throws Exception {
-        var entry = new net.syncmaterial.syncmaterial.api.MaterialEntry(1, new net.minecraft.item.ItemStack(net.minecraft.item.Items.STONE), 100);
+        var entry = new net.syncmaterial.syncmaterial.api.MaterialEntry(1, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.STONE), 100);
         when(queryService.getMaterials("s1")).thenReturn(List.of(entry));
         var status = new CollaborationStatusS2CPacket("s1", 1, 100, 10, 5,
             List.of(new CollaborationStatusS2CPacket.ParticipantInfo("P1", 20)), List.of());

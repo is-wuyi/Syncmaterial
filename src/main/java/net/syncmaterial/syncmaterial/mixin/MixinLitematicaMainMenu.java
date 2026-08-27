@@ -26,12 +26,7 @@ public abstract class MixinLitematicaMainMenu extends GuiBase {
         String settingsLabel = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.button.settings");
         ButtonGeneric settingsBtn = new ButtonGeneric(x, y, buttonWidth, 20, settingsLabel);
         addButton(settingsBtn, (ButtonBase b, int mb) -> {
-            //? if >=26 {
             mc.setScreenAndShow(new GuiSettings((GuiMainMenu) (Object) this));
-            //?} else {
-            // 26.2 移除了 setScreen，改用 setScreenAndShow
-            mc.setScreen(new GuiSettings((GuiMainMenu) (Object) this));
-            //?}
         });
 
         // Phase 5: 仓库管理按钮
@@ -39,11 +34,7 @@ public abstract class MixinLitematicaMainMenu extends GuiBase {
         String warehouseLabel = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.title.warehouse_manager");
         ButtonGeneric warehouseBtn = new ButtonGeneric(x, y, buttonWidth, 20, warehouseLabel);
         addButton(warehouseBtn, (ButtonBase b, int mb) -> {
-            //? if >=26 {
             mc.setScreenAndShow(new GuiWarehouseManager());
-            //?} else {
-            mc.setScreen(new GuiWarehouseManager());
-            //?}
         });
     }
 

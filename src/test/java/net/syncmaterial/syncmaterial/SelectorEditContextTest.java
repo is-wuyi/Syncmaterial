@@ -119,7 +119,7 @@ public class SelectorEditContextTest
 
     // ========== 界面关闭标记（beta.20） ==========
     //
-    // beta.18 曾用 MinecraftClient.execute() 试图把 start() 推迟一帧，
+    // beta.18 曾用 Minecraft.execute() 试图把 start() 推迟一帧，
     // 但 ThreadExecutor.execute 只在 shouldExecuteAsync() 为真时入队，
     // GUI 回调本就在主线程且 runningTasks 为 0，实际是当场同步执行。
     // 于是 MaLiLib 弹窗随后的 openGui(parent) 把界面又打开，

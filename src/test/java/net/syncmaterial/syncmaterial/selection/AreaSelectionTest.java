@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
 import fi.dy.masa.litematica.util.PositionUtils.Corner;
 
 /**
@@ -31,7 +31,7 @@ public class AreaSelectionTest {
     @Test
     void createNewSubRegionBox_duplicateName_appendsCounterSuffix() {
         AreaSelection sel = new AreaSelection();
-        BlockPos pos = BlockPos.ORIGIN;
+        BlockPos pos = BlockPos.ZERO;
 
         assertEquals("区域", sel.createNewSubRegionBox(pos, "区域"));
         assertEquals("区域 1", sel.createNewSubRegionBox(pos, "区域"));
@@ -42,8 +42,8 @@ public class AreaSelectionTest {
     @Test
     void addSubRegionBox_respectsReplace() {
         AreaSelection sel = new AreaSelection();
-        Box box1 = new Box(BlockPos.ORIGIN, BlockPos.ORIGIN, "A");
-        Box box2 = new Box(BlockPos.ORIGIN, BlockPos.ORIGIN, "A");
+        Box box1 = new Box(BlockPos.ZERO, BlockPos.ZERO, "A");
+        Box box2 = new Box(BlockPos.ZERO, BlockPos.ZERO, "A");
 
         assertTrue(sel.addSubRegionBox(box1, false));
         assertFalse(sel.addSubRegionBox(box2, false), "不替换时同名添加应失败");
@@ -56,7 +56,7 @@ public class AreaSelectionTest {
     @Test
     void removeSubRegionBox_clearsCurrentSelection() {
         AreaSelection sel = new AreaSelection();
-        sel.createNewSubRegionBox(BlockPos.ORIGIN, "A");
+        sel.createNewSubRegionBox(BlockPos.ZERO, "A");
 
         assertTrue(sel.removeSubRegionBox("A"));
         assertNull(sel.getSubRegionBox("A"));
@@ -67,8 +67,8 @@ public class AreaSelectionTest {
     @Test
     void renameSubRegionBox_targetNameExists_returnsFalse() {
         AreaSelection sel = new AreaSelection();
-        sel.createNewSubRegionBox(BlockPos.ORIGIN, "A");
-        sel.createNewSubRegionBox(BlockPos.ORIGIN, "B");
+        sel.createNewSubRegionBox(BlockPos.ZERO, "A");
+        sel.createNewSubRegionBox(BlockPos.ZERO, "B");
 
         assertFalse(sel.renameSubRegionBox("A", "B"), "目标名已占用应失败");
         assertNotNull(sel.getSubRegionBox("A"), "失败时原区域应保留");
@@ -77,7 +77,7 @@ public class AreaSelectionTest {
     @Test
     void renameSubRegionBox_success_updatesCurrentBoxName() {
         AreaSelection sel = new AreaSelection();
-        sel.createNewSubRegionBox(BlockPos.ORIGIN, "旧名");
+        sel.createNewSubRegionBox(BlockPos.ZERO, "旧名");
 
         assertTrue(sel.renameSubRegionBox("旧名", "新名"));
         assertNull(sel.getSubRegionBox("旧名"));
@@ -100,7 +100,7 @@ public class AreaSelectionTest {
     @Test
     void setSelectedSubRegionBox_unknownName_rejected() {
         AreaSelection sel = new AreaSelection();
-        sel.createNewSubRegionBox(BlockPos.ORIGIN, "A");
+        sel.createNewSubRegionBox(BlockPos.ZERO, "A");
 
         assertFalse(sel.setSelectedSubRegionBox("不存在"));
         assertTrue(sel.setSelectedSubRegionBox("A"));

@@ -18,11 +18,11 @@ import org.mockito.MockedStatic;
 import com.mojang.authlib.GameProfile;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
@@ -41,13 +41,14 @@ class StagingAreaConfigHandlerTest {
     private SchematicDatabase db;
     private CollaborationManager cm;
     private MinecraftServer server;
-    private ServerPlayerEntity player;
+    private ServerPlayer player;
     private StagingAreaManager manager;
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
     @BeforeEach
@@ -55,9 +56,9 @@ class StagingAreaConfigHandlerTest {
         db = mock(SchematicDatabase.class);
         cm = mock(CollaborationManager.class);
         server = mock(MinecraftServer.class);
-        player = mock(ServerPlayerEntity.class);
+        player = mock(ServerPlayer.class);
         when(player.getGameProfile()).thenReturn(new GameProfile(UUID.randomUUID(), "Operator1"));
-        when(player.getName()).thenReturn(Text.literal("Operator1"));
+        when(player.getName()).thenReturn(Component.literal("Operator1"));
         manager = mock(StagingAreaManager.class);
 
         syncMaterialMock = mockStatic(SyncMaterial.class);
@@ -79,8 +80,8 @@ class StagingAreaConfigHandlerTest {
         ModNetworkHandler.handleStagingAreaConfig(payload, player, server);
         // 仓库操作还会广播 WarehouseAreaResponseS2CPacket，而 ArgumentCaptor 不按类型过滤，
         // 直接 getValue() 会拿到最后一次调用（可能是仓库区域包），必须自己筛类型
-        ArgumentCaptor<net.minecraft.network.packet.CustomPayload> captor =
-            ArgumentCaptor.forClass(net.minecraft.network.packet.CustomPayload.class);
+        ArgumentCaptor<net.minecraft.network.protocol.common.custom.CustomPacketPayload> captor =
+            ArgumentCaptor.forClass(net.minecraft.network.protocol.common.custom.CustomPacketPayload.class);
         networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()),
             atLeastOnce());
         return captor.getAllValues().stream()

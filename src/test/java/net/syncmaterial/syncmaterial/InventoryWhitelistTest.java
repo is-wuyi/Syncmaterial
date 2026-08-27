@@ -10,13 +10,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.ContainerComponent;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.component.ItemContainerContents;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
 
 /**
@@ -27,8 +27,9 @@ public class InventoryWhitelistTest {
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
     @AfterEach
@@ -36,19 +37,19 @@ public class InventoryWhitelistTest {
         InventoryWatcher.clearContext();
     }
 
-    private PlayerInventory inventoryOf(ItemStack... stacks) {
-        PlayerInventory inv = mock(PlayerInventory.class);
-        when(inv.size()).thenReturn(stacks.length);
+    private Inventory inventoryOf(ItemStack... stacks) {
+        Inventory inv = mock(Inventory.class);
+        when(inv.getContainerSize()).thenReturn(stacks.length);
         for (int i = 0; i < stacks.length; i++) {
-            when(inv.getStack(i)).thenReturn(stacks[i]);
+            when(inv.getItem(i)).thenReturn(stacks[i]);
         }
         return inv;
     }
 
     private ItemStack shulkerWith(int diamondCount) {
-        ItemStack shulker = new ItemStack(Items.PURPLE_SHULKER_BOX);
-        shulker.set(DataComponentTypes.CONTAINER,
-            ContainerComponent.fromStacks(List.of(new ItemStack(Items.DIAMOND, diamondCount))));
+        ItemStack shulker = new ItemStack(net.minecraft.world.level.block.Blocks.DYED_SHULKER_BOX.purple());
+        shulker.set(DataComponents.CONTAINER,
+            ItemContainerContents.fromItems(List.of(new ItemStack(Items.DIAMOND, diamondCount))));
         return shulker;
     }
 

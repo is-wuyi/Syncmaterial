@@ -258,7 +258,7 @@ public class DatabaseTest
     // ========== 玩家背包（upsert + 聚合加载） ==========
 
     @Test
-    void upsertPlayerInventory_updatesExistingRow() throws SQLException
+    void upsertInventory_updatesExistingRow() throws SQLException
     {
         insertSchematic("s1", "Owner1");
         int matId = insertMaterial("s1", "minecraft:stone", 64);

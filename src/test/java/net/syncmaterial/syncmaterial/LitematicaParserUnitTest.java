@@ -12,19 +12,19 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtHelper;
-import net.minecraft.nbt.NbtInt;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.IntTag;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.nbt.NbtLongArray;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.LongArrayTag;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.engine.impl.DefaultLitematicaParser;
 import net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool;
@@ -44,8 +44,9 @@ public class LitematicaParserUnitTest {
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
         pool = new ParsingThreadPool();
         parser = new DefaultLitematicaParser(pool);
     }
@@ -57,41 +58,41 @@ public class LitematicaParserUnitTest {
 
     // ========== NBT 构造 ==========
 
-    private static NbtCompound region(BlockState state, int width, int height, int length,
+    private static CompoundTag region(net.minecraft.world.level.block.state.BlockState state, int width, int height, int length,
             int posX, int posY, int posZ, int bitsPerEntryOverride) {
-        var palette = new NbtList();
-        palette.add(NbtHelper.fromBlockState(state));
+        var palette = new ListTag();
+        palette.add(NbtUtils.writeBlockState(state));
 
         // 1 种方块 → 全部索引 0 → long 数组全 0 即可
         long longCount = (width * height * length) / 64 + 1;
-        NbtLongArray blockStates = new NbtLongArray(new long[(int) longCount]);
+        LongArrayTag blockStates = new LongArrayTag(new long[(int) longCount]);
 
-        var size = new NbtCompound();
-        size.put("x", NbtInt.of(width));
-        size.put("y", NbtInt.of(height));
-        size.put("z", NbtInt.of(length));
-        var pos = new NbtCompound();
-        pos.put("x", NbtInt.of(posX));
-        pos.put("y", NbtInt.of(posY));
-        pos.put("z", NbtInt.of(posZ));
+        var size = new CompoundTag();
+        size.put("x", IntTag.valueOf(width));
+        size.put("y", IntTag.valueOf(height));
+        size.put("z", IntTag.valueOf(length));
+        var pos = new CompoundTag();
+        pos.put("x", IntTag.valueOf(posX));
+        pos.put("y", IntTag.valueOf(posY));
+        pos.put("z", IntTag.valueOf(posZ));
 
-        var region = new NbtCompound();
+        var region = new CompoundTag();
         region.put("Size", size);
         region.put("Position", pos);
         region.put("BlockStatePalette", palette);
         if (bitsPerEntryOverride > 0) {
-            region.put("BitsPerEntry", NbtInt.of(bitsPerEntryOverride));
+            region.put("BitsPerEntry", IntTag.valueOf(bitsPerEntryOverride));
         }
         region.put("BlockStates", blockStates);
         return region;
     }
 
-    private Path writeSchematic(java.util.Map<String, NbtCompound> regions) throws Exception {
-        var regionsNbt = new NbtCompound();
+    private Path writeSchematic(java.util.Map<String, CompoundTag> regions) throws Exception {
+        var regionsNbt = new CompoundTag();
         for (var entry : regions.entrySet()) {
             regionsNbt.put(entry.getKey(), entry.getValue());
         }
-        var root = new NbtCompound();
+        var root = new CompoundTag();
         root.put("Regions", regionsNbt);
         Path file = tempDir.resolve("unit-" + System.nanoTime() + ".litematic");
         NbtIo.writeCompressed(root, file);
@@ -100,7 +101,7 @@ public class LitematicaParserUnitTest {
 
     private static long countOf(List<MaterialEntry> materials, Item item) {
         for (var m : materials) {
-            if (m.getStack().isOf(item)) return m.getCountTotal();
+            if (m.getStack().is(item)) return m.getCountTotal();
         }
         return 0;
     }
@@ -110,7 +111,7 @@ public class LitematicaParserUnitTest {
     @Test
     void singleRegion_exactCount() throws Exception {
         Path file = writeSchematic(java.util.Map.of(
-            "main", region(Blocks.STONE.getDefaultState(), 4, 1, 1, 0, 0, 0, 0)));
+            "main", region(Blocks.STONE.defaultBlockState(), 4, 1, 1, 0, 0, 0, 0)));
 
         var materials = parser.parseAsync(file.toString()).join();
 
@@ -120,8 +121,8 @@ public class LitematicaParserUnitTest {
     @Test
     void multipleRegions_merged() throws Exception {
         Path file = writeSchematic(java.util.Map.of(
-            "a", region(Blocks.STONE.getDefaultState(), 2, 1, 1, 0, 0, 0, 0),
-            "b", region(Blocks.DIAMOND_BLOCK.getDefaultState(), 3, 1, 1, 10, 0, 0, 0)));
+            "a", region(Blocks.STONE.defaultBlockState(), 2, 1, 1, 0, 0, 0, 0),
+            "b", region(Blocks.DIAMOND_BLOCK.defaultBlockState(), 3, 1, 1, 10, 0, 0, 0)));
 
         var materials = parser.parseAsync(file.toString()).join();
 
@@ -132,7 +133,7 @@ public class LitematicaParserUnitTest {
     @Test
     void negativeSize_flippedStillCounted() throws Exception {
         Path file = writeSchematic(java.util.Map.of(
-            "main", region(Blocks.STONE.getDefaultState(), -2, 1, 1, 0, 0, 0, 0)));
+            "main", region(Blocks.STONE.defaultBlockState(), -2, 1, 1, 0, 0, 0, 0)));
 
         var materials = parser.parseAsync(file.toString()).join();
 
@@ -143,7 +144,7 @@ public class LitematicaParserUnitTest {
     void wrongBitsPerEntry_autoCorrected() throws Exception {
         // 故意写错的 bits（palette 只有 1 项，正确值为 1），解析器应自动修正
         Path file = writeSchematic(java.util.Map.of(
-            "main", region(Blocks.STONE.getDefaultState(), 2, 1, 1, 0, 0, 0, 20)));
+            "main", region(Blocks.STONE.defaultBlockState(), 2, 1, 1, 0, 0, 0, 20)));
 
         var materials = parser.parseAsync(file.toString()).join();
 
@@ -173,7 +174,7 @@ public class LitematicaParserUnitTest {
 
     @Test
     void missingRegions_returnsEmptyList() throws Exception {
-        var root = new NbtCompound();
+        var root = new CompoundTag();
         root.putString("MinecraftDataVersion", "未知格式");
         Path file = tempDir.resolve("no-regions.litematic");
         NbtIo.writeCompressed(root, file);
@@ -187,7 +188,7 @@ public class LitematicaParserUnitTest {
     void emptyRegionSize_skipped() throws Exception {
         // 尺寸为 0 的区域应跳过（warning 日志），不影响整体解析
         Path file = writeSchematic(java.util.Map.of(
-            "zero", region(Blocks.STONE.getDefaultState(), 0, 1, 1, 0, 0, 0, 0)));
+            "zero", region(Blocks.STONE.defaultBlockState(), 0, 1, 1, 0, 0, 0, 0)));
 
         var materials = parser.parseAsync(file.toString()).join();
 

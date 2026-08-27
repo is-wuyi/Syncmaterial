@@ -6,10 +6,10 @@ import static org.mockito.Mockito.*;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase.SortCriteria;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
@@ -23,8 +23,9 @@ public class MaterialListSorterTest {
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
     private static MaterialListEntry entry(int dbId, ItemStack stack, int total, int missing,

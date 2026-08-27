@@ -14,10 +14,10 @@ import org.mockito.MockedStatic;
 
 import com.mojang.authlib.GameProfile;
 
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.client.Minecraft;
+import net.minecraft.server.level.ServerPlayer;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 
@@ -27,21 +27,23 @@ import net.syncmaterial.syncmaterial.selection.AreaSelection;
  */
 class ClientPacketHandlerTest {
 
-    private MockedStatic<MinecraftClient> clientMock;
+    private MockedStatic<Minecraft> clientMock;
 
     private static final String SCHEMATIC = "client-test-1";
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
     @BeforeEach
     void setUp() {
-        // mock 客户端单例：currentScreen/player 字段默认 null（无界面/无玩家）
-        clientMock = mockStatic(MinecraftClient.class);
-        clientMock.when(MinecraftClient::getInstance).thenReturn(mock(MinecraftClient.class));
+        // mock 客户端单例：currentScreen() 因 gui 字段为 null 返回 null（无打开界面），
+        // player 等字段同样为 null，走"无界面/无玩家"分支
+        clientMock = mockStatic(Minecraft.class);
+        clientMock.when(Minecraft::getInstance).thenReturn(mock(Minecraft.class));
     }
 
     @AfterEach

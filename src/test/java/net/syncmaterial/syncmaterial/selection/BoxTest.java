@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
 
 /**
  * Box 选区尺寸计算测试。
@@ -15,8 +15,8 @@ public class BoxTest {
     @Test
     void defaultConstructor_originsWithZeroSize() {
         Box box = new Box();
-        assertEquals(BlockPos.ORIGIN, box.getPos1());
-        assertEquals(BlockPos.ORIGIN, box.getPos2());
+        assertEquals(BlockPos.ZERO, box.getPos1());
+        assertEquals(BlockPos.ZERO, box.getPos2());
         assertEquals(new BlockPos(1, 1, 1), box.getSize(), "同一点 → 尺寸 1x1x1");
     }
 
@@ -48,7 +48,7 @@ public class BoxTest {
         Box box = new Box(null, null, "empty");
         assertNull(box.getPos1());
         assertNull(box.getPos2());
-        assertEquals(BlockPos.ORIGIN, box.getSize());
+        assertEquals(BlockPos.ZERO, box.getSize());
     }
 
     @Test

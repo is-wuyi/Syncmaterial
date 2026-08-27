@@ -11,10 +11,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.block.Blocks;
-import net.minecraft.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.item.Items;
 import net.syncmaterial.syncmaterial.engine.DefaultMaterialStatisticsEngine;
 
 /**
@@ -29,8 +29,9 @@ public class MaterialStatisticsEngineTest {
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
     @AfterEach
@@ -40,24 +41,24 @@ public class MaterialStatisticsEngineTest {
 
     /** 构造一个 count 个石头的一维原理图 */
     private Path writeStoneSchematic(int count) throws Exception {
-        var root = new net.minecraft.nbt.NbtCompound();
-        var palette = new net.minecraft.nbt.NbtList();
-        palette.add(net.minecraft.nbt.NbtHelper.fromBlockState(Blocks.STONE.getDefaultState()));
-        var size = new net.minecraft.nbt.NbtCompound();
-        size.put("x", net.minecraft.nbt.NbtInt.of(count));
-        size.put("y", net.minecraft.nbt.NbtInt.of(1));
-        size.put("z", net.minecraft.nbt.NbtInt.of(1));
-        var pos = new net.minecraft.nbt.NbtCompound();
-        pos.put("x", net.minecraft.nbt.NbtInt.of(0));
-        pos.put("y", net.minecraft.nbt.NbtInt.of(0));
-        pos.put("z", net.minecraft.nbt.NbtInt.of(0));
-        var region = new net.minecraft.nbt.NbtCompound();
+        var root = new net.minecraft.nbt.CompoundTag();
+        var palette = new net.minecraft.nbt.ListTag();
+        palette.add(net.minecraft.nbt.NbtUtils.writeBlockState(Blocks.STONE.defaultBlockState()));
+        var size = new net.minecraft.nbt.CompoundTag();
+        size.put("x", net.minecraft.nbt.IntTag.valueOf(count));
+        size.put("y", net.minecraft.nbt.IntTag.valueOf(1));
+        size.put("z", net.minecraft.nbt.IntTag.valueOf(1));
+        var pos = new net.minecraft.nbt.CompoundTag();
+        pos.put("x", net.minecraft.nbt.IntTag.valueOf(0));
+        pos.put("y", net.minecraft.nbt.IntTag.valueOf(0));
+        pos.put("z", net.minecraft.nbt.IntTag.valueOf(0));
+        var region = new net.minecraft.nbt.CompoundTag();
         region.put("Size", size);
         region.put("Position", pos);
         region.put("BlockStatePalette", palette);
-        region.put("BitsPerEntry", net.minecraft.nbt.NbtInt.of(1));
-        region.put("BlockStates", new net.minecraft.nbt.NbtLongArray(new long[count / 64 + 1]));
-        var regions = new net.minecraft.nbt.NbtCompound();
+        region.put("BitsPerEntry", net.minecraft.nbt.IntTag.valueOf(1));
+        region.put("BlockStates", new net.minecraft.nbt.LongArrayTag(new long[count / 64 + 1]));
+        var regions = new net.minecraft.nbt.CompoundTag();
         regions.put("main", region);
         root.put("Regions", regions);
 
@@ -68,7 +69,7 @@ public class MaterialStatisticsEngineTest {
 
     private static long stoneCount(List<net.syncmaterial.syncmaterial.api.MaterialEntry> materials) {
         for (var m : materials) {
-            if (m.getStack().isOf(Items.STONE)) return m.getCountTotal();
+            if (m.getStack().is(Items.STONE)) return m.getCountTotal();
         }
         return 0;
     }

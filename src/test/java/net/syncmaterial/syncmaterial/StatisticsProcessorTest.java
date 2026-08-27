@@ -7,36 +7,37 @@ import java.util.*;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import net.minecraft.Bootstrap;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.block.*;
-import net.minecraft.block.enums.BedPart;
-import net.minecraft.block.enums.DoubleBlockHalf;
-import net.minecraft.block.enums.SlabType;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.state.property.Properties;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.item.Items;
+import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.block.state.properties.SlabType;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.item.Items;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.engine.LitematicaParser;
 import net.syncmaterial.syncmaterial.engine.impl.StatisticsProcessor;
 
 /**
  * StatisticsProcessor 纯逻辑测试。
- * 需要 Bootstrap 初始化 MC 注册表（和 PacketCodecTest 一样）。
+ * 需要 Bootstrap 初始化 MC 注册表（和 StreamCodecTest 一样）。
  */
 public class StatisticsProcessorTest {
 
     @BeforeAll
     static void setup() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
     }
 
-    private static LitematicaParser.ParsingResult resultOf(Map<BlockPos, BlockState> blocks) {
+    private static LitematicaParser.ParsingResult resultOf(Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks) {
         return new LitematicaParser.ParsingResult() {
-            public Map<BlockPos, BlockState> getGlobalBlockMap() { return blocks; }
-            public Map<BlockPos, NbtCompound> getGlobalTileEntityMap() { return Map.of(); }
+            public Map<BlockPos, net.minecraft.world.level.block.state.BlockState> getGlobalBlockMap() { return blocks; }
+            public Map<BlockPos, CompoundTag> getGlobalTileEntityMap() { return Map.of(); }
         };
     }
 
@@ -45,7 +46,7 @@ public class StatisticsProcessorTest {
             if (itemOrBlock instanceof Block b && entry.getStack().getItem() == b.asItem()) {
                 return entry.getCountTotal();
             }
-            if (itemOrBlock instanceof net.minecraft.item.Item i && entry.getStack().getItem() == i) {
+            if (itemOrBlock instanceof net.minecraft.world.item.Item i && entry.getStack().getItem() == i) {
                 return entry.getCountTotal();
             }
         }
@@ -56,13 +57,13 @@ public class StatisticsProcessorTest {
 
     @Test
     void door_upperHalf_filtered() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
         // 下半门应该计入
-        blocks.put(new BlockPos(0, 0, 0), Blocks.OAK_DOOR.getDefaultState()
-            .with(DoorBlock.HALF, DoubleBlockHalf.LOWER));
+        blocks.put(new BlockPos(0, 0, 0), Blocks.OAK_DOOR.defaultBlockState()
+            .setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER));
         // 上半门应该被过滤
-        blocks.put(new BlockPos(0, 1, 0), Blocks.OAK_DOOR.getDefaultState()
-            .with(DoorBlock.HALF, DoubleBlockHalf.UPPER));
+        blocks.put(new BlockPos(0, 1, 0), Blocks.OAK_DOOR.defaultBlockState()
+            .setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -73,25 +74,25 @@ public class StatisticsProcessorTest {
 
     @Test
     void bed_headPart_filtered() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.RED_BED.getDefaultState()
-            .with(BedBlock.PART, BedPart.FOOT));
-        blocks.put(new BlockPos(0, 0, 1), Blocks.RED_BED.getDefaultState()
-            .with(BedBlock.PART, BedPart.HEAD));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.BED.red().defaultBlockState()
+            .setValue(BedBlock.PART, BedPart.FOOT));
+        blocks.put(new BlockPos(0, 0, 1), Blocks.BED.red().defaultBlockState()
+            .setValue(BedBlock.PART, BedPart.HEAD));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
 
-        assertEquals(1, findCount(materials, Blocks.RED_BED));
+        assertEquals(1, findCount(materials, Blocks.BED.red()));
     }
 
     @Test
     void tallPlant_upperHalf_filtered() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.SUNFLOWER.getDefaultState()
-            .with(TallPlantBlock.HALF, DoubleBlockHalf.LOWER));
-        blocks.put(new BlockPos(0, 1, 0), Blocks.SUNFLOWER.getDefaultState()
-            .with(TallPlantBlock.HALF, DoubleBlockHalf.UPPER));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.SUNFLOWER.defaultBlockState()
+            .setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER));
+        blocks.put(new BlockPos(0, 1, 0), Blocks.SUNFLOWER.defaultBlockState()
+            .setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -101,9 +102,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void pistonHead_filtered() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.PISTON_HEAD.getDefaultState());
-        blocks.put(new BlockPos(0, 0, 1), Blocks.PISTON.getDefaultState());
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.PISTON_HEAD.defaultBlockState());
+        blocks.put(new BlockPos(0, 0, 1), Blocks.PISTON.defaultBlockState());
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -116,9 +117,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void doubleSlab_countsAsTwo() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.STONE_SLAB.getDefaultState()
-            .with(SlabBlock.TYPE, SlabType.DOUBLE));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.STONE_SLAB.defaultBlockState()
+            .setValue(SlabBlock.TYPE, SlabType.DOUBLE));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -128,9 +129,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void singleSlab_countsAsOne() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.STONE_SLAB.getDefaultState()
-            .with(SlabBlock.TYPE, SlabType.BOTTOM));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.STONE_SLAB.defaultBlockState()
+            .setValue(SlabBlock.TYPE, SlabType.BOTTOM));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -140,9 +141,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void candle_multiple_countsCorrectly() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.CANDLE.getDefaultState()
-            .with(Properties.CANDLES, 4));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.CANDLE.defaultBlockState()
+            .setValue(BlockStateProperties.CANDLES, 4));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -152,9 +153,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void snowLayer_multipleCounts() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.SNOW.getDefaultState()
-            .with(Properties.LAYERS, 7));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.SNOW.defaultBlockState()
+            .setValue(BlockStateProperties.LAYERS, 7));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -164,9 +165,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void seaPickle_multipleCounts() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.SEA_PICKLE.getDefaultState()
-            .with(Properties.PICKLES, 3));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.SEA_PICKLE.defaultBlockState()
+            .setValue(BlockStateProperties.PICKLES, 3));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -178,9 +179,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void wallSign_normalizesToSign() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.OAK_WALL_SIGN.getDefaultState());
-        blocks.put(new BlockPos(0, 0, 1), Blocks.OAK_SIGN.getDefaultState());
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.OAK_WALL_SIGN.defaultBlockState());
+        blocks.put(new BlockPos(0, 0, 1), Blocks.OAK_SIGN.defaultBlockState());
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -193,10 +194,10 @@ public class StatisticsProcessorTest {
 
     @Test
     void waterlogged_addsWaterBucket() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
         // 含水楼梯 → 水桶 + 楼梯
-        blocks.put(new BlockPos(0, 0, 0), Blocks.OAK_STAIRS.getDefaultState()
-            .with(Properties.WATERLOGGED, true));
+        blocks.put(new BlockPos(0, 0, 0), Blocks.OAK_STAIRS.defaultBlockState()
+            .setValue(BlockStateProperties.WATERLOGGED, true));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -207,10 +208,10 @@ public class StatisticsProcessorTest {
 
     @Test
     void waterSource_addsWaterBucket() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
         // 水源 (level=0) → 水桶
-        blocks.put(new BlockPos(0, 0, 0), Blocks.WATER.getDefaultState()
-            .with(Properties.LEVEL_15, 0));
+        blocks.put(new BlockPos(0, 0, 0), Blocks.WATER.defaultBlockState()
+            .setValue(LiquidBlock.LEVEL, 0));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -220,9 +221,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void lavaSource_addsLavaBucket() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.LAVA.getDefaultState()
-            .with(Properties.LEVEL_15, 0));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.LAVA.defaultBlockState()
+            .setValue(LiquidBlock.LEVEL, 0));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -234,9 +235,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void flowerPot_splitsIntoPotAndContent() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
         // 含仙人掌的花盆 → 花盆 + 仙人掌
-        blocks.put(new BlockPos(0, 0, 0), Blocks.POTTED_CACTUS.getDefaultState());
+        blocks.put(new BlockPos(0, 0, 0), Blocks.POTTED_CACTUS.defaultBlockState());
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -247,8 +248,8 @@ public class StatisticsProcessorTest {
 
     @Test
     void emptyFlowerPot_doesNotSplit() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.FLOWER_POT.getDefaultState());
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.FLOWER_POT.defaultBlockState());
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -258,9 +259,9 @@ public class StatisticsProcessorTest {
 
     @Test
     void waterCauldron_level3_addsWaterBucket() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.WATER_CAULDRON.getDefaultState()
-            .with(LeveledCauldronBlock.LEVEL, 3));
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.WATER_CAULDRON.defaultBlockState()
+            .setValue(LayeredCauldronBlock.LEVEL, 3));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
@@ -271,8 +272,8 @@ public class StatisticsProcessorTest {
 
     @Test
     void lavaCauldron_addsLavaBucket() {
-        Map<BlockPos, BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.LAVA_CAULDRON.getDefaultState());
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.LAVA_CAULDRON.defaultBlockState());
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
