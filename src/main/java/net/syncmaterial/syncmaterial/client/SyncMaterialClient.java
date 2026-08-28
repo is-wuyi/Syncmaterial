@@ -96,6 +96,10 @@ public class SyncMaterialClient implements ClientModInitializer {
             StagingAreaSelector.getInstance().reset();
             // 协议状态也要清：不清会把上一个服务器的版本信息带到下一个服务器
             net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
+            // HUD 与背包监听按服务器隔离：不清会让 HUD 继续挂着上个服的材料清单，
+            // 且 InventoryWatcher 仍持旧 schematicId，换服后朝新服发它不认识的背包更新包
+            activeMaterialList = null;
+            InventoryWatcher.clearContext();
         });
 
         // 准星选区模式下屏蔽方块交互
@@ -146,10 +150,15 @@ public class SyncMaterialClient implements ClientModInitializer {
         }
 
 
-        // 清除 HUD（如果属于被删除的原理图）
+        // 清除 HUD（如果属于被删除的原理图）。
+        // HUD 退场时背包监听与服务端订阅一并清理：GUI 关闭不再做这件事
+        // （HUD 比 GUI 活得久，数据源必须随 HUD 存续，见 GuiMaterialList.closeGui）
         if (activeMaterialList != null && schematicId.equals(activeMaterialList.getSchematicId())) {
             LOGGER.info("原理图 {} 已删除，清除 HUD", schematicId);
             activeMaterialList = null;
+            InventoryWatcher.clearContext();
+            net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
+                new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(schematicId));
         }
     }
 }

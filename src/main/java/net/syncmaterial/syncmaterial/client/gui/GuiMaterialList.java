@@ -1003,8 +1003,10 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
             closeOverlay();
             return;
         }
-        ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(materialList.getSchematicId()));
-        net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
+        // 关闭界面不解除背包监听、不退订状态广播：HUD 的生命周期长于 GUI，
+        // 数据源必须随 HUD 存续（与 1.21.7 实际行为一致——当时的 close() 重写
+        // 是 malilib Esc 路径不会调用的死代码，clearContext 从未执行过）。
+        // 真正的清理在原理图删除时由 SyncMaterialClient.clearActiveSchematic 统一做。
         super.closeGui(showParent);
     }
 
