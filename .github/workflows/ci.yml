@@ -37,6 +37,22 @@ jobs:
       - name: Build
         run: ./gradlew build --stacktrace
 
+      # 打包产物守卫：F1（分发 jar 漏嵌套 sqlite 驱动）曾全绿逃逸，
+      # 构建成功不代表产物正确，这里直接断言 jar 内容
+      - name: Verify distributable jar contents
+        run: |
+          JAR=$(ls build/libs/*.jar | grep -v -- '-sources' | head -1)
+          echo "检查 $JAR"
+          test -n "$JAR"
+          unzip -l "$JAR" | grep -q "META-INF/jars/sqlite-jdbc" \
+            || { echo "::error::分发 jar 未嵌套 sqlite-jdbc 驱动"; exit 1; }
+          unzip -l "$JAR" | grep -q "syncmaterial.mixins.json" \
+            || { echo "::error::分发 jar 缺少 mixins 清单"; exit 1; }
+          unzip -p "$JAR" fabric.mod.json | python3 -c \
+            "import json,sys; m=json.load(sys.stdin); assert m['entrypoints'], 'entrypoints 为空'" \
+            || { echo "::error::fabric.mod.json 异常"; exit 1; }
+          echo "产物检查通过"
+
       - name: Static analysis
         if: always()
         run: ./gradlew spotbugsMain
