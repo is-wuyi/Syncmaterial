@@ -41,3 +41,7 @@ issue.md
 .gitignore
 .agents/
 scripts/deploy.sh
+
+# Python 一次性迁移脚本的缓存
+__pycache__/
+*.pyc

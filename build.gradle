@@ -50,6 +50,7 @@ dependencies {
         runtimeOnly "maven.modrinth:litematica:${litematica_dependency}"
         runtimeOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
         implementation "com.google.code.findbugs:jsr305:3.0.2"
+        include "org.xerial:sqlite-jdbc:${sqlite_version}"
         implementation "org.xerial:sqlite-jdbc:${sqlite_version}"
     } else {
         modImplementation "net.fabricmc:fabric-loader:${loader_version}"
