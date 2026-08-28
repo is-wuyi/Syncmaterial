@@ -1003,8 +1003,9 @@ this.addButton(btnAssign, (btn, mouseButton) -> {
             closeOverlay();
             return;
         }
-        ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(materialList.getSchematicId()));
-        net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
+        // 关闭界面不解除背包监听、不退订状态广播：HUD 的生命周期长于 GUI，
+        // 数据源必须随 HUD 存续。清理改由 SyncMaterialClient 在 HUD 退场
+        // （原理图被删除 / 断开连接）时统一做。
         super.close();
     }
 
