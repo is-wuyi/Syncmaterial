@@ -125,7 +125,7 @@ class StreamCodecTest {
                         new MaterialEntry(1, new ItemStack(Items.STONE), 64, 32, 0, 32),
                         new MaterialEntry(2, new ItemStack(Items.DIAMOND), 10, 5, 0, 5)
                 ),
-                true, true, "OwnerName",
+                true, false, "OwnerName",
                 List.of("Deputy1", "Deputy2"),
                 true
         );
