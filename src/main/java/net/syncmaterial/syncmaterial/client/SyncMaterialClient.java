@@ -110,10 +110,6 @@ public class SyncMaterialClient implements ClientModInitializer {
             InventoryWatcher.clearContext();
             // 取货模式同理：不清会带着上个服的需求量继续高亮格子与仓库线框
             PickupModeState.clear();
-            // HUD 与背包监听按服务器隔离：不清会让 HUD 继续挂着上个服的材料清单，
-            // 且 InventoryWatcher 仍持旧 schematicId，换服后朝新服发它不认识的背包更新包
-            activeMaterialList = null;
-            InventoryWatcher.clearContext();
         });
 
         // 准星选区模式下屏蔽方块交互
