@@ -30,8 +30,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private List<String> deputyOwners;
     private boolean allowSelfClaim;
     private boolean filterMyMaterials = false;
-    private static boolean pickupMode = false; // Phase 5: 取货模式（纯客户端状态）
-    private static java.util.Set<String> pickupModeNeededItemIds = java.util.Collections.emptySet(); // 取货模式需要的物品 ID
+    // 取货模式状态与需求量统一由 PickupModeState 持有（见该类注释）
     private List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessWarnings = java.util.Collections.emptyList();
     private List<Integer> selectedMaterialIds = new ArrayList<>();
     private static boolean stagingRenderEnabled = true;
@@ -103,9 +102,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     public SyncMaterialList getMaterialList() { return this.materialList; }
     public boolean isOwner() { return isOwner; }
-    public boolean isPickupMode() { return pickupMode; }
-    public static boolean isPickupModeStatic() { return pickupMode; }
-    public static java.util.Set<String> getPickupModeNeededItemIds() { return pickupModeNeededItemIds; }
+    public boolean isPickupMode() { return net.syncmaterial.syncmaterial.client.PickupModeState.isActive(); }
+    public static boolean isPickupModeStatic() { return net.syncmaterial.syncmaterial.client.PickupModeState.isActive(); }
 
     /**
      * 更新数据新鲜度警告（从协作状态包接收）
@@ -208,34 +206,25 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     // Phase 5: 取货模式切换按钮
     private int createButtonTogglePickupMode(int x, int y) {
         String label = StringUtils.translate("syncmaterial.gui.button.pickup_mode",
-                StringUtils.translate(pickupMode ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"));
+                StringUtils.translate(isPickupMode() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"));
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
         this.addButton(button, (btn, mouseButton) -> {
-            pickupMode = !pickupMode;
+            boolean next = !isPickupMode();
+            net.syncmaterial.syncmaterial.client.PickupModeState.setActive(next);
             // 订阅/取消订阅仓库容器数据
             String schematicId = this.materialList.getSchematicId();
             if (schematicId != null && !schematicId.isEmpty()) {
-                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, pickupMode));
+                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, next));
             }
-            if (!pickupMode) {
-                // 退出取货模式时清空容器缓存
+            if (!next) {
+                // 退出取货模式时清空容器缓存（需求量由 setActive 负责清空）
                 net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearWarehouseContainers();
-                pickupModeNeededItemIds = java.util.Collections.emptySet();
             } else {
-                // 进入取货模式时更新需要的物品 ID 列表和缺失数量
-                // 取货模式：还需取货 = 总数 - 备货区 - 背包（不减仓库，因为需要从仓库取货）
-                java.util.Set<String> needed = new java.util.HashSet<>();
-                for (var entry : this.materialList.getMaterialsAll()) {
-                    int pickupMissing = (int) net.syncmaterial.syncmaterial.api.ProgressFormulas.pickupMissing(
-                        entry.getCountTotal(), entry.getStagingCount(), entry.getCountAvailable(), entry.getWarehouseCount());
-                    if (pickupMissing > 0) {
-                        needed.add(entry.getStack().getItem().toString());
-                    }
-                }
-                pickupModeNeededItemIds = needed;
+                // 立刻算一次，不必等下一个 tick 周期，避免刚开启时线框/高亮空一拍
+                net.syncmaterial.syncmaterial.client.PickupModeState.recompute(this.materialList.getMaterialsAll());
             }
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
-                    StringUtils.translate(pickupMode ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
+                    StringUtils.translate(next ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
             // 刷新列表显示
             this.getListWidget().refreshEntries();
         });

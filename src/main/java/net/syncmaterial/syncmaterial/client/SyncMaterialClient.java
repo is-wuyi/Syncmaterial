@@ -19,6 +19,10 @@ public class SyncMaterialClient implements ClientModInitializer {
     private static final Logger LOGGER = SyncMaterial.LOGGER;
     private static SyncMaterialList activeMaterialList;
 
+    /** 取货需求重算周期（tick）。10 tick ≈ 0.5 秒，比原先挂在 HUD 的 2 秒更及时 */
+    private static final int PICKUP_RECOMPUTE_INTERVAL = 10;
+    private static int pickupRecomputeTicks;
+
     public static SyncMaterialList getActiveMaterialList() { return activeMaterialList; }
 
     @Override
@@ -47,6 +51,14 @@ public class SyncMaterialClient implements ClientModInitializer {
 
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
         InventoryWatcher.register();
+
+        // 取货需求量在 tick 中重算，不挂渲染回调：挂渲染会让 HUD 关闭后
+        // 需求永不更新，格子高亮与仓库线框停在陈旧数据上
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (!PickupModeState.isActive()) return;
+            if (++pickupRecomputeTicks % PICKUP_RECOMPUTE_INTERVAL != 0) return;
+            PickupModeState.recompute(activeMaterialList == null ? null : activeMaterialList.getMaterialsAll());
+        });
 
         // 26.2 移除了 HudRenderCallback，改用 HudElementRegistry
         net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
@@ -100,6 +112,8 @@ public class SyncMaterialClient implements ClientModInitializer {
             // 且 InventoryWatcher 仍持旧 schematicId，换服后朝新服发它不认识的背包更新包
             activeMaterialList = null;
             InventoryWatcher.clearContext();
+            // 取货模式同理：不清会带着上个服的需求量继续高亮格子与仓库线框
+            PickupModeState.clear();
         });
 
         // 准星选区模式下屏蔽方块交互
@@ -157,6 +171,7 @@ public class SyncMaterialClient implements ClientModInitializer {
             LOGGER.info("原理图 {} 已删除，清除 HUD", schematicId);
             activeMaterialList = null;
             InventoryWatcher.clearContext();
+            PickupModeState.clear();
             net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
                 new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(schematicId));
         }

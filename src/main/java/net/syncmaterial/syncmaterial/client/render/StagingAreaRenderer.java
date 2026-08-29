@@ -271,12 +271,14 @@ public class StagingAreaRenderer implements IRenderer
             String playerWorldId = mc.player.level().dimension().identifier().toString();
             // 跨世界过滤：只渲染玩家所在世界的仓库容器
             if (playerWorldId.equals(this.warehouseContainersWorld)) {
-                // 取货模式下只显示包含需要材料的箱子
+                // 取货模式下只显示包含需要材料的箱子。
+                // 需求量来自 PickupModeState（与格子高亮同一份数据），
+                // 因此"取满即不再高亮"在线框与格子上表现一致
                 boolean isPickupMode = GuiMaterialList.isPickupModeStatic();
 
                 java.util.Set<String> neededItemIds = null;
                 if (isPickupMode) {
-                    neededItemIds = GuiMaterialList.getPickupModeNeededItemIds();
+                    neededItemIds = net.syncmaterial.syncmaterial.client.PickupModeState.getNeededItemIds();
                 }
 
                 // 1. 过滤出需要渲染的容器
