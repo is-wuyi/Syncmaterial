@@ -74,8 +74,11 @@ public class SyncMaterialClient implements ClientModInitializer {
             // 需求永不更新，格子高亮与仓库线框停在陈旧数据上
             if (PickupModeState.isActive()
                     && ++pickupRecomputeTicks % PICKUP_RECOMPUTE_INTERVAL == 0) {
+                // 背包实测数就地采集：服务端回传的 countAvailable 有整条上报往返的
+                // 延迟，用它算需求会在快速取货时把后面不需要的同种物品也点亮
                 PickupModeState.recompute(
-                        activeMaterialList == null ? null : activeMaterialList.getMaterialsAll());
+                        activeMaterialList == null ? null : activeMaterialList.getMaterialsAll(),
+                        InventoryScanner.liveCountsByItemId(client.player));
             }
         });
 

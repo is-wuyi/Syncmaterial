@@ -62,17 +62,50 @@ public final class PickupModeState {
      * 调用方负责驱动（每若干 tick 一次），不依赖任何渲染回调。
      */
     public static void recompute(List<? extends MaterialSnapshot> materials) {
+        recompute(materials, Map.of());
+    }
+
+    /**
+     * 依据当前材料清单重算需求，用本地背包实测数覆盖快照里的 myCount。
+     *
+     * 为什么需要覆盖：快照的 myCount 来自 MaterialListEntry.countAvailable，
+     * 而那个字段是服务端算完回传的，链路是
+     * 「背包变化 → InventoryWatcher 每 20 tick 扫一次 → 上报 → 服务端广播
+     * → 客户端收包写回」，最坏一秒以上。用陈旧的 myCount 算出的需求量偏大，
+     * 贪心选格就会多吃一格，把后面那格不需要的同种物品也点亮
+     * —— 这正是实机看到的"取快了高亮飘到后面去"。
+     *
+     * 本地背包对"我手上有多少"是权威且零延迟的，故优先采用；服务端那份
+     * 仍用于展示他人持有量，两者职责分开。
+     *
+     * @param liveCounts itemId → 本地实测数量；缺失的条目回退到快照值
+     */
+    public static void recompute(List<? extends MaterialSnapshot> materials,
+            Map<String, Integer> liveCounts) {
         if (!active || materials == null) {
             needs = Map.of();
             return;
         }
+        Map<String, Integer> live = liveCounts == null ? Map.of() : liveCounts;
+        // 同一物品可能对应多个材料条目，而实测数是该物品在背包里的总量。
+        // 若给每个条目都减一遍全额，需求会被低估；故按条目顺序分配额度。
+        Map<String, Integer> allowance = new HashMap<>(live);
         Map<String, Integer> next = new HashMap<>();
         for (MaterialSnapshot entry : materials) {
             if (!entry.claimedByCurrentPlayer()) continue;
+            String itemId = entry.itemId();
+            int myCount = entry.myCount();
+            if (live.containsKey(itemId)) {
+                int left = allowance.getOrDefault(itemId, 0);
+                // 本条目最多认领到自己的需要量，余额留给同物品的后续条目
+                int demand = Math.max(0, entry.countTotal() - entry.stagingCount());
+                myCount = Math.min(left, demand);
+                allowance.put(itemId, left - myCount);
+            }
             int pickupMissing = (int) ProgressFormulas.pickupMissing(
-                entry.countTotal(), entry.stagingCount(), entry.myCount(), entry.warehouseCount());
+                entry.countTotal(), entry.stagingCount(), myCount, entry.warehouseCount());
             if (pickupMissing > 0) {
-                next.merge(entry.itemId(), pickupMissing, Integer::sum);
+                next.merge(itemId, pickupMissing, Integer::sum);
             }
         }
         needs = Collections.unmodifiableMap(next);

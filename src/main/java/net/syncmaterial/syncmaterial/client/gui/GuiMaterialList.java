@@ -221,7 +221,10 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearWarehouseContainers();
             } else {
                 // 立刻算一次，不必等下一个 tick 周期，避免刚开启时线框/高亮空一拍
-                net.syncmaterial.syncmaterial.client.PickupModeState.recompute(this.materialList.getMaterialsAll());
+                net.syncmaterial.syncmaterial.client.PickupModeState.recompute(
+                        this.materialList.getMaterialsAll(),
+                        net.syncmaterial.syncmaterial.client.InventoryScanner
+                                .liveCountsByItemId(this.mc.player));
             }
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
                     StringUtils.translate(next ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));

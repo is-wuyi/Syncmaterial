@@ -1,6 +1,8 @@
 package net.syncmaterial.syncmaterial.mixin;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -18,97 +20,66 @@ import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.block.ShulkerBoxBlock;
 
+import net.syncmaterial.syncmaterial.client.PickupHighlight;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListHudRenderer;
 
 /**
- * 取货指示器：打开箱子时高亮需要取的物品格子
- * 使用 MaterialListHudRenderer 的缓存数据（与HUD同步更新），逐格递减计算高亮。
+ * 取货指示器：打开箱子时高亮需要取的物品格子。
+ *
+ * 选格算法与缓存策略都在 PickupHighlight 里（可单测），这里只做两件事：
+ * 把 MC 的 Slot 适配成 PickupHighlight.SlotView，以及画边框。
  */
 @Mixin(HandledScreen.class)
 public abstract class HandledScreenMixin<T extends ScreenHandler> {
 
     @Shadow protected T handler;
 
-    // 缓存：需求量与容器都不变时直接渲染缓存，避免光标拿取物品导致闪烁。
-    // 缓存键必须带 syncId —— 只按需求量做键会让 A 箱子算出的槽位序号
-    // 被拿去画 B 箱子，高亮落在错误的物品上
-    @Unique private static final Set<Integer> cachedHighlightSlots = new HashSet<>();
-    @Unique private static int lastNeedsHash = 0;
-    @Unique private static int lastSyncId = Integer.MIN_VALUE;
-
     @Inject(method = "drawForeground", at = @At("TAIL"))
     private void onDrawForeground(DrawContext context, int mouseX, int mouseY, CallbackInfo ci) {
         if (!GuiMaterialList.isPickupModeStatic()) {
             // 退出取货模式后缓存必须失效，否则下次开启时会先闪一帧旧高亮
-            cachedHighlightSlots.clear();
-            lastNeedsHash = 0;
-            lastSyncId = Integer.MIN_VALUE;
+            PickupHighlight.invalidate();
             return;
         }
 
         Map<String, Integer> needs = MaterialListHudRenderer.getPickupHighlightNeeds();
-        int currentHash = needs.hashCode();
-        int syncId = this.handler.syncId;
-
-        // 需求量或容器任一变化都要重算
-        if (currentHash != lastNeedsHash || syncId != lastSyncId) {
-            lastNeedsHash = currentHash;
-            lastSyncId = syncId;
-            cachedHighlightSlots.clear();
-            if (needs.isEmpty()) return;
-            Map<String, Integer> remaining = new HashMap<>(needs);
-            List<Slot> slots = this.handler.slots;
-            for (int i = 0; i < slots.size(); i++) {
-                Slot slot = slots.get(i);
-                if (!slot.hasStack()) continue;
-                ItemStack stack = slot.getStack();
-                String itemId = stack.getItem().toString();
-                if (shouldHighlight(itemId, stack.getCount(), remaining)) {
-                    cachedHighlightSlots.add(i);
-                    continue;
-                }
-                // 潜影盒内容物
-                if (stack.getItem() instanceof BlockItem blockItem &&
-                    blockItem.getBlock() instanceof ShulkerBoxBlock) {
-                    var container = stack.get(DataComponentTypes.CONTAINER);
-                    if (container != null) {
-                        for (var stored : container.streamNonEmpty().toList()) {
-                            if (shouldHighlight(stored.getItem().toString(), stored.getCount(), remaining)) {
-                                cachedHighlightSlots.add(i);
-                                break;
-                            }
-                        }
-                    }
-                }
-                // Bundle 内容物
-                var bundleContents = stack.get(DataComponentTypes.BUNDLE_CONTENTS);
-                if (bundleContents != null) {
-                    for (var stored : bundleContents.stream().toList()) {
-                        if (shouldHighlight(stored.getItem().toString(), stored.getCount(), remaining)) {
-                            cachedHighlightSlots.add(i);
-                            break;
-                        }
-                    }
-                }
-            }
+        List<Slot> slots = this.handler.slots;
+        // 一次性快照：内容签名与选格都要读同一份数据，嵌套容器只展开一遍
+        List<SlotSnapshot> views = new ArrayList<>(slots.size());
+        for (Slot slot : slots) {
+            views.add(snapshot(slot));
         }
 
-        // 渲染缓存的高亮格子
-        List<Slot> allSlots = this.handler.slots;
-        for (int idx : cachedHighlightSlots) {
-            if (idx < allSlots.size()) {
-                drawHighlight(context, allSlots.get(idx));
+        for (int idx : PickupHighlight.highlightedSlots(needs, this.handler.syncId, views)) {
+            if (idx < slots.size()) {
+                drawHighlight(context, slots.get(idx));
             }
         }
     }
 
     @Unique
-    private boolean shouldHighlight(String itemId, int stackCount, Map<String, Integer> remaining) {
-        int rem = remaining.getOrDefault(itemId, 0);
-        if (rem <= 0) return false;
-        remaining.put(itemId, rem - stackCount);
-        return true;
+    private static SlotSnapshot snapshot(Slot slot) {
+        if (!slot.hasStack()) {
+            return new SlotSnapshot(false, "", 0, List.of());
+        }
+        ItemStack stack = slot.getStack();
+        List<PickupHighlight.StackView> stored = new ArrayList<>();
+
+        if (stack.getItem() instanceof BlockItem blockItem
+                && blockItem.getBlock() instanceof ShulkerBoxBlock) {
+            var container = stack.get(DataComponentTypes.CONTAINER);
+            if (container != null) {
+                container.streamNonEmpty()
+                        .forEach(s -> stored.add(new StackSnapshot(s.getItem().toString(), s.getCount())));
+            }
+        }
+        var bundleContents = stack.get(DataComponentTypes.BUNDLE_CONTENTS);
+        if (bundleContents != null) {
+            bundleContents.stream()
+                    .forEach(s -> stored.add(new StackSnapshot(s.getItem().toString(), s.getCount())));
+        }
+        return new SlotSnapshot(true, stack.getItem().toString(), stack.getCount(), stored);
     }
 
     @Unique
@@ -121,4 +92,11 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
         context.fill(slotX - 1, slotY, slotX, slotY + 16, color);
         context.fill(slotX + 16, slotY, slotX + 17, slotY + 16, color);
     }
+
+    /** 槽位内容的不可变快照，脱离 MC 对象以便签名比较稳定 */
+    private record SlotSnapshot(boolean present, String itemId, int count,
+                                List<PickupHighlight.StackView> contents)
+        implements PickupHighlight.SlotView {}
+
+    private record StackSnapshot(String itemId, int count) implements PickupHighlight.StackView {}
 }
