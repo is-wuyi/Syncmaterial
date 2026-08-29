@@ -167,7 +167,7 @@ fabricApi {
         createSourceSet = true
         modId = "syncmaterial-test"
         enableGameTests = true
-        enableClientGameTests = false
+        enableClientGameTests = true
         eula = true
         clearRunDirectory = true
     }
@@ -179,6 +179,12 @@ afterEvaluate {
     def gameTestRun = loom.runs.findByName("gameTest")
     if (gameTestRun != null) {
         gameTestRun.runDir = rootProject.file("/tmp/syncmaterial-gametest/run")
+    }
+
+    // 客户端 GameTest 同样需要 /tmp 运行目录
+    def clientGameTestRun = loom.runs.findByName("clientGameTest")
+    if (clientGameTestRun != null) {
+        clientGameTestRun.runDir = rootProject.file("/tmp/syncmaterial-gametest/run-client")
     }
 
     // gametest 源集运行时依赖（SQLite 驱动）

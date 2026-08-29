@@ -9,6 +9,9 @@
             "net.syncmaterial.syncmaterial.gametest.SyncMaterialGameTest",
             "net.syncmaterial.syncmaterial.gametest.LitematicaParserGameTest",
             "net.syncmaterial.syncmaterial.gametest.StagingAreaScanGameTest"
+        ],
+        "fabric-client-gametest": [
+            "net.syncmaterial.syncmaterial.gametest.client.SmokeTestClientGameTest"
         ]
     },
     "depends": {
