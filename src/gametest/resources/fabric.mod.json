@@ -12,7 +12,9 @@
         ],
         "fabric-client-gametest": [
             "net.syncmaterial.syncmaterial.gametest.client.SmokeTestClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.InventorySyncClientGameTest"
+            "net.syncmaterial.syncmaterial.gametest.client.InventorySyncClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.DisconnectCleanupClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.HudToggleDataFlowClientGameTest"
         ]
     },
     "depends": {
