@@ -57,7 +57,11 @@ public class SyncMaterialClient implements ClientModInitializer {
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (!PickupModeState.isActive()) return;
             if (++pickupRecomputeTicks % PICKUP_RECOMPUTE_INTERVAL != 0) return;
-            PickupModeState.recompute(activeMaterialList == null ? null : activeMaterialList.getMaterialsAll());
+            // 背包实测数就地采集：服务端回传的 countAvailable 有整条上报往返的
+            // 延迟，用它算需求会在快速取货时把后面不需要的同种物品也点亮
+            PickupModeState.recompute(
+                    activeMaterialList == null ? null : activeMaterialList.getMaterialsAll(),
+                    InventoryScanner.liveCountsByItemId(client.player));
         });
 
         // 26.2 移除了 HudRenderCallback，改用 HudElementRegistry
