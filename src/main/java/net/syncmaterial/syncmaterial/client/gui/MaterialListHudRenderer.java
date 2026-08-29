@@ -25,10 +25,6 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
     protected long lastUpdateTime;
     private List<MaterialListEntry> lastRenderedList = Collections.emptyList();
 
-    // 取货指示器高亮缓存：物品ID → 还需取货数量，仅在HUD刷新时更新
-    private final Map<String, Integer> pickupHighlightNeeds = new HashMap<>();
-    private static final Map<String, Integer> pickupHighlightNeedsStatic = new HashMap<>();
-
     public MaterialListHudRenderer(MaterialListBase materialList) {
         this.materialList = materialList;
         this.sorter = new MaterialListSorter(materialList);
@@ -61,28 +57,9 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         this.shouldRender = value;
     }
 
-    /** 取货指示器高亮缓存（静态访问，供 HandledScreenMixin 使用）*/
+    /** 取货指示器需求量：转发到唯一状态源，避免两份数据漂移 */
     public static Map<String, Integer> getPickupHighlightNeeds() {
-        return Collections.unmodifiableMap(pickupHighlightNeedsStatic);
-    }
-
-    private void updatePickupHighlightNeeds(boolean isPickupMode) {
-        pickupHighlightNeeds.clear();
-        if (!isPickupMode) {
-            pickupHighlightNeedsStatic.clear();
-            return;
-        }
-        for (MaterialListEntry entry : this.materialList.getMaterialsAll()) {
-            if (!entry.isCurrentPlayerClaimed()) continue;
-            int pickupMissing = (int) net.syncmaterial.syncmaterial.api.ProgressFormulas.pickupMissing(
-                entry.getCountTotal(), entry.getStagingCount(), entry.getCountAvailable(), entry.getWarehouseCount());
-            if (pickupMissing > 0) {
-                String itemId = entry.getStack().getItem().toString();
-                pickupHighlightNeeds.merge(itemId, pickupMissing, Integer::sum);
-            }
-        }
-        pickupHighlightNeedsStatic.clear();
-        pickupHighlightNeedsStatic.putAll(pickupHighlightNeeds);
+        return net.syncmaterial.syncmaterial.client.PickupModeState.getNeeds();
     }
 
     @Override
@@ -112,8 +89,6 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             }
             Collections.sort(list, this.sorter);
             this.lastRenderedList = list;
-            // 更新取货指示器高亮缓存
-            updatePickupHighlightNeeds(isPickupMode);
             this.lastUpdateTime = currentTime;
         } else {
             list = this.lastRenderedList;

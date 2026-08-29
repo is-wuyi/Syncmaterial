@@ -7,7 +7,7 @@ import java.util.List;
 import fi.dy.masa.malilib.util.ItemType;
 import net.minecraft.item.ItemStack;
 
-public class MaterialListEntry
+public class MaterialListEntry implements net.syncmaterial.syncmaterial.client.PickupModeState.MaterialSnapshot
 {
     private final int databaseId;
     private final ItemType item;
@@ -89,6 +89,27 @@ public class MaterialListEntry
 
     public List<ParticipantData> getParticipants() { return Collections.unmodifiableList(participants); }
     public void setParticipants(List<ParticipantData> participants) { this.participants = new ArrayList<>(participants); }
+
+    // ===== PickupModeState.MaterialSnapshot：为取货需求计算提供统一读取口径 =====
+
+    @Override
+    public String itemId() { return this.getStack().getItem().toString(); }
+
+    @Override
+    public int countTotal() { return this.countTotal; }
+
+    @Override
+    public int stagingCount() { return this.stagingCount; }
+
+    /** 快照语义下的"我的数量"即背包可用数 */
+    @Override
+    public int myCount() { return this.countAvailable; }
+
+    @Override
+    public int warehouseCount() { return this.warehouseCount; }
+
+    @Override
+    public boolean claimedByCurrentPlayer() { return this.isCurrentPlayerClaimed(); }
 
     @Override
     public int hashCode()

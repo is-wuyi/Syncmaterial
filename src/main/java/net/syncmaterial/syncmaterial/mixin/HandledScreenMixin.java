@@ -30,20 +30,31 @@ public abstract class HandledScreenMixin<T extends ScreenHandler> {
 
     @Shadow protected T handler;
 
-    // 缓存：HUD刷新时计算一次，之后直接渲染缓存，避免光标拿取物品导致闪烁
+    // 缓存：需求量与容器都不变时直接渲染缓存，避免光标拿取物品导致闪烁。
+    // 缓存键必须带 syncId —— 只按需求量做键会让 A 箱子算出的槽位序号
+    // 被拿去画 B 箱子，高亮落在错误的物品上
     @Unique private static final Set<Integer> cachedHighlightSlots = new HashSet<>();
     @Unique private static int lastNeedsHash = 0;
+    @Unique private static int lastSyncId = Integer.MIN_VALUE;
 
     @Inject(method = "drawForeground", at = @At("TAIL"))
     private void onDrawForeground(DrawContext context, int mouseX, int mouseY, CallbackInfo ci) {
-        if (!GuiMaterialList.isPickupModeStatic()) return;
+        if (!GuiMaterialList.isPickupModeStatic()) {
+            // 退出取货模式后缓存必须失效，否则下次开启时会先闪一帧旧高亮
+            cachedHighlightSlots.clear();
+            lastNeedsHash = 0;
+            lastSyncId = Integer.MIN_VALUE;
+            return;
+        }
 
         Map<String, Integer> needs = MaterialListHudRenderer.getPickupHighlightNeeds();
         int currentHash = needs.hashCode();
+        int syncId = this.handler.syncId;
 
-        // 仅在HUD数据更新时重新计算高亮格子，之后直接渲染缓存
-        if (currentHash != lastNeedsHash) {
+        // 需求量或容器任一变化都要重算
+        if (currentHash != lastNeedsHash || syncId != lastSyncId) {
             lastNeedsHash = currentHash;
+            lastSyncId = syncId;
             cachedHighlightSlots.clear();
             if (needs.isEmpty()) return;
             Map<String, Integer> remaining = new HashMap<>(needs);

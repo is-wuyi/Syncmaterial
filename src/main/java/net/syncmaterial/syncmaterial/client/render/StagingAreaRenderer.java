@@ -269,7 +269,7 @@ public class StagingAreaRenderer implements IRenderer
 
                 java.util.Set<String> neededItemIds = null;
                 if (isPickupMode) {
-                    neededItemIds = GuiMaterialList.getPickupModeNeededItemIds();
+                    neededItemIds = net.syncmaterial.syncmaterial.client.PickupModeState.getNeededItemIds();
                 }
 
                 // 1. 过滤出需要渲染的容器

@@ -20,6 +20,10 @@ public class SyncMaterialClient implements ClientModInitializer {
     private static final Logger LOGGER = SyncMaterial.LOGGER;
     private static SyncMaterialList activeMaterialList;
 
+    /** 取货需求重算周期（tick）。10 tick ≈ 0.5 秒，比原先挂在 HUD 的 2 秒更及时 */
+    private static final int PICKUP_RECOMPUTE_INTERVAL = 10;
+    private static int pickupRecomputeTicks;
+
     public static SyncMaterialList getActiveMaterialList() { return activeMaterialList; }
 
     @Override
@@ -65,6 +69,14 @@ public class SyncMaterialClient implements ClientModInitializer {
 
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
             StagingAreaSelector.getInstance().onTick();
+
+            // 取货需求量在 tick 中重算，不挂渲染回调：挂渲染会让 HUD 关闭后
+            // 需求永不更新，格子高亮与仓库线框停在陈旧数据上
+            if (PickupModeState.isActive()
+                    && ++pickupRecomputeTicks % PICKUP_RECOMPUTE_INTERVAL == 0) {
+                PickupModeState.recompute(
+                        activeMaterialList == null ? null : activeMaterialList.getMaterialsAll());
+            }
         });
 
         net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
@@ -92,6 +104,12 @@ public class SyncMaterialClient implements ClientModInitializer {
             StagingAreaSelector.getInstance().reset();
             // 协议状态也要清：不清会把上一个服务器的版本信息带到下一个服务器
             net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
+            // HUD 与背包监听按服务器隔离：不清会让 HUD 继续挂着上个服的材料清单，
+            // 且 InventoryWatcher 仍持旧 schematicId，换服后朝新服发它不认识的背包更新包
+            activeMaterialList = null;
+            InventoryWatcher.clearContext();
+            // 取货模式同理：不清会带着上个服的需求量继续高亮格子与仓库线框
+            PickupModeState.clear();
             // HUD 与背包监听按服务器隔离：不清会让 HUD 继续挂着上个服的材料清单，
             // 且 InventoryWatcher 仍持旧 schematicId，换服后朝新服发它不认识的背包更新包
             activeMaterialList = null;
@@ -152,6 +170,7 @@ public class SyncMaterialClient implements ClientModInitializer {
             LOGGER.info("原理图 {} 已删除，清除 HUD", schematicId);
             activeMaterialList = null;
             InventoryWatcher.clearContext();
+            PickupModeState.clear();
             net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
                 new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(schematicId));
         }
