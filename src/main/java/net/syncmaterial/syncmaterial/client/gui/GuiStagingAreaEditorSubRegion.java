@@ -46,6 +46,13 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
     protected WidgetCheckBox checkBoxCorner1;
     protected WidgetCheckBox checkBoxCorner2;
 
+    /**
+     * 坐标编辑走去抖：文本框每敲一个字符就触发 onTextChange，而服务端每次
+     * UPDATE 都会重扫备货区并广播状态。按钮类操作走 flushNow 立即发出。
+     */
+    protected final UpdateDebouncer coordinateDebouncer =
+            new UpdateDebouncer(GuiStagingAreaEditorNormal.COORD_QUIET_TICKS);
+
     public GuiStagingAreaEditorSubRegion(AreaSelection selection, Box box, @Nullable String selectionId)
     {
         this(selection, box, selectionId, "");
@@ -228,6 +235,31 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
                 this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
     }
 
+    /**
+     * 登记一次延迟发出的坐标更新，供文本框逐字符输入使用。
+     * 连续输入只会发出最后一次，中间态被丢弃。
+     */
+    protected void scheduleCoordinateUpdate(Corner corner)
+    {
+        this.coordinateDebouncer.schedule(() -> this.sendCoordinateUpdate(corner));
+    }
+
+    /** 驱动去抖计时。GuiBase 继承自 Screen，每客户端 tick 调用一次 */
+    @Override
+    public void tick()
+    {
+        super.tick();
+        this.coordinateDebouncer.tick();
+    }
+
+    /** 关界面前补发未发出的坐标改动，否则刚敲的值会被丢掉 */
+    @Override
+    public void removed()
+    {
+        this.coordinateDebouncer.flushNow();
+        super.removed();
+    }
+
     protected void renameSubRegion()
     {
         String oldName = this.box.getName();
@@ -393,7 +425,8 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         public boolean onTextChange(GuiTextFieldGeneric textField)
         {
             this.parent.updatePosition(textField.getTextWrapper(), this.corner, this.type);
-            this.parent.sendCoordinateUpdate(this.corner);
+            // 逐字符输入走去抖，避免每敲一个键都让服务端重扫并广播一遍
+            this.parent.scheduleCoordinateUpdate(this.corner);
             return false;
         }
     }

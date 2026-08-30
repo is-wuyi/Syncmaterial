@@ -46,6 +46,16 @@ public class GuiWarehouseEditor extends GuiBase
 
     private GuiTextFieldGeneric textFieldName;
 
+    /**
+     * 坐标编辑走去抖：文本框每敲一个字符就触发 onTextChange，而服务端每次
+     * UPDATE_WAREHOUSE 都会全量重扫仓库并向所有引用方广播材料状态。
+     * 按钮类操作（改名、移到玩家、准星重选）仍走 sendUpdate 立即发出。
+     */
+    private final UpdateDebouncer coordinateDebouncer = new UpdateDebouncer(QUIET_TICKS);
+
+    /** 10 tick ≈ 0.5 秒：停手半秒即生效，手感上仍是"改完就生效" */
+    private static final int QUIET_TICKS = 10;
+
     public GuiWarehouseEditor(WarehouseEntry entry, GuiWarehouseManager manager)
     {
         this.manager = manager;
@@ -210,13 +220,15 @@ public class GuiWarehouseEditor extends GuiBase
         {
             this.pos2 = withCoordinate(this.pos2, type, value);
         }
-        this.sendUpdate();
+        this.coordinateDebouncer.schedule(this::sendUpdate);
     }
 
     private void nudgeCoordinate(Corner corner, CoordinateType type, int amount)
     {
         BlockPos pos = corner == Corner.CORNER_1 ? this.pos1 : this.pos2;
+        // 微调按钮是单次操作，不存在连发；等静默会让人以为没生效
         this.setCoordinate(corner, type, getCoordinate(pos, type) + amount);
+        this.coordinateDebouncer.flushNow();
     }
 
     private void moveToPlayer(Corner corner)
@@ -257,9 +269,29 @@ public class GuiWarehouseEditor extends GuiBase
         this.sendUpdate();
     }
 
+    /** 驱动去抖计时。GuiBase 继承自 Screen，每客户端 tick 调用一次 */
+    @Override
+    public void tick()
+    {
+        super.tick();
+        this.coordinateDebouncer.tick();
+    }
+
     /**
-     * 立即发包（与备货区的即时生效行为一致）。
-     * 注意服务端 UPDATE_WAREHOUSE 会触发全量重扫，所以不要在高频路径上调用。
+     * 关界面前把未发出的坐标改动补发，否则用户刚敲的值会被丢掉。
+     * 覆盖 Esc 与关闭按钮两条路径：前者走 malilib 的 closeGui，
+     * 后者走 vanilla 的 close，两者最终都会触发 removed。
+     */
+    @Override
+    public void removed()
+    {
+        this.coordinateDebouncer.flushNow();
+        super.removed();
+    }
+
+    /**
+     * 立即发包。坐标类改动请走 coordinateDebouncer，不要直接调这里 ——
+     * 服务端 UPDATE_WAREHOUSE 会触发全量重扫 + 全服广播，逐字符发包会打爆服务端。
      */
     private void sendUpdate()
     {
