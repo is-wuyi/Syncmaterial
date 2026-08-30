@@ -120,3 +120,102 @@ jobs:
             build/reports/jacoco/
             build/reports/spotbugs/
           retention-days: 7
+
+  # 客户端 GameTest 独立成 job：它要起真实 MC 客户端（需要虚拟显示器与软件渲染），
+  # 耗时与不稳定性都高于主构建，不该拖住主流程。
+  # 主构建（build-and-test）不依赖本 job，本 job 也不阻塞 jar 产物上传。
+  client-gametest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java 25 (for MC 26.x)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # 真实客户端需要 GL 上下文。CI runner 无显卡，用 Mesa 软件渲染 +
+      # xvfb 虚拟显示器；缺 libgl1/libglx-mesa0 会在窗口创建阶段直接崩
+      - name: Install virtual display and software GL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgl1 libglx-mesa0 libgl1-mesa-dri mesa-vulkan-drivers \
+            libxi6 libxcursor1 libxrandr2 libxinerama1 libxxf86vm1
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # runDir 在 build.gradle 里被指向 /tmp（本地 exFAT 不支持文件锁），
+      # CI 上同样落在 /tmp，这里先建好避免首次运行找不到目录
+      - name: Prepare run directory
+        run: mkdir -p /tmp/syncmaterial-gametest/run-client
+
+      # 1.21.7-lts 目前 enableClientGameTests = false，runClientGameTest 任务不存在。
+      # 探测而非硬失败：等那边开启开关后本 job 自动开始生效，无需再改 CI
+      - name: Detect client GameTest support
+        id: detect
+        run: |
+          if ./gradlew -q help --task runClientGameTest >/dev/null 2>&1; then
+            echo "supported=true" >> $GITHUB_OUTPUT
+            echo "本分支已启用客户端 GameTest"
+          else
+            echo "supported=false" >> $GITHUB_OUTPUT
+            echo "本分支未启用客户端 GameTest，跳过"
+          fi
+
+      - name: Run client GameTest
+        if: steps.detect.outputs.supported == 'true'
+        env:
+          # 强制软件渲染：runner 没有硬件 GL，走 llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: 1
+          MESA_GL_VERSION_OVERRIDE: 4.6
+          MESA_GLSL_VERSION_OVERRIDE: 460
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
+            ./gradlew runClientGameTest --stacktrace
+
+      - name: Client GameTest summary
+        if: always()
+        run: |
+          echo "## 客户端 GameTest" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.detect.outputs.supported }}" != "true" ]; then
+            echo "- 本分支未启用（enableClientGameTests = false），已跳过" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "- 全部通过" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- 失败，详见日志与上传的 run 目录" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- 测试类清单（fabric-client-gametest entrypoint）：" >> $GITHUB_STEP_SUMMARY
+          python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          with open('src/gametest/resources/fabric.mod.json') as f:
+              m = json.load(f)
+          for cls in m['entrypoints'].get('fabric-client-gametest', []):
+              print(f"  - {cls.split('.')[-1]}")
+          EOF
+
+      # 失败时把客户端日志与崩溃报告捞出来，否则只能看 Gradle 的转述
+      - name: Upload client run artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: client-gametest-run
+          path: |
+            /tmp/syncmaterial-gametest/run-client/logs/
+            /tmp/syncmaterial-gametest/run-client/crash-reports/
+            /tmp/syncmaterial-gametest/run-client/screenshots/
+          retention-days: 7
+          if-no-files-found: ignore
