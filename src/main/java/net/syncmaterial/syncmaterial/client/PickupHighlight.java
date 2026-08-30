@@ -139,4 +139,16 @@ public final class PickupHighlight {
         cachedKey = 0;
         cachedSlots = Set.of();
     }
+
+    /**
+     * 最近一次算出的高亮槽位。
+     *
+     * 存在的唯一理由是给客户端 GameTest 一个读取 Mixin 实际输出的口子：
+     * Mixin 里的 @Inject 目标是字符串，写错编译期不报错、运行时静默不注入，
+     * 此前变异实验证实过这种错误能全绿逃逸。测试打开真实容器界面后读这里，
+     * 若为空即说明注入没生效或需求量没算出来。
+     */
+    public static Set<Integer> lastHighlightedSlots() {
+        return cachedSlots;
+    }
 }

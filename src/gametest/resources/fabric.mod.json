@@ -15,7 +15,8 @@
             "net.syncmaterial.syncmaterial.gametest.client.InventorySyncClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.DisconnectCleanupClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.HudToggleDataFlowClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSelectionClientGameTest"
+            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSelectionClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.PickupHighlightClientGameTest"
         ]
     },
     "depends": {
