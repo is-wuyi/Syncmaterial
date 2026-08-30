@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import net.syncmaterial.syncmaterial.client.PickupHighlight;
+import net.syncmaterial.syncmaterial.client.PickupModeState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -188,5 +189,102 @@ class PickupHighlightTest {
         // 退出取货模式后需求为空，缓存必须被丢掉而不是继续画上一次的格子
         assertTrue(PickupHighlight.highlightedSlots(Map.of(), 1,
             List.of(slot("minecraft:stone", 64))).isEmpty());
+    }
+
+    // ===== 同瞬间采样：需求量与容器内容必须同源 =====
+
+    private record Snapshot(String itemId, int countTotal, int stagingCount,
+                            int myCount, int warehouseCount, boolean claimedByCurrentPlayer)
+        implements PickupModeState.MaterialSnapshot {}
+
+    /**
+     * 逐个取货全过程不得出现多余高亮。
+     *
+     * 这是实机症状"每拿一个，后面的物品都会闪一下再恢复"的回归测试：
+     * 症状源于需求量与容器内容采样时刻不一致 —— 容器已经少了一个、
+     * 需求还是上一次 tick 的旧值，贪心就多走一格。
+     *
+     * 这里把两者在同一循环里同步推进，模拟"就地现算"，断言每一步选中的
+     * 格子数都恰好等于覆盖剩余需求所需的最小格数。
+     */
+    @Test
+    void takingOneAtATime_neverHighlightsExtraSlot() {
+        // 需要 3 个石头，箱子前三格各 1 个，后两格也是石头但不该被点亮
+        int total = 3;
+        List<PickupHighlight.SlotView> chest = new java.util.ArrayList<>(List.of(
+            slot("minecraft:stone", 1), slot("minecraft:stone", 1), slot("minecraft:stone", 1),
+            slot("minecraft:stone", 1), slot("minecraft:stone", 1)));
+
+        for (int taken = 0; taken <= total; taken++) {
+            // 需求与容器同一瞬间采样：背包里已有 taken 个，箱子前 taken 格已空
+            Map<String, Integer> needs = PickupModeState.computeNeeds(
+                List.of(new Snapshot("minecraft:stone", total, 0, 0, total, true)),
+                Map.of("minecraft:stone", taken));
+
+            List<PickupHighlight.SlotView> current = new java.util.ArrayList<>(chest);
+            for (int i = 0; i < taken; i++) {
+                current.set(i, empty());
+            }
+
+            Set<Integer> selected = PickupHighlight.select(needs, current);
+            int expectedCount = total - taken;
+            assertEquals(expectedCount, selected.size(),
+                "取走 " + taken + " 个后应恰好点亮 " + expectedCount + " 格，不能多点亮");
+            // 点亮的必须是最靠前的非空格
+            for (int i = 0; i < expectedCount; i++) {
+                assertTrue(selected.contains(taken + i),
+                    "第 " + (taken + i) + " 格应被点亮");
+            }
+        }
+    }
+
+    /** 光标持物路径：物品在光标上时也算进背包，需求同步减少 */
+    @Test
+    void carriedStackCounted_noExtraHighlight() {
+        // 需要 2 个，第 0 格已被拿到光标上（容器少 1、背包多 1）
+        Map<String, Integer> needs = PickupModeState.computeNeeds(
+            List.of(new Snapshot("minecraft:stone", 2, 0, 0, 2, true)),
+            Map.of("minecraft:stone", 1));
+        Set<Integer> selected = PickupHighlight.select(needs,
+            List.of(empty(), slot("minecraft:stone", 1), slot("minecraft:stone", 1)));
+        assertEquals(Set.of(1), selected, "光标持物已计入，只该再点亮 1 格");
+    }
+
+    /** 需求滞后一步时会多点亮 —— 记录错误行为，防止有人把就地现算改回缓存值 */
+    @Test
+    void staleNeedsDemonstrablyOverHighlights() {
+        // 容器已少一格（拿走了 1 个），但需求仍是取货前的 3
+        Set<Integer> withStaleNeeds = PickupHighlight.select(
+            Map.of("minecraft:stone", 3),
+            List.of(empty(), slot("minecraft:stone", 1), slot("minecraft:stone", 1),
+                    slot("minecraft:stone", 1), slot("minecraft:stone", 1)));
+        assertEquals(3, withStaleNeeds.size(), "陈旧需求会多点亮一格（此为被修复的错误行为）");
+
+        // 同一容器配上就地现算的需求，只点亮 2 格
+        Map<String, Integer> fresh = PickupModeState.computeNeeds(
+            List.of(new Snapshot("minecraft:stone", 3, 0, 0, 3, true)),
+            Map.of("minecraft:stone", 1));
+        Set<Integer> withFreshNeeds = PickupHighlight.select(fresh,
+            List.of(empty(), slot("minecraft:stone", 1), slot("minecraft:stone", 1),
+                    slot("minecraft:stone", 1), slot("minecraft:stone", 1)));
+        assertEquals(2, withFreshNeeds.size(), "就地现算不该多点亮");
+    }
+
+    /** computeNeeds 是纯函数：不得改动 PickupModeState 的缓存状态 */
+    @Test
+    void computeNeeds_doesNotMutateCachedState() {
+        PickupModeState.clear();
+        PickupModeState.setActive(true);
+        PickupModeState.recompute(
+            List.of(new Snapshot("minecraft:stone", 64, 0, 0, 64, true)));
+        Map<String, Integer> before = Map.copyOf(PickupModeState.getNeeds());
+
+        PickupModeState.computeNeeds(
+            List.of(new Snapshot("minecraft:dirt", 32, 0, 0, 32, true)),
+            Map.of("minecraft:dirt", 0));
+
+        assertEquals(before, PickupModeState.getNeeds(),
+            "就地现算不得污染 HUD 与线框读取的缓存值");
+        PickupModeState.clear();
     }
 }

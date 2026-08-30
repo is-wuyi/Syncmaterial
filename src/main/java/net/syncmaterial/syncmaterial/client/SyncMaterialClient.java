@@ -26,6 +26,26 @@ public class SyncMaterialClient implements ClientModInitializer {
 
     public static SyncMaterialList getActiveMaterialList() { return activeMaterialList; }
 
+    /**
+     * 就地计算取货需求量，供箱子格子高亮使用。
+     *
+     * 与 PickupModeState.getNeeds()（每 10 tick 采样一次）的区别在采样时刻：
+     * 格子高亮是"从第一格往后累加直到凑够需求量"，需求量必须与容器内容
+     * 同一瞬间采样，否则差多少就多点亮几格。
+     *
+     * 举例：需要 128，箱子每格 64。取走第 0 格后容器变成 [空, 64, 64]，
+     * 若需求还是旧的 128，贪心会选中第 1、2 格 —— 第 2 格本不该亮，
+     * 等下一次 tick 把需求修正为 64 才恢复，表现为"后面的物品闪一下"。
+     */
+    public static java.util.Map<String, Integer> livePickupNeeds() {
+        if (!PickupModeState.isActive() || activeMaterialList == null) {
+            return java.util.Map.of();
+        }
+        return PickupModeState.computeNeeds(
+                activeMaterialList.getMaterialsAll(),
+                InventoryScanner.liveCountsByItemId(MinecraftClient.getInstance().player));
+    }
+
     @Override
     public void onInitializeClient() {
         LOGGER.info("SyncMaterial Client initialized!");

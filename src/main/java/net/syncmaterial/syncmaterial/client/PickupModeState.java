@@ -41,7 +41,12 @@ public final class PickupModeState {
         }
     }
 
-    /** itemId → 还需从仓库取货的数量；未激活时为空 */
+    /**
+     * itemId → 还需从仓库取货的数量；未激活时为空。
+     *
+     * 这是每若干 tick 采样一次的缓存值，供 HUD 与仓库线框使用。
+     * 箱子格子高亮不要用它 —— 见 computeNeeds 的说明。
+     */
     public static Map<String, Integer> getNeeds() {
         return needs;
     }
@@ -86,6 +91,26 @@ public final class PickupModeState {
             needs = Map.of();
             return;
         }
+        needs = computeNeeds(materials, liveCounts);
+    }
+
+    /**
+     * 需求量计算本体：纯函数，不读写任何状态。
+     *
+     * 抽成纯函数是因为它有两个采样时机不同的消费者，而"采样时刻"本身就是
+     * 正确性的一部分：
+     *
+     * - HUD 与仓库线框：每若干 tick 采样一次（见 recompute）。它们只关心
+     *   "还差不差"这种粗粒度信息，半秒的滞后看不出来。
+     * - 箱子格子高亮：必须在画的那一刻现算，与容器内容同一瞬间采样。
+     *   因为高亮是"从第一格往后累加直到凑够需求量"，需求量与容器内容
+     *   若不同源，差多少就会多点亮几格 —— 取走一个物品时容器少 1、
+     *   需求却还是旧值，贪心就会多走两格，表现为后面的物品闪一下再恢复。
+     */
+    public static Map<String, Integer> computeNeeds(List<? extends MaterialSnapshot> materials,
+            Map<String, Integer> liveCounts) {
+        if (materials == null) return Map.of();
+
         Map<String, Integer> live = liveCounts == null ? Map.of() : liveCounts;
         // 同一物品可能对应多个材料条目，而实测数是该物品在背包里的总量。
         // 若给每个条目都减一遍全额，需求会被低估；故按条目顺序分配额度。
@@ -108,7 +133,7 @@ public final class PickupModeState {
                 next.merge(itemId, pickupMissing, Integer::sum);
             }
         }
-        needs = Collections.unmodifiableMap(next);
+        return Collections.unmodifiableMap(next);
     }
 
     /**
