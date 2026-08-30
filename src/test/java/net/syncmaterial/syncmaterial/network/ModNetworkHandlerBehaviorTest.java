@@ -206,6 +206,29 @@ class ModNetworkHandlerBehaviorTest {
     }
 
     @Test
+    void globalWarehouseAction_onlyExactCrudActionsBypassSchematicValidation() {
+        // 仓库本体是全局数据，不隶属于某个原理图：这四种操作允许空 schematicId
+        for (String action : List.of(
+                "LIST_WAREHOUSES", "ADD_WAREHOUSE", "UPDATE_WAREHOUSE", "DELETE_WAREHOUSE")) {
+            assertTrue(ModNetworkHandler.isGlobalWarehouseAction(action),
+                action + " 应被识别为全局仓库操作");
+        }
+
+        // 仓库引用属于具体原理图，必须继续校验 schematicId。
+        // 回归点：旧实现用 startsWith("ADD_WAREHOUSE")，导致
+        // ADD_WAREHOUSE_REF 被误判为全局操作，空 schematicId 写出孤儿引用记录
+        for (String action : List.of(
+                "ADD_WAREHOUSE_REF", "REMOVE_WAREHOUSE_REF", "LIST_WAREHOUSE_REFS")) {
+            assertFalse(ModNetworkHandler.isGlobalWarehouseAction(action),
+                action + " 属于原理图引用操作，不得绕过 schematicId 校验");
+        }
+
+        assertFalse(ModNetworkHandler.isGlobalWarehouseAction(null));
+        assertFalse(ModNetworkHandler.isGlobalWarehouseAction("ADD_WAREHOUSE_EVIL"),
+            "前缀相同但不在精确白名单内的 action 不得放行");
+    }
+
+    @Test
     void validateOwnerAction_whitelistAndCaseSensitivity() {
         assertDoesNotThrow(() -> Phase4Handler.validateOwnerAction("TRANSFER"));
         assertDoesNotThrow(() -> Phase4Handler.validateOwnerAction("ADD_DEPUTY"));
