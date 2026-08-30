@@ -212,6 +212,24 @@ public class ModNetworkHandler {
             || action.equals("LIST_WAREHOUSE_REFS"));
     }
 
+    /**
+     * 不属于任何原理图的全局仓库操作。
+     *
+     * 只有仓库本体的 CRUD / 列表允许 schematicId 为空；仓库引用操作
+     * ADD_WAREHOUSE_REF / REMOVE_WAREHOUSE_REF / LIST_WAREHOUSE_REFS
+     * 属于具体原理图，必须继续走 validateSchematicId。
+     *
+     * 必须用精确白名单，不能用 startsWith("ADD_WAREHOUSE")：
+     * ADD_WAREHOUSE_REF 也有同一前缀，会被误判为全局操作并跳过校验，
+     * 空 schematicId 最终写出一条无法被任何原理图读取的孤儿引用记录。
+     */
+    static boolean isGlobalWarehouseAction(String action) {
+        return "LIST_WAREHOUSES".equals(action)
+            || "ADD_WAREHOUSE".equals(action)
+            || "UPDATE_WAREHOUSE".equals(action)
+            || "DELETE_WAREHOUSE".equals(action);
+    }
+
     public static void register() {
         // 握手必须先于 queryService 检查注册：数据库初始化失败时，
         // 客户端仍应能得到"服务端装了本 mod 但未就绪"的明确回应，
@@ -291,12 +309,10 @@ public class ModNetworkHandler {
         ServerPlayNetworking.registerGlobalReceiver(StagingAreaConfigC2SPacket.ID, (payload, context) -> {
             var player = context.player();
             if (!validateHandshakedPlayer(player) || !validateStagingAction(payload.action())) return;
-            // 仓库操作不需要 schematicId，备货区操作需要
-            boolean isWarehouseAction = payload.action().startsWith("LIST_WAREHOUSES")
-                || payload.action().startsWith("ADD_WAREHOUSE")
-                || payload.action().startsWith("UPDATE_WAREHOUSE")
-                || payload.action().startsWith("DELETE_WAREHOUSE");
-            if (!isWarehouseAction && !validateSchematicId(payload.schematicId())) return;
+            // 全局仓库本体操作不隶属于原理图，允许 schematicId 为空；
+            // 仓库引用操作必须带合法 schematicId，不能被前缀匹配误放行
+            if (!isGlobalWarehouseAction(payload.action())
+                    && !validateSchematicId(payload.schematicId())) return;
             context.server().execute(() -> {
                 handleStagingAreaConfig(payload, player, context.server());
             });
