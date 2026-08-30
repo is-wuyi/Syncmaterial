@@ -97,11 +97,6 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         return 0;
     }
 
-    /** 取货指示器需求量：转发到唯一状态源，避免两份数据漂移 */
-    public static Map<String, Integer> getPickupHighlightNeeds() {
-        return net.syncmaterial.syncmaterial.client.PickupModeState.getNeeds();
-    }
-
     @Override
     public List<String> getText(RenderPhase phase) {
         return Collections.emptyList();
