@@ -5,7 +5,7 @@ plugins {
     id 'com.github.spotbugs' version '6.5.10'
 }
 
-version = "1.21.7-0.3.0-beta.33"
+version = "1.21.7-0.3.0-beta.34"
 group = "net.syncmaterial"
 
 repositories {
@@ -26,12 +26,16 @@ dependencies {
     // ✅ 修复：MC 1.21.7 官方正版 Fabric API
     modImplementation "net.fabricmc.fabric-api:fabric-api:0.129.0+1.21.7"
 
-    // MaLiLib for GUI classes (compile-time only)
+    // MaLiLib for GUI classes (compile-time only in production)
     modCompileOnly "maven.modrinth:malilib:0.25.7"
+    // 客户端 GameTest 会启动真实客户端，需把 compileOnly 依赖补到开发运行时；
+    // modRuntimeOnly 不会嵌入生产 jar，只影响 Loom 的 run 配置
+    modRuntimeOnly "maven.modrinth:malilib:0.25.7"
 
     // Litematica for reference (compile-time only, not required at runtime)
     // 0.23.6 已从 Modrinth 下架，改用 0.23.7（同系列补丁版本，支持 1.21.6~1.21.8）
     modCompileOnly "maven.modrinth:litematica:0.23.7"
+    modRuntimeOnly "maven.modrinth:litematica:0.23.7"
 
     // JSR 305 (javax.annotation.Nullable 等)
     compileOnly "com.google.code.findbugs:jsr305:3.0.2"
@@ -139,7 +143,7 @@ fabricApi {
         createSourceSet = true
         modId = "syncmaterial-test"
         enableGameTests = true
-        enableClientGameTests = false
+        enableClientGameTests = true
         eula = true
         clearRunDirectory = true
     }
@@ -151,6 +155,15 @@ afterEvaluate {
     def gameTestRun = loom.runs.findByName("gameTest")
     if (gameTestRun != null) {
         gameTestRun.runDir = "/tmp/syncmaterial-gametest/run"
+    }
+
+    // 客户端 GameTest 同样需要 /tmp 运行目录。
+    // Loom 1.14 的 RunConfig.runDir 是相对路径字符串；传绝对路径会被再次拼到
+    // projectDir 下（/tmp/smc7/tmp/...），且 EULA 写到错误位置。项目本身已 rsync
+    // 到 /tmp 构建，使用项目内 run-client 即可避开 exFAT 文件锁。
+    def clientGameTestRun = loom.runs.findByName("clientGameTest")
+    if (clientGameTestRun != null) {
+        clientGameTestRun.runDir = "run-client"
     }
 
     // gametest 源集运行时依赖（SQLite 驱动）

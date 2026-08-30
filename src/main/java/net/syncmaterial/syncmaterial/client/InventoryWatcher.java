@@ -43,6 +43,11 @@ public class InventoryWatcher {
         lastKnownCounts.clear();
     }
 
+    /** 是否正在监听背包（有注册的原理图上下文）。清理时机回归测试需要读取此状态 */
+    public static boolean isWatching() {
+        return currentSchematicId != null;
+    }
+
     public static void forceUpdate() {
         if (currentSchematicId == null || MinecraftClient.getInstance().player == null) return;
         checkInventoryChanges(MinecraftClient.getInstance().player.getInventory());

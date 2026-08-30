@@ -139,4 +139,12 @@ public final class PickupHighlight {
         cachedKey = 0;
         cachedSlots = Set.of();
     }
+
+    /**
+     * 最近一次算出的高亮槽位，仅供客户端 GameTest 读取 Mixin 实际输出。
+     * 注入目标是字符串，写错编译期不报错；测试靠这里判断注入是否生效。
+     */
+    public static Set<Integer> lastHighlightedSlots() {
+        return cachedSlots;
+    }
 }

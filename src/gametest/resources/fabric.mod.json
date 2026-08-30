@@ -9,6 +9,14 @@
             "net.syncmaterial.syncmaterial.gametest.SyncMaterialGameTest",
             "net.syncmaterial.syncmaterial.gametest.LitematicaParserGameTest",
             "net.syncmaterial.syncmaterial.gametest.StagingAreaScanGameTest"
+        ],
+        "fabric-client-gametest": [
+            "net.syncmaterial.syncmaterial.gametest.client.SmokeTestClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.InventorySyncClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.DisconnectCleanupClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.HudToggleDataFlowClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSelectionClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.PickupHighlightClientGameTest"
         ]
     },
     "depends": {
