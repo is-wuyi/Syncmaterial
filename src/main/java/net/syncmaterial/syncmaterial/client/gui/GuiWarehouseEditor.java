@@ -269,6 +269,32 @@ public class GuiWarehouseEditor extends GuiBase
         this.sendUpdate();
     }
 
+    // ========== 测试入口（与按钮/文本框监听器同一代码路径）==========
+
+    /** 等价于点击改名按钮：与 ButtonListener.Type.SET_NAME 完全相同的调用 */
+    public void renameForTest(String newName)
+    {
+        this.name = newName.trim();
+        this.sendUpdate();
+    }
+
+    /**
+     * 等价于坐标文本框的一次 onTextChange：本地立即生效，发包走去抖。
+     * 多次连续调用模拟逐字符输入，中间态应被去抖合并。
+     */
+    public void simulateCoordinateInputForTest(Corner corner, CoordinateType type, int value)
+    {
+        if (corner == Corner.CORNER_1)
+        {
+            this.pos1 = withCoordinate(this.pos1, type, value);
+        }
+        else
+        {
+            this.pos2 = withCoordinate(this.pos2, type, value);
+        }
+        this.coordinateDebouncer.schedule(this::sendUpdate);
+    }
+
     /** 驱动去抖计时。GuiBase 继承自 Screen，每客户端 tick 调用一次 */
     @Override
     public void tick()
