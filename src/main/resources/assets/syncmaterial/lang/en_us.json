@@ -21,6 +21,8 @@
   "syncmaterial.gui.label.deputy_owner_none": "Deputy Owner: None",
   "syncmaterial.gui.label.more_deputies": "%d more...",
   "syncmaterial.gui.label.materials_selected_count": "%d materials selected",
+  "syncmaterial.gui.label.section_owner": "Owners",
+  "syncmaterial.gui.label.section_materials": "Material Actions",
   "syncmaterial.gui.title.remove_deputy": "Remove Deputy Owners",
   "syncmaterial.gui.hint.remove_deputy": "Select deputy owners to remove",
   "syncmaterial.gui.label.management_desc": "Owners manage material claims and assignments. Main owners have full control: transfer ownership and add/remove deputy owners. Deputy owners can batch-assign materials and kick players. Enable 'Self Claim' to let any player claim materials on their own.",

@@ -15,6 +15,8 @@
   "syncmaterial.gui.label.deputy_owner_none": "Propietario adjunto: ninguno",
   "syncmaterial.gui.label.more_deputies": "%d más...",
   "syncmaterial.gui.label.materials_selected_count": "%d materiales seleccionados",
+  "syncmaterial.gui.label.section_owner": "Responsables",
+  "syncmaterial.gui.label.section_materials": "Acciones de materiales",
   "syncmaterial.gui.title.remove_deputy": "Eliminar subpropietarios",
   "syncmaterial.gui.hint.remove_deputy": "Selecciona los subpropietarios a eliminar",
   "syncmaterial.gui.label.management_desc": "Los propietarios gestionan las reclamaciones y asignaciones de materiales. El propietario principal tiene control total: puede transferir la propiedad y añadir o quitar propietarios adjuntos. Los propietarios adjuntos pueden asignar materiales por lotes y expulsar jugadores. Activa «Reclamación automática» para que cualquier jugador pueda reclamar materiales.",

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import fi.dy.masa.malilib.render.GuiContext;
+import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
@@ -77,8 +78,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     @Override
     protected int getBrowserWidth() {
-        // owner 时右侧让出管理栏（Litematica GuiPlacementConfiguration 同款双栏布局）
-        return isOwner ? this.getScreenWidth() - MGMT_PANEL_W - 30 : this.getScreenWidth() - 20;
+        // owner 时右侧让出管理栏 + 面板边框（Litematica GuiPlacementConfiguration 同款双栏布局）
+        return isOwner ? this.getScreenWidth() - MGMT_PANEL_W - MGMT_PAD * 2 - 26
+                       : this.getScreenWidth() - 20;
     }
 
     @Override
@@ -213,81 +215,108 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     // ========== 右侧管理栏（Litematica 放置配置同款双栏布局）==========
 
-    private static final int MGMT_PANEL_W = 150;
+    private static final int MGMT_PANEL_W = 160;
+    /** 面板内容与边框的间距 */
+    private static final int MGMT_PAD = 6;
     /** 副负责人平铺上限：超过则折叠成「还有 N 位…」按钮，点击弹批量移除弹窗 */
     private static final int MGMT_DEPUTY_SHOWN = 4;
+
+    /** 面板底边（initGui 布局时算出，drawScreenBackground 据此画框；-1 表示无右栏） */
+    private int mgmtPanelBottom = -1;
+    /** 区块分隔线的 y 坐标（同上，随布局产生） */
+    private final List<Integer> mgmtDividerYs = new ArrayList<>();
 
     /**
      * 右栏全部用 malilib 标准控件（addLabel / ButtonGeneric / ButtonOnOff）按绝对坐标
      * 竖排——与 Litematica GuiPlacementConfiguration 的右栏做法一致。
+     *
+     * 布局三条规矩，都是为了避免中文标签把按钮挤出面板：
+     * 1. 文本各占一行，按钮各占一行，不并排（副负责人的 × 除外，它只有 14px）
+     * 2. 所有主按钮统一整栏宽，左右边缘对齐
+     * 3. 区块间画分隔线，配合面板边框形成视觉分组
+     *
      * 唯一动态文本「已选 N 种材料」在 drawContents 每帧现画，勾选变化无需重建。
      */
     private void createManagementPanel() {
         int x = this.getScreenWidth() - MGMT_PANEL_W - 10;
         int w = MGMT_PANEL_W;
-        int y = 44; // 与列表顶对齐
+        int y = 44 + MGMT_PAD;
+        this.mgmtDividerYs.clear();
 
-        this.addLabel(x, y, w, 14, 0xFFE0E0E0,
+        this.addLabel(x, y, w, 12, 0xFFFFFFFF,
                 StringUtils.translate("syncmaterial.gui.title.management"));
-        y += 18;
+        y += 16;
+        this.mgmtDividerYs.add(y);
+        y += 6;
 
-        // 主负责人
-        String ownerLabel = StringUtils.translate("syncmaterial.gui.label.main_owner", ownerName);
-        this.addLabel(x, y, w - 60, 12, 0xFF55FF55, ownerLabel);
+        // ---- 负责人区 ----
+        this.addLabel(x, y, w, 10, 0xFF888888,
+                StringUtils.translate("syncmaterial.gui.label.section_owner"));
+        y += 13;
+
+        this.addLabel(x, y, w, 12, 0xFF55FF55,
+                StringUtils.translate("syncmaterial.gui.label.main_owner", ownerName));
+        y += 14;
+
         if (isMainOwner) {
-            ButtonGeneric transferBtn = new ButtonGeneric(x + w, y - 4, -1, true,
+            ButtonGeneric transferBtn = new ButtonGeneric(x, y, w, 18,
                     StringUtils.translate("syncmaterial.gui.button.transfer"));
             this.addButton(transferBtn, (btn, mouseBtn) -> openTransfer());
+            y += 21;
         }
-        y += 18;
 
-        // 副负责人：前 N 个平铺（名字 + ×），超过折叠
+        // 副负责人：前 N 个平铺（名字 + ×），超过折叠成批量移除按钮
         List<String> deputies = this.deputyOwners;
         int shown = Math.min(deputies.size(), MGMT_DEPUTY_SHOWN);
         if (deputies.isEmpty()) {
             this.addLabel(x, y, w, 12, 0xFFA0A0A0,
                     StringUtils.translate("syncmaterial.gui.label.deputy_owner_none"));
-            y += 16;
+            y += 15;
         } else {
             for (int i = 0; i < shown; i++) {
                 String deputy = deputies.get(i);
-                this.addLabel(x, y, w - 30, 12, 0xFF55FF55,
+                this.addLabel(x, y, w - 18, 12, 0xFF55FF55,
                         StringUtils.translate("syncmaterial.gui.label.deputy_owner", deputy));
                 if (isMainOwner) {
-                    ButtonGeneric delBtn = new ButtonGeneric(x + w, y - 4, -1, true, GuiBase.TXT_RED + "×");
+                    ButtonGeneric delBtn = new ButtonGeneric(x + w - 14, y - 2, 14, 14, GuiBase.TXT_RED + "×");
                     this.addButton(delBtn, (btn, mouseBtn) -> removeDeputy(deputy));
                 }
-                y += 16;
+                y += 15;
             }
             if (deputies.size() > MGMT_DEPUTY_SHOWN && isMainOwner) {
-                ButtonGeneric moreBtn = new ButtonGeneric(x, y, -1, false,
+                ButtonGeneric moreBtn = new ButtonGeneric(x, y, w, 18,
                         StringUtils.translate("syncmaterial.gui.label.more_deputies", deputies.size() - shown));
                 this.addButton(moreBtn, (btn, mouseBtn) -> openRemoveDeputies());
-                y += 20;
+                y += 21;
             }
         }
 
         if (isMainOwner) {
-            ButtonGeneric addBtn = new ButtonGeneric(x, y, -1, false,
+            ButtonGeneric addBtn = new ButtonGeneric(x, y, w, 18,
                     StringUtils.translate("syncmaterial.gui.button.add_deputy"));
             this.addButton(addBtn, (btn, mouseBtn) -> openAddDeputy());
-            y += 22;
+            y += 21;
         }
 
-        y += 6;
-
-        // 自行认领开关（malilib 现成组件）
+        // 自行认领开关（malilib 现成组件，自带 开/关 着色）
         ButtonOnOff claimBtn = new ButtonOnOff(x, y, w, false,
                 "syncmaterial.gui.label.self_claim", allowSelfClaim);
         this.addButton(claimBtn, (btn, mouseBtn) -> toggleSelfClaim());
-        y += 26;
+        y += 24;
 
-        // 材料操作区：动态文本「已选 N 种材料」（勾选随时变，drawContents 现画），
-        // 记录 y 供渲染定位
-        y += 8;
+        this.mgmtDividerYs.add(y);
+        y += 6;
+
+        // ---- 材料操作区 ----
+        this.addLabel(x, y, w, 10, 0xFF888888,
+                StringUtils.translate("syncmaterial.gui.label.section_materials"));
+        y += 13;
+
+        // 动态文本「已选 N 种材料」：勾选随时变，记录 y 交给 drawContents 现画
         this.mgmtSelectedLabelY = y;
-        y += 16;
-        ButtonGeneric assignBtn = new ButtonGeneric(x, y, -1, false,
+        y += 15;
+
+        ButtonGeneric assignBtn = new ButtonGeneric(x, y, w, 18,
                 StringUtils.translate("syncmaterial.gui.button.assign_to"));
         this.addButton(assignBtn, (btn, mouseBtn) -> {
             if (selectedMaterialIds.isEmpty()) {
@@ -296,9 +325,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             }
             openAssignDialog();
         });
-        y += 22;
+        y += 21;
 
-        ButtonGeneric kickBtn = new ButtonGeneric(x, y, -1, false,
+        ButtonGeneric kickBtn = new ButtonGeneric(x, y, w, 18,
                 StringUtils.translate("syncmaterial.gui.button.kick"));
         this.addButton(kickBtn, (btn, mouseBtn) -> {
             if (selectedMaterialIds.isEmpty()) {
@@ -307,6 +336,34 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             }
             openKickDialog();
         });
+        y += 18;
+
+        this.mgmtPanelBottom = y + MGMT_PAD;
+    }
+
+    /**
+     * 面板边框与分隔线。画在背景层：GuiBase.render 先调本方法，再画 widget 与按钮，
+     * 因此框体一定在按钮下方，不会盖住它们。
+     */
+    @Override
+    protected void drawScreenBackground(GuiContext drawContext, int mouseX, int mouseY) {
+        super.drawScreenBackground(drawContext, mouseX, mouseY);
+
+        if (!isOwner || this.mgmtPanelBottom < 0) {
+            return;
+        }
+
+        int x = this.getScreenWidth() - MGMT_PANEL_W - 10 - MGMT_PAD;
+        int w = MGMT_PANEL_W + MGMT_PAD * 2;
+        int top = 44;
+        int h = this.mgmtPanelBottom - top;
+
+        // 与 malilib 弹窗同款配色：半透明黑底 + 浅灰描边
+        RenderUtils.drawOutlinedBox(drawContext, x, top, w, h, 0xC0000000, GuiBase.COLOR_HORIZONTAL_BAR);
+
+        for (int dividerY : this.mgmtDividerYs) {
+            RenderUtils.drawRect(drawContext, x + 4, dividerY, w - 8, 1, 0x60FFFFFF);
+        }
     }
 
     /** 副负责人数量超过右栏平铺上限（折叠成「还有 N 位…」按钮的条件） */

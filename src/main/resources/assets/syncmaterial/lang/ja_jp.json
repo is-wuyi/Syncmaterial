@@ -15,6 +15,8 @@
   "syncmaterial.gui.label.deputy_owner_none": "副所有者: なし",
   "syncmaterial.gui.label.more_deputies": "他 %d 名…",
   "syncmaterial.gui.label.materials_selected_count": "%d 種類の材料を選択中",
+  "syncmaterial.gui.label.section_owner": "責任者",
+  "syncmaterial.gui.label.section_materials": "材料操作",
   "syncmaterial.gui.title.remove_deputy": "副リーダーの削除",
   "syncmaterial.gui.hint.remove_deputy": "削除する副リーダーを選択",
   "syncmaterial.gui.label.management_desc": "所有者は材料の請求と割り当てを管理できます。主所有者は全権限を持ち、所有権の譲渡や副所有者の追加・削除が可能です。副所有者は材料の一括割り当てとプレイヤーのキックが可能です。「自主請求」を有効にすると、どのプレイヤーも材料を請求できるようになります。",
