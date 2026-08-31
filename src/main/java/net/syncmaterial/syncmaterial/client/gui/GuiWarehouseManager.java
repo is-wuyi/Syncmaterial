@@ -43,6 +43,12 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
         return this.warehouses;
     }
 
+    /** 测试入口：设置待创建仓库名。真实流程由文本弹窗的 setString 写入 */
+    public void setPendingWarehouseNameForTest(String name)
+    {
+        this.pendingWarehouseName = name;
+    }
+
     @Override
     protected WidgetListWarehouses createListWidget(int listX, int listY)
     {
