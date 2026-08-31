@@ -15,6 +15,8 @@
   "syncmaterial.gui.label.deputy_owner_none": "Stellvertreter: keiner",
   "syncmaterial.gui.label.more_deputies": "%d weitere...",
   "syncmaterial.gui.label.materials_selected_count": "%d Materialien ausgewählt",
+  "syncmaterial.gui.label.section_owner": "Verantwortliche",
+  "syncmaterial.gui.label.section_materials": "Materialaktionen",
   "syncmaterial.gui.title.remove_deputy": "Stellvertreter entfernen",
   "syncmaterial.gui.hint.remove_deputy": "Zu entfernende Stellvertreter auswählen",
   "syncmaterial.gui.label.management_desc": "Besitzer verwalten die Anforderung und Zuweisung von Materialien. Hauptbesitzer haben volle Kontrolle: Besitz übertragen sowie Stellvertreter hinzufügen und entfernen. Stellvertreter können Materialien in Masse zuweisen und Spieler kicken. Aktiviere „Selbstanforderung“, damit jeder Spieler selbst Materialien anfordern kann.",
