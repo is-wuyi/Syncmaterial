@@ -19,6 +19,10 @@
   "syncmaterial.gui.label.main_owner": "主负责人: %s",
   "syncmaterial.gui.label.deputy_owner": "副负责人: %s",
   "syncmaterial.gui.label.deputy_owner_none": "副负责人: 无",
+  "syncmaterial.gui.label.more_deputies": "还有 %d 位…",
+  "syncmaterial.gui.label.materials_selected_count": "已选 %d 种材料",
+  "syncmaterial.gui.title.remove_deputy": "移除副负责人",
+  "syncmaterial.gui.hint.remove_deputy": "勾选要移除的副负责人",
   "syncmaterial.gui.label.management_desc": "负责人可以管理材料的认领与分配。主负责人拥有全部管理权限，可转让负责人、添加/移除副负责人。副负责人可以批量分配材料和踢出玩家。开启「自行认领」后，所有玩家可以自行认领材料。",
   "syncmaterial.gui.label.no_matching_player": "没有匹配的玩家",
   "syncmaterial.gui.label.players_selected": "%d 位玩家",
@@ -177,7 +181,6 @@
   "syncmaterial.config.name.top_right": "右上",
   "syncmaterial.config.name.bottom_left": "左下",
   "syncmaterial.config.name.bottom_right": "右下",
-
   "syncmaterial.message.protocol.client_too_old": "你的 SyncMaterial 版本过旧，无法在此服务器使用。服务端版本：%s，请更新后重新进入。",
   "syncmaterial.message.protocol.server_newer": "服务端的 SyncMaterial 版本较新（%s），部分新功能在你的客户端上不可用，建议更新。",
   "syncmaterial.message.protocol.server_too_old": "服务端的 SyncMaterial 版本较旧（%s），此功能不可用。"

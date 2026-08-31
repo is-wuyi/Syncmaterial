@@ -82,13 +82,11 @@ public class ModNetworkHandlerClient {
             });
         });
 
-        // Phase 4: 负责人操作响应（管理弹窗打开中 → 弹窗；无弹窗 → 材料列表兜底更新数据）
+        // Phase 4: 负责人操作响应（选择弹窗打开中 → 弹窗；否则 → 材料列表右栏兜底）
         ClientPlayNetworking.registerGlobalReceiver(OwnerActionResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiOwnerManagementDialog mgmt) {
-                    mgmt.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
-                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
                     select.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
                 } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());

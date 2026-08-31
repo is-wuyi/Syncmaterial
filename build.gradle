@@ -12,6 +12,7 @@ if (minecraft_mapping == 'none') {
 }
 
 version = "${minecraft_version}-${mod_version}"
+
 group = "net.syncmaterial"
 
 base {
