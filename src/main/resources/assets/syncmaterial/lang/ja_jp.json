@@ -13,6 +13,10 @@
   "syncmaterial.gui.label.main_owner": "主所有者: %s",
   "syncmaterial.gui.label.deputy_owner": "副所有者: %s",
   "syncmaterial.gui.label.deputy_owner_none": "副所有者: なし",
+  "syncmaterial.gui.label.more_deputies": "他 %d 名…",
+  "syncmaterial.gui.label.materials_selected_count": "%d 種類の材料を選択中",
+  "syncmaterial.gui.title.remove_deputy": "副リーダーの削除",
+  "syncmaterial.gui.hint.remove_deputy": "削除する副リーダーを選択",
   "syncmaterial.gui.label.management_desc": "所有者は材料の請求と割り当てを管理できます。主所有者は全権限を持ち、所有権の譲渡や副所有者の追加・削除が可能です。副所有者は材料の一括割り当てとプレイヤーのキックが可能です。「自主請求」を有効にすると、どのプレイヤーも材料を請求できるようになります。",
   "syncmaterial.gui.label.no_matching_player": "該当するプレイヤーはいません",
   "syncmaterial.gui.label.players_selected": "%d 人のプレイヤー",
@@ -155,7 +159,6 @@
   "syncmaterial.config.name.top_right": "右上",
   "syncmaterial.config.name.bottom_left": "左下",
   "syncmaterial.config.name.bottom_right": "右下",
-
   "syncmaterial.message.protocol.client_too_old": "SyncMaterial のバージョンが古いため、このサーバーでは利用できません。サーバー側のバージョン: %s。更新してから再接続してください。",
   "syncmaterial.message.protocol.server_newer": "サーバー側の SyncMaterial が新しいバージョン (%s) です。一部の新機能はこのクライアントでは利用できません。更新を推奨します。",
   "syncmaterial.message.protocol.server_too_old": "サーバー側の SyncMaterial が古いバージョン (%s) のため、この機能は利用できません。"

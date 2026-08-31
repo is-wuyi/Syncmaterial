@@ -8,23 +8,23 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerCon
 import net.minecraft.client.MinecraftClient;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
-import net.syncmaterial.syncmaterial.client.gui.GuiOwnerManagementDialog;
 import net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 
 /**
- * 负责人管理弹窗端到端测试（标准 MaLiLib 弹窗重构后的行为锁定）。
+ * 右侧管理栏端到端测试（Litematica 双栏布局重构后的行为锁定）。
  *
- * 覆盖整条链路：管理弹窗按钮 → C2S 包 → 服务端数据库变更 → S2C 响应 →
- * receiver 路由回弹窗 → 数据真身（GuiMaterialList）刷新。
+ * 覆盖整条链路：右栏动作 → C2S 包 → 服务端数据库变更 → S2C 响应 →
+ * receiver 路由 → 数据真身（GuiMaterialList）刷新 + 右栏重建。
  *
- * 玩家选择弹窗走真实网络流：构造时发的 PlayerListRequest 会得到服务端
- * 真实响应（含在线的 Player0），弹窗由 receiver 路由自动填充 —— 不 mock
- * 任何环节。转让流程还验证单选语义（选第二个玩家应替换第一个）。
+ * 玩家选择弹窗走真实网络流：打开时发的 PlayerListRequest 得到服务端
+ * 真实响应，弹窗由 receiver 路由自动填充。REMOVE_DEPUTY 模式例外——
+ * 名单由客户端当前副负责人预填（服务端玩家列表不含离线副负责人），
+ * 测试验证它不打网络请求即已就绪。
  *
- * 测试钩子说明：openTransfer / openAddDeputy / toggleSelfClaim /
- * removeDeputy / selectPlayer / confirmSelection 都与对应按钮的 lambda
- * 或条目点击是同一方法，不存在第二条被测路径。
+ * 测试钩子说明：toggleSelfClaim / removeDeputy / openTransfer /
+ * openAddDeputy / openRemoveDeputies / selectPlayer / confirmSelection
+ * 都与右栏按钮或条目点击是同一方法，不存在第二条被测路径。
  */
 public class OwnerManagementClientGameTest implements FabricClientGameTest {
 
@@ -39,7 +39,7 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
 
             insertSchematic(server, schematicId, "Player0");
 
-            // 打开材料列表（isOwner/isMainOwner=true，ownerName=Player0）
+            // 打开材料列表（isOwner/isMainOwner=true，右栏在 initGui 里构建）
             ctx.runOnClient(client -> client.setScreen(new GuiMaterialList(
                 schematicId, "OwnerMgmtTest", List.of(), true, true, "Player0", List.of(), true)));
             ctx.waitTicks(10);
@@ -50,36 +50,23 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("材料列表界面未打开");
             }
 
-            // ===== 1. 打开管理弹窗（真实路径）=====
-            ctx.runOnClient(client ->
-                fi.dy.masa.malilib.gui.GuiBase.openGui(new GuiOwnerManagementDialog(materialList)));
-            ctx.waitTicks(5);
-
-            // ===== 2. 自行认领开关：发包 → 服务端翻转 → 响应回流刷新数据真身 =====
-            ctx.runOnClient(client -> {
-                if (currentScreen() instanceof GuiOwnerManagementDialog d) d.toggleSelfClaim();
-                else throw new AssertionError("管理弹窗未打开");
-            });
+            // ===== 1. 自行认领开关：右栏按钮 → 服务端翻转 → 响应回流刷新 =====
+            ctx.runOnClient(client -> materialList.toggleSelfClaim());
             ctx.waitTicks(10);
 
-            // 服务端：初始 true，翻转一次后应为 false
             Boolean allowClaim = onDatabase(server, db -> db.getAllowSelfClaim(schematicId));
             if (!Boolean.FALSE.equals(allowClaim)) {
                 throw new AssertionError("开关发包后服务端 allow_self_claim 应为 false，实际为 " + allowClaim);
             }
-            // 客户端：OwnerActionResponse 回流后数据真身也应刷新
+            // 兜底回调路径：currentScreen 是列表本身，updateOwnerState 重建右栏
             boolean clientKnows = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
-                !materialList.isAllowSelfClaim()));
+                currentScreen() instanceof GuiMaterialList m && !m.isAllowSelfClaim()));
             if (!clientKnows) {
                 throw new AssertionError("响应回流后客户端 allowSelfClaim 未刷新为 false");
             }
 
-            // ===== 3. 添加副负责人：弹窗 → 选择弹窗（真实响应）→ 选择 → 确认 =====
-            ctx.runOnClient(client -> {
-                if (currentScreen() instanceof GuiOwnerManagementDialog d) d.openAddDeputy();
-                else throw new AssertionError("管理弹窗未打开，无法打开添加副负责人");
-            });
-            // 等真实 PlayerListResponse 到达（服务端返回在线玩家列表）
+            // ===== 2. 添加副负责人：右栏按钮 → 选择弹窗（真实响应）→ 确认 =====
+            ctx.runOnClient(client -> materialList.openAddDeputy());
             boolean listLoaded = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
                 currentScreen() instanceof GuiPlayerSelectDialog s && s.hasLoadedPlayers()));
             if (!listLoaded) {
@@ -96,24 +83,20 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
             });
             ctx.waitTicks(15);
 
-            // 服务端：副负责人已入库
             List<String> deputies = onDatabase(server, db -> db.getDeputyOwners(schematicId));
             if (!deputies.contains("DeputyA")) {
                 throw new AssertionError("确认后服务端 deputy_owners 应含 DeputyA，实际为 " + deputies);
             }
-            // 客户端：成功响应应关闭选择弹窗并回到管理界面，数据真身刷新
-            Boolean backToMgmt = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
-                currentScreen() instanceof GuiOwnerManagementDialog
-                    && materialList.getDeputyOwners().contains("DeputyA")));
-            if (!backToMgmt) {
-                throw new AssertionError("添加副负责人成功后未回到管理界面或数据未刷新");
+            // 成功后回材料列表，数据真身已刷新
+            Boolean backToList = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                currentScreen() instanceof GuiMaterialList m
+                    && m.getDeputyOwners().contains("DeputyA")));
+            if (!backToList) {
+                throw new AssertionError("添加副负责人成功后未回到材料列表或数据未刷新");
             }
 
-            // ===== 4. 移除副负责人：× 按钮路径 =====
-            ctx.runOnClient(client -> {
-                if (currentScreen() instanceof GuiOwnerManagementDialog d) d.removeDeputy("DeputyA");
-                else throw new AssertionError("管理弹窗未打开，无法移除副负责人");
-            });
+            // ===== 3. 移除副负责人：右栏 × 按钮路径（无弹窗）=====
+            ctx.runOnClient(client -> materialList.removeDeputy("DeputyA"));
             ctx.waitTicks(10);
 
             List<String> deputiesAfter = onDatabase(server, db -> db.getDeputyOwners(schematicId));
@@ -121,11 +104,8 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("移除后服务端 deputy_owners 仍含 DeputyA: " + deputiesAfter);
             }
 
-            // ===== 5. 转让：选择弹窗单选语义 + 服务端主负责人变更 =====
-            ctx.runOnClient(client -> {
-                if (currentScreen() instanceof GuiOwnerManagementDialog d) d.openTransfer();
-                else throw new AssertionError("管理弹窗未打开，无法打开转让");
-            });
+            // ===== 4. 转让：弹窗单选语义 + 服务端主负责人变更 =====
+            ctx.runOnClient(client -> materialList.openTransfer());
             boolean transferLoaded = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
                 currentScreen() instanceof GuiPlayerSelectDialog s && s.hasLoadedPlayers()));
             if (!transferLoaded) {
@@ -147,10 +127,72 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
             });
             ctx.waitTicks(15);
 
-            // 服务端：主负责人已变更为最终选择的玩家
             String uploadedBy = onDatabase(server, db -> db.getUploadedBy(schematicId));
             if (!"SecondPick".equals(uploadedBy)) {
                 throw new AssertionError("转让后服务端主负责人应为 SecondPick，实际为 " + uploadedBy);
+            }
+
+            // 转让后本人不再是主负责人——回列表验证 isMainOwner 已翻转（右栏转让/移除按钮应消失）
+            Boolean ownershipSynced = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                currentScreen() instanceof GuiMaterialList m && !m.isMainOwner()));
+            if (!ownershipSynced) {
+                throw new AssertionError("转让后客户端 isMainOwner 未刷新为 false");
+            }
+
+            // ===== 5. 副负责人溢出：超上限折叠 + 批量移除弹窗（预设名单）=====
+            // 先把主负责人改回 Player0（第 4 步已转让出去，服务端直改数据库恢复测试条件）
+            onDatabase(server, db -> {
+                db.executeUpdate("UPDATE schematics SET uploaded_by = 'Player0' WHERE id = ?", schematicId);
+                return null;
+            });
+            // 重新打开界面（isMainOwner 按构造参数仍为 true，与真实场景一致：
+            // 玩家刷新列表时服务端会下发最新负责人身份）
+            ctx.runOnClient(client -> client.setScreen(new GuiMaterialList(
+                schematicId, "OwnerMgmtTest", List.of(), true, true, "Player0", List.of(), true)));
+            ctx.waitTicks(10);
+            GuiMaterialList freshList = ctx.computeOnClient(client ->
+                MinecraftClient.getInstance().currentScreen instanceof GuiMaterialList m ? m : null);
+
+            // 服务端预置 6 个副负责人（超过平铺上限 4），刷新客户端数据
+            onDatabase(server, db -> {
+                for (String name : List.of("D1", "D2", "D3", "D4", "D5", "D6")) {
+                    db.addDeputyOwner(schematicId, name);
+                }
+                return null;
+            });
+            ctx.runOnClient(client -> freshList.updateOwnerState("Player0",
+                List.of("D1", "D2", "D3", "D4", "D5", "D6"), true));
+            ctx.waitTicks(5);
+
+            if (!freshList.hasDeputyOverflow()) {
+                throw new AssertionError("6 个副负责人应触发溢出折叠");
+            }
+
+            // 批量移除弹窗：预设名单，不发请求即就绪
+            ctx.runOnClient(client -> freshList.openRemoveDeputies());
+            boolean presetReady = ctx.computeOnClient(client ->
+                currentScreen() instanceof GuiPlayerSelectDialog s && s.hasLoadedPlayers());
+            if (!presetReady) {
+                throw new AssertionError("移除弹窗的预设副负责人名单未就绪");
+            }
+
+            ctx.runOnClient(client -> {
+                if (currentScreen() instanceof GuiPlayerSelectDialog s) {
+                    s.selectPlayer("D5");
+                    s.selectPlayer("D6");
+                    s.confirmSelection();
+                } else {
+                    throw new AssertionError("移除弹窗未打开");
+                }
+            });
+            ctx.waitTicks(15);
+
+            List<String> deputiesFinal = onDatabase(server, db -> db.getDeputyOwners(schematicId));
+            if (deputiesFinal.contains("D5") || deputiesFinal.contains("D6")) {
+                throw new AssertionError("批量移除后服务端仍含 D5/D6: " + deputiesFinal);
+            }
+            if (deputiesFinal.size() != 4) {
+                throw new AssertionError("批量移除后应剩 4 位副负责人，实际为 " + deputiesFinal);
             }
 
             // 清理

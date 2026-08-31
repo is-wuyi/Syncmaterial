@@ -19,6 +19,10 @@
   "syncmaterial.gui.label.main_owner": "Main Owner: %s",
   "syncmaterial.gui.label.deputy_owner": "Deputy Owner: %s",
   "syncmaterial.gui.label.deputy_owner_none": "Deputy Owner: None",
+  "syncmaterial.gui.label.more_deputies": "%d more...",
+  "syncmaterial.gui.label.materials_selected_count": "%d materials selected",
+  "syncmaterial.gui.title.remove_deputy": "Remove Deputy Owners",
+  "syncmaterial.gui.hint.remove_deputy": "Select deputy owners to remove",
   "syncmaterial.gui.label.management_desc": "Owners manage material claims and assignments. Main owners have full control: transfer ownership and add/remove deputy owners. Deputy owners can batch-assign materials and kick players. Enable 'Self Claim' to let any player claim materials on their own.",
   "syncmaterial.gui.label.no_matching_player": "No matching players",
   "syncmaterial.gui.label.players_selected": "%d player(s)",
@@ -177,7 +181,6 @@
   "syncmaterial.config.name.top_right": "Top Right",
   "syncmaterial.config.name.bottom_left": "Bottom Left",
   "syncmaterial.config.name.bottom_right": "Bottom Right",
-
   "syncmaterial.message.protocol.client_too_old": "Your SyncMaterial version is too old for this server. Server version: %s. Please update and rejoin.",
   "syncmaterial.message.protocol.server_newer": "The server runs a newer SyncMaterial (%s). Some new features are unavailable on your client; updating is recommended.",
   "syncmaterial.message.protocol.server_too_old": "The server runs an older SyncMaterial (%s); this feature is unavailable."

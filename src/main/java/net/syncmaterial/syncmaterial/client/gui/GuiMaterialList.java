@@ -7,8 +7,10 @@ import net.minecraft.client.gui.DrawContext;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiListBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
+import fi.dy.masa.malilib.gui.button.ButtonOnOff;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
+import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
 import net.syncmaterial.syncmaterial.network.RescanStagingAreaC2SPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -28,6 +30,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessWarnings = java.util.Collections.emptyList();
     private List<Integer> selectedMaterialIds = new ArrayList<>();
     private static boolean stagingRenderEnabled = true;
+    /** 右栏「已选 N 种材料」动态文本的 y 坐标（initGui 布局时写入，非 owner 为 -1 不画） */
+    private int mgmtSelectedLabelY = -1;
 
     public GuiMaterialList(String schematicId, String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         super(10, 44);
@@ -72,15 +76,15 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public List<Integer> getSelectedMaterialIds() { return selectedMaterialIds; }
 
     @Override
-    protected int getBrowserWidth() { return this.getScreenWidth() - 20; }
+    protected int getBrowserWidth() {
+        // owner 时右侧让出管理栏（Litematica GuiPlacementConfiguration 同款双栏布局）
+        return isOwner ? this.getScreenWidth() - MGMT_PANEL_W - 30 : this.getScreenWidth() - 20;
+    }
 
     @Override
     protected int getBrowserHeight() {
-        // createBottomButtons 中 y = 48 + browserHeight + 4，按钮高20px，需在热键栏上方 12px
-        // 倒推：48 + browserHeight + 4 + 20 + 12 = screenHeight - 44  →  browserHeight = screenHeight - 128 → bottomMargin=128（含头部34px）
-        // 非 owner 无底部按钮，列表延伸到热键栏顶部 → bottomMargin = 44
-        int bottomMargin = isOwner ? 128 : 44;
-        return this.getScreenHeight() - bottomMargin;
+        // 分配/踢出按钮已移入右栏，列表可延伸到热键栏上方
+        return this.getScreenHeight() - 44;
     }
 
     @Override
@@ -103,10 +107,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         x -= this.createButtonStagingArea(x, 24) + gap;
         x -= this.createButtonFilterMyMaterials(x, 24) + gap;
         if (isOwner) {
-            x -= this.createButtonManagement(x, 24);
-        }
-        if (isOwner) {
-            this.createBottomButtons();
+            this.createManagementPanel();
         }
         this.materialList.requestCollaborationStatus();
         // 自动订阅备货区更新，使协作者能看到游戏内线框渲染
@@ -210,41 +211,137 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         return button.getWidth();
     }
 
-    private int createButtonManagement(int x, int y) {
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, StringUtils.translate("syncmaterial.gui.button.manage"));
-        this.addButton(button, (btn, mouseButton) ->
-                fi.dy.masa.malilib.gui.GuiBase.openGui(new GuiOwnerManagementDialog(this)));
-        return button.getWidth();
+    // ========== 右侧管理栏（Litematica 放置配置同款双栏布局）==========
+
+    private static final int MGMT_PANEL_W = 150;
+    /** 副负责人平铺上限：超过则折叠成「还有 N 位…」按钮，点击弹批量移除弹窗 */
+    private static final int MGMT_DEPUTY_SHOWN = 4;
+
+    /**
+     * 右栏全部用 malilib 标准控件（addLabel / ButtonGeneric / ButtonOnOff）按绝对坐标
+     * 竖排——与 Litematica GuiPlacementConfiguration 的右栏做法一致。
+     * 唯一动态文本「已选 N 种材料」在 drawContents 每帧现画，勾选变化无需重建。
+     */
+    private void createManagementPanel() {
+        int x = this.getScreenWidth() - MGMT_PANEL_W - 10;
+        int w = MGMT_PANEL_W;
+        int y = 44; // 与列表顶对齐
+
+        this.addLabel(x, y, w, 14, 0xFFE0E0E0,
+                StringUtils.translate("syncmaterial.gui.title.management"));
+        y += 18;
+
+        // 主负责人
+        String ownerLabel = StringUtils.translate("syncmaterial.gui.label.main_owner", ownerName);
+        this.addLabel(x, y, w - 60, 12, 0xFF55FF55, ownerLabel);
+        if (isMainOwner) {
+            ButtonGeneric transferBtn = new ButtonGeneric(x + w, y - 4, -1, true,
+                    StringUtils.translate("syncmaterial.gui.button.transfer"));
+            this.addButton(transferBtn, (btn, mouseBtn) -> openTransfer());
+        }
+        y += 18;
+
+        // 副负责人：前 N 个平铺（名字 + ×），超过折叠
+        List<String> deputies = this.deputyOwners;
+        int shown = Math.min(deputies.size(), MGMT_DEPUTY_SHOWN);
+        if (deputies.isEmpty()) {
+            this.addLabel(x, y, w, 12, 0xFFA0A0A0,
+                    StringUtils.translate("syncmaterial.gui.label.deputy_owner_none"));
+            y += 16;
+        } else {
+            for (int i = 0; i < shown; i++) {
+                String deputy = deputies.get(i);
+                this.addLabel(x, y, w - 30, 12, 0xFF55FF55,
+                        StringUtils.translate("syncmaterial.gui.label.deputy_owner", deputy));
+                if (isMainOwner) {
+                    ButtonGeneric delBtn = new ButtonGeneric(x + w, y - 4, -1, true, GuiBase.TXT_RED + "×");
+                    this.addButton(delBtn, (btn, mouseBtn) -> removeDeputy(deputy));
+                }
+                y += 16;
+            }
+            if (deputies.size() > MGMT_DEPUTY_SHOWN && isMainOwner) {
+                ButtonGeneric moreBtn = new ButtonGeneric(x, y, -1, false,
+                        StringUtils.translate("syncmaterial.gui.label.more_deputies", deputies.size() - shown));
+                this.addButton(moreBtn, (btn, mouseBtn) -> openRemoveDeputies());
+                y += 20;
+            }
+        }
+
+        if (isMainOwner) {
+            ButtonGeneric addBtn = new ButtonGeneric(x, y, -1, false,
+                    StringUtils.translate("syncmaterial.gui.button.add_deputy"));
+            this.addButton(addBtn, (btn, mouseBtn) -> openAddDeputy());
+            y += 22;
+        }
+
+        y += 6;
+
+        // 自行认领开关（malilib 现成组件）
+        ButtonOnOff claimBtn = new ButtonOnOff(x, y, w, false,
+                "syncmaterial.gui.label.self_claim", allowSelfClaim);
+        this.addButton(claimBtn, (btn, mouseBtn) -> toggleSelfClaim());
+        y += 26;
+
+        // 材料操作区：动态文本「已选 N 种材料」（勾选随时变，drawContents 现画），
+        // 记录 y 供渲染定位
+        y += 8;
+        this.mgmtSelectedLabelY = y;
+        y += 16;
+        ButtonGeneric assignBtn = new ButtonGeneric(x, y, -1, false,
+                StringUtils.translate("syncmaterial.gui.button.assign_to"));
+        this.addButton(assignBtn, (btn, mouseBtn) -> {
+            if (selectedMaterialIds.isEmpty()) {
+                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
+                return;
+            }
+            openAssignDialog();
+        });
+        y += 22;
+
+        ButtonGeneric kickBtn = new ButtonGeneric(x, y, -1, false,
+                StringUtils.translate("syncmaterial.gui.button.kick"));
+        this.addButton(kickBtn, (btn, mouseBtn) -> {
+            if (selectedMaterialIds.isEmpty()) {
+                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
+                return;
+            }
+            openKickDialog();
+        });
     }
 
-    private void createBottomButtons() {
-        int listBottom = 48 + this.getBrowserHeight();
-        int y = listBottom + 4;
+    /** 副负责人数量超过右栏平铺上限（折叠成「还有 N 位…」按钮的条件） */
+    public boolean hasDeputyOverflow() {
+        return this.deputyOwners.size() > MGMT_DEPUTY_SHOWN;
+    }
 
-        // 先计算总宽度以居中
-        ButtonGeneric tmpAssign = new ButtonGeneric(0, 0, -1, false, StringUtils.translate("syncmaterial.gui.button.assign_to"));
-        ButtonGeneric tmpKick = new ButtonGeneric(0, 0, -1, false, StringUtils.translate("syncmaterial.gui.button.kick"));
-        int totalWidth = tmpAssign.getWidth() + 2 + tmpKick.getWidth();
-        int x = (this.getScreenWidth() - totalWidth) / 2;
+    // ========== 管理动作（测试钩子与右栏按钮走同一方法）==========
 
-        ButtonGeneric btnAssign = new ButtonGeneric(x, y, -1, false, StringUtils.translate("syncmaterial.gui.button.assign_to"));
-        this.addButton(btnAssign, (btn, mouseButton) -> {
-            if (selectedMaterialIds.isEmpty()) {
-                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
-                return;
-            }
-            fi.dy.masa.malilib.gui.GuiBase.openGui(new GuiPlayerSelectDialog(this, "ASSIGN", this));
-        });
-        x += btnAssign.getWidth() + 2;
+    public void openTransfer() {
+        GuiBase.openGui(new GuiPlayerSelectDialog(this, "TRANSFER", this));
+    }
 
-        ButtonGeneric btnKick = new ButtonGeneric(x, y, -1, false, StringUtils.translate("syncmaterial.gui.button.kick"));
-        this.addButton(btnKick, (btn, mouseButton) -> {
-            if (selectedMaterialIds.isEmpty()) {
-                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
-                return;
-            }
-            fi.dy.masa.malilib.gui.GuiBase.openGui(new GuiPlayerSelectDialog(this, "KICK", this));
-        });
+    public void openAddDeputy() {
+        GuiBase.openGui(new GuiPlayerSelectDialog(this, "ADD_DEPUTY", this));
+    }
+
+    public void openRemoveDeputies() {
+        GuiBase.openGui(GuiPlayerSelectDialog.forDeputyRemoval(this, this));
+    }
+
+    public void openAssignDialog() {
+        GuiBase.openGui(new GuiPlayerSelectDialog(this, "ASSIGN", this));
+    }
+
+    public void openKickDialog() {
+        GuiBase.openGui(new GuiPlayerSelectDialog(this, "KICK", this));
+    }
+
+    public void toggleSelfClaim() {
+        ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "TOGGLE_SELF_CLAIM", ""));
+    }
+
+    public void removeDeputy(String target) {
+        ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "REMOVE_DEPUTY", target));
     }
 
     private int createButtonClose(int x, int y) {
@@ -268,14 +365,27 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     /**
-     * 负责人体系数据更新（数据真身在本类，弹窗每次刷新从这里读）。
-     * 网络响应打开着弹窗时由 receiver 路由到弹窗，弹窗再回调本方法更新数据。
+     * 负责人体系数据更新（数据真身在本类，右栏每次刷新从这里读）。
+     * 弹窗确认的响应走 receiver → 弹窗 → 本方法，之后 openGui(parent) 触发
+     * setScreen → initGui 重建右栏，此时本界面不是 currentScreen，跳过避免双重重建；
+     * 右栏 × 移除 / 开关的响应（无弹窗）走本类兜底回调，此时需要显式重建。
      */
     public void updateOwnerState(String newOwnerName, List<String> newDeputyOwners, boolean newAllowSelfClaim) {
-        if (newOwnerName != null) this.ownerName = newOwnerName;
+        if (newOwnerName != null) {
+            this.ownerName = newOwnerName;
+            // 转让后身份实时收敛：主负责人专属按钮（转让/×/添加）的显隐依赖
+            // isMainOwner，不更新的话旧主负责人界面上会残留幽灵按钮，
+            // 点击只会收到服务端的权限拒绝
+            if (this.mc != null && this.mc.player != null) {
+                this.isMainOwner = newOwnerName.equals(this.mc.player.getName().getString());
+            }
+        }
         if (newDeputyOwners != null) this.deputyOwners = new ArrayList<>(newDeputyOwners);
         this.allowSelfClaim = newAllowSelfClaim;
         this.materialList.setAllowSelfClaim(newAllowSelfClaim);
+        if (isOwner && net.minecraft.client.MinecraftClient.getInstance().currentScreen == this) {
+            this.initGui(); // 副负责人行数/开关状态可能变了，重建右栏
+        }
     }
 
     /** 批量分配结果落库：成功则清空勾选并重新拉取协作状态 */
@@ -298,10 +408,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     /**
-     * 无弹窗打开时的兜底数据更新（正常流程 receiver 会路由到弹窗）。
+     * 无弹窗打开时的兜底（右栏 × 移除 / 自行认领开关的响应走这里，
+     * 此时 currentScreen 就是本界面，initGui 已在 updateOwnerState 里重建右栏）。
      */
     public void onOwnerActionResponse(boolean success, String message, String newOwnerName, List<String> newDeputyOwners, boolean newAllowSelfClaim) {
         updateOwnerState(newOwnerName, newDeputyOwners, newAllowSelfClaim);
+        if (message != null && !message.isEmpty()) {
+            InfoUtils.showGuiOrActionBarMessage(success ? MessageType.SUCCESS : MessageType.ERROR, message);
+        }
     }
 
     public void onBatchAssignResponse(boolean success, String message) {
@@ -323,6 +437,15 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         // Phase 5: 数据新鲜度警告
         if (!freshnessWarnings.isEmpty()) {
             renderFreshnessWarnings(drawContext);
+        }
+
+        // 右栏动态文本：已选材料数（勾选实时变，不能走 initGui 静态标签）
+        if (isOwner && this.mgmtSelectedLabelY >= 0) {
+            String countLabel = StringUtils.translate("syncmaterial.gui.label.materials_selected_count",
+                    this.selectedMaterialIds.size());
+            this.drawString(drawContext, countLabel,
+                    this.getScreenWidth() - MGMT_PANEL_W - 10, this.mgmtSelectedLabelY,
+                    this.selectedMaterialIds.isEmpty() ? 0xFF888888 : 0xFFE0E0E0);
         }
     }
 

@@ -67,7 +67,29 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         this.setWidthAndHeight(PANEL_W, 22 + 12 + 12 + 20 + LIST_H + 14 + 20 + 24);
         this.centerOnScreen();
 
-        ClientPlayNetworking.send(new PlayerListRequestC2SPacket(materialList.getSchematicId()));
+        // REMOVE_DEPUTY 不发请求：名单由 forDeputyRemoval 预填，
+        // 且服务端玩家列表的响应会覆盖它（见该工厂方法的注释）
+        if (!"REMOVE_DEPUTY".equals(mode))
+        {
+            ClientPlayNetworking.send(new PlayerListRequestC2SPacket(materialList.getSchematicId()));
+        }
+    }
+
+    /**
+     * 移除副负责人专用：名单直接用当前副负责人列表，不发 PlayerListRequest ——
+     * 服务端的玩家列表只含在线玩家和上过服的人，副负责人未必在内，
+     * 而要移除的人必然已经在副负责人列表里。
+     */
+    public static GuiPlayerSelectDialog forDeputyRemoval(GuiMaterialList materialList, GuiBase parent)
+    {
+        GuiPlayerSelectDialog dialog = new GuiPlayerSelectDialog(materialList, "REMOVE_DEPUTY", parent);
+        dialog.players.clear();
+        for (String deputy : materialList.getDeputyOwners())
+        {
+            dialog.players.add(new PlayerInfo(deputy, false));
+        }
+        dialog.loading = false;
+        return dialog;
     }
 
     private String titleForMode()
@@ -76,6 +98,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         {
             case "ASSIGN" -> StringUtils.translate("syncmaterial.gui.title.select_assign_player");
             case "KICK" -> StringUtils.translate("syncmaterial.gui.title.select_kick_player");
+            case "REMOVE_DEPUTY" -> StringUtils.translate("syncmaterial.gui.title.remove_deputy");
             default -> StringUtils.translate("syncmaterial.gui.label.select_player");
         };
     }
@@ -86,6 +109,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         {
             case "ASSIGN" -> StringUtils.translate("syncmaterial.gui.hint.assign_to_player");
             case "KICK" -> StringUtils.translate("syncmaterial.gui.hint.kick_from_player");
+            case "REMOVE_DEPUTY" -> StringUtils.translate("syncmaterial.gui.hint.remove_deputy");
             default -> StringUtils.translate("syncmaterial.gui.hint.select_player");
         };
     }
@@ -93,6 +117,10 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
     /** 网络响应入口（ModNetworkHandlerClient 按 currentScreen 路由） */
     public void onPlayerListResponse(List<PlayerInfo> players)
     {
+        if ("REMOVE_DEPUTY".equals(this.mode))
+        {
+            return; // 预设名单模式不接收服务端玩家列表
+        }
         this.players.clear();
         if (players != null) this.players.addAll(players);
         this.loading = false;
@@ -100,18 +128,14 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         this.initGui();
     }
 
-    /** OwnerAction 响应（TRANSFER / ADD_DEPUTY 模式的确认结果） */
+    /** OwnerAction 响应（TRANSFER / ADD_DEPUTY / REMOVE_DEPUTY 模式的确认结果） */
     public void onOwnerActionResponse(boolean success, String message,
                                       String newOwnerName, List<String> newDeputyOwners, boolean newAllowSelfClaim)
     {
         this.materialList.updateOwnerState(newOwnerName, newDeputyOwners, newAllowSelfClaim);
         if (success)
         {
-            // 回到管理界面（转让/加副负责人只从管理弹窗发起，parent 必是它）
-            if (this.getParent() instanceof GuiOwnerManagementDialog mgmt)
-            {
-                mgmt.refreshFromMaterialList();
-            }
+            // 回父界面；setScreen 触发 initGui，右栏按新数据重建
             GuiBase.openGui(this.getParent());
         }
         else
@@ -269,6 +293,12 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
                     ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "ADD_DEPUTY", player));
                 }
             }
+            case "REMOVE_DEPUTY" -> {
+                for (String player : players)
+                {
+                    ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "REMOVE_DEPUTY", player));
+                }
+            }
             case "TRANSFER" -> ClientPlayNetworking.send(
                     new OwnerActionC2SPacket(schematicId, "TRANSFER", players.get(0)));
         }
@@ -308,7 +338,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
                         ? StringUtils.translate("syncmaterial.gui.label.please_select_player")
                         : StringUtils.translate("syncmaterial.gui.button.transfer_to", this.selected.iterator().next());
             }
-            else if ("ADD_DEPUTY".equals(this.mode))
+            else if ("ADD_DEPUTY".equals(this.mode) || "REMOVE_DEPUTY".equals(this.mode))
             {
                 info = StringUtils.translate("syncmaterial.gui.label.players_selected_count", this.selected.size());
             }
