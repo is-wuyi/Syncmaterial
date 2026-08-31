@@ -82,11 +82,15 @@ public class ModNetworkHandlerClient {
             });
         });
 
-        // Phase 4: 负责人操作响应
+        // Phase 4: 负责人操作响应（管理弹窗打开中 → 弹窗；无弹窗 → 材料列表兜底更新数据）
         ClientPlayNetworking.registerGlobalReceiver(OwnerActionResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiOwnerManagementDialog mgmt) {
+                    mgmt.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
+                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
+                    select.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
+                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
                 }
             });
@@ -96,7 +100,9 @@ public class ModNetworkHandlerClient {
         ClientPlayNetworking.registerGlobalReceiver(BatchAssignResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
+                    select.onBatchAssignResponse(payload.success(), payload.message());
+                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onBatchAssignResponse(payload.success(), payload.message());
                 }
             });
@@ -106,18 +112,20 @@ public class ModNetworkHandlerClient {
         ClientPlayNetworking.registerGlobalReceiver(KickFromMaterialResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
+                    select.onKickResponse(payload.success(), payload.message());
+                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
                     materialListScreen.onKickResponse(payload.success(), payload.message());
                 }
             });
         });
 
-        // Phase 4: 玩家列表响应
+        // Phase 4: 玩家列表响应（请求必由玩家选择弹窗发起，直接路由给它）
         ClientPlayNetworking.registerGlobalReceiver(PlayerListResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
-                    materialListScreen.onPlayerListResponse(payload.players());
+                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
+                    select.onPlayerListResponse(payload.players());
                 }
             });
         });
