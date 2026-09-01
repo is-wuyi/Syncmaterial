@@ -78,8 +78,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     @Override
     protected int getBrowserWidth() {
-        // owner 时右侧让出管理栏 + 面板边框（Litematica GuiPlacementConfiguration 同款双栏布局）
-        return isOwner ? this.getScreenWidth() - MGMT_PANEL_W - MGMT_PAD * 2 - 26
+        // owner 时列表右边缘停在管理栏左侧 6px 处（列表 listX=10，见构造的 super(10, 44)）
+        return isOwner ? this.mgmtPanelLeft() - 10 - 6
                        : this.getScreenWidth() - 20;
     }
 
@@ -221,24 +221,39 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     /** 副负责人平铺上限：超过则折叠成「还有 N 位…」按钮，点击弹批量移除弹窗 */
     private static final int MGMT_DEPUTY_SHOWN = 4;
 
-    /** 面板底边（initGui 布局时算出，drawScreenBackground 据此画框；-1 表示无右栏） */
-    private int mgmtPanelBottom = -1;
-    /** 区块分隔线的 y 坐标（同上，随布局产生） */
+    /** 面板外框左边缘：右边缘与顶部按钮行、列表右侧统一留 10px 屏幕边距 */
+    private int mgmtPanelLeft() {
+        return this.getScreenWidth() - 10 - (MGMT_PANEL_W + MGMT_PAD * 2);
+    }
+
+    /** 面板内容左边缘（外框内缩一个 padding） */
+    private int mgmtContentLeft() {
+        return this.mgmtPanelLeft() + MGMT_PAD;
+    }
+
+    /** 面板底边 = 列表底边，右栏与列表同高（避免右下角出现大片空白） */
+    private int mgmtPanelBottom() {
+        return 44 + this.getBrowserHeight();
+    }
+
+    /** 区块分隔线的 y 坐标（initGui 布局时产生，drawScreenBackground 消费） */
     private final List<Integer> mgmtDividerYs = new ArrayList<>();
 
     /**
      * 右栏全部用 malilib 标准控件（addLabel / ButtonGeneric / ButtonOnOff）按绝对坐标
      * 竖排——与 Litematica GuiPlacementConfiguration 的右栏做法一致。
      *
-     * 布局三条规矩，都是为了避免中文标签把按钮挤出面板：
+     * 布局规矩，都是被中文标签与实机截图逼出来的：
      * 1. 文本各占一行，按钮各占一行，不并排（副负责人的 × 除外，它只有 14px）
      * 2. 所有主按钮统一整栏宽，左右边缘对齐
-     * 3. 区块间画分隔线，配合面板边框形成视觉分组
+     * 3. 面板与列表同高同顶同底，右下角不留大片空白
+     * 4. 「负责人」区从顶部往下排，「材料操作」区从底部往上排 —— 中间的伸缩
+     *    空隙吸收副负责人行数变化，两端始终贴边，不会出现整片控件挤在上半部
      *
      * 唯一动态文本「已选 N 种材料」在 drawContents 每帧现画，勾选变化无需重建。
      */
     private void createManagementPanel() {
-        int x = this.getScreenWidth() - MGMT_PANEL_W - 10;
+        int x = this.mgmtContentLeft();
         int w = MGMT_PANEL_W;
         int y = 44 + MGMT_PAD;
         this.mgmtDividerYs.clear();
@@ -249,7 +264,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.mgmtDividerYs.add(y);
         y += 6;
 
-        // ---- 负责人区 ----
+        // ---- 负责人区（自顶向下）----
         this.addLabel(x, y, w, 10, 0xFF888888,
                 StringUtils.translate("syncmaterial.gui.label.section_owner"));
         y += 13;
@@ -302,32 +317,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         ButtonOnOff claimBtn = new ButtonOnOff(x, y, w, false,
                 "syncmaterial.gui.label.self_claim", allowSelfClaim);
         this.addButton(claimBtn, (btn, mouseBtn) -> toggleSelfClaim());
-        y += 24;
 
-        this.mgmtDividerYs.add(y);
-        y += 6;
+        // ---- 材料操作区（自底向上，贴面板底边）----
+        int by = this.mgmtPanelBottom() - MGMT_PAD - 18;
 
-        // ---- 材料操作区 ----
-        this.addLabel(x, y, w, 10, 0xFF888888,
-                StringUtils.translate("syncmaterial.gui.label.section_materials"));
-        y += 13;
-
-        // 动态文本「已选 N 种材料」：勾选随时变，记录 y 交给 drawContents 现画
-        this.mgmtSelectedLabelY = y;
-        y += 15;
-
-        ButtonGeneric assignBtn = new ButtonGeneric(x, y, w, 18,
-                StringUtils.translate("syncmaterial.gui.button.assign_to"));
-        this.addButton(assignBtn, (btn, mouseBtn) -> {
-            if (selectedMaterialIds.isEmpty()) {
-                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
-                return;
-            }
-            openAssignDialog();
-        });
-        y += 21;
-
-        ButtonGeneric kickBtn = new ButtonGeneric(x, y, w, 18,
+        ButtonGeneric kickBtn = new ButtonGeneric(x, by, w, 18,
                 StringUtils.translate("syncmaterial.gui.button.kick"));
         this.addButton(kickBtn, (btn, mouseBtn) -> {
             if (selectedMaterialIds.isEmpty()) {
@@ -336,9 +330,26 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             }
             openKickDialog();
         });
-        y += 18;
+        by -= 21;
 
-        this.mgmtPanelBottom = y + MGMT_PAD;
+        ButtonGeneric assignBtn = new ButtonGeneric(x, by, w, 18,
+                StringUtils.translate("syncmaterial.gui.button.assign_to"));
+        this.addButton(assignBtn, (btn, mouseBtn) -> {
+            if (selectedMaterialIds.isEmpty()) {
+                InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
+                return;
+            }
+            openAssignDialog();
+        });
+        by -= 15;
+
+        // 动态文本「已选 N 种材料」：勾选随时变，记录 y 交给 drawContents 现画
+        this.mgmtSelectedLabelY = by;
+        by -= 13;
+
+        this.addLabel(x, by, w, 10, 0xFF888888,
+                StringUtils.translate("syncmaterial.gui.label.section_materials"));
+        this.mgmtDividerYs.add(by - 6);
     }
 
     /**
@@ -349,14 +360,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     protected void drawScreenBackground(DrawContext drawContext, int mouseX, int mouseY) {
         super.drawScreenBackground(drawContext, mouseX, mouseY);
 
-        if (!isOwner || this.mgmtPanelBottom < 0) {
+        if (!isOwner) {
             return;
         }
 
-        int x = this.getScreenWidth() - MGMT_PANEL_W - 10 - MGMT_PAD;
+        int x = this.mgmtPanelLeft();
         int w = MGMT_PANEL_W + MGMT_PAD * 2;
         int top = 44;
-        int h = this.mgmtPanelBottom - top;
+        int h = this.mgmtPanelBottom() - top;
 
         // 与 malilib 弹窗同款配色：半透明黑底 + 浅灰描边
         RenderUtils.drawOutlinedBox(drawContext, x, top, w, h, 0xC0000000, GuiBase.COLOR_HORIZONTAL_BAR);
@@ -501,7 +512,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             String countLabel = StringUtils.translate("syncmaterial.gui.label.materials_selected_count",
                     this.selectedMaterialIds.size());
             this.drawString(drawContext, countLabel,
-                    this.getScreenWidth() - MGMT_PANEL_W - 10, this.mgmtSelectedLabelY,
+                    this.mgmtContentLeft(), this.mgmtSelectedLabelY,
                     this.selectedMaterialIds.isEmpty() ? 0xFF888888 : 0xFFE0E0E0);
         }
     }
