@@ -171,19 +171,47 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         return this.materialList.getSortInReverse();
     }
 
+    /** 认领按钮预留宽度：列不得侵入这块区域，否则名字会被按钮压住 */
+    private static final int CLAIM_BUTTON_RESERVE = 84;
+    /** 单个列间隙的额外拉伸上限：防止超宽屏把列拉得过散 */
+    private static final int MAX_EXTRA_SPACING = 24;
+
+    /**
+     * 列内容天然只占左侧一段，行宽有富余时右边会空出一大片（实机截图里很明显）。
+     * 把富余量均摊到 7 个列间隙上，让整行铺满可用宽度。
+     *
+     * 渲染与表头点击命中都走 getColumnPosX，因此两边一定同步，不存在
+     * 「看到的列头位置和点中的列不一致」的问题。
+     */
+    private int getExtraColumnSpacing()
+    {
+        int checkboxOffset = this.isOwner ? 16 : 0;
+        int natural = 4 + checkboxOffset + maxNameLength + 40
+                + maxCountLength1 + 20 + maxCountLength2 + 20 + maxCountLength3 + 20
+                + maxCountLength4 + 20 + maxCountLength5 + 20 + maxCountLength6 + 20
+                + maxClaimLength;
+        int slack = this.width - CLAIM_BUTTON_RESERVE - natural;
+        if (slack <= 0)
+        {
+            return 0;
+        }
+        return Math.min(slack / 7, MAX_EXTRA_SPACING);
+    }
+
     @Override
     protected int getColumnPosX(int column)
     {
         // Phase 4: 负责人视角复选框占 16px
         int checkboxOffset = this.isOwner ? 16 : 0;
+        int gap = 20 + this.getExtraColumnSpacing();
         int x1 = this.x + 4 + checkboxOffset;
         int x2 = x1 + maxNameLength + 40; // item icon plus offset
-        int x3 = x2 + maxCountLength1 + 20;
-        int x4 = x3 + maxCountLength2 + 20;
-        int x5 = x4 + maxCountLength3 + 20;
-        int x6 = x5 + maxCountLength4 + 20;
-        int x7 = x6 + maxCountLength5 + 20;
-        int x8 = x7 + maxCountLength6 + 20;
+        int x3 = x2 + maxCountLength1 + gap;
+        int x4 = x3 + maxCountLength2 + gap;
+        int x5 = x4 + maxCountLength3 + gap;
+        int x6 = x5 + maxCountLength4 + gap;
+        int x7 = x6 + maxCountLength5 + gap;
+        int x8 = x7 + maxCountLength6 + gap;
 
         return switch (column)
         {
@@ -195,7 +223,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             case 5 -> x6;
             case 6 -> x7;
             case 7 -> x8;
-            case 8 -> x8 + maxClaimLength + 20;
+            case 8 -> x8 + maxClaimLength + gap;
             default -> x1;
         };
     }
