@@ -34,8 +34,17 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     /** 右栏「已选 N 种材料」动态文本的 y 坐标（initGui 布局时写入，非 owner 为 -1 不画） */
     private int mgmtSelectedLabelY = -1;
 
+    /**
+     * 列表与右栏共用的顶边。顶部按钮行占 24~43 行，而 RenderUtils.drawOutlinedBox 的
+     * 边线画在给定矩形**外侧** 1px（内部是 drawOutline(x-1, y-1, w+2, h+2)），
+     * 因此顶边取 48 才能让边线落在 47 行、与按钮行之间留出 3px 可见间隙。
+     */
+    private static final int CONTENT_TOP = 48;
+    /** 底部留白：边线画在 bottom 外 1px，留 6px 保证边线不被屏幕底边裁掉 */
+    private static final int CONTENT_BOTTOM_MARGIN = 6;
+
     public GuiMaterialList(String schematicId, String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
-        super(10, 44);
+        super(10, CONTENT_TOP);
 
         this.isOwner = isOwner;
         this.isMainOwner = isMainOwner;
@@ -78,15 +87,16 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     @Override
     protected int getBrowserWidth() {
-        // owner 时列表右边缘停在管理栏左侧 6px 处（列表 listX=10，见构造的 super(10, 44)）
+        // owner 时列表右边缘停在管理栏左侧 6px 处（列表 listX=10，见构造的 super(10, CONTENT_TOP)）
         return isOwner ? this.mgmtPanelLeft() - 10 - 6
                        : this.getScreenWidth() - 20;
     }
 
     @Override
     protected int getBrowserHeight() {
-        // 分配/踢出按钮已移入右栏，列表可延伸到热键栏上方
-        return this.getScreenHeight() - 44;
+        // 分配/踢出按钮已移入右栏，列表可延伸到接近屏幕底部；
+        // 底部留 CONTENT_BOTTOM_MARGIN 供右栏边框的下边线落地（否则被屏幕裁掉）
+        return this.getScreenHeight() - CONTENT_TOP - CONTENT_BOTTOM_MARGIN;
     }
 
     @Override
@@ -233,7 +243,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     /** 面板底边 = 列表底边，右栏与列表同高（避免右下角出现大片空白） */
     private int mgmtPanelBottom() {
-        return 44 + this.getBrowserHeight();
+        return CONTENT_TOP + this.getBrowserHeight();
     }
 
     /** 区块分隔线的 y 坐标（initGui 布局时产生，drawScreenBackground 消费） */
@@ -255,7 +265,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private void createManagementPanel() {
         int x = this.mgmtContentLeft();
         int w = MGMT_PANEL_W;
-        int y = 44 + MGMT_PAD;
+        int y = CONTENT_TOP + MGMT_PAD;
         this.mgmtDividerYs.clear();
 
         this.addLabel(x, y, w, 12, 0xFFFFFFFF,
@@ -366,7 +376,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
         int x = this.mgmtPanelLeft();
         int w = MGMT_PANEL_W + MGMT_PAD * 2;
-        int top = 44;
+        int top = CONTENT_TOP;
         int h = this.mgmtPanelBottom() - top;
 
         // 与 malilib 弹窗同款配色：半透明黑底 + 浅灰描边
