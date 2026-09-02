@@ -22,7 +22,9 @@
             "net.syncmaterial.syncmaterial.gametest.client.MultiplayerClaimBroadcastClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.MaterialListOpenClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.BatchAssignKickClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.RefreshPickupClientGameTest"
+            "net.syncmaterial.syncmaterial.gametest.client.RefreshPickupClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.LeaveAndUnsubscribeClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.WarehousePickupIndicatorClientGameTest"
         ]
     },
     "depends": {

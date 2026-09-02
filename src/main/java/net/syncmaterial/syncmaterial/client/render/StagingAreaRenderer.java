@@ -148,6 +148,40 @@ public class StagingAreaRenderer implements IRenderer
         return this.warehouseContainers;
     }
 
+    /**
+     * 取货指示器过滤本体：取货模式下只保留含需取物品的容器。
+     *
+     * 抽成纯函数的原因：这段逻辑此前埋在世界渲染循环里，端到端测试
+     * 只能靠截图或读渲染状态间接验证；抽出后测试可直接对「容器列表 +
+     * 需求集合 → 该亮的箱子」做精确断言。渲染与测试共用同一实现，
+     * 不存在第二条被测路径。
+     *
+     * @param neededItemIds 取货需求物品集合（PickupModeState.getNeededItemIds()）；
+     *                      null 或空集表示非取货模式，返回全部容器
+     */
+    public static java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> filterContainersForPickup(
+            java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers,
+            java.util.Set<String> neededItemIds)
+    {
+        if (neededItemIds == null || neededItemIds.isEmpty() || containers == null)
+        {
+            return containers == null ? java.util.List.of() : containers;
+        }
+        java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> toRender = new java.util.ArrayList<>();
+        for (WarehouseContainerResponseS2CPacket.ContainerEntry container : containers)
+        {
+            for (String itemId : container.itemIds())
+            {
+                if (neededItemIds.contains(itemId))
+                {
+                    toRender.add(container);
+                    break;
+                }
+            }
+        }
+        return toRender;
+    }
+
     // Phase 5: 仓库区域线框数据管理
 
     /**
@@ -281,31 +315,15 @@ public class StagingAreaRenderer implements IRenderer
             String playerWorldId = mc.player.level().dimension().identifier().toString();
             // 跨世界过滤：只渲染玩家所在世界的仓库容器
             if (playerWorldId.equals(this.warehouseContainersWorld)) {
-                // 取货模式下只显示包含需要材料的箱子。
-                // 需求量来自 PickupModeState（与格子高亮同一份数据），
-                // 因此"取满即不再高亮"在线框与格子上表现一致
-                boolean isPickupMode = GuiMaterialList.isPickupModeStatic();
-
-                java.util.Set<String> neededItemIds = null;
-                if (isPickupMode) {
-                    neededItemIds = net.syncmaterial.syncmaterial.client.PickupModeState.getNeededItemIds();
-                }
+                // 取货模式下只显示包含需要材料的箱子（过滤本体在
+                // filterContainersForPickup，与测试共用同一实现）
+                java.util.Set<String> neededItemIds = GuiMaterialList.isPickupModeStatic()
+                    ? net.syncmaterial.syncmaterial.client.PickupModeState.getNeededItemIds()
+                    : null;
 
                 // 1. 过滤出需要渲染的容器
-                java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> toRender = new java.util.ArrayList<>();
-                for (WarehouseContainerResponseS2CPacket.ContainerEntry container : containersSnapshot) {
-                    if (isPickupMode && neededItemIds != null) {
-                        boolean hasNeeded = false;
-                        for (String itemId : container.itemIds()) {
-                            if (neededItemIds.contains(itemId)) {
-                                hasNeeded = true;
-                                break;
-                            }
-                        }
-                        if (!hasNeeded) continue;
-                    }
-                    toRender.add(container);
-                }
+                java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> toRender =
+                    filterContainersForPickup(containersSnapshot, neededItemIds);
 
                 // 2. 渲染容器线框（大箱子用 CHEST_TYPE 属性检测，渲染覆盖整个双箱区域）
                 Color4f containerColor = new Color4f(0.2f, 0.6f, 1.0f, 1.0f); // 蓝色
