@@ -40,6 +40,8 @@ public class StagingAreaRenderer implements IRenderer
     // （与本类 selections 等并发容器一致的原子替换模式，避免 clear+addAll 的窗口期与迭代器竞态）
     private volatile java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> warehouseContainers = java.util.List.of();
     private volatile String warehouseContainersWorld = "";
+    /** 收到过容器数据响应的标志（空仓库时容器列表为空，需独立标志区分"从未收到"） */
+    private volatile boolean warehouseContainersLoaded = false;
     // Phase 5: 仓库区域线框数据（服务端全局广播，不隶属任何原理图）
     private volatile java.util.List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouseAreas = java.util.List.of();
     private volatile java.util.Set<Integer> referencedWarehouseIds = java.util.Set.of();
@@ -125,12 +127,20 @@ public class StagingAreaRenderer implements IRenderer
         // 整体替换而非原地改写：读线程要么看到旧列表要么看到新列表，不会看到中间状态
         this.warehouseContainers = containers != null ? java.util.List.copyOf(containers) : java.util.List.of();
         this.warehouseContainersWorld = worldId != null ? worldId : "";
+        this.warehouseContainersLoaded = true;
     }
 
     public void clearWarehouseContainers()
     {
         this.warehouseContainers = java.util.List.of();
         this.warehouseContainersWorld = "";
+        this.warehouseContainersLoaded = false;
+    }
+
+    /** 是否已收到过服务端下发的仓库容器数据（测试断言订阅链路真实回流） */
+    public boolean hasWarehouseContainersLoaded()
+    {
+        return this.warehouseContainersLoaded;
     }
 
     public java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> getWarehouseContainers()

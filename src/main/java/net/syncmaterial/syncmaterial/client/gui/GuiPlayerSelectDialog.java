@@ -256,6 +256,12 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         toggleSelection(name);
     }
 
+    /** 测试钩子：读取弹窗当前可选玩家名单 */
+    public List<PlayerInfo> getAvailablePlayers()
+    {
+        return new ArrayList<>(this.players);
+    }
+
     public List<String> getSelectedPlayers()
     {
         return new ArrayList<>(this.selected);

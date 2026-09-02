@@ -210,6 +210,13 @@ public class SyncMaterial implements ModInitializer {
     }
 
     /**
+     * 获取共享协作管理器实例。
+     */
+    public static CollaborationManager getSharedCollaborationManager() {
+        return sharedCollaborationManager;
+    }
+
+    /**
      * 获取共享解析器实例。
      */
     public static LitematicaParser getSharedParser() {

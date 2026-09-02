@@ -67,6 +67,11 @@ public class SyncMaterialList extends MaterialListBase {
         ClientPlayNetworking.send(new QueryMaterialStatusC2SPacket(schematicId));
     }
 
+    /** 测试钩子：读取指定材料最近一次广播的协作状态，未收到过返回 null。 */
+    public CollaborationStatusS2CPacket getCollaborationStatusFor(int materialId) {
+        return collaborationStatusMap.get(materialId);
+    }
+
     public void onCollaborationStatus(CollaborationStatusS2CPacket status) {
         collaborationStatusMap.put(status.materialId(), status);
         SyncMaterial.LOGGER.info("收到协作状态包: 材料 {} 协作组有 {} 人参与", status.materialId(), status.participants().size());
