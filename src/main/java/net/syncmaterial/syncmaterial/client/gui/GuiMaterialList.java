@@ -30,6 +30,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     // 取货模式状态与需求量统一由 PickupModeState 持有（见该类注释）
     private List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessWarnings = java.util.Collections.emptyList();
     private List<Integer> selectedMaterialIds = new ArrayList<>();
+    /** 最近一次刷新响应（测试断言 RescanResponse 真实回流；null=从未收到） */
+    private Boolean lastRescanResult;
     private static boolean stagingRenderEnabled = true;
     /** 右栏「已选 N 种材料」动态文本的 y 坐标（initGui 布局时写入，非 owner 为 -1 不画） */
     private int mgmtSelectedLabelY = -1;
@@ -132,14 +134,22 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private int createButtonRefresh(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, StringUtils.translate("syncmaterial.gui.button.refresh"));
         this.addButton(button, (btn, mouseButton) -> {
-            String schematicId = this.materialList.getSchematicId();
-            if (schematicId != null && !schematicId.isEmpty()) {
-                ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(schematicId));
+            if (refreshStagingAreas()) {
                 btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.refreshing"));
                 btn.setEnabled(false);
             }
         });
         return button.getWidth();
+    }
+
+    /** 刷新按钮动作：发送备货区重扫请求（测试钩子与按钮走同一方法） */
+    public boolean refreshStagingAreas() {
+        String schematicId = this.materialList.getSchematicId();
+        if (schematicId != null && !schematicId.isEmpty()) {
+            ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(schematicId));
+            return true;
+        }
+        return false;
     }
 
     private int createButtonStagingArea(int x, int y) {
@@ -175,29 +185,38 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 StringUtils.translate(isPickupMode() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"));
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
         this.addButton(button, (btn, mouseButton) -> {
-            boolean next = !isPickupMode();
-            net.syncmaterial.syncmaterial.client.PickupModeState.setActive(next);
-            // 订阅/取消订阅仓库容器数据
-            String schematicId = this.materialList.getSchematicId();
-            if (schematicId != null && !schematicId.isEmpty()) {
-                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, next));
-            }
-            if (!next) {
-                // 退出取货模式时清空容器缓存（需求量由 setActive 负责清空）
-                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearWarehouseContainers();
-            } else {
-                // 立刻算一次，不必等下一个 tick 周期，避免刚开启时线框/高亮空一拍
-                net.syncmaterial.syncmaterial.client.PickupModeState.recompute(
-                        this.materialList.getMaterialsAll(),
-                        net.syncmaterial.syncmaterial.client.InventoryScanner
-                                .liveCountsByItemId(this.mc.player));
-            }
+            boolean next = togglePickupMode();
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
                     StringUtils.translate(next ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
-            // 刷新列表显示
-            this.getListWidget().refreshEntries();
         });
         return button.getWidth();
+    }
+
+    /**
+     * 取货模式切换按钮动作：切换本地状态 + 订阅/退订仓库容器数据，返回新状态
+     * （测试钩子与按钮走同一方法）。
+     */
+    public boolean togglePickupMode() {
+        boolean next = !isPickupMode();
+        net.syncmaterial.syncmaterial.client.PickupModeState.setActive(next);
+        // 订阅/取消订阅仓库容器数据
+        String schematicId = this.materialList.getSchematicId();
+        if (schematicId != null && !schematicId.isEmpty()) {
+            ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, next));
+        }
+        if (!next) {
+            // 退出取货模式时清空容器缓存（需求量由 setActive 负责清空）
+            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearWarehouseContainers();
+        } else {
+            // 立刻算一次，不必等下一个 tick 周期，避免刚开启时线框/高亮空一拍
+            net.syncmaterial.syncmaterial.client.PickupModeState.recompute(
+                    this.materialList.getMaterialsAll(),
+                    net.syncmaterial.syncmaterial.client.InventoryScanner
+                            .liveCountsByItemId(this.mc.player));
+        }
+        // 刷新列表显示
+        this.getListWidget().refreshEntries();
+        return next;
     }
 
     private int createButtonToggleHud(int x, int y) {
@@ -431,6 +450,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     // ========== 网络回调 ==========
 
     public void onRescanResponse(boolean success, String message) {
+        this.lastRescanResult = success;
         this.initGui();
         if (success) {
             this.materialList.requestCollaborationStatus();
@@ -483,6 +503,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     public String getSchematicId() {
         return this.materialList.getSchematicId();
+    }
+
+    /** 测试钩子：最近一次刷新响应的结果，null 表示从未收到过响应 */
+    public Boolean getLastRescanResult() {
+        return this.lastRescanResult;
     }
 
     /**

@@ -30,8 +30,8 @@ import net.syncmaterial.syncmaterial.server.SchematicDatabase;
  *
  * 覆盖的盲区：Mixin 注入是否真的生效。@Inject 的 method 是字符串，写错了
  * 编译期不报错、运行时静默不注入 —— 变异实验证实过这种错误能让整套测试全绿
- * 逃逸（把 extractLabels 改成旧版的 drawForeground，单测无一失败）。
- * 这里读 PickupHighlight.lastHighlightedSlots()，为空即说明注入没生效。
+ * 逃逸（1.21.7 上把 drawForeground 改成 26.2 版的 extractLabels，单测无一
+ * 失败）。这里读 PickupHighlight.lastHighlightedSlots()，为空即说明注入没生效。
  * 已用该变异验证本测试能抓住它。
  *
  * 顺带覆盖整条链路：材料清单 → 协作认领 → 取货模式 → 需求量 → 容器槽位选择 →

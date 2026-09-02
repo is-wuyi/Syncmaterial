@@ -18,7 +18,11 @@
             "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSelectionClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.PickupHighlightClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.WarehouseCrudClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.OwnerManagementClientGameTest"
+            "net.syncmaterial.syncmaterial.gametest.client.OwnerManagementClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.MultiplayerClaimBroadcastClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.MaterialListOpenClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.BatchAssignKickClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.RefreshPickupClientGameTest"
         ]
     },
     "depends": {

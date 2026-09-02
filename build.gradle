@@ -5,7 +5,7 @@ plugins {
     id 'com.github.spotbugs' version '6.5.10'
 }
 
-version = "1.21.7-0.3.0-beta.40"
+version = "1.21.7-0.3.0-beta.41"
 group = "net.syncmaterial"
 
 repositories {
@@ -164,6 +164,10 @@ afterEvaluate {
     def clientGameTestRun = loom.runs.findByName("clientGameTest")
     if (clientGameTestRun != null) {
         clientGameTestRun.runDir = "run-client"
+        // 假人测试（MockBot）用 EmbeddedChannel 直接构造服务端连接，会被
+        // fabric-client-gametest-api 4.x 的 NetworkSynchronizer 判定为
+        // "低层级操作网络包"而崩溃；官方提示用该属性禁用同步器
+        clientGameTestRun.vmArgs("-Dfabric.client.gametest.disableNetworkSynchronizer=true")
     }
 
     // gametest 源集运行时依赖（SQLite 驱动）
