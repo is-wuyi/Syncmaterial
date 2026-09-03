@@ -71,11 +71,14 @@ public class Configs implements IConfigHandler {
                 new ConfigColor("warehouseSideColor", "#2E3399FF").apply(PREFIX);
         public static final ConfigColor WAREHOUSE_REFERENCED_LINE_COLOR =
                 new ConfigColor("warehouseReferencedLineColor", "#FF00E5FF").apply(PREFIX);
+        public static final ConfigColor CONTAINER_HIGHLIGHT_COLOR =
+                new ConfigColor("containerHighlightColor", "#FFFFA000").apply(PREFIX);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 AREA_LINE_COLOR, AREA_SIDE_COLOR, AREA_HIGHLIGHT_LINE_COLOR,
                 LABEL_ENABLED, LABEL_SCALE,
-                WAREHOUSE_LINE_COLOR, WAREHOUSE_SIDE_COLOR, WAREHOUSE_REFERENCED_LINE_COLOR
+                WAREHOUSE_LINE_COLOR, WAREHOUSE_SIDE_COLOR, WAREHOUSE_REFERENCED_LINE_COLOR,
+                CONTAINER_HIGHLIGHT_COLOR
         );
     }
 
