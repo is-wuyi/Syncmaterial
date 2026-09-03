@@ -319,7 +319,7 @@ public class StagingAreaRenderer implements IRenderer
                     filterContainersForPickup(containersSnapshot, neededItemIds);
 
                 // 2. 渲染容器线框（大箱子用 CHEST_TYPE 属性检测，渲染覆盖整个双箱区域）
-                Color4f containerColor = new Color4f(0.2f, 0.6f, 1.0f, 1.0f); // 蓝色
+                Color4f containerColor = net.syncmaterial.syncmaterial.client.config.Configs.Render.CONTAINER_HIGHLIGHT_COLOR.getColor();
 
                 // 去重：大箱子左右半箱都有 container_inventory 记录，只渲染一次
                 java.util.Set<BlockPos> renderedPositions = new java.util.HashSet<>();
@@ -357,7 +357,7 @@ public class StagingAreaRenderer implements IRenderer
                     // 标记已渲染的位置（大箱子标记两个位置）
                     renderedPositions.add(pos1);
                     if (!pos1.equals(pos2)) renderedPositions.add(pos2);
-                    RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, containerColor, containerColor, containerColor);
+                    RenderUtils.renderAreaOutline(pos1, pos2, 3.0f, containerColor, containerColor, containerColor);
                 }
             }
         }
