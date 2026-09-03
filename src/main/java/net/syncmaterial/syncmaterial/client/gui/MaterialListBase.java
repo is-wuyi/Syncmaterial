@@ -102,6 +102,26 @@ public abstract class MaterialListBase
         }
     }
 
+    /**
+     * 表头列索引 → 排序标准（与 WidgetMaterialListEntry 的点击处理共用同一映射）。
+     * 返回 null 表示该列不是可排序列。
+     */
+    public static SortCriteria criteriaForColumn(int column)
+    {
+        switch (column)
+        {
+            case 0:  return SortCriteria.NAME;
+            case 1:  return SortCriteria.COUNT_TOTAL;
+            case 2:  return SortCriteria.COUNT_MISSING;
+            case 3:  return SortCriteria.COUNT_AVAILABLE;
+            case 4:  return SortCriteria.COUNT_OTHER;
+            case 5:  return SortCriteria.COUNT_STAGING;
+            case 6:  return SortCriteria.COUNT_WAREHOUSE;
+            case 7:  return SortCriteria.COUNT_CLAIM;
+            default: return null;
+        }
+    }
+
     public void setSortInReverse(boolean reverse) {
         this.reverse = reverse;
     }

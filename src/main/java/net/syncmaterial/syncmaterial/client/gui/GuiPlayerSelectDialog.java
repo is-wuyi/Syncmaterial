@@ -103,6 +103,21 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         };
     }
 
+    /**
+     * 搜索过滤本体：按玩家名大小写不敏感的包含匹配。
+     * 抽成静态方法是为了单测直接断言（空查询原样返回、大小写、无匹配），
+     * 列表渲染与测试共用同一实现。
+     */
+    static List<PlayerInfo> filterPlayers(List<PlayerInfo> players, String filter)
+    {
+        if (filter == null || filter.isEmpty())
+        {
+            return players;
+        }
+        String lower = filter.toLowerCase();
+        return players.stream().filter(p -> p.name().toLowerCase().contains(lower)).toList();
+    }
+
     private String hintForMode()
     {
         return switch (mode)

@@ -141,6 +141,16 @@ public class StagingAreaRenderer implements IRenderer
         return this.warehouseContainersLoaded;
     }
 
+    /**
+     * 当前容器高亮色（渲染循环与配置持久化测试共用同一读取）。
+     * 抽成方法是为了锁住「渲染颜色来自配置而非硬编码」——配置改色后
+     * 渲染必须跟着变，测试断言这一点防止回退成硬编码。
+     */
+    public Color4f getContainerHighlightColor()
+    {
+        return net.syncmaterial.syncmaterial.client.config.Configs.Render.CONTAINER_HIGHLIGHT_COLOR.getColor();
+    }
+
     public java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> getWarehouseContainers()
     {
         return this.warehouseContainers;
@@ -154,16 +164,30 @@ public class StagingAreaRenderer implements IRenderer
      * 需求集合 → 该亮的箱子」做精确断言。渲染与测试共用同一实现，
      * 不存在第二条被测路径。
      *
+     * 边界语义（与重构前的内联逻辑逐一对齐，"取满即灭"依赖空集分支）：
+     * - null：非取货模式，显示全部容器
+     * - 空集：取货模式但所有需求已满足 → 全灭（重构时曾误改为返回全部，
+     *   表现为取满后仓库所有箱子常亮，端到端测试抓住了该回归）
+     * - 非空集：只保留含需取物品的容器
+     *
      * @param neededItemIds 取货需求物品集合（PickupModeState.getNeededItemIds()）；
-     *                      null 或空集表示非取货模式，返回全部容器
+     *                      null 表示非取货模式
      */
     public static java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> filterContainersForPickup(
             java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers,
             java.util.Set<String> neededItemIds)
     {
-        if (neededItemIds == null || neededItemIds.isEmpty() || containers == null)
+        if (containers == null)
         {
-            return containers == null ? java.util.List.of() : containers;
+            return java.util.List.of();
+        }
+        if (neededItemIds == null)
+        {
+            return containers;
+        }
+        if (neededItemIds.isEmpty())
+        {
+            return java.util.List.of();
         }
         java.util.List<WarehouseContainerResponseS2CPacket.ContainerEntry> toRender = new java.util.ArrayList<>();
         for (WarehouseContainerResponseS2CPacket.ContainerEntry container : containers)
@@ -319,7 +343,7 @@ public class StagingAreaRenderer implements IRenderer
                     filterContainersForPickup(containersSnapshot, neededItemIds);
 
                 // 2. 渲染容器线框（大箱子用 CHEST_TYPE 属性检测，渲染覆盖整个双箱区域）
-                Color4f containerColor = net.syncmaterial.syncmaterial.client.config.Configs.Render.CONTAINER_HIGHLIGHT_COLOR.getColor();
+                Color4f containerColor = this.getContainerHighlightColor();
 
                 // 去重：大箱子左右半箱都有 container_inventory 记录，只渲染一次
                 java.util.Set<BlockPos> renderedPositions = new java.util.HashSet<>();

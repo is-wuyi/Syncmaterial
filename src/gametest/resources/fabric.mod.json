@@ -24,7 +24,10 @@
             "net.syncmaterial.syncmaterial.gametest.client.BatchAssignKickClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.RefreshPickupClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.LeaveAndUnsubscribeClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.WarehousePickupIndicatorClientGameTest"
+            "net.syncmaterial.syncmaterial.gametest.client.WarehousePickupIndicatorClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.WarehouseContainerPushClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.MaterialListSortClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.ConfigPersistenceClientGameTest"
         ]
     },
     "depends": {

@@ -11,6 +11,7 @@ import fi.dy.masa.malilib.gui.button.ButtonGeneric;
 import fi.dy.masa.malilib.gui.button.ButtonOnOff;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
+import net.syncmaterial.syncmaterial.client.gui.MaterialListBase.SortCriteria;
 import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
 import net.syncmaterial.syncmaterial.network.RescanStagingAreaC2SPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
@@ -508,6 +509,27 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     /** 测试钩子：最近一次刷新响应的结果，null 表示从未收到过响应 */
     public Boolean getLastRescanResult() {
         return this.lastRescanResult;
+    }
+
+    /**
+     * 表头点击动作：column → 排序标准（同一映射）→ setSortCriteria → 刷新。
+     * 与 WidgetMaterialListEntry 的点击处理操作同一 listWidget / materialList，
+     * 测试用它模拟点击，不存在第二条被测路径。
+     */
+    public void handleHeaderClick(int column) {
+        SortCriteria criteria = MaterialListBase.criteriaForColumn(column);
+        if (criteria != null) {
+            this.materialList.setSortCriteria(criteria);
+            this.getListWidget().refreshEntries();
+        }
+    }
+
+    /** 测试钩子：当前列表（排序/过滤后）的条目 databaseId 顺序 */
+    public List<Integer> getCurrentEntryIds() {
+        return this.getListWidget().getCurrentEntries().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(entry -> entry.getDatabaseId())
+                .collect(java.util.stream.Collectors.toList());
     }
 
     /**

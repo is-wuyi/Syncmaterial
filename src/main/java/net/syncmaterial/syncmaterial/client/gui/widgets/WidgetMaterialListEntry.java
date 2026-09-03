@@ -255,35 +255,12 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
         int column = this.getMouseOverColumn(mouseX, mouseY);
 
-        switch (column)
+        SortCriteria criteria = MaterialListBase.criteriaForColumn(column);
+        if (criteria == null)
         {
-            case 0:
-                this.materialList.setSortCriteria(SortCriteria.NAME);
-                break;
-            case 1:
-                this.materialList.setSortCriteria(SortCriteria.COUNT_TOTAL);
-                break;
-            case 2:
-                this.materialList.setSortCriteria(SortCriteria.COUNT_MISSING);
-                break;
-            case 3:
-                this.materialList.setSortCriteria(SortCriteria.COUNT_AVAILABLE);
-                break;
-            case 4:
-                this.materialList.setSortCriteria(SortCriteria.COUNT_OTHER);
-                break;
-            case 5:
-                this.materialList.setSortCriteria(SortCriteria.COUNT_STAGING);
-                break;
-            case 6:
-                this.materialList.setSortCriteria(SortCriteria.COUNT_WAREHOUSE);
-                break;
-            case 7:
-                this.materialList.setSortCriteria(SortCriteria.COUNT_CLAIM);
-                break;
-            default:
-                return false;
+            return false;
         }
+        this.materialList.setSortCriteria(criteria);
 
         // Re-create the widgets
         this.listWidget.refreshEntries();
