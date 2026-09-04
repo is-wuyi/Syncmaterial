@@ -7,11 +7,11 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.entity.ChestBlockEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.core.BlockPos;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -68,11 +68,11 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
 
             BlockPos[] positions = new BlockPos[2];
             int warehouseId = server.computeOnServer(s -> {
-                var player = s.getPlayerManager().getPlayer("Player0");
+                var player = s.getPlayerList().getPlayer("Player0");
                 if (player == null) throw new AssertionError("Player0 不在线");
-                BlockPos base = player.getBlockPos();
-                positions[0] = placeChestWithItem(player.getWorld(), base.add(2, 0, 0), Items.STONE);
-                positions[1] = placeChestWithItem(player.getWorld(), base.add(-3, 0, 0), null);
+                BlockPos base = player.blockPosition();
+                positions[0] = placeChestWithItem(player.level(), base.offset(2, 0, 0), Items.STONE);
+                positions[1] = placeChestWithItem(player.level(), base.offset(-3, 0, 0), null);
 
                 var sam = SyncMaterial.getServerStagingAreaManager();
                 int whId = sam.addWarehouse("Push WH", "minecraft:overworld",
@@ -95,7 +95,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
                 new JoinCollaborationC2SPacket(schematicId, materialId, Map.of())));
 
             boolean claimed = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (!(client.currentScreen instanceof GuiMaterialList gui)) return false;
+                if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
                 return gui.getMaterialList().getMaterialsAll().stream()
                     .anyMatch(e -> e.getDatabaseId() == materialId && e.isCurrentPlayerClaimed());
             }));
@@ -104,7 +104,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
             }
 
             ctx.runOnClient(client -> {
-                if (client.currentScreen instanceof GuiMaterialList gui) {
+                if (client.gui.screen() instanceof GuiMaterialList gui) {
                     gui.togglePickupMode();
                 } else {
                     throw new AssertionError("材料列表未打开");
@@ -138,10 +138,10 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
 
             // ===== 场景 A 负例：放入不需要的物品 → 不进指示器 =====
             server.computeOnServer(s -> {
-                var world = s.getOverworld();
+                var world = s.overworld();
                 if (world.getBlockEntity(positions[1]) instanceof ChestBlockEntity chest) {
-                    chest.setStack(1, new ItemStack(Items.DIRT, 64));
-                    chest.markDirty();
+                    chest.setItem(1, new ItemStack(Items.DIRT, 64));
+                    chest.setChanged();
                 }
                 return null;
             });
@@ -195,14 +195,14 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
         }
     }
 
-    private static BlockPos placeChestWithItem(net.minecraft.server.world.ServerWorld world,
-                                               BlockPos pos, net.minecraft.item.Item item) {
-        world.setBlockState(pos, Blocks.CHEST.getDefaultState(), 3);
+    private static BlockPos placeChestWithItem(net.minecraft.server.level.ServerLevel world,
+                                               BlockPos pos, net.minecraft.world.item.Item item) {
+        world.setBlock(pos, Blocks.CHEST.defaultBlockState(), 3);
         if (world.getBlockEntity(pos) instanceof ChestBlockEntity chest) {
             if (item != null) {
-                chest.setStack(0, new ItemStack(item, 64));
+                chest.setItem(0, new ItemStack(item, 64));
             }
-            chest.markDirty();
+            chest.setChanged();
         } else {
             throw new AssertionError("箱子放置失败: " + pos);
         }
