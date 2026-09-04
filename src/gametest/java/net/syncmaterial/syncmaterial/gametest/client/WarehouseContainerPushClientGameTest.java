@@ -120,10 +120,10 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
 
             // ===== 场景 A：空箱放入需要的物品 → 自动推送出现 =====
             server.computeOnServer(s -> {
-                var world = s.getOverworld();
+                var world = s.overworld();
                 if (world.getBlockEntity(positions[1]) instanceof ChestBlockEntity chest) {
-                    chest.setStack(0, new ItemStack(Items.STONE, 64));
-                    chest.markDirty();
+                    chest.setItem(0, new ItemStack(Items.STONE, 64));
+                    chest.setChanged();
                 } else {
                     throw new AssertionError("空箱方块实体丢失: " + positions[1]);
                 }
@@ -187,7 +187,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
             });
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreen(null);
+                client.setScreenAndShow(null);
                 PickupModeState.clear();
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();

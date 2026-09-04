@@ -155,7 +155,7 @@ public class MaterialListSortClientGameTest implements FabricClientGameTest {
         long deadline = System.currentTimeMillis() + 10_000;
         while (System.currentTimeMillis() < deadline) {
             int dirtAvail = ctx.computeOnClient(client -> {
-                if (!(client.currentScreen instanceof GuiMaterialList gui)) {
+                if (!(client.gui.screen() instanceof GuiMaterialList gui)) {
                     throw new AssertionError("材料列表未打开");
                 }
                 for (MaterialListEntry e : gui.getMaterialList().getMaterialsAll()) {
