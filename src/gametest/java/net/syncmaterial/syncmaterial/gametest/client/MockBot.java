@@ -74,6 +74,19 @@ final class MockBot {
                 && status.materialId() == materialId);
     }
 
+    /** 假人最近收到的该材料协作状态里的参与者数量；-1 表示从未收到 */
+    int latestParticipantCount(int materialId) {
+        for (int i = outboundPackets.size() - 1; i >= 0; i--) {
+            Object msg = outboundPackets.get(i);
+            if (msg instanceof ClientboundCustomPayloadPacket p
+                && p.payload() instanceof CollaborationStatusS2CPacket status
+                && status.materialId() == materialId) {
+                return status.participants().size();
+            }
+        }
+        return -1;
+    }
+
     /** 把假人移出服务端玩家列表 */
     void despawn(TestDedicatedServerContext server) {
         server.computeOnServer(s -> {

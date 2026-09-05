@@ -27,7 +27,11 @@
             "net.syncmaterial.syncmaterial.gametest.client.WarehousePickupIndicatorClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.WarehouseContainerPushClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.MaterialListSortClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.ConfigPersistenceClientGameTest"
+            "net.syncmaterial.syncmaterial.gametest.client.ConfigPersistenceClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.ConcurrencyClaimsClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.OwnerActionConflictClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.StressContainerPushClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaScanPerfClientGameTest"
         ]
     },
     "depends": {
