@@ -7,11 +7,11 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.block.Blocks;
+import net.minecraft.block.entity.ChestBlockEntity;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -70,15 +70,15 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
 
             // 一次放 200 个空箱子（10×20 网格），都在仓库区域内
             List<BlockPos> positions = server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
+                var player = s.getPlayerManager().getPlayer("Player0");
                 if (player == null) throw new AssertionError("Player0 不在线");
-                BlockPos base = player.blockPosition();
-                var world = player.level();
+                BlockPos base = player.getBlockPos();
+                var world = player.getWorld();
                 var result = new java.util.ArrayList<BlockPos>();
                 int index = 0;
                 for (int dx = -4; dx <= 5; dx++) {
                     for (int dz = -9; dz <= 10 && index < CHEST_COUNT; dz++) {
-                        BlockPos pos = base.offset(dx, 0, dz);
+                        BlockPos pos = base.add(dx, 0, dz);
                         placeChest(world, pos);
                         result.add(pos);
                         index++;
@@ -91,8 +91,8 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
             }
 
             int warehouseId = server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
-                BlockPos base = player.blockPosition();
+                var player = s.getPlayerManager().getPlayer("Player0");
+                BlockPos base = player.getBlockPos();
                 var sam = SyncMaterial.getServerStagingAreaManager();
                 int whId = sam.addWarehouse("Stress WH", "minecraft:overworld",
                     base.getX() - 8, base.getY() - 2, base.getZ() - 12,
@@ -113,14 +113,14 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
             ctx.runOnClient(client -> ClientPlayNetworking.send(
                 new JoinCollaborationC2SPacket(schematicId, materialId, Map.of())));
             boolean claimed = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                if (!(client.currentScreen instanceof GuiMaterialList gui)) return false;
                 return gui.getMaterialList().getMaterialsAll().stream()
                     .anyMatch(e -> e.getDatabaseId() == materialId && e.isCurrentPlayerClaimed());
             }), 100);
             if (!claimed) throw new AssertionError("认领未生效");
 
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (client.currentScreen instanceof GuiMaterialList gui) {
                     gui.togglePickupMode();
                 } else {
                     throw new AssertionError("材料列表未打开");
@@ -139,11 +139,11 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
 
             // ===== 同一 tick 内给 200 个箱子都塞入石头并 setChanged =====
             server.computeOnServer(s -> {
-                var world = s.overworld();
+                var world = s.getOverworld();
                 for (BlockPos pos : positions) {
                     if (world.getBlockEntity(pos) instanceof ChestBlockEntity chest) {
-                        chest.setItem(0, new ItemStack(Items.STONE, 64));
-                        chest.setChanged();
+                        chest.setStack(0, new ItemStack(Items.STONE, 64));
+                        chest.markDirty();
                     }
                 }
                 return null;
@@ -197,7 +197,7 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreenAndShow(null);
+                client.setScreen(null);
                 PickupModeState.clear();
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();
@@ -205,16 +205,16 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
         }
     }
 
-    private static void placeChest(net.minecraft.server.level.ServerLevel world, BlockPos pos) {
-        world.setBlock(pos, Blocks.CHEST.defaultBlockState(), 3);
+    private static void placeChest(net.minecraft.server.world.ServerWorld world, BlockPos pos) {
+        world.setBlockState(pos, Blocks.CHEST.getDefaultState(), 3);
         if (!(world.getBlockEntity(pos) instanceof ChestBlockEntity chest)) {
             throw new AssertionError("箱子放置失败: " + pos);
         }
-        chest.setChanged();
+        chest.markDirty();
     }
 
     private long currentTick(ClientGameTestContext ctx) {
-        return ctx.computeOnClient(client -> client.player == null ? -1L : client.player.tickCount);
+        return ctx.computeOnClient(client -> client.player == null ? -1L : client.player.age);
     }
 
     private boolean waitForCondition(ClientGameTestContext ctx,

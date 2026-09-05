@@ -78,7 +78,7 @@ final class MockBot {
     int latestParticipantCount(int materialId) {
         for (int i = outboundPackets.size() - 1; i >= 0; i--) {
             Object msg = outboundPackets.get(i);
-            if (msg instanceof ClientboundCustomPayloadPacket p
+            if (msg instanceof CustomPayloadS2CPacket p
                 && p.payload() instanceof CollaborationStatusS2CPacket status
                 && status.materialId() == materialId) {
                 return status.participants().size();

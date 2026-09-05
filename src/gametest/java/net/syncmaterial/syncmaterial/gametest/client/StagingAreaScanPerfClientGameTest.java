@@ -3,11 +3,11 @@ package net.syncmaterial.syncmaterial.gametest.client;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.block.Blocks;
+import net.minecraft.block.entity.ChestBlockEntity;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -49,17 +49,17 @@ public class StagingAreaScanPerfClientGameTest implements FabricClientGameTest {
 
             // 放 10×10 = 100 个满备战箱
             server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
+                var player = s.getPlayerManager().getPlayer("Player0");
                 if (player == null) throw new AssertionError("Player0 不在线");
-                BlockPos base = player.blockPosition();
-                var world = player.level();
+                BlockPos base = player.getBlockPos();
+                var world = player.getWorld();
                 for (int dx = -5; dx <= 4; dx++) {
                     for (int dz = -5; dz <= 4; dz++) {
-                        BlockPos pos = base.offset(dx, 0, dz);
-                        world.setBlock(pos, Blocks.CHEST.defaultBlockState(), 3);
+                        BlockPos pos = base.add(dx, 0, dz);
+                        world.setBlockState(pos, Blocks.CHEST.getDefaultState(), 3);
                         if (world.getBlockEntity(pos) instanceof ChestBlockEntity chest) {
-                            chest.setItem(0, new ItemStack(Items.STONE, 64));
-                            chest.setChanged();
+                            chest.setStack(0, new ItemStack(Items.STONE, 64));
+                            chest.markDirty();
                         } else {
                             throw new AssertionError("箱子放置失败: " + pos);
                         }
@@ -71,8 +71,8 @@ public class StagingAreaScanPerfClientGameTest implements FabricClientGameTest {
 
             // 创建备货区（覆盖 100 箱）并计时 rescan
             long scanMs = server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
-                BlockPos base = player.blockPosition();
+                var player = s.getPlayerManager().getPlayer("Player0");
+                BlockPos base = player.getBlockPos();
                 var sam = SyncMaterial.getServerStagingAreaManager();
                 int areaId = sam.addStagingArea(schematicId, "minecraft:overworld", "perf_area",
                     base.getX() - 6, base.getY() - 2, base.getZ() - 6,
@@ -99,7 +99,7 @@ public class StagingAreaScanPerfClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreenAndShow(null);
+                client.setScreen(null);
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();
             });
