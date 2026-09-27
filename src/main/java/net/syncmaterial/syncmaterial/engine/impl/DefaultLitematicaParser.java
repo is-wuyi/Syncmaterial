@@ -151,7 +151,9 @@ public class DefaultLitematicaParser implements LitematicaParser {
             
             // 如果没有单独的 bits，使用计算值
             if (!regionNbt.contains("BitsPerEntry")) {
-                bitsPerBlock = Math.max(1, 32 - Integer.numberOfLeadingZeros(paletteList.size() - 1));
+                // Litematica 的 setBits 对 bits<=4 强制 Math.max(2, ...)（已对照依赖 jar 字节码确认），
+                // 即最小位宽是 2；用 Math.max(1,...) 会把 2 项调色板的图按 1 位/格读错位。
+                bitsPerBlock = Math.max(2, 32 - Integer.numberOfLeadingZeros(paletteList.size() - 1));
             }
             
             for (int i = 0; i < paletteList.size(); i++) {
@@ -198,8 +200,8 @@ public class DefaultLitematicaParser implements LitematicaParser {
 
             if (blockStates.length == 0) return;
 
-            // 从 palette 大小计算正确的 bitsPerBlock（Litematica 标准编码）
-            int correctBits = Math.max(1, 32 - Integer.numberOfLeadingZeros(paletteSize - 1));
+            // 从 palette 大小计算正确的 bitsPerBlock（Litematica 标准编码，最小 2 位）
+            int correctBits = Math.max(2, 32 - Integer.numberOfLeadingZeros(paletteSize - 1));
             if (bitsPerBlock != correctBits) {
                 LOGGER.info("修正 bitsPerBlock: {} -> {} (palette 大小: {})", bitsPerBlock, correctBits, paletteSize);
                 bitsPerBlock = correctBits;

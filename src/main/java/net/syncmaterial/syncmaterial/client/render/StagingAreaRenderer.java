@@ -94,6 +94,19 @@ public class StagingAreaRenderer implements IRenderer
         }
     }
 
+    /**
+     * 清空所有备货区线框状态（换服/断线用）。schematicId 是各服数据库自增值，
+     * 跨服会撞号：不清会把上个服的备货区线框画进新服世界。
+     */
+    public void clearAllSelections()
+    {
+        this.selections.clear();
+        this.renderEnabled.clear();
+        this.schematicNames.clear();
+        this.highlightedSchematicId = null;
+        this.highlightedBoxName = null;
+    }
+
     public void setHighlightedBox(String schematicId, @Nullable String boxName)
     {
         this.highlightedSchematicId = schematicId;

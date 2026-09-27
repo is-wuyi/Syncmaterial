@@ -114,6 +114,99 @@ public class LitematicaParserGameTest {
         ctx.succeed();
     }
 
+    // ==================== 两状态调色板位宽回归 ====================
+
+    /**
+     * 回归测试：调色板恰好 2 项时，Litematica 用 2 位/格编码（其 setBits 对
+     * bits<=4 强制 Math.max(2, ...)，已对照依赖 jar 字节码确认）。解析器若按
+     * 1 位/格解码，会把整份数据读错位——统计数量随之全错。
+     *
+     * 这里按真实格式打包：2 位/格、不写 BitsPerEntry 字段（真实 .litematic
+     * 没有这个字段，解析器必须自己按调色板大小推位宽）。调色板 [air, stone]，
+     * 8 格中 5 格 stone(索引 1) + 3 格 air(索引 0)。
+     * - 按 2 位正确解码：5 个 stone
+     * - 按 1 位错误解码：只数出 4 个 stone
+     */
+    @GameTest(structure = "empty")
+    public void parseTwoStatePalette_usesTwoBits(GameTestHelper ctx) {
+        try {
+            List<BlockState> palette = List.of(
+                Blocks.AIR.defaultBlockState(),
+                Blocks.STONE.defaultBlockState()
+            );
+            // 索引序列：前 5 格 stone(1)，后 3 格 air(0)
+            int[] indices = {1, 1, 1, 1, 1, 0, 0, 0};
+            long[] blockStates = packIndices(indices, 2);
+
+            CompoundTag rootNbt = buildRealLitematicNbt(palette, blockStates, 2, 2, 2);
+            Path tempFile = Files.createTempFile("test-two-state", ".litematic");
+            NbtIo.writeCompressed(rootNbt, tempFile);
+
+            var parser = new DefaultLitematicaParser(new ParsingThreadPool());
+            var materials = parser.parseAsync(tempFile.toString()).get();
+
+            long stoneCount = materials.stream()
+                .filter(m -> m.getStack().is(net.minecraft.world.item.Items.STONE))
+                .mapToLong(net.syncmaterial.syncmaterial.api.MaterialEntry::getCountTotal)
+                .sum();
+            ctx.assertTrue(stoneCount == 5,
+                Component.literal("2 项调色板应按 2 位解码得 5 个 stone，实际 " + stoneCount
+                    + "（1 位错误解码会得到 4）"));
+
+            Files.deleteIfExists(tempFile);
+        } catch (Exception e) {
+            throw ctx.assertionException("两状态调色板位宽测试失败: " + e.getMessage());
+        }
+        ctx.succeed();
+    }
+
+    /** 按 Litematica 的 LitematicaBitArray 打包：LSB 优先，条目可跨 long。 */
+    private static long[] packIndices(int[] indices, int bits) {
+        long mask = (1L << bits) - 1L;
+        long totalBits = (long) indices.length * bits;
+        int longCount = (int) ((totalBits + 63) / 64);
+        long[] out = new long[Math.max(1, longCount)];
+        for (int i = 0; i < indices.length; i++) {
+            long bitPos = (long) i * bits;
+            int startLong = (int) (bitPos >> 6);
+            int startOffset = (int) (bitPos & 63);
+            long val = indices[i] & mask;
+            out[startLong] |= val << startOffset;
+            int endLong = (int) (((i + 1L) * bits - 1L) >> 6);
+            if (endLong != startLong) {
+                out[endLong] |= val >>> (64 - startOffset);
+            }
+        }
+        return out;
+    }
+
+    /** 真实格式 NBT：不写 BitsPerEntry（真实 .litematic 无此字段）。 */
+    private CompoundTag buildRealLitematicNbt(List<BlockState> palette, long[] blockStates,
+                                              int width, int height, int length) {
+        ListTag paletteList = new ListTag();
+        for (BlockState state : palette) {
+            paletteList.add(NbtUtils.writeBlockState(state));
+        }
+        CompoundTag sizeNbt = new CompoundTag();
+        sizeNbt.put("x", IntTag.valueOf(width));
+        sizeNbt.put("y", IntTag.valueOf(height));
+        sizeNbt.put("z", IntTag.valueOf(length));
+        CompoundTag posNbt = new CompoundTag();
+        posNbt.put("x", IntTag.valueOf(0));
+        posNbt.put("y", IntTag.valueOf(0));
+        posNbt.put("z", IntTag.valueOf(0));
+        CompoundTag regionNbt = new CompoundTag();
+        regionNbt.put("Size", sizeNbt);
+        regionNbt.put("Position", posNbt);
+        regionNbt.put("BlockStatePalette", paletteList);
+        regionNbt.put("BlockStates", new LongArrayTag(blockStates));
+        CompoundTag regionsNbt = new CompoundTag();
+        regionsNbt.put("main", regionNbt);
+        CompoundTag rootNbt = new CompoundTag();
+        rootNbt.put("Regions", regionsNbt);
+        return rootNbt;
+    }
+
     // ==================== NBT 构造辅助 ====================
 
     private CompoundTag buildLitematicNbt(List<BlockState> palette, long[] blockStates,

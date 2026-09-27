@@ -277,6 +277,13 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         return this.areaWorlds.getOrDefault(areaName, "");
     }
 
+    /** 备货区在服务端的真实主键；尚未同步时返回 null */
+    @Override
+    public Integer getAreaServerId(String areaName)
+    {
+        return this.selection.getServerId(areaName);
+    }
+
     // ========== GUI 生命周期 ==========
 
     @Override
@@ -391,6 +398,18 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         {
             this.warehouseListWidget = new WidgetListWarehouseRefs(listX, this.warehouseListY, listWidth, this.warehouseListHeight, this.schematicId);
             this.warehouseListWidget.initGui();
+
+            // 「添加仓库引用」按钮只在 initGui 里建一次。此前放在 drawContents 中，
+            // 每帧都会 new + addButton，按钮列表无限增长（内存泄漏 + 命中测试变慢 + 同位重叠）。
+            String warehouseLabel = StringUtils.translate("syncmaterial.gui.label.warehouse_refs_section",
+                    String.valueOf(this.warehouseListWidget.getEntryCount()));
+            String addLabel = StringUtils.translate("syncmaterial.gui.button.add_warehouse_ref");
+            int addWidth = StringUtils.getStringWidth(addLabel) + 10;
+            int addX = 14 + StringUtils.getStringWidth(GuiBase.TXT_BOLD + warehouseLabel) + 8;
+            ButtonGeneric addBtn = new ButtonGeneric(addX, separatorY + 1, addWidth, 16, addLabel);
+            this.addButton(addBtn, (btn, mouseBtn) -> {
+                GuiBase.openGui(new GuiWarehouseRefPopup(this.schematicId));
+            });
         }
     }
 
@@ -419,15 +438,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             String warehouseLabel = StringUtils.translate("syncmaterial.gui.label.warehouse_refs_section",
                     String.valueOf(this.warehouseListWidget != null ? this.warehouseListWidget.getEntryCount() : 0));
             this.drawString(drawContext, GuiBase.TXT_BOLD + warehouseLabel, 14, separatorY + 3, 0xFF55AAFF);
-
-            // 添加仓库按钮（标签右侧）
-            String addLabel = StringUtils.translate("syncmaterial.gui.button.add_warehouse_ref");
-            int addWidth = StringUtils.getStringWidth(addLabel) + 10;
-            int addX = 14 + StringUtils.getStringWidth(GuiBase.TXT_BOLD + warehouseLabel) + 8;
-            ButtonGeneric addBtn = new ButtonGeneric(addX, separatorY + 1, addWidth, 16, addLabel);
-            this.addButton(addBtn, (btn, mouseBtn) -> {
-                GuiBase.openGui(new GuiWarehouseRefPopup(this.schematicId));
-            });
+            // 「添加仓库引用」按钮已移到 createListWidgets 只建一次，这里不再每帧创建
         }
 
         if (this.warehouseListWidget != null)

@@ -185,14 +185,31 @@ public class ModNetworkHandlerClient {
                 selection = new net.syncmaterial.syncmaterial.selection.AreaSelection();
                 renderer.updateSelection(payload.schematicId(), selection);
             }
+            java.util.Set<String> serverNames = new java.util.HashSet<>();
             for (var area : payload.areas())
             {
+                serverNames.add(area.name());
                 var box = new net.syncmaterial.syncmaterial.selection.Box(
                     new net.minecraft.core.BlockPos(area.x1(), area.y1(), area.z1()),
                     new net.minecraft.core.BlockPos(area.x2(), area.y2(), area.z2()),
                     area.name());
                 selection.addSubRegionBox(box, true);
                 selection.setServerId(area.name(), area.areaId());
+            }
+            // 全量响应即权威列表：删除服务端已不存在的区域，否则被删/改名的区域会
+            // 残留幽灵线框和陈旧 serverId（与编辑器 onServerResponse 的差集同步一致）。
+            java.util.List<String> toRemove = new java.util.ArrayList<>();
+            for (String name : selection.getAllSubRegionNames())
+            {
+                if (!serverNames.contains(name))
+                {
+                    toRemove.add(name);
+                }
+            }
+            for (String name : toRemove)
+            {
+                selection.removeSubRegionBox(name);
+                selection.removeServerId(name);
             }
         }
     }

@@ -43,6 +43,68 @@ public class StagingAreaScanGameTest {
         return SyncMaterial.getServerStagingAreaManager();
     }
 
+    /** 从数据库最新读取某备货区当前名称；不存在返回 null */
+    private String areaName(StagingAreaManager sam, String schematicId, int areaId) {
+        for (var area : sam.getStagingAreas(schematicId)) {
+            if (area.id() == areaId) {
+                return area.name();
+            }
+        }
+        return null;
+    }
+
+    // ==================== 重命名跨原理图防护 ====================
+
+    /**
+     * 回归：重命名/删除的 SQL 带 schematic_id 约束后，用属于原理图 B 的 areaId
+     * 配上原理图 A 的 id 调用，不得改动 B 的备货区（此前只 WHERE id 会误伤，
+     * 客户端曾把列表序号当 areaId 发出导致改错区域）。同时验证正常改名仍生效。
+     */
+    @GameTest(structure = "empty")
+    public void renameStagingArea_isScopedToSchematic(GameTestHelper ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String idA = "gt-rnA-" + System.currentTimeMillis();
+        String idB = "gt-rnB-" + System.currentTimeMillis();
+        int areaA = -1;
+        int areaB = -1;
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                idA, "Rename A", "/a.litematic");
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                idB, "Rename B", "/b.litematic");
+
+            areaA = sam.addStagingArea(idA, "minecraft:overworld", "AreaA", 0, 64, 0, 1, 65, 1);
+            areaB = sam.addStagingArea(idB, "minecraft:overworld", "AreaB", 0, 64, 0, 1, 65, 1);
+            ctx.assertTrue(areaA > 0 && areaB > 0, Component.literal("两个备货区都应创建成功"));
+
+            // 正常改名：A 的区域用 A 的 id → 生效
+            sam.renameStagingArea(areaA, idA, "AreaA-Renamed");
+            GameTestAssertions.assertEquals(ctx, "AreaA-Renamed", areaName(sam, idA, areaA),
+                Component.literal("同原理图内正常改名应生效"));
+
+            // 跨原理图：B 的 areaId 配 A 的 schematicId → 必须空操作
+            sam.renameStagingArea(areaB, idA, "Hijacked");
+            GameTestAssertions.assertEquals(ctx, "AreaB", areaName(sam, idB, areaB),
+                Component.literal("用错误原理图 id 不得改到 B 的备货区"));
+
+            // 跨原理图删除同样不得误删
+            sam.removeStagingArea(areaB, idA);
+            ctx.assertTrue(areaName(sam, idB, areaB) != null,
+                Component.literal("用错误原理图 id 不得删除 B 的备货区"));
+        } catch (Exception e) {
+            throw ctx.assertionException("重命名跨原理图防护测试失败: " + e.getMessage());
+        } finally {
+            try {
+                if (areaA > 0) sam.removeStagingArea(areaA, idA);
+                if (areaB > 0) sam.removeStagingArea(areaB, idB);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", idA);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", idB);
+            } catch (Exception ignored) {}
+        }
+        ctx.succeed();
+    }
+
     // ==================== 备货区同步重扫 ====================
 
     @GameTest(structure = "empty")

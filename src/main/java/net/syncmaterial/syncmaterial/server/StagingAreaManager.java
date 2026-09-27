@@ -135,7 +135,9 @@ public class StagingAreaManager {
 
     public void renameStagingArea(int areaId, String schematicId, String newName) {
         try {
-            database.executeUpdate("UPDATE staging_areas SET name = ? WHERE id = ?", newName, areaId);
+            // 带 schematic_id 约束：客户端传错 id（曾误传列表序号）或恶意跨原理图改名时，
+            // 条件不匹配即为空操作，不会改到别的原理图的备货区。
+            database.executeUpdate("UPDATE staging_areas SET name = ? WHERE id = ? AND schematic_id = ?", newName, areaId, schematicId);
             refreshCache(schematicId);
             SyncMaterial.LOGGER.info("Renamed staging area {} to {}", areaId, newName);
         } catch (SQLException e) {
@@ -157,13 +159,13 @@ public class StagingAreaManager {
         try {
             if (world != null) {
                 database.executeUpdate(
-                    "UPDATE staging_areas SET name = ?, world = ?, x1 = ?, y1 = ?, z1 = ?, x2 = ?, y2 = ?, z2 = ? WHERE id = ?",
-                    name, world, x1, y1, z1, x2, y2, z2, areaId
+                    "UPDATE staging_areas SET name = ?, world = ?, x1 = ?, y1 = ?, z1 = ?, x2 = ?, y2 = ?, z2 = ? WHERE id = ? AND schematic_id = ?",
+                    name, world, x1, y1, z1, x2, y2, z2, areaId, schematicId
                 );
             } else {
                 database.executeUpdate(
-                    "UPDATE staging_areas SET name = ?, x1 = ?, y1 = ?, z1 = ?, x2 = ?, y2 = ?, z2 = ? WHERE id = ?",
-                    name, x1, y1, z1, x2, y2, z2, areaId
+                    "UPDATE staging_areas SET name = ?, x1 = ?, y1 = ?, z1 = ?, x2 = ?, y2 = ?, z2 = ? WHERE id = ? AND schematic_id = ?",
+                    name, x1, y1, z1, x2, y2, z2, areaId, schematicId
                 );
             }
             refreshCache(schematicId);
@@ -177,7 +179,7 @@ public class StagingAreaManager {
 
     public void removeStagingArea(int areaId, String schematicId) {
         try {
-            database.executeUpdate("DELETE FROM staging_areas WHERE id = ?", areaId);
+            database.executeUpdate("DELETE FROM staging_areas WHERE id = ? AND schematic_id = ?", areaId, schematicId);
             refreshCache(schematicId);
             resetInitState("staging_area", areaId);
             SyncMaterial.LOGGER.info("Removed staging area {}", areaId);

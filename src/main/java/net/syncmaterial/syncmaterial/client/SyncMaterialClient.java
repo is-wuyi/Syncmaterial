@@ -127,6 +127,9 @@ public class SyncMaterialClient implements ClientModInitializer {
             // 仓库数据按服务器隔离：不清理会导致换服后渲染上一个服务器的仓库线框
             StagingAreaRenderer.getInstance().clearWarehouseAreas();
             StagingAreaRenderer.getInstance().clearWarehouseContainers();
+            // 备货区线框同样按服务器隔离：schematicId 是各服自增值跨服会撞号，
+            // 不清会把上个服的备货区线框（及陈旧 serverId）带进新服世界
+            StagingAreaRenderer.getInstance().clearAllSelections();
             // 选区状态也要清：中途断线时 active 会残留，导致下次进服仍处于选区模式，
             // 且编辑上下文残留会让对应区域被正式渲染永久跳过
             StagingAreaSelector.getInstance().reset();

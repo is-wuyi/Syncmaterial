@@ -254,8 +254,16 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                 return false;
             }
 
+            // 用服务端真实主键，而非列表序号（entry.areaId() 是列表内的序号，
+            // 发给服务端会改到 id 相同的另一区域，或匹配不到而静默失败）。
+            Integer serverId = this.gui.getAreaServerId(this.entry.name());
+            if (serverId == null)
+            {
+                return false;
+            }
+
             ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                    this.gui.getSchematicId(), "RENAME", this.entry.areaId(),
+                    this.gui.getSchematicId(), "RENAME", serverId,
                     Optional.of(new AreaData(newName.trim(),
                             this.entry.x1(), this.entry.y1(), this.entry.z1(),
                             this.entry.x2(), this.entry.y2(), this.entry.z2(),

@@ -31,7 +31,9 @@
             "net.syncmaterial.syncmaterial.gametest.client.ConcurrencyClaimsClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.OwnerActionConflictClientGameTest",
             "net.syncmaterial.syncmaterial.gametest.client.StressContainerPushClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaScanPerfClientGameTest"
+            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaScanPerfClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSnapshotClientGameTest",
+            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaEditorClientGameTest"
         ]
     },
     "depends": {
