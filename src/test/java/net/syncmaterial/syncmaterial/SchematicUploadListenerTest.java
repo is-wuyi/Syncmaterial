@@ -49,6 +49,10 @@ public class SchematicUploadListenerTest {
         public Path getFile() { return file; }
         public String getName() { return name; }
         public Object getOwner() { return owner; }
+        /** 模拟 Syncmatica ServerPlacement.getHash()：监听器据此写入 file_hash */
+        public java.util.UUID getHash() {
+            return java.util.UUID.nameUUIDFromBytes(id.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
     }
 
     public static class FakePlayer {
@@ -117,10 +121,13 @@ public class SchematicUploadListenerTest {
         listener().onSchematicUploaded(new FakePlacement("up-1", file, "上传的建筑", new FakePlayer("Architect")));
         awaitSchematic(true);
 
-        try (var rs = db.executeQuery("SELECT name, uploaded_by FROM schematics WHERE id = 'up-1'")) {
+        try (var rs = db.executeQuery("SELECT name, uploaded_by, file_hash FROM schematics WHERE id = 'up-1'")) {
             assertTrue(rs.next());
             assertEquals("上传的建筑", rs.getString("name"));
             assertEquals("Architect", rs.getString("uploaded_by"), "应记录上传者");
+            // file_hash 必须写入，否则文件监听器检测不到该原理图的更新
+            String expectedHash = java.util.UUID.nameUUIDFromBytes("up-1".getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+            assertEquals(expectedHash, rs.getString("file_hash"), "应写入 file_hash 供更新检测");
         }
         try (var rs = db.executeQuery(
                 "SELECT item_id, count FROM material_entries WHERE schematic_id = 'up-1' ORDER BY item_id")) {

@@ -135,13 +135,26 @@ public class SchematicUploadListener implements Consumer<Object> {
                 uploader = (String) owner.getClass().getMethod("getName").invoke(owner);
             }
 
+            // file_hash 必须写入：文件监听器(SchematicFolderWatcher)靠它检测原理图文件更新，
+            // 缺失会让这条路入库的原理图永远检测不到更新。用反射取（老版本/测试无 getHash 则留空）。
+            String fileHash = "";
+            try {
+                Object h = placementClass.getMethod("getHash").invoke(placement);
+                if (h != null) {
+                    fileHash = h.toString();
+                }
+            } catch (ReflectiveOperationException ignored) {
+                // 没有 getHash：退化为空 hash（与旧行为一致）
+            }
+
             // 1. 插入原理图基本信息
             database.executeUpdate(
-                "INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
+                "INSERT INTO schematics (id, name, file_path, uploaded_by, file_hash) VALUES (?, ?, ?, ?, ?)",
                 schematicId,
                 schematicName,
                 schematicFile.toString(),
-                uploader
+                uploader,
+                fileHash
             );
             SyncMaterial.LOGGER.info("插入原理图基本信息成功: {}", schematicId);
 

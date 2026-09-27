@@ -16,8 +16,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(targets = "ch.endte.syncmatica.litematica.LitematicManager", remap = false)
 public class SyncmaticaIntegrationMixin {
 
-    @Inject(method = "setContext", at = @At("TAIL"), remap = false)
-    private void onSyncmaticaInit(Object context, CallbackInfo ci) {
+    // 目标方法是 setActiveContext（早期误写成 setContext，导致注入 0 命中、监听器从未注册）。
+    // require = 1：目标存在却匹配不到时直接报错，杜绝这种"静默失效"再次发生。
+    // 形参类型必须与目标方法签名一致（Context，而非 Object）——Mixin 按描述符精确匹配，
+    // 用 Object 会 InvalidInjectionException。syncmatica 是 compileOnly，编译期可见该类型。
+    @Inject(method = "setActiveContext", at = @At("TAIL"), remap = false, require = 1)
+    private void onSyncmaticaInit(ch.endte.syncmatica.Context context, CallbackInfo ci) {
         try {
             SyncMaterial.LOGGER.info("检测到 Syncmatica 初始化，注册原理图上传监听器...");
 
