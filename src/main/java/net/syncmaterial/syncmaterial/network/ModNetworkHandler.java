@@ -608,6 +608,40 @@ public class ModNetworkHandler {
         }
     }
 
+    /** 原版世界边界，坐标绝对值上限 */
+    private static final int COORD_LIMIT = 30_000_000;
+    /** 区域水平区块数上限：挡住 ±2^31 坐标导致的天量 chunk 扫描把主线程冻死 */
+    private static final int MAX_AREA_CHUNKS = 1024;
+
+    /** 区域几何是否合理（坐标范围 + 区块跨度上限）。抽成静态便于单测。 */
+    static boolean isAreaGeometryValid(int x1, int y1, int z1, int x2, int y2, int z2) {
+        if (Math.abs(x1) > COORD_LIMIT || Math.abs(z1) > COORD_LIMIT
+                || Math.abs(x2) > COORD_LIMIT || Math.abs(z2) > COORD_LIMIT) {
+            return false;
+        }
+        if (Math.abs(y1) > 4096 || Math.abs(y2) > 4096) {
+            return false;
+        }
+        long spanX = (long) (Math.max(x1, x2) >> 4) - (Math.min(x1, x2) >> 4) + 1;
+        long spanZ = (long) (Math.max(z1, z2) >> 4) - (Math.min(z1, z2) >> 4) + 1;
+        return spanX * spanZ <= MAX_AREA_CHUNKS;
+    }
+
+    /**
+     * 校验客户端上报的区域数据；合法返回 null，否则返回中文错误原因。
+     * world 是客户端可控字符串，语法非法会让服务端扫描时 Identifier.parse 崩溃，
+     * 这里只挡语法非法（用 tryParse）；语法合法但维度不存在由扫描侧安全跳过（world==null 返回）。
+     */
+    private static String validateAreaData(StagingAreaConfigC2SPacket.AreaData d, MinecraftServer server) {
+        if (!isAreaGeometryValid(d.x1(), d.y1(), d.z1(), d.x2(), d.y2(), d.z2())) {
+            return "区域坐标超出范围或区域过大";
+        }
+        if (d.world().isPresent() && net.minecraft.resources.Identifier.tryParse(d.world().get()) == null) {
+            return "维度 ID 格式非法";
+        }
+        return null;
+    }
+
     static void handleStagingAreaConfig(StagingAreaConfigC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
         String schematicId = payload.schematicId();
         StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
@@ -630,6 +664,11 @@ public class ModNetworkHandler {
                         return;
                     }
                     AreaData data = ad.get();
+                    String geomErr = validateAreaData(data, server);
+                    if (geomErr != null) {
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD", schematicId, "", false, geomErr, List.of()));
+                        return;
+                    }
                     String world = data.world().orElse(player.level().dimension().identifier().toString());
                     int areaId = manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     if (areaId > 0) {
@@ -660,6 +699,11 @@ public class ModNetworkHandler {
                         return;
                     }
                     AreaData data = ad.get();
+                    String updGeomErr = validateAreaData(data, server);
+                    if (updGeomErr != null) {
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE", schematicId, "", false, updGeomErr, List.of()));
+                        return;
+                    }
                     SyncMaterial.LOGGER.debug("[StagingArea] UPDATE: areaId={} schematicId='{}' name='{}'",
                             payload.areaId(), schematicId, data.name());
                     manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.world().orElse(null),
@@ -684,6 +728,11 @@ public class ModNetworkHandler {
                 }
                 case "ADD_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
+                    String whGeomErr = validateAreaData(data, server);
+                    if (whGeomErr != null) {
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD_WAREHOUSE", schematicId, "", false, whGeomErr, List.of()));
+                        return;
+                    }
                     int id = manager.addWarehouse(data.name(), data.world().orElse("minecraft:overworld"),
                         data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     if (id > 0) {
@@ -697,6 +746,11 @@ public class ModNetworkHandler {
                 }
                 case "UPDATE_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
+                    String whUpdErr = validateAreaData(data, server);
+                    if (whUpdErr != null) {
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE_WAREHOUSE", schematicId, "", false, whUpdErr, List.of()));
+                        return;
+                    }
                     manager.updateWarehouse(payload.areaId(), data.name(), data.world().orElse(null),
                             data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     // 范围可能变了：updateWarehouse 已重置初始化状态，这里按新范围立即重扫

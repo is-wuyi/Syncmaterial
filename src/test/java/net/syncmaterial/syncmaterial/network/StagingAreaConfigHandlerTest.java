@@ -317,4 +317,19 @@ class StagingAreaConfigHandlerTest {
         assertFalse(resp.success());
         assertEquals("备货区服务未初始化", resp.message());
     }
+
+    @Test
+    void isAreaGeometryValid_acceptsNormalAndRejectsAbusive() {
+        // 正常小区域
+        assertTrue(ModNetworkHandler.isAreaGeometryValid(0, 64, 0, 5, 70, 5));
+        // 合理的大房间（仍在区块跨度上限内）
+        assertTrue(ModNetworkHandler.isAreaGeometryValid(-100, 0, -100, 100, 100, 100));
+        // 坐标超出世界边界
+        assertFalse(ModNetworkHandler.isAreaGeometryValid(0, 64, 0, 40_000_000, 64, 0));
+        // 天量坐标：区块跨度爆炸（旧代码会在扫描时冻死主线程）
+        assertFalse(ModNetworkHandler.isAreaGeometryValid(
+            Integer.MIN_VALUE, 64, Integer.MIN_VALUE, Integer.MAX_VALUE, 64, Integer.MAX_VALUE));
+        // Y 超出合理范围
+        assertFalse(ModNetworkHandler.isAreaGeometryValid(0, -999999, 0, 1, 999999, 1));
+    }
 }

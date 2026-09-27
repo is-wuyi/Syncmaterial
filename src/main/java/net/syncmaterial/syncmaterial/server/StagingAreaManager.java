@@ -350,15 +350,16 @@ public class StagingAreaManager {
                         if (found) {
                             affectedSchematics.add(schematicEntry.getKey());
                             for (StagingArea area : schematicEntry.getValue()) {
-                                Map<String, Integer> result = scanAreaContents(area.id);
-                                if (result != null) updateStagingAreaContainer(area.id, result);
+                                ScanResult result = scanAreaContents(area.id);
+                                // 仅在区块全部加载（complete）时全量覆盖，避免残缺覆盖丢数据
+                                if (result != null && result.complete()) updateStagingAreaContainer(area.id, result.items());
                             }
                             break;
                         }
                     }
                 } else {
-                    Map<String, Integer> result = scanWarehouseContents(areaId);
-                    if (result != null) updateWarehouseContainer(areaId, result);
+                    ScanResult result = scanWarehouseContents(areaId);
+                    if (result != null && result.complete()) updateWarehouseContainer(areaId, result.items());
                     affectedSchematics.addAll(getSchematicsReferencingWarehouse(areaId));
                 }
             }
@@ -444,17 +445,28 @@ public class StagingAreaManager {
         return null;
     }
 
+    /** 一次区域扫描的结果：complete=false 表示有区块未加载被跳过，统计不完整。 */
+    private record ScanResult(Map<String, Integer> items, boolean complete) {}
+
     /**
      * 扫描备货区内容器内容（在主线程调用，需要访问世界数据）。
-     * 返回 null 表示找不到区域或世界。
+     * 返回 null 表示找不到区域或世界（含 world 字段非法）；
+     * ScanResult.complete=false 表示有未加载区块被跳过，调用方不应据此做全量覆盖。
      */
     @Nullable
-    private Map<String, Integer> scanAreaContents(int areaId) {
+    private ScanResult scanAreaContents(int areaId) {
         StagingArea area = findStagingAreaById(areaId);
         if (area == null) return null;
 
+        // 用 tryParse：world 是客户端可控字符串，非法值不能让 Identifier.parse 抛异常
+        // 穿透到 tick 回调（否则每次脏容器事件都会崩服）
+        Identifier dim = Identifier.tryParse(area.world);
+        if (dim == null) {
+            SyncMaterial.LOGGER.warn("[StagingArea] areaId={} 的 world 非法: {}", areaId, area.world);
+            return null;
+        }
         ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.create(
-                net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(area.world)));
+                net.minecraft.core.registries.Registries.DIMENSION, dim));
         if (world == null) return null;
 
         Map<String, Integer> totalItems = new HashMap<>();
@@ -507,18 +519,25 @@ public class StagingAreaManager {
             SyncMaterial.LOGGER.info("[StagingArea] areaId={} skipped {} unloaded chunks", areaId, skippedChunks);
         }
         SyncMaterial.LOGGER.info("[StagingArea] scanAreaContents: areaId={} found {} item types", areaId, totalItems.size());
-        return totalItems;
+        return new ScanResult(totalItems, skippedChunks == 0);
     }
 
     public void rescanStagingArea(int areaId) {
-        var totalItems = scanAreaContents(areaId);
-        if (totalItems == null) {
+        var scan = scanAreaContents(areaId);
+        if (scan == null) {
             SyncMaterial.LOGGER.warn("[StagingArea] rescanStagingArea: area {} not found or world missing", areaId);
             return;
         }
+        // 有区块未加载时不做全量覆盖：全量覆盖会用"仅已加载区块"的残缺结果替换整表，
+        // 让卸载区块里的物品从统计中消失（countMissing 虚高）。保留现有统计，
+        // 等区块加载时由 scanChunkForContainerAreas 增量合并/完成校正。
+        if (!scan.complete()) {
+            SyncMaterial.LOGGER.info("[StagingArea] rescanStagingArea: area {} 有区块未加载，保留现有统计不做全量覆盖", areaId);
+            return;
+        }
 
-        SyncMaterial.LOGGER.info("[StagingArea] rescanStagingArea: areaId={} found {} item types", areaId, totalItems.size());
-        updateStagingAreaContainer(areaId, totalItems);
+        SyncMaterial.LOGGER.info("[StagingArea] rescanStagingArea: areaId={} found {} item types", areaId, scan.items().size());
+        updateStagingAreaContainer(areaId, scan.items());
     }
 
     /** 统计容器内物品（含潜影盒） */
@@ -785,23 +804,34 @@ public class StagingAreaManager {
         Warehouse wh = warehousesById.get(warehouseId);
         if (wh == null) return;
 
-        var totalItems = scanWarehouseContents(warehouseId);
-        if (totalItems == null) return;
+        var scan = scanWarehouseContents(warehouseId);
+        if (scan == null) return;
+        // 同备货区：有区块未加载时保留现有统计，不用残缺结果全量覆盖
+        if (!scan.complete()) {
+            SyncMaterial.LOGGER.info("[StagingArea] rescanWarehouse: id={} 有区块未加载，保留现有统计不做全量覆盖", warehouseId);
+            return;
+        }
 
-        updateWarehouseContainer(warehouseId, totalItems);
-        SyncMaterial.LOGGER.info("[StagingArea] rescanWarehouse: id={} found {} item types", warehouseId, totalItems.size());
+        updateWarehouseContainer(warehouseId, scan.items());
+        SyncMaterial.LOGGER.info("[StagingArea] rescanWarehouse: id={} found {} item types", warehouseId, scan.items().size());
     }
 
     /**
      * 扫描仓库内容物（复用 scanAreaContents 的逻辑，针对仓库坐标）。
      * 同时重建 container_inventory 明细，取货模式的箱子高亮依赖该表。
      */
-    private Map<String, Integer> scanWarehouseContents(int warehouseId) {
+    @Nullable
+    private ScanResult scanWarehouseContents(int warehouseId) {
         Warehouse wh = warehousesById.get(warehouseId);
         if (wh == null) return null;
 
+        Identifier dim = Identifier.tryParse(wh.world());
+        if (dim == null) {
+            SyncMaterial.LOGGER.warn("[StagingArea] warehouse id={} 的 world 非法: {}", warehouseId, wh.world());
+            return null;
+        }
         ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.create(
-                net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(wh.world())));
+                net.minecraft.core.registries.Registries.DIMENSION, dim));
         if (world == null) return null;
 
         // 全量重扫前清空旧明细，避免已移除的容器残留在取货模式高亮里
@@ -824,10 +854,11 @@ public class StagingAreaManager {
         int maxChunkX = maxX >> 4;
         int minChunkZ = minZ >> 4;
         int maxChunkZ = maxZ >> 4;
+        int skippedChunks = 0;
 
         for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-                if (world.getChunkSource().getChunk(chunkX, chunkZ, false) == null) continue;
+                if (world.getChunkSource().getChunk(chunkX, chunkZ, false) == null) { skippedChunks++; continue; }
 
                 int startX = Math.max(chunkX << 4, minX);
                 int endX = Math.min((chunkX << 4) + 15, maxX);
@@ -852,7 +883,7 @@ public class StagingAreaManager {
                     wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
             }
         }
-        return totalItems;
+        return new ScanResult(totalItems, skippedChunks == 0);
     }
 
     /**

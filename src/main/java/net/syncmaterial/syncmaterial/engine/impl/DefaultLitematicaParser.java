@@ -44,7 +44,10 @@ public class DefaultLitematicaParser implements LitematicaParser {
             throw new IllegalArgumentException("Schematic file not found: " + schematicPath);
         }
 
-        CompoundTag rootNbt = NbtIo.readCompressed(file.toPath(), NbtAccounter.unlimitedHeap());
+        // 上传的 .litematic 由任意客户端提供：用有界配额而非 unlimitedHeap，
+        // 否则几百 KB 的高压缩比文件可展开成数 GB 直接 OOM 掉服务端。
+        // 512MB 远超任何正常原理图的解压体积，只挡解压炸弹。
+        CompoundTag rootNbt = NbtIo.readCompressed(file.toPath(), NbtAccounter.create(512L * 1024 * 1024));
 
         LitematicaParser.ParsingResult result = parseNbtToResult(rootNbt);
 

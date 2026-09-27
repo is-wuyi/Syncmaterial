@@ -105,6 +105,85 @@ public class StagingAreaScanGameTest {
         ctx.succeed();
     }
 
+    // ==================== 区块未加载时不丢统计 ====================
+
+    /**
+     * 回归：备货区跨到未加载区块时，重扫不得用"仅已加载区块"的残缺结果全量覆盖，
+     * 否则卸载区块里的物品从统计里消失（countMissing 虚高）。
+     * 用远处坐标（区块必未加载）+ 预置库存，重扫后统计应被保留。
+     */
+    @GameTest(structure = "empty")
+    public void rescan_preservesCountWhenChunksUnloaded(GameTestHelper ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-unload-" + System.currentTimeMillis();
+        int areaId = -1;
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Unload Test", "/unload.litematic");
+            // 远处坐标：这些区块在测试世界里不会被加载
+            areaId = sam.addStagingArea(testId, "minecraft:overworld", "FarArea",
+                2_000_000, 64, 2_000_000, 2_000_001, 65, 2_000_001);
+            ctx.assertTrue(areaId > 0, Component.literal("远处备货区应创建成功"));
+
+            // 预置一份"之前已扫描到"的库存
+            db.executeUpdate(
+                "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, ?)",
+                areaId, "minecraft:stone", 64);
+
+            // 触发重扫：区块未加载，应保留预置统计而非清零
+            sam.rescanStagingArea(areaId);
+
+            GameTestAssertions.assertEquals(ctx, 64,
+                sam.getStagingCountForMaterial(testId, "minecraft:stone"),
+                Component.literal("区块未加载时重扫应保留已有统计（不得清零）"));
+        } catch (Exception e) {
+            throw ctx.assertionException("区块未加载保留统计测试失败: " + e.getMessage());
+        } finally {
+            try {
+                if (areaId > 0) sam.removeStagingArea(areaId, testId);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+        }
+        ctx.succeed();
+    }
+
+    /** 回归：备货区 world 字段非法时，重扫不得抛异常（否则脏容器事件会崩服循环）。 */
+    @GameTest(structure = "empty")
+    public void rescan_invalidWorldDoesNotThrow(GameTestHelper ctx) {
+        SchematicDatabase db = SyncMaterial.getSharedDatabase();
+        StagingAreaManager sam = manager();
+        String testId = "gt-badworld-" + System.currentTimeMillis();
+        int areaId = -1;
+        try {
+            db.executeUpdate("INSERT INTO schematics (id, name, file_path) VALUES (?, ?, ?)",
+                testId, "Bad World Test", "/badworld.litematic");
+            // 直接写非法 world（模拟恶意/损坏客户端绕过校验入库的历史数据）
+            db.executeUpdate(
+                "INSERT INTO staging_areas (schematic_id, world, name, x1, y1, z1, x2, y2, z2) " +
+                "VALUES (?, '!!!not a valid id!!!', 'BadWorldArea', 0, 64, 0, 1, 65, 1)",
+                testId);
+            try (var rs = db.executeQuery(
+                    "SELECT id FROM staging_areas WHERE schematic_id = ?", testId)) {
+                rs.next();
+                areaId = rs.getInt("id");
+            }
+            // 载入缓存，使 findStagingAreaById 能找到这条直接写库的区域
+            sam.getStagingAreas(testId);
+
+            // 不应抛异常
+            sam.rescanStagingArea(areaId);
+        } catch (Exception e) {
+            throw ctx.assertionException("非法 world 重扫应安全跳过，却抛了异常: " + e.getMessage());
+        } finally {
+            try {
+                if (areaId > 0) sam.removeStagingArea(areaId, testId);
+                db.executeUpdate("DELETE FROM schematics WHERE id = ?", testId);
+            } catch (Exception ignored) {}
+        }
+        ctx.succeed();
+    }
+
     // ==================== 备货区同步重扫 ====================
 
     @GameTest(structure = "empty")

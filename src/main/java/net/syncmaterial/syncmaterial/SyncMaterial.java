@@ -32,6 +32,7 @@ public class SyncMaterial implements ModInitializer {
     private static LitematicaParser sharedParser;
     private static CollaborationManager sharedCollaborationManager;
     private static StagingAreaManager sharedStagingAreaManager;
+    private static SchematicFolderWatcher sharedWatcher;
 
     @Override
     public void onInitialize() {
@@ -97,6 +98,12 @@ public class SyncMaterial implements ModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             LOGGER.info("SyncMaterial 服务端组件正在关闭...");
             try {
+                // 先停 watcher：它的 watch/parse 线程持有共享数据库连接，必须在关库前退出，
+                // 否则退档再进档会泄漏线程且旧线程继续操作已关闭的连接
+                if (sharedWatcher != null) {
+                    sharedWatcher.stop();
+                    sharedWatcher = null;
+                }
                 if (sharedCollaborationManager != null) {
                     sharedCollaborationManager = null;
                 }
@@ -136,6 +143,7 @@ public class SyncMaterial implements ModInitializer {
                     syncamaticaFolder, syncmaticsRootFolder, sharedDatabase, sharedQueryService, sharedParser);
                 watcher.setServer(server);
                 watcher.start();
+                sharedWatcher = watcher;
 
                 LOGGER.info("原理图监控已启动 (placements: {}, files: {})", syncamaticaFolder, syncmaticsRootFolder);
 
