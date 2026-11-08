@@ -18,7 +18,7 @@
       "net.syncmaterial.syncmaterial.SyncMaterial"
     ],
     "client": [
-      "net.syncmaterial.syncmaterial.client.SyncMaterialClient"
+      "net.syncmaterial.syncmaterial.client.SyncMaterialClientBootstrap"
     ]
   },
   "mixins": [
@@ -30,6 +30,7 @@
     "fabric-api": "*"
   },
   "recommends": {
+    "malilib": ">=0.29.4",
     "litematica": ">=0.23.5",
     "syncmatica": ">=0.3.15"
   }

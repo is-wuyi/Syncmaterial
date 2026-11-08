@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "syncmaterial-foundation-test",
+  "version": "1.0.0",
+  "name": "SyncMaterial Foundation GameTest",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-gametest": [
+      "net.syncmaterial.syncmaterial.gametest.foundation.FoundationServerGameTest"
+    ],
+    "fabric-client-gametest": [
+      "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClientGameTest",
+      "net.syncmaterial.syncmaterial.gametest.foundation.MaterialResolverOracleClientGameTest"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "26.2",
+    "fabric-api": "*",
+    "syncmaterial": "*"
+  }
+}

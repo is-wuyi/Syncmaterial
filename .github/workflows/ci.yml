@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [dev, 'feature/**', '*-lts']
+    branches: [dev, 'feature/**', 'rewrite/**', '*-lts']
   pull_request:
-    branches: [dev, 'feature/**', '*-lts']
+    branches: [dev, 'feature/**', 'rewrite/**', '*-lts']
   workflow_dispatch:
 
 jobs:
@@ -36,6 +36,9 @@ jobs:
 
       - name: Build
         run: ./gradlew build --stacktrace
+
+      - name: Foundation server GameTest
+        run: ./gradlew runFoundationGameTest --stacktrace
 
       # 打包产物守卫：F1（分发 jar 漏嵌套 sqlite 驱动）曾全绿逃逸，
       # 构建成功不代表产物正确，这里直接断言 jar 内容
@@ -70,6 +73,8 @@ jobs:
           names = {'1': '高', '2': '中', '3': '低'}
           parts = [f"{names.get(k, k)} {pri[k]}" for k in ('1', '2', '3') if pri[k]]
           print(f"- 共 {len(bugs)} 条（{'，'.join(parts) if parts else '无'}）")
+          if len(bugs) > 28:
+              raise SystemExit(f"SpotBugs 超过 28 条基线：{len(bugs)}")
           high = [b for b in bugs if b.get('priority') == '1']
           if high:
               print("")
@@ -177,21 +182,12 @@ jobs:
       - name: Prepare run directory
         run: mkdir -p /tmp/syncmaterial-gametest/run-client
 
-      # 1.21.7-lts 目前 enableClientGameTests = false，runClientGameTest 任务不存在。
-      # 探测而非硬失败：等那边开启开关后本 job 自动开始生效，无需再改 CI
-      - name: Detect client GameTest support
-        id: detect
+      - name: Verify client GameTest tasks
         run: |
-          if ./gradlew -q help --task runClientGameTest >/dev/null 2>&1; then
-            echo "supported=true" >> $GITHUB_OUTPUT
-            echo "本分支已启用客户端 GameTest"
-          else
-            echo "supported=false" >> $GITHUB_OUTPUT
-            echo "本分支未启用客户端 GameTest，跳过"
-          fi
+          ./gradlew -q help --task runClientGameTest
+          ./gradlew -q help --task runFoundationClientGameTest
 
       - name: Run client GameTest
-        if: steps.detect.outputs.supported == 'true'
         env:
           # 强制软件渲染：runner 没有硬件 GL，走 llvmpipe
           LIBGL_ALWAYS_SOFTWARE: 1
@@ -201,26 +197,32 @@ jobs:
           xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
             ./gradlew runClientGameTest --stacktrace
 
+      - name: Run foundation client GameTest
+        env:
+          LIBGL_ALWAYS_SOFTWARE: 1
+          MESA_GL_VERSION_OVERRIDE: 4.6
+          MESA_GLSL_VERSION_OVERRIDE: 460
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
+            ./gradlew runFoundationClientGameTest --stacktrace
+
       - name: Client GameTest summary
         if: always()
         run: |
           echo "## 客户端 GameTest" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.detect.outputs.supported }}" != "true" ]; then
-            echo "- 本分支未启用（enableClientGameTests = false），已跳过" >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
           if [ "${{ job.status }}" = "success" ]; then
-            echo "- 全部通过" >> $GITHUB_STEP_SUMMARY
+            echo "- 旧后端和 Foundation 客户端测试全部通过" >> $GITHUB_STEP_SUMMARY
           else
             echo "- 失败，详见日志与上传的 run 目录" >> $GITHUB_STEP_SUMMARY
           fi
           echo "- 测试类清单（fabric-client-gametest entrypoint）：" >> $GITHUB_STEP_SUMMARY
-          python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
+          python3 -I - <<'EOF' >> $GITHUB_STEP_SUMMARY
           import json
-          with open('src/gametest/resources/fabric.mod.json') as f:
-              m = json.load(f)
-          for cls in m['entrypoints'].get('fabric-client-gametest', []):
-              print(f"  - {cls.split('.')[-1]}")
+          for path in ('src/gametest/resources/fabric.mod.json', 'src/foundationtest/resources/fabric.mod.json'):
+              with open(path) as f:
+                  m = json.load(f)
+              for cls in m['entrypoints'].get('fabric-client-gametest', []):
+                  print(f"  - {cls.split('.')[-1]}")
           EOF
 
       # 失败时把客户端日志与崩溃报告捞出来，否则只能看 Gradle 的转述
@@ -233,5 +235,8 @@ jobs:
             /tmp/syncmaterial-gametest/run-client/logs/
             /tmp/syncmaterial-gametest/run-client/crash-reports/
             /tmp/syncmaterial-gametest/run-client/screenshots/
+            /tmp/syncmaterial-gametest/run-foundation-client/logs/
+            /tmp/syncmaterial-gametest/run-foundation-client/crash-reports/
+            /tmp/syncmaterial-gametest/run-foundation-client/screenshots/
           retention-days: 7
           if-no-files-found: ignore

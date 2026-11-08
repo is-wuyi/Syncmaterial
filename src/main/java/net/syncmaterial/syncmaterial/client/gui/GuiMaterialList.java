@@ -111,6 +111,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     @Override
     public void initGui() {
+        this.title = this.materialList.getTitle();
         super.initGui();
         int gap = 2;
         int x = this.getScreenWidth() - 20;
@@ -449,6 +450,15 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     // ========== 网络回调 ==========
+
+    public void onMaterialCatalogUpdated() {
+        this.title = this.materialList.getTitle();
+        var ids = this.materialList.getMaterialsAll().stream().map(MaterialListEntry::getDatabaseId)
+                .collect(java.util.stream.Collectors.toSet());
+        this.selectedMaterialIds.removeIf(id -> !ids.contains(id));
+        WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
+        this.getListWidget().refreshEntries();
+    }
 
     public void onRescanResponse(boolean success, String message) {
         this.lastRescanResult = success;

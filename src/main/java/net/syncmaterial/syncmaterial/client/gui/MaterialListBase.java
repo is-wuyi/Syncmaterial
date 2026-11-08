@@ -20,6 +20,11 @@ public abstract class MaterialListBase
 
     public abstract String getTitle();
 
+    public boolean isPreparationKnown()
+    {
+        return true;
+    }
+
     public MaterialListHudRenderer getHudRenderer()
     {
         return this.hudRenderer;

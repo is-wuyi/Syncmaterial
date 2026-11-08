@@ -15,7 +15,8 @@ package net.syncmaterial.syncmaterial.network;
 public final class ProtocolVersion
 {
     /** 当前协议版本。握手时双端各自声明自己的这个值。 */
-    public static final int CURRENT = 1;
+    public static final int CURRENT = 2;
+    public static final int MATERIAL_CATALOG_UPDATES = 2;
 
     /**
      * 服务端可接受的最低客户端协议版本。

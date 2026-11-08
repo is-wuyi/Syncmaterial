@@ -18,6 +18,7 @@ public class InventoryWatcher {
     private static final Map<String, Integer> itemIdToMaterialId = new HashMap<>();
     private static final Map<Integer, Integer> lastKnownCounts = new HashMap<>();
     private static int tickCounter = 0;
+    private static boolean periodicReports;
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -27,6 +28,11 @@ public class InventoryWatcher {
             if (tickCounter % 20 != 0) return;
 
             checkContainerChanges(client.player.getInventory());
+            if (tickCounter % 100 == 0 && periodicReports) {
+                for (var entry : getCounts(client.player.getInventory()).entrySet()) {
+                    ClientPlayNetworking.send(new InventoryUpdateC2SPacket(currentSchematicId, entry.getKey(), entry.getValue()));
+                }
+            }
         });
     }
 
@@ -35,12 +41,24 @@ public class InventoryWatcher {
         itemIdToMaterialId.clear();
         itemIdToMaterialId.putAll(itemIdToMaterialIdMap);
         lastKnownCounts.clear();
+        tickCounter = 0;
+        periodicReports = false;
+    }
+
+    public static void enablePeriodicReports() {
+        periodicReports = true;
+    }
+
+    public static boolean hasPeriodicReports() {
+        return periodicReports;
     }
 
     public static void clearContext() {
         currentSchematicId = null;
         itemIdToMaterialId.clear();
         lastKnownCounts.clear();
+        tickCounter = 0;
+        periodicReports = false;
     }
 
     /** 是否正在监听背包（有注册的原理图上下文）。清理时机回归测试需要读取此状态 */

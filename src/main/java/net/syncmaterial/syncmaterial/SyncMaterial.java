@@ -39,6 +39,10 @@ public class SyncMaterial implements ModInitializer {
         LOGGER.info("SyncMaterial 初始化中...");
 
         ModNetworkHandler.registerPayloadTypes();
+        if (net.syncmaterial.syncmaterial.server.runtime.BackendMode.isFoundationEnabled()) {
+            registerFoundationRuntime();
+            return;
+        }
 
         statisticsEngine = new DefaultMaterialStatisticsEngine();
 
@@ -190,6 +194,40 @@ public class SyncMaterial implements ModInitializer {
         });
 
         LOGGER.info("SyncMaterial 初始化完成！");
+    }
+
+    private void registerFoundationRuntime() {
+        ModNetworkHandler.register();
+        ServerLifecycleEvents.SERVER_STARTING.register(server -> {
+            java.nio.file.Path worldRoot = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
+            java.nio.file.Path gameRoot = FabricLoader.getInstance().getGameDir();
+            try {
+                var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntime.open(worldRoot, gameRoot,
+                        new net.syncmaterial.syncmaterial.adapter.litematica.LitematicMaterialDecoder(),
+                        projectId -> net.syncmaterial.syncmaterial.network.FoundationNetworkAdapter.broadcast(server, projectId));
+                net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.install(server, runtime);
+                LOGGER.info("实验后端已启用，使用独立新库: {}", worldRoot.resolve("syncmaterial/runtime-v2.sqlite"));
+            } catch (Exception error) {
+                throw new IllegalStateException("实验后端初始化失败，不会回退写入旧数据库", error);
+            }
+        });
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(server);
+            if (runtime != null) {
+                runtime.startDiscovery(server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT),
+                        FabricLoader.getInstance().getGameDir().resolve("syncmatics"));
+            }
+        });
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(server);
+            if (runtime != null) runtime.tick();
+        });
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            ModNetworkHandler.onPlayerDisconnect(handler.player);
+        });
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.close(server);
+        });
     }
 
     /**

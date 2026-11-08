@@ -61,6 +61,7 @@ public class ModNetworkHandler {
         // S2C (服务端到客户端)
         PayloadTypeRegistry.clientboundPlay().register(HelloS2CPacket.ID, HelloS2CPacket.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(MaterialCatalogUpdateS2CPacket.ID, MaterialCatalogUpdateS2CPacket.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(RescanStagingAreaResponseS2CPacket.ID, RescanStagingAreaResponseS2CPacket.CODEC);
@@ -97,6 +98,8 @@ public class ModNetworkHandler {
                         ProtocolVersion.CURRENT, SyncMaterial.getModVersion(), accepted));
 
                 if (accepted) {
+                    var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(context.server());
+                    if (runtime != null) runtime.connected(player.getUUID());
                     sendInitialData(player);
                 }
             });
@@ -231,10 +234,11 @@ public class ModNetworkHandler {
     }
 
     public static void register() {
-        // 握手必须先于 queryService 检查注册：数据库初始化失败时，
-        // 客户端仍应能得到"服务端装了本 mod 但未就绪"的明确回应，
-        // 而不是发包后永久没有任何响应。
         registerHandshakeReceiver();
+        if (net.syncmaterial.syncmaterial.server.runtime.BackendMode.isFoundationEnabled()) {
+            FoundationNetworkAdapter.register();
+            return;
+        }
 
         if (queryService == null) {
             SyncMaterial.LOGGER.error("DatabaseQueryService未初始化！");
@@ -598,6 +602,14 @@ public class ModNetworkHandler {
     public static void onPlayerDisconnect(net.minecraft.server.level.ServerPlayer player) {
         if (player == null) return;
 
+        if (net.syncmaterial.syncmaterial.server.runtime.BackendMode.isFoundationEnabled()) {
+            var world = player.level();
+            var server = world == null ? null : world.getServer();
+            if (server != null) {
+                var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(server);
+                if (runtime != null) runtime.disconnected(player.getUUID());
+            }
+        }
         playerSchematicWarehouses.remove(player);
         Phase4Handler.unsubscribeAllMaterialList(player);
         ProtocolHandshake.remove(player);

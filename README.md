@@ -73,3 +73,5 @@ This project includes code from [Litematica](https://github.com/sakura-kyoko/lit
 - `client/gui/GuiStagingAreaEditorSubRegion.java` - Staging area editor (sub-region)
 - `client/gui/widgets/WidgetListStagingAreas.java` - Staging area list widget
 - `client/gui/widgets/WidgetStagingAreaEntry.java` - Staging area entry widget
+- `adapter/litematica/LitematicMaterialDecoder.java` - Region-local packed block-state decoding
+- `adapter/litematica/MaterialResolver.java` - Material conversion rules, checked against Litematica 0.28.5

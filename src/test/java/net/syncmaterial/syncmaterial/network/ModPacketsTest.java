@@ -31,12 +31,13 @@ class ModPacketsTest {
         ModPackets.BATCH_ASSIGN_RESPONSE, ModPackets.KICK_FROM_MATERIAL,
         ModPackets.KICK_FROM_MATERIAL_RESPONSE, ModPackets.PLAYER_LIST_REQUEST,
         ModPackets.PLAYER_LIST_RESPONSE, ModPackets.WAREHOUSE_CONTAINER_REQUEST,
-        ModPackets.WAREHOUSE_CONTAINER_RESPONSE, ModPackets.WAREHOUSE_AREA_RESPONSE
+        ModPackets.WAREHOUSE_CONTAINER_RESPONSE, ModPackets.WAREHOUSE_AREA_RESPONSE,
+        ModPackets.MATERIAL_CATALOG_UPDATE
     );
 
     @Test
     void idCount_matchesRegisteredPayloads() {
-        assertEquals(25, ALL_IDS.size(), "新增/删除包时必须同步更新本清单");
+        assertEquals(26, ALL_IDS.size(), "新增/删除包时必须同步更新本清单");
     }
 
     @Test

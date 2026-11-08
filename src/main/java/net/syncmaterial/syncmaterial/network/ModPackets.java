@@ -9,6 +9,7 @@ public class ModPackets {
 
     public static final Identifier REQUEST_MATERIAL_LIST = Identifier.fromNamespaceAndPath("syncmaterial", "request_material_list");
     public static final Identifier MATERIAL_LIST_RESPONSE = Identifier.fromNamespaceAndPath("syncmaterial", "material_list_response");
+    public static final Identifier MATERIAL_CATALOG_UPDATE = Identifier.fromNamespaceAndPath("syncmaterial", "material_catalog_update");
 
     public static final Identifier QUERY_MATERIAL_STATUS = Identifier.fromNamespaceAndPath("syncmaterial", "query_material_status");
 

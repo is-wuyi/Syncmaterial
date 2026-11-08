@@ -23,6 +23,10 @@ public class SyncmaticaIntegrationMixin {
     @Inject(method = "setActiveContext", at = @At("TAIL"), remap = false, require = 1)
     private void onSyncmaticaInit(ch.endte.syncmatica.Context context, CallbackInfo ci) {
         try {
+            if (net.syncmaterial.syncmaterial.server.runtime.BackendMode.isFoundationEnabled()) {
+                // Foundation registers against the server context from its own runtime.
+                return;
+            }
             SyncMaterial.LOGGER.info("检测到 Syncmatica 初始化，注册原理图上传监听器...");
 
             // 使用 SyncMaterial 中的单例数据库实例，避免重复初始化

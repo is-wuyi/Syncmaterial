@@ -37,6 +37,10 @@ public class ModNetworkHandlerClient {
             });
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(MaterialCatalogUpdateS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> SyncMaterialClient.onMaterialCatalogUpdate(payload));
+        });
+
         ClientPlayNetworking.registerGlobalReceiver(CollaborationStatusS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 SyncMaterialClient.onCollaborationStatus(payload);
@@ -152,6 +156,11 @@ public class ModNetworkHandlerClient {
      * 同步渲染器的选区数据、处理原理图删除/备货区清空的清理。
      */
     static void handleStagingAreaConfigResponseForWorld(StagingAreaConfigResponseS2CPacket payload) {
+        if (!payload.success()) {
+            fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                    fi.dy.masa.malilib.gui.Message.MessageType.ERROR, payload.message());
+            return;
+        }
         var renderer = StagingAreaRenderer.getInstance();
 
         // 仓库类响应的 schematicId 是空串，其 areas 是仓库而非备货区。

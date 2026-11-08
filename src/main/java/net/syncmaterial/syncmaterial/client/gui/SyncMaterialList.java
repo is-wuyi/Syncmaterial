@@ -16,7 +16,8 @@ import java.util.Map;
 
 public class SyncMaterialList extends MaterialListBase {
     private final String schematicId;
-    private final String title;
+    private String title;
+    private boolean foundationBackend;
     private final Map<Integer, CollaborationStatusS2CPacket> collaborationStatusMap = new HashMap<>();
     private Runnable onStatusUpdate;
     private boolean allowSelfClaim = true;
@@ -49,6 +50,26 @@ public class SyncMaterialList extends MaterialListBase {
 
     public String getSchematicId() {
         return this.schematicId;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public void useFoundationBackend() {
+        this.foundationBackend = true;
+    }
+
+    @Override
+    public boolean isPreparationKnown() {
+        return !this.foundationBackend;
+    }
+
+    public String preparationWarning() {
+        return this.collaborationStatusMap.values().stream()
+                .flatMap(status -> status.freshnessInfo().stream())
+                .map(CollaborationStatusS2CPacket.AreaFreshnessInfo::status)
+                .findFirst().orElse(fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.label.freshness_warning"));
     }
 
     public void setMaterialEntries(List<MaterialEntry> entries) {
@@ -148,6 +169,9 @@ public class SyncMaterialList extends MaterialListBase {
                 return;
             }
             Map<Integer, Integer> inventoryCounts = net.syncmaterial.syncmaterial.client.InventoryWatcher.getCurrentCounts();
+            if (this.foundationBackend) {
+                inventoryCounts = Map.of(entry.getDatabaseId(), inventoryCounts.getOrDefault(entry.getDatabaseId(), 0));
+            }
             ClientPlayNetworking.send(new JoinCollaborationC2SPacket(schematicId, entry.getDatabaseId(), inventoryCounts));
         }
     }

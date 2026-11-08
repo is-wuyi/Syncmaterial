@@ -137,6 +137,8 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             String hint;
             if (!hasAnyClaimed) {
                 hint = StringUtils.translate("syncmaterial.gui.hint.claim_materials");
+            } else if (!this.materialList.isPreparationKnown() && this.materialList instanceof SyncMaterialList syncList) {
+                hint = syncList.preparationWarning();
             } else if (isPickupMode) {
                 hint = StringUtils.translate("syncmaterial.gui.hint.pickup_complete");
             } else {

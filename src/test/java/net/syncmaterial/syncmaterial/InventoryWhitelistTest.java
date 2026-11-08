@@ -121,6 +121,19 @@ public class InventoryWhitelistTest {
     }
 
     @Test
+    void periodicReportsRequireFoundationCatalogAndResetWithContext() {
+        InventoryWatcher.setContext("s1", Map.of("minecraft:stone", 1));
+        assertFalse(InventoryWatcher.hasPeriodicReports());
+        InventoryWatcher.enablePeriodicReports();
+        assertTrue(InventoryWatcher.hasPeriodicReports());
+        InventoryWatcher.setContext("s2", Map.of("minecraft:stone", 2));
+        assertFalse(InventoryWatcher.hasPeriodicReports());
+        InventoryWatcher.enablePeriodicReports();
+        InventoryWatcher.clearContext();
+        assertFalse(InventoryWatcher.hasPeriodicReports());
+    }
+
+    @Test
     void emptyStacks_skipped() {
         InventoryWatcher.setContext("s1", Map.of("minecraft:stone", 1));
 

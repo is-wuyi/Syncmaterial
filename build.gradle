@@ -21,8 +21,15 @@ base {
 
 repositories {
     // 核心：Fabric 官方仓库（必须放第一个）
-    maven { url "https://maven.fabricmc.net/" }
+    maven { url = "https://maven.fabricmc.net/" }
     mavenCentral()
+    exclusiveContent {
+        forRepository { maven { url = "https://repo.maven.apache.org/maven2/" } }
+        filter {
+            includeModule('com.github.stephenc.jcip', 'jcip-annotations')
+            includeGroup('org.ow2.asm')
+        }
+    }
     maven { url "https://maven.meteordev.org/releases" }
     maven { url "https://maven.architectury.dev/" }
     maven { url "https://www.cursemaven.com" }
@@ -162,6 +169,13 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
+sourceSets {
+    foundationtest {
+        java.srcDirs = []
+        resources.srcDirs = ['src/foundationtest/resources']
+    }
+}
+
 // 服务端 GameTest 配置
 fabricApi {
     configureTests {
@@ -186,6 +200,42 @@ afterEvaluate {
     def clientGameTestRun = loom.runs.findByName("clientGameTest")
     if (clientGameTestRun != null) {
         clientGameTestRun.runDir = rootProject.file("/tmp/syncmaterial-gametest/run-client")
+    }
+
+    // 独立实验后端测试：复用已编译 GameTest 类，但用独立 entrypoint 清单。
+    def foundationResources = sourceSets.foundationtest.output.resourcesDir
+    def foundationRun = loom.runs.create('foundationGameTest') {
+        inherit gameTestRun
+        source sourceSets.gametest
+        property 'syncmaterial.backend', 'foundation'
+        property 'fabric-api.gametest', ''
+        property 'fabric-api.gametest.filter', 'syncmaterial-foundation-test:foundation_server_game_test_*'
+        runDir = '/tmp/syncmaterial-gametest/run-foundation'
+    }
+    def foundationClientRun = loom.runs.create('foundationClientGameTest') {
+        inherit clientGameTestRun
+        source sourceSets.gametest
+        property 'syncmaterial.backend', 'foundation'
+        property 'fabric.client.gametest', ''
+        property 'fabric.client.gametest.modid', 'syncmaterial-foundation-test'
+        property 'fabric.client.gametest.testModResourcesPath', foundationResources.absolutePath
+        runDir = '/tmp/syncmaterial-gametest/run-foundation-client'
+    }
+    loom.mods {
+        'syncmaterial-foundation-test' {
+            sourceSet sourceSets.foundationtest
+        }
+    }
+    tasks.matching { it.name in ['runFoundationGameTest', 'runFoundationClientGameTest'] }.configureEach {
+        dependsOn tasks.named('gametestClasses'), tasks.named('foundationtestClasses')
+        classpath += files(foundationResources)
+        doFirst {
+            def directory = file(name == 'runFoundationClientGameTest'
+                    ? '/tmp/syncmaterial-gametest/run-foundation-client'
+                    : '/tmp/syncmaterial-gametest/run-foundation')
+            directory.mkdirs()
+            new File(directory, 'eula.txt').text = 'eula=true\n'
+        }
     }
 
     // gametest 源集运行时依赖（SQLite 驱动）

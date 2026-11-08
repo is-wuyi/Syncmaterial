@@ -7,6 +7,7 @@ import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.config.Configs;
 import net.syncmaterial.syncmaterial.client.config.HudAlignmentOption;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
+import net.syncmaterial.syncmaterial.client.gui.MaterialListUtils;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
@@ -18,6 +19,7 @@ import java.util.List;
 public class SyncMaterialClient implements ClientModInitializer {
     private static final Logger LOGGER = SyncMaterial.LOGGER;
     private static SyncMaterialList activeMaterialList;
+    private static long catalogRevision = -1;
 
     /** 取货需求重算周期（tick）。10 tick ≈ 0.5 秒，比原先挂在 HUD 的 2 秒更及时 */
     private static final int PICKUP_RECOMPUTE_INTERVAL = 10;
@@ -138,6 +140,7 @@ public class SyncMaterialClient implements ClientModInitializer {
             // HUD 与背包监听按服务器隔离：不清会让 HUD 继续挂着上个服的材料清单，
             // 且 InventoryWatcher 仍持旧 schematicId，换服后朝新服发它不认识的背包更新包
             activeMaterialList = null;
+            catalogRevision = -1;
             InventoryWatcher.clearContext();
             // 取货模式同理：不清会带着上个服的需求量继续高亮格子与仓库线框
             PickupModeState.clear();
@@ -163,15 +166,39 @@ public class SyncMaterialClient implements ClientModInitializer {
         // 不读取总闸值，否则总闸关闭期间新开界面会把分闸也带成关闭状态。
         boolean hudState = activeMaterialList == null
                 || activeMaterialList.getHudRenderer().getShouldRender();
+        if (activeMaterialList != null && !activeMaterialList.getSchematicId().equals(schematicId)) {
+            net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
+                    new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(activeMaterialList.getSchematicId()));
+        }
         GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim);
         activeMaterialList = gui.getMaterialList();
+        catalogRevision = -1;
         activeMaterialList.getHudRenderer().setShouldRender(hudState);
         Minecraft.getInstance().setScreenAndShow(gui);
     }
 
+    public static void onMaterialCatalogUpdate(net.syncmaterial.syncmaterial.network.MaterialCatalogUpdateS2CPacket update) {
+        if (!net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.MATERIAL_CATALOG_UPDATES)
+                || activeMaterialList == null || !activeMaterialList.getSchematicId().equals(update.schematicId())
+                || update.revision() <= catalogRevision) return;
+        catalogRevision = update.revision();
+        activeMaterialList.setMaterialEntries(update.materials());
+        activeMaterialList.setTitle(update.schematicName());
+        activeMaterialList.useFoundationBackend();
+        InventoryWatcher.enablePeriodicReports();
+        StagingAreaRenderer.getInstance().setSchematicName(update.schematicId(), update.schematicName());
+        var mc = Minecraft.getInstance();
+        if (mc.player != null) MaterialListUtils.updateAvailableCounts(activeMaterialList.getMaterialsAll(), mc.player);
+        if (mc.gui != null && mc.gui.screen() instanceof GuiMaterialList gui
+                && gui.getSchematicId().equals(update.schematicId())) {
+            gui.onMaterialCatalogUpdated();
+        }
+    }
+
     public static void onCollaborationStatus(CollaborationStatusS2CPacket status) {
         LOGGER.info("收到协作状态更新: 材料 {} (总量: {}, 备货区: {}, 仓库: {})", status.materialId(), status.totalCount(), status.stagingCount(), status.warehouseCount());
-        if (activeMaterialList != null) {
+        if (activeMaterialList != null && activeMaterialList.getSchematicId().equals(status.schematicId())) {
             activeMaterialList.onCollaborationStatus(status);
         }
     }
@@ -197,6 +224,7 @@ public class SyncMaterialClient implements ClientModInitializer {
         if (activeMaterialList != null && schematicId.equals(activeMaterialList.getSchematicId())) {
             LOGGER.info("原理图 {} 已删除，清除 HUD", schematicId);
             activeMaterialList = null;
+            catalogRevision = -1;
             InventoryWatcher.clearContext();
             PickupModeState.clear();
             net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(

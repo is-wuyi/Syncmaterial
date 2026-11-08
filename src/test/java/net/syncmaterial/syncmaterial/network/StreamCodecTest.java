@@ -118,6 +118,17 @@ class StreamCodecTest {
     }
 
     @Test
+    void materialCatalogUpdate_roundtrip() {
+        var original = new MaterialCatalogUpdateS2CPacket("project", "Renamed project", 3,
+                List.of(new MaterialEntry(1, new ItemStack(Items.STONE), 128)));
+        var decoded = roundtrip(MaterialCatalogUpdateS2CPacket.CODEC, original);
+        assertEquals(original.schematicId(), decoded.schematicId());
+        assertEquals(original.revision(), decoded.revision());
+        assertEquals(original.schematicName(), decoded.schematicName());
+        assertEquals(128, decoded.materials().get(0).getCountTotal());
+    }
+
+    @Test
     void materialStatsResponse_roundtrip() {
         var original = new MaterialStatsResponseS2CPacket(
                 "test-uuid", "Test Schematic",

@@ -86,6 +86,21 @@ class ClientPacketHandlerTest {
     }
 
     @Test
+    void failedConfigResponseDoesNotEraseExistingSelection() {
+        AreaSelection selection = new AreaSelection();
+        StagingAreaRenderer.getInstance().updateSelection(SCHEMATIC, selection);
+        StagingAreaRenderer.getInstance().setSchematicName(SCHEMATIC, "已有的名字");
+        try (var info = mockStatic(fi.dy.masa.malilib.util.InfoUtils.class)) {
+            ModNetworkHandlerClient.handleStagingAreaConfigResponseForWorld(
+                    new StagingAreaConfigResponseS2CPacket("LIST", SCHEMATIC, "", false, "尚未就绪", List.of()));
+            info.verify(() -> fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                    fi.dy.masa.malilib.gui.Message.MessageType.ERROR, "尚未就绪"));
+        }
+        assertSame(selection, StagingAreaRenderer.getInstance().getSelection(SCHEMATIC));
+        assertEquals("已有的名字", StagingAreaRenderer.getInstance().getSchematicName(SCHEMATIC));
+    }
+
+    @Test
     void configResponse_schematicDeleted_clearsEverything() {
         StagingAreaRenderer.getInstance().updateSelection(SCHEMATIC, new AreaSelection());
         StagingAreaRenderer.getInstance().setSchematicName(SCHEMATIC, "旧名字");

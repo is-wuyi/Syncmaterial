@@ -393,7 +393,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             // 缺失（新公式：总计 - 备货区 - 所有背包）
             // 收集模式：背包能覆盖剩余需求时显示金色
             if (countMissing == 0) {
-                pre = green;
+                pre = this.materialList.isPreparationKnown() ? green : gold;
             } else {
                 pre = countAvailable >= countMissing ? gold : red;
             }
@@ -447,15 +447,20 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
         if (countTotal <= 0) return;
 
-        int collected = stagingCount + warehouseCount;
+        long collected = (long) stagingCount + warehouseCount;
         for (var p : participants) collected += p.count();
-        int remaining = Math.max(0, countTotal - collected);
+        int remaining = (int) Math.max(0, countTotal - collected);
         boolean isComplete = collected >= countTotal;
         boolean isUnclaimed = collected == 0 && participants.isEmpty();
 
         int barHeight = 4;
         int barY = y;
 
+        if (isComplete && !this.materialList.isPreparationKnown() && this.materialList instanceof net.syncmaterial.syncmaterial.client.gui.SyncMaterialList syncList) {
+            RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF333333);
+            this.drawString(drawContext, x, barY + barHeight + 1, 0xFFAAAAAA, syncList.preparationWarning());
+            return;
+        }
         if (isComplete) {
             RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF006600);
             this.drawString(drawContext, x, barY + barHeight + 1, 0xFF00CC00, StringUtils.translate("syncmaterial.gui.label.progress_done"));
