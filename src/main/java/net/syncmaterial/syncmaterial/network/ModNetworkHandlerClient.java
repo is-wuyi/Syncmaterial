@@ -2,7 +2,9 @@ package net.syncmaterial.syncmaterial.network;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
+import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSubRegion;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
@@ -147,8 +149,7 @@ public class ModNetworkHandlerClient {
      * 当前打开的界面；客户端未完全初始化（gui 为 null）时返回 null。
      */
     static net.minecraft.client.gui.screens.Screen currentScreen() {
-        var mc = Minecraft.getInstance();
-        return mc == null || mc.gui == null ? null : mc.gui.screen();
+        return ClientScreenAccess.currentScreen(Minecraft.getInstance());
     }
 
     /**
@@ -234,8 +235,9 @@ public class ModNetworkHandlerClient {
 
     /** 仓库容器数据响应：更新客户端容器缓存（取货模式高亮用） */
     static void handleWarehouseContainerResponse(WarehouseContainerResponseS2CPacket payload) {
-        String worldId = Minecraft.getInstance().player != null
-            ? Minecraft.getInstance().player.level().dimension().identifier().toString()
+        Minecraft mc = Minecraft.getInstance();
+        String worldId = mc.player != null
+            ? McCompat.dimensionId(mc.player.level())
             : "";
         net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
             .updateWarehouseContainers(payload.containers(), worldId);

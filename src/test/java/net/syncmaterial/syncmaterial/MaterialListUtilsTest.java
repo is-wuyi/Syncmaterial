@@ -46,7 +46,11 @@ public class MaterialListUtilsTest {
 
     @Test
     void updateAvailableCounts_setsAvailableAndClampedMissing() {
+        //? if >=26.2 {
         ItemStack shulker = new ItemStack(net.minecraft.world.level.block.Blocks.DYED_SHULKER_BOX.purple());
+        //?} else {
+        /*ItemStack shulker = new ItemStack(net.minecraft.world.level.block.Blocks.PURPLE_SHULKER_BOX);
+        *///?}
         shulker.set(DataComponents.CONTAINER,
             ItemContainerContents.fromItems(List.of(new ItemStack(Items.DIAMOND, 16))));
 

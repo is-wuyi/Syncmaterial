@@ -31,11 +31,11 @@ A Minecraft Fabric mod that enhances Syncmatica with material statistics and tea
 
 ## Requirements
 
-- Minecraft 1.21.7 ~ 1.21.8
-- Fabric Loader 0.16.13+
-- [Fabric API](https://modrinth.com/mod/fabric-api)
-- [Litematica](https://modrinth.com/mod/litematica) 0.23.6+
-- [Syncmatica](https://modrinth.com/mod/syncmatica) 0.3.15+
+- Minecraft **1.21.7**, **1.21.8**, or **26.2** — use the jar built for that exact target
+- Fabric Loader 0.19.3+
+- [Fabric API](https://modrinth.com/mod/fabric-api) for the selected Minecraft version
+- Client UI: [MaLiLib](https://modrinth.com/mod/malilib), with matching [Litematica](https://modrinth.com/mod/litematica) and [Syncmatica](https://modrinth.com/mod/syncmatica) integrations
+- Dedicated servers do not require the optional client UI libraries
 
 ## Installation
 
@@ -54,10 +54,12 @@ This mod requires **BOTH server and client** to have the mod installed.
 ## Building
 
 ```bash
-./gradlew build
+JAVA_HOME=<Java25> ./gradlew buildAllVersions checkAllVersions
+JAVA_HOME=<Java25> ./gradlew testAllClients testOptionalDependencies
 ```
 
-Output: `build/libs/Syncmaterial-1-<version>.jar`
+Output: `versions/<Minecraft>/build/libs/SyncMaterial-<Minecraft>-<mod_version>.jar`.
+See [multi-version development](docs/rewrite/multiversion.md) for source boundaries and test commands.
 
 ## License
 
@@ -73,5 +75,5 @@ This project includes code from [Litematica](https://github.com/sakura-kyoko/lit
 - `client/gui/GuiStagingAreaEditorSubRegion.java` - Staging area editor (sub-region)
 - `client/gui/widgets/WidgetListStagingAreas.java` - Staging area list widget
 - `client/gui/widgets/WidgetStagingAreaEntry.java` - Staging area entry widget
-- `adapter/litematica/LitematicMaterialDecoder.java` - Region-local packed block-state decoding
-- `adapter/litematica/MaterialResolver.java` - Material conversion rules, checked against Litematica 0.28.5
+- `adapter/litematica/LitematicMaterialDecoder.java` and `shared/.../litematic/` - Region-local packed block-state decoding
+- `adapter/litematica/MaterialFactsResolver.java` and `shared/.../litematic/MaterialRules.java` - Material conversion rules checked against the matching Litematica on each target

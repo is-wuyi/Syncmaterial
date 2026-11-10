@@ -5,7 +5,11 @@ import javax.annotation.Nullable;
 import org.lwjgl.glfw.GLFW;
 
 import net.minecraft.client.Minecraft;
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -136,8 +140,8 @@ public class StagingAreaSelector {
         // mc 为 null 只出现在无客户端实例的环境（单元测试）；
         // 选区状态此时已设置完毕，不应因为关不掉界面而整体抛出
         this.pendingScreenClose = true;
-        if (mc != null && mc.gui.screen() != null) {
-            mc.setScreenAndShow(null);
+        if (mc != null && net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(mc) != null) {
+            net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(mc, null);
         }
 
         SyncMaterial.LOGGER.info("[StagingAreaSelector] 启动选区模式: boxName={}, pos1={}, pos2={}, type={}",
@@ -211,7 +215,7 @@ public class StagingAreaSelector {
 
         Minecraft mc = Minecraft.getInstance();
         if (mc != null && this.returnScreen != null) {
-            mc.setScreenAndShow(this.returnScreen);
+            net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(mc, this.returnScreen);
         }
         this.returnScreen = null;
         this.targetBoxName = null;
@@ -236,8 +240,8 @@ public class StagingAreaSelector {
         // 兜底关闭界面：start() 之后 MaLiLib 弹窗基类可能又把父界面打开，
         // 这里持续关到界面真正消失，避免"选区已激活但屏幕仍是 GUI"
         if (this.pendingScreenClose) {
-            if (mc.gui.screen() != null) {
-                mc.setScreenAndShow(null);
+            if (net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(mc) != null) {
+                net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(mc, null);
             } else {
                 this.pendingScreenClose = false;
             }
@@ -256,12 +260,17 @@ public class StagingAreaSelector {
             this.posLookingAt = null;
         }
 
-        if (GLFW.glfwGetKey(mc.getWindow().handle(), GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS) {
+        //? if >=26.2 {
+        long windowHandle = mc.getWindow().handle();
+        //?} else {
+        /*long windowHandle = mc.getWindow().getWindow();
+        *///?}
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS) {
             this.cancel();
             return;
         }
 
-        if (GLFW.glfwGetKey(mc.getWindow().handle(), GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS) {
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS) {
             this.confirm();
             return;
         }
@@ -288,7 +297,11 @@ public class StagingAreaSelector {
         }
     }
 
+    //? if >=26.2 {
     public void onRenderWorld(fi.dy.masa.malilib.interfaces.IRenderer renderer) {
+    //?} else {
+    /*public void onRenderWorld(fi.dy.masa.malilib.interfaces.IRenderer renderer, org.joml.Matrix4f posMatrix) {
+    *///?}
         if (!this.active) {
             return;
         }
@@ -308,28 +321,48 @@ public class StagingAreaSelector {
 
         if (this.pos1 != null && this.pos2 != null) {
             RenderUtils.renderAreaOutline(this.pos1, this.pos2, 2.0f, areaLine, areaLine, areaLine);
+            //? if >=26.2 {
             RenderUtils.renderAreaSides(this.pos1, this.pos2, areaSide);
+            //?} else {
+            /*RenderUtils.renderAreaSides(this.pos1, this.pos2, areaSide, posMatrix);
+            *///?}
         }
 
         // 角点标记在区域框之后绘制：红/蓝是"哪个角是 pos1、是否已点过"的必要反馈，
         // 需要盖在区域框上才看得清
         if (this.pos1 != null) {
             RenderUtils.renderAreaOutline(this.pos1, this.pos1, 3.0f, COLOR_POS1, COLOR_POS1, COLOR_POS1);
+            //? if >=26.2 {
             RenderUtils.renderAreaSides(this.pos1, this.pos1, new Color4f(1.0f, 0.0f, 0.0f, 0.25f));
+            //?} else {
+            /*RenderUtils.renderAreaSides(this.pos1, this.pos1, new Color4f(1.0f, 0.0f, 0.0f, 0.25f), posMatrix);
+            *///?}
         }
 
         if (this.pos2 != null) {
             RenderUtils.renderAreaOutline(this.pos2, this.pos2, 3.0f, COLOR_POS2, COLOR_POS2, COLOR_POS2);
+            //? if >=26.2 {
             RenderUtils.renderAreaSides(this.pos2, this.pos2, new Color4f(0.0f, 0.0f, 1.0f, 0.25f));
+            //?} else {
+            /*RenderUtils.renderAreaSides(this.pos2, this.pos2, new Color4f(0.0f, 0.0f, 1.0f, 0.25f), posMatrix);
+            *///?}
         }
 
         if (this.posLookingAt != null) {
             RenderUtils.renderAreaOutline(this.posLookingAt, this.posLookingAt, 2.0f, COLOR_LOOKING, COLOR_LOOKING, COLOR_LOOKING);
+            //? if >=26.2 {
             RenderUtils.renderAreaSides(this.posLookingAt, this.posLookingAt, COLOR_LOOKING);
+            //?} else {
+            /*RenderUtils.renderAreaSides(this.posLookingAt, this.posLookingAt, COLOR_LOOKING, posMatrix);
+            *///?}
         }
     }
 
+    //? if >=26.2 {
     public void onRenderHUD(GuiContext drawContext) {
+    //?} else {
+    /*public void onRenderHUD(GuiGraphics drawContext) {
+    *///?}
         if (!this.active) {
             return;
         }
@@ -348,11 +381,11 @@ public class StagingAreaSelector {
 
         int textY = centerY - 30;
         drawContext.fill(centerX - 150, textY - 5, centerX + 150, textY + 55, 0xCC000000);
-        drawContext.text(mc.font, line1, centerX - mc.font.width(line1) / 2, textY, 0xFFFFFFFF, true);
-        drawContext.text(mc.font, line2, centerX - mc.font.width(line2) / 2, textY + 14, 0xFFFFFFFF, true);
-        drawContext.text(mc.font, line3, centerX - mc.font.width(line3) / 2, textY + 28, 0xFFAAAAAA, true);
+        drawContext.drawString(mc.font, line1, centerX - mc.font.width(line1) / 2, textY, 0xFFFFFFFF, true);
+        drawContext.drawString(mc.font, line2, centerX - mc.font.width(line2) / 2, textY + 14, 0xFFFFFFFF, true);
+        drawContext.drawString(mc.font, line3, centerX - mc.font.width(line3) / 2, textY + 28, 0xFFAAAAAA, true);
         if (!lineCrosshair.isEmpty()) {
-            drawContext.text(mc.font, lineCrosshair, centerX - mc.font.width(lineCrosshair) / 2, textY + 42, 0xFF55FFFF, true);
+            drawContext.drawString(mc.font, lineCrosshair, centerX - mc.font.width(lineCrosshair) / 2, textY + 42, 0xFF55FFFF, true);
         }
     }
 }

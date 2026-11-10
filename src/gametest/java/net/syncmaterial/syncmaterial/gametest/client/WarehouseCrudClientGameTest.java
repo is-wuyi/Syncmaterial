@@ -10,6 +10,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerCon
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.GuiWarehouseEditor;
 import net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager;
@@ -48,7 +49,7 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
             insertSchematic(server, schematicId);
 
             // ===== 1. 创建：打开管理界面，走选区确认回调（与真实新建路径一致）=====
-            ctx.runOnClient(client -> Minecraft.getInstance().setScreenAndShow(
+            ctx.runOnClient(client -> ClientScreenAccess.showScreen(Minecraft.getInstance(),
                 new GuiWarehouseManager()));
             ctx.waitTicks(5);
 
@@ -70,12 +71,12 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
             // ===== 2. 编辑器：改名（按钮路径，立即发送）=====
             ctx.runOnClient(client -> {
                 GuiWarehouseManager manager = new GuiWarehouseManager();
-                Minecraft.getInstance().setScreenAndShow(new GuiWarehouseEditor(created, manager));
+                ClientScreenAccess.showScreen(Minecraft.getInstance(), new GuiWarehouseEditor(created, manager));
             });
             ctx.waitTicks(5);
 
             ctx.runOnClient(client -> {
-                if (Minecraft.getInstance().gui.screen() instanceof GuiWarehouseEditor editor) {
+                if (ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiWarehouseEditor editor) {
                     editor.renameForTest("改名后的仓库");
                 }
             });
@@ -95,7 +96,7 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
 
             // ===== 3. 编辑器：改坐标（文本框路径，走去抖，最终只发一次）=====
             ctx.runOnClient(client -> {
-                if (Minecraft.getInstance().gui.screen() instanceof GuiWarehouseEditor editor) {
+                if (ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiWarehouseEditor editor) {
                     // 模拟连续敲键：多次调用等价于多次字符输入的 onTextChange，
                     // 中间态应被去抖合并，最终只有 10 生效
                     editor.simulateCoordinateInputForTest(
@@ -200,7 +201,7 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                Minecraft.getInstance().setScreenAndShow(null);
+                ClientScreenAccess.showScreen(Minecraft.getInstance(), null);
                 StagingAreaSelector.getInstance().reset();
                 net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
                     .clearWarehouseAreas();
@@ -219,7 +220,7 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
         BlockPos pos2 = new BlockPos(4, -56, 4);
 
         ctx.runOnClient(client -> {
-            if (!(Minecraft.getInstance().gui.screen() instanceof GuiWarehouseManager manager)) {
+            if (!(ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiWarehouseManager manager)) {
                 throw new AssertionError("仓库管理界面未打开，无法走创建流程");
             }
             manager.setPendingWarehouseNameForTest("端到端仓库");
@@ -230,7 +231,7 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
         WarehouseEntry[] holder = new WarehouseEntry[1];
         boolean found = waitForCondition(ctx, () -> {
             WarehouseEntry e = ctx.computeOnClient(client -> {
-                if (Minecraft.getInstance().gui.screen() instanceof GuiWarehouseManager manager) {
+                if (ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiWarehouseManager manager) {
                     List<WarehouseEntry> list = manager.getWarehouses();
                     return list.isEmpty() ? null : list.get(0);
                 }

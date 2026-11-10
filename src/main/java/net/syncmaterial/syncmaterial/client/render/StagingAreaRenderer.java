@@ -5,17 +5,23 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 
+//? if >=26.2 {
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
-import com.mojang.blaze3d.pipeline.RenderTarget;
 import org.joml.Matrix4fc;
 import org.joml.Vector4f;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+//?} else {
+/*import org.joml.Matrix4f;
+import net.minecraft.client.Camera;
+*///?}
+import com.mojang.blaze3d.pipeline.RenderTarget;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderBuffers;
 import net.minecraft.client.renderer.culling.Frustum;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.profiling.ProfilerFiller;
+import net.syncmaterial.syncmaterial.compat.McCompat;
 
 import fi.dy.masa.malilib.interfaces.IRenderer;
 import fi.dy.masa.malilib.render.RenderUtils;
@@ -272,13 +278,25 @@ public class StagingAreaRenderer implements IRenderer
                 && !net.syncmaterial.syncmaterial.client.config.Configs.isWarehouseHidden(getServerKey(), warehouseId);
     }
 
-    /**
-     * 26.2 渲染入口：IRenderer 接口改为 state 化签名（矩阵/相机状态/渲染缓冲均由调用方提供），
-     * renderAreaSides 也不再需要显式传入位置矩阵。
-     */
+    //? if >=26.2 {
     @Override
     public void onRenderWorldLast(RenderTarget renderTarget, Matrix4fc posMatrix, CameraRenderState cameraState,
             Frustum frustum, RenderBuffers buffers, GpuBufferSlice slice, Vector4f vector4f, ProfilerFiller profiler)
+    {
+        renderWorld(profiler, RenderUtils::renderAreaSides,
+                () -> StagingAreaSelector.getInstance().onRenderWorld(this));
+    }
+    //?} else {
+    /*@Override
+    public void onRenderWorldLastAdvanced(RenderTarget renderTarget, Matrix4f posMatrix, Matrix4f projectionMatrix,
+            Frustum frustum, Camera camera, RenderBuffers buffers, ProfilerFiller profiler)
+    {
+        renderWorld(profiler, (first, second, color) -> RenderUtils.renderAreaSides(first, second, color, posMatrix),
+                () -> StagingAreaSelector.getInstance().onRenderWorld(this, posMatrix));
+    }
+    *///?}
+
+    private void renderWorld(ProfilerFiller profiler, AreaSidesPainter sides, Runnable preview)
     {
         Minecraft mc = Minecraft.getInstance();
 
@@ -322,7 +340,7 @@ public class StagingAreaRenderer implements IRenderer
                     ? net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_HIGHLIGHT_LINE_COLOR.getColor()
                     : net.syncmaterial.syncmaterial.client.config.Configs.Render.AREA_SIDE_COLOR.getColor();
                 RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, lineColor, lineColor, lineColor);
-                RenderUtils.renderAreaSides(pos1, pos2, sideColor);
+                sides.paint(pos1, pos2, sideColor);
 
                 // 标注名称：原理图名称 - 备货区名称
                 if (net.syncmaterial.syncmaterial.client.config.Configs.Render.LABEL_ENABLED.getBooleanValue()) {
@@ -334,22 +352,22 @@ public class StagingAreaRenderer implements IRenderer
                     double cy = Math.max(pos1.getY(), pos2.getY()) + 0.5;
                     double cz = (pos1.getZ() + pos2.getZ()) / 2.0 + 0.5;
                     float labelScale = (float) net.syncmaterial.syncmaterial.client.config.Configs.Render.LABEL_SCALE.getDoubleValue();
-                    // 26.2 的 drawTextPlate 需要显式 partialTicks（用于相机实体朝向插值），此处取 1.0 即最终朝向
-                    RenderUtils.drawTextPlate(Collections.singletonList(label), cx, cy, cz, labelScale, 1.0f);
+                    drawLabel(label, cx, cy, cz, labelScale);
                 }
             }
         }
 
-        StagingAreaSelector.getInstance().onRenderWorld(this);
+        preview.run();
 
         // Phase 5: 仓库区域线框
-        this.renderWarehouseAreas(mc);
+        this.renderWarehouseAreas(mc, sides);
 
         // Phase 5: 仓库容器蓝色线框高亮
         // 取局部快照：整个渲染过程用同一份列表，避免中途被网络线程替换引用
         var containersSnapshot = this.warehouseContainers;
-        if (!containersSnapshot.isEmpty() && mc.player != null) {
-            String playerWorldId = mc.player.level().dimension().identifier().toString();
+        net.minecraft.world.level.Level level = mc.level;
+        if (!containersSnapshot.isEmpty() && mc.player != null && level != null) {
+            String playerWorldId = McCompat.dimensionId(mc.player.level());
             // 跨世界过滤：只渲染玩家所在世界的仓库容器
             if (playerWorldId.equals(this.warehouseContainersWorld)) {
                 // 取货模式下只显示包含需要材料的箱子（过滤本体在
@@ -376,7 +394,7 @@ public class StagingAreaRenderer implements IRenderer
                     BlockPos pos1 = pos, pos2 = pos;
 
                     // 检测大箱子：读取方块状态的 CHEST_TYPE 属性
-                    net.minecraft.world.level.block.state.BlockState state = mc.level.getBlockState(pos);
+                    net.minecraft.world.level.block.state.BlockState state = level.getBlockState(pos);
                     if (state.getBlock() instanceof net.minecraft.world.level.block.ChestBlock) {
                         net.minecraft.world.level.block.state.properties.EnumProperty<net.minecraft.world.level.block.state.properties.ChestType> chestTypeProp =
                             net.minecraft.world.level.block.ChestBlock.TYPE;
@@ -417,7 +435,7 @@ public class StagingAreaRenderer implements IRenderer
      * - 每个仓库自带 world 字段，需逐个做跨维度过滤（仓库可能分布在不同维度）
      * - 被当前原理图引用的仓库用高亮色区分
      */
-    private void renderWarehouseAreas(Minecraft mc)
+    private void renderWarehouseAreas(Minecraft mc, AreaSidesPainter sides)
     {
         if (!net.syncmaterial.syncmaterial.client.config.Configs.Generic.WAREHOUSE_RENDER_ENABLED.getBooleanValue())
         {
@@ -431,7 +449,7 @@ public class StagingAreaRenderer implements IRenderer
             return;
         }
 
-        String playerWorldId = mc.player.level().dimension().identifier().toString();
+        String playerWorldId = McCompat.dimensionId(mc.player.level());
         String serverKey = getServerKey();
 
         Color4f normalLine = net.syncmaterial.syncmaterial.client.config.Configs.Render.WAREHOUSE_LINE_COLOR.getColor();
@@ -468,16 +486,30 @@ public class StagingAreaRenderer implements IRenderer
             Color4f lineColor = referenced ? referencedLine : normalLine;
 
             RenderUtils.renderAreaOutline(pos1, pos2, 2.0f, lineColor, lineColor, lineColor);
-            RenderUtils.renderAreaSides(pos1, pos2, sideColor);
+            sides.paint(pos1, pos2, sideColor);
 
             if (labelEnabled)
             {
                 double cx = (pos1.getX() + pos2.getX()) / 2.0 + 0.5;
                 double cy = Math.max(pos1.getY(), pos2.getY()) + 0.5;
                 double cz = (pos1.getZ() + pos2.getZ()) / 2.0 + 0.5;
-                RenderUtils.drawTextPlate(
-                    Collections.singletonList(warehouse.name()), cx, cy, cz, labelScale, 1.0f);
+                drawLabel(warehouse.name(), cx, cy, cz, labelScale);
             }
         }
+    }
+
+    private static void drawLabel(String label, double x, double y, double z, float scale)
+    {
+        //? if >=26.2 {
+        RenderUtils.drawTextPlate(Collections.singletonList(label), x, y, z, scale, 1.0f);
+        //?} else {
+        /*RenderUtils.drawTextPlate(Collections.singletonList(label), x, y, z, scale);
+        *///?}
+    }
+
+    @FunctionalInterface
+    private interface AreaSidesPainter
+    {
+        void paint(BlockPos first, BlockPos second, Color4f color);
     }
 }

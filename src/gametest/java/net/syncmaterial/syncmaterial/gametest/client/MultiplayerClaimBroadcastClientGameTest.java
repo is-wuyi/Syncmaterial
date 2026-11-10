@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -77,7 +78,7 @@ public class MultiplayerClaimBroadcastClientGameTest implements FabricClientGame
             ctx.waitTicks(5);
 
             Boolean botOnline = server.computeOnServer(s ->
-                s.getPlayerList().getPlayer(BOT_NAME) != null);
+                s.getPlayerList().getPlayerByName(BOT_NAME) != null);
             if (!Boolean.TRUE.equals(botOnline)) {
                 throw new AssertionError("假人未出现在服务端玩家列表，placeNewPlayer 未生效");
             }
@@ -98,7 +99,7 @@ public class MultiplayerClaimBroadcastClientGameTest implements FabricClientGame
 
             // ===== (c) 旁观者 Player0 经订阅者路径收到含假人的状态 =====
             boolean player0GotStatus = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     var status = gui.getMaterialList().getCollaborationStatusFor(materialId);
                     return status != null
                         && status.participants().stream().anyMatch(p -> p.playerName().equals(BOT_NAME));
@@ -107,7 +108,7 @@ public class MultiplayerClaimBroadcastClientGameTest implements FabricClientGame
             }));
             if (!player0GotStatus) {
                 var lastStatus = ctx.computeOnClient(client ->
-                    client.gui.screen() instanceof GuiMaterialList gui
+                    ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui
                         ? gui.getMaterialList().getCollaborationStatusFor(materialId) : null);
                 throw new AssertionError("旁观者 Player0 未经订阅者路径收到含假人认领的协作状态广播，当前状态: " + lastStatus);
             }
@@ -143,7 +144,7 @@ public class MultiplayerClaimBroadcastClientGameTest implements FabricClientGame
             });
         } finally {
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.closeGui(false);
                 }
                 InventoryWatcher.clearContext();

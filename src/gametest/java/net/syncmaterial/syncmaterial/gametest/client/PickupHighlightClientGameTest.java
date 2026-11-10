@@ -15,6 +15,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.PickupHighlight;
@@ -22,6 +23,7 @@ import net.syncmaterial.syncmaterial.client.PickupModeState;
 import net.syncmaterial.syncmaterial.client.SyncMaterialClient;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
+import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.network.JoinCollaborationC2SPacket;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 
@@ -98,42 +100,45 @@ public class PickupHighlightClientGameTest implements FabricClientGameTest {
 
             // 关掉材料列表，模拟真实流程：玩家开完取货模式就去开箱子。
             // 取货状态与 HUD 数据挂在 HUD 生命周期上，关界面不该影响它们
-            ctx.runOnClient(client -> client.setScreenAndShow(null));
+            ctx.runOnClient(client -> ClientScreenAccess.showScreen(client, null));
             ctx.waitTicks(5);
 
-            placeChestAndOpen(server);
-            // 界面由服务端 openMenu 推来，客户端要等它落地；不能只 waitTicks，
-            // 首次进服时区块加载与实体同步会拖慢这一步
-            if (!waitForContainerScreen(ctx)) {
-                throw new AssertionError("服务端 openMenu 后客户端未打开容器界面");
-            }
-            // 高亮在渲染时计算，等几帧确保注入点至少跑过一次
-            ctx.waitTicks(10);
+            int warehouseId = placeChestAndOpen(server, schematicId);
+            try {
+                // 界面由服务端 openMenu 推来，客户端要等它落地；不能只 waitTicks，
+                // 首次进服时区块加载与实体同步会拖慢这一步
+                if (!waitForContainerScreen(ctx)) {
+                    throw new AssertionError("服务端 openMenu 后客户端未打开容器界面");
+                }
+                // 高亮在渲染时计算，等几帧确保注入点至少跑过一次
+                ctx.waitTicks(10);
 
-            Set<Integer> initial = ctx.computeOnClient(client ->
-                Set.copyOf(PickupHighlight.lastHighlightedSlots()));
-            if (initial.isEmpty()) {
-                throw new AssertionError(
-                    "打开箱子后没有任何格子被点亮 —— Mixin 注入未生效，或需求量未传达到渲染路径");
-            }
-            if (!Set.of(0, 1).equals(initial)) {
-                throw new AssertionError(
-                    "需求 " + TOTAL_NEEDED + "、每格 64 时应点亮第 0、1 格，实际点亮 " + initial);
-            }
+                Set<Integer> initial = ctx.computeOnClient(client ->
+                    Set.copyOf(PickupHighlight.lastHighlightedSlots()));
+                if (initial.isEmpty()) {
+                    throw new AssertionError(
+                        "打开箱子后没有任何格子被点亮 —— Mixin 注入未生效，或需求量未传达到渲染路径");
+                }
+                if (!Set.of(0, 1).equals(initial)) {
+                    throw new AssertionError(
+                        "需求 " + TOTAL_NEEDED + "、每格 64 时应点亮第 0、1 格，实际点亮 " + initial);
+                }
 
-            // 需求变化后高亮必须随之收缩：拿到 64 个后只该点亮第 0 格。
-            // 注意这断言的是最终态，不是瞬态时序（见类注释）
-            server.runCommand("give @a minecraft:stone 64");
-            boolean shrank = waitForHighlight(ctx, Set.of(0));
-            Set<Integer> afterPickup = ctx.computeOnClient(client ->
-                Set.copyOf(PickupHighlight.lastHighlightedSlots()));
-            if (!shrank) {
-                throw new AssertionError(
-                    "背包已有 64 个石头后需求降为 64，应只点亮第 0 格，实际点亮 " + afterPickup);
+                // 真实仓库支持后续库存广播，不能用被服务端零库存覆盖的客户端夹具。
+                server.runCommand("give @a minecraft:stone 64");
+                boolean shrank = waitForHighlight(ctx, Set.of(0));
+                Set<Integer> afterPickup = ctx.computeOnClient(client ->
+                    Set.copyOf(PickupHighlight.lastHighlightedSlots()));
+                if (!shrank) {
+                    throw new AssertionError(
+                        "背包已有 64 个石头后需求降为 64，应只点亮第 0 格，实际点亮 " + afterPickup);
+                }
+            } finally {
+                server.runOnServer(instance -> SyncMaterial.getServerStagingAreaManager().deleteWarehouse(warehouseId));
             }
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreenAndShow(null);
+                ClientScreenAccess.showScreen(client, null);
                 PickupModeState.clear();
                 PickupHighlight.invalidate();
                 net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
@@ -175,8 +180,8 @@ public class PickupHighlightClientGameTest implements FabricClientGameTest {
      * 且会被本模组的选区交互拦截逻辑影响。openMenu 走的是与真实开箱同一条
      * ClientboundOpenScreen 路径，客户端收到的界面完全一样。
      */
-    private void placeChestAndOpen(TestDedicatedServerContext server) {
-        server.runOnServer(instance -> {
+    private int placeChestAndOpen(TestDedicatedServerContext server, String schematicId) {
+        return server.computeOnServer(instance -> {
             var players = instance.getPlayerList().getPlayers();
             if (players.isEmpty()) {
                 throw new AssertionError("服务端没有已连接的玩家，无法打开容器界面");
@@ -200,7 +205,19 @@ public class PickupHighlightClientGameTest implements FabricClientGameTest {
             if (provider == null) {
                 throw new AssertionError("箱子未提供 MenuProvider，位置 " + chestPos);
             }
+            var manager = SyncMaterial.getServerStagingAreaManager();
+            int warehouseId = manager.addWarehouse("Pickup test", McCompat.dimensionId(level),
+                    chestPos.getX(), chestPos.getY(), chestPos.getZ(),
+                    chestPos.getX(), chestPos.getY(), chestPos.getZ());
+            if (warehouseId <= 0) throw new AssertionError("高亮测试仓库创建失败");
+            manager.addWarehouseReference(schematicId, warehouseId);
+            manager.rescanWarehouseAndMarkChunks(warehouseId);
+            if (manager.getWarehouseCountForMaterial(schematicId, "minecraft:stone") != 192) {
+                manager.deleteWarehouse(warehouseId);
+                throw new AssertionError("高亮测试仓库应有 192 个石头");
+            }
             player.openMenu(provider);
+            return warehouseId;
         });
     }
 
@@ -209,7 +226,7 @@ public class PickupHighlightClientGameTest implements FabricClientGameTest {
         for (int elapsed = 0; elapsed < 100; elapsed += 5) {
             ctx.waitTicks(5);
             boolean open = ctx.computeOnClient(client ->
-                client.gui.screen() instanceof AbstractContainerScreen<?>);
+                ClientScreenAccess.currentScreen(client) instanceof AbstractContainerScreen<?>);
             if (open) {
                 return true;
             }

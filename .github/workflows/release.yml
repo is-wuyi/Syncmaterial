@@ -9,33 +9,119 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  prepare:
     runs-on: ubuntu-latest
-
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup Java 21
+      # 发布产物同样只由 versions/versions.json 决定，不能在这里手写节点。
+      - name: Build release matrix from versions/versions.json
+        id: matrix
+        run: echo "matrix=$(python3 -I .github/scripts/ci_guard.py matrix --root .)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java 21 (toolchain)
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
-          cache: gradle
+
+      - name: Setup Java 25 (build JVM)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Cache Gradle (${{ matrix.node }})
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-release-${{ runner.os }}-${{ matrix.slug }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties', 'versions/versions.json') }}
+          restore-keys: |
+            gradle-release-${{ runner.os }}-${{ matrix.slug }}-
+            gradle-${{ runner.os }}-${{ matrix.slug }}-
+            gradle-${{ runner.os }}-
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build
-        run: ./gradlew :1.21.7:build
+      - name: Build node artifact
+        run: ./gradlew :${{ matrix.node }}:build --no-build-cache --stacktrace
+
+      # 统一 mod_version 来自根 gradle.properties；jar 名必须是
+      # SyncMaterial-<node>-<mod_version>.jar，且包含嵌套 sqlite 与 mixins。
+      - name: Guard distributable jar
+        run: python3 -I .github/scripts/ci_guard.py artifact --root . --node "${{ matrix.node }}"
+
+      # 嵌套依赖/namespace 等架构检查不能只靠 ci_guard 的名字与内容断言。
+      - name: Package guard
+        run: |
+          test -f scripts/verify_multiversion.py \
+            || { echo "::error::缺少 scripts/verify_multiversion.py（package scope）"; exit 1; }
+          python3 -I scripts/verify_multiversion.py --root . --scope package --node "${{ matrix.node }}"
+
+      - name: Stage non-sources jar
+        run: |
+          mkdir -p dist
+          for jar in versions/${{ matrix.node }}/build/libs/SyncMaterial-${{ matrix.node }}-*.jar; do
+            case "$jar" in
+              *-sources.jar) continue ;;
+            esac
+            cp "$jar" dist/
+          done
+          test "$(find dist -maxdepth 1 -name '*.jar' | wc -l)" -eq 1 \
+            || { echo "::error::节点 ${{ matrix.node }} 应只产出 1 个非 sources jar"; exit 1; }
+
+      - name: Upload node artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-jar-${{ matrix.node }}
+          path: dist/*.jar
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download all node artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: release-jar-*
+          path: dist
+          merge-multiple: true
+
+      # 产物集合由 versions.json 节点 + 根 mod_version 推导，不硬编码节点数。
+      - name: Verify release artifact set
+        run: |
+          python3 -I .github/scripts/ci_guard.py release-set --root . --dist dist
+          ls -l dist
 
       - name: Detect pre-release
         id: prerelease
         run: |
-          if [[ "${{ github.ref_name }}" =~ -(alpha|rc) ]]; then
-            echo "pre_release=true" >> $GITHUB_OUTPUT
+          if [[ "${{ github.ref_name }}" =~ -(alpha|beta|rc) ]]; then
+            echo "pre_release=true" >> "$GITHUB_OUTPUT"
           else
-            echo "pre_release=false" >> $GITHUB_OUTPUT
+            echo "pre_release=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create Release
@@ -63,4 +149,4 @@ jobs:
             --title "SyncMaterial ${{ github.ref_name }}" \
             --notes-file release_body.md \
             $( [[ "${{ steps.prerelease.outputs.pre_release }}" == "true" ]] && echo "--prerelease" ) \
-            versions/1.21.7/build/libs/*.jar
+            dist/*.jar

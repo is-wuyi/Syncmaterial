@@ -29,6 +29,15 @@ opencode.json
 
 # Test runs
 run/
+.runs/
+versions/*/build/
+versions/*/.gradle/
+versions/*/.fabric/
+versions/*/logs/
+versions/*/crash-reports/
+shared/build/
+shared/.gradle/
+classpath-*.txt
 
 # Temp files
 *.log

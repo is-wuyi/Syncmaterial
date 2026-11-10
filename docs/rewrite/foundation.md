@@ -17,7 +17,7 @@
 
 ## 本批结构
 
-- `core`：不可变材料、项目、玩家身份与快照。
+- `shared/`：Java 21 的 `core`、`server/storage`、`server/ingest` 与 `server/runtime`，依赖闭包不包含 Minecraft/Fabric；模型、真实 JDBC 和运行时测试独立运行。
 - `server/storage`：单写入执行器、业务级事务、外键／唯一约束、schema 版本和稳定材料 ID；生产 API 不暴露 SQL、Connection 或 ResultSet。
 - `server/ingest`：两个发现入口统一调用 IngestService；按项目串行更新，内容 hash 不作为项目身份。
 - `adapter/litematica`：同步、有界的 NBT 解码与材料规则；区域分别统计后累计，不构造全局方块位置 Map，不读取原理图容器内物品。
@@ -27,7 +27,9 @@
 
 ## 材料口径
 
-对照 MC 26.2 / Litematica 0.28.5：各 region 分别统计后累计，特殊方块、waterlogged、花盆／炼药锅和数量型状态使用同一转换规则；墙式／悬挂式同物品按 item id 聚合。
+对照每个节点实际加载的 Litematica：1.21.7/1.21.8 使用 0.23.7 的 pick-stack 规则，26.2 使用 0.28.5 的 as-item 规则。区域遍历、位数组、限额和材料聚合在 `shared` 中只有一份；平台仅提供原生 NBT 与方块事实。各 region 分别统计后累计，墙式／悬挂式同物品按 item id 聚合。
+
+材料解释标识为 `mc:<DataVersion>/decoder:1/materials:1`，与文件 hash 一并判断缓存有效性。同 hash 换解释必须重新解析；schema 2 在同一事务写入需求与解释标识，迁移前用 SQLite 一致性备份。新 hash 解码失败时保留已提交的材料 ID、需求和认领，但拒绝把旧统计作为当前结果下发或用于新认领，向玩家提示统计已过期。
 
 结构损坏、短数组、越界调色板或非法状态必须失败，不能成功存为缺材料清单。默认限额：NBT 512 MiB、总方块 6400 万、region 65536、palette 1048576。药水等仍按 item id，不在本批增加组件／配额模型。
 
@@ -38,14 +40,17 @@
 项目位于 exFAT，本机必须在独立 `/tmp` 副本构建。
 
 ```bash
-./gradlew build spotbugsMain
-./gradlew runFoundationGameTest
-./gradlew runClientGameTest
-./gradlew runFoundationClientGameTest
+JAVA_HOME=<Java25> ./gradlew checkAllVersions
+JAVA_HOME=<Java25> ./gradlew testAllClients
+JAVA_HOME=<Java25> ./gradlew testOptionalDependencies
+# 单节点
+JAVA_HOME=<Java25> ./gradlew :1.21.7:runFoundationGameTest
+JAVA_HOME=<Java25> ./gradlew :26.2:runFoundationClientGameTest
 ```
 
 - 常规 `build` 保持旧后端回归。
 - Foundation 服务器任务只选 `syncmaterial-foundation-test:foundation_server_game_test_*`。
+- 缺依赖验收用独立测试 mod，服务器分别验证旧／新后端启动和实际 NBT → 解码／导入；客户端验证无 MaLiLib 时主菜单与真实专服连接可用，未握手不会收到业务包。MaLiLib 缺失时不提供 GUI/HUD/选区，不把启动冒烟称为完整界面可用。
 - Foundation 客户端使用独立测试 mod，只运行 Foundation 网络闭环和实际 Litematica oracle，不静默跳过旧测试。
 - `LegacyWireGoldenTest` 固定 Hello 和材料／库存请求的编码字节。
 - JUnit 覆盖回滚、ID 稳定、重复导入、失败重试、项目更新、未知 schema 拒绝、关闭与旧库隔离。

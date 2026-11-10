@@ -409,7 +409,11 @@ class ModNetworkHandlerBehaviorTest {
         StagingAreaManager manager = mockWarehouseManager();
         // handler 解析 world 时 orElse 参数会立即求值（即使 AreaData 已带 world 也调用）
         var worldKey = net.minecraft.resources.ResourceKey.create(
+            //? if >=26.2 {
             net.minecraft.core.registries.Registries.DIMENSION, net.minecraft.resources.Identifier.fromNamespaceAndPath("minecraft", "overworld"));
+            //?} else {
+            /*net.minecraft.core.registries.Registries.DIMENSION, net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("minecraft", "overworld"));
+            *///?}
         var playerWorld = mock(net.minecraft.server.level.ServerLevel.class);
         when(playerWorld.dimension()).thenReturn(worldKey);
         when(player.level()).thenReturn(playerWorld);

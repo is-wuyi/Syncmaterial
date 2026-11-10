@@ -1,0 +1,46 @@
+{
+  "expected_versions": ["1.21.7", "1.21.8", "26.2"],
+  "java_versions": {
+    "1.21.7": 21,
+    "1.21.8": 21,
+    "26.2": 25
+  },
+  "spotbugs": {
+    "platform_max": 28,
+    "shared_max": 0
+  },
+  "junit": {
+    "shared_min_tests": 182,
+    "platform_min_tests": 363
+  },
+  "server_run_test_counts": {
+    "legacy": 40,
+    "foundation": 2
+  },
+  "client_entries_expected": {
+    "syncmaterial-test": 23,
+    "syncmaterial-foundation-test": 2,
+    "syncmaterial-optional-test": 1
+  },
+  "test_mods": {
+    "syncmaterial-test": {
+      "resources": "src/gametest/resources/fabric.mod.json",
+      "server_methods_min": 1,
+      "client_entries_min": 1
+    },
+    "syncmaterial-foundation-test": {
+      "resources": "src/foundationtest/resources/fabric.mod.json",
+      "server_methods_min": 1,
+      "client_entries_min": 2
+    },
+    "syncmaterial-optional-test": {
+      "resources": "src/optionaltest/resources/fabric.mod.json",
+      "server_methods_min": 2,
+      "client_entries_min": 1
+    }
+  },
+  "server_filters": {
+    "syncmaterial-foundation-test": "syncmaterial-foundation-test:foundation_server_game_test_*",
+    "syncmaterial-optional-test": "syncmaterial-optional-test:optional_dependency_server_game_test_*"
+  }
+}

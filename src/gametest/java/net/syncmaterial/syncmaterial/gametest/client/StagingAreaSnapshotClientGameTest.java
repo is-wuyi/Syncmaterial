@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.network.ClientProtocolState;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
@@ -30,7 +31,7 @@ public class StagingAreaSnapshotClientGameTest implements FabricClientGameTest {
             try (var server = ctx.worldBuilder().createServer();
                  var connection = server.connect()) {
                 ctx.waitFor(client -> ClientProtocolState.isUsable());
-                ctx.runOnClient(client -> client.setScreenAndShow(null));
+                ctx.runOnClient(client -> ClientScreenAccess.showScreen(client, null));
 
                 sendSnapshot(server, "LIST", schematicId, "Initial", List.of(
                     area(41, "Old name", 4), area(57, "Deleted", 8), area(93, "Unchanged", 12)));

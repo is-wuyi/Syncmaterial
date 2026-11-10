@@ -13,14 +13,20 @@ import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
 import fi.dy.masa.malilib.gui.widgets.WidgetListBase;
 import fi.dy.masa.malilib.gui.widgets.WidgetListEntryBase;
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.KeyCodes;
 import fi.dy.masa.malilib.util.StringUtils;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+//? if >=26.2 {
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.syncmaterial.syncmaterial.network.BatchAssignC2SPacket;
 import net.syncmaterial.syncmaterial.network.KickFromMaterialC2SPacket;
 import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
@@ -209,7 +215,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
 
         // 搜索框（malilib 文本框：自带光标闪烁、退格、输入法支持）
         this.searchField = new fi.dy.masa.malilib.gui.GuiTextFieldGeneric(
-                leftX, this.dialogTop + 46, innerW, 16, this.font);
+                leftX, this.dialogTop + 46, innerW, 16, this.mc.font);
         this.searchField.setTextWrapper("");
         this.addTextField(this.searchField, textField -> {
             if (GuiPlayerSelectDialog.this.listWidget != null)
@@ -328,12 +334,20 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public void drawContents(GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
+    //?} else {
+    /*public void drawContents(GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks)
+    *///?}
     {
         // 背后可见：重绘父界面后再叠半透明面板
         if (this.getParent() != null)
         {
+            //? if >=26.2 {
             this.getParent().extractRenderState(drawContext.getGuiGraphics(), mouseX, mouseY, partialTicks);
+            //?} else {
+            /*this.getParent().render(drawContext, mouseX, mouseY, partialTicks);
+            *///?}
         }
 
         RenderUtils.drawOutlinedBox(drawContext, this.dialogLeft, this.dialogTop,
@@ -377,7 +391,11 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     protected void drawHoveredWidget(GuiContext drawContext, int mouseX, int mouseY)
+    //?} else {
+    /*protected void drawHoveredWidget(GuiGraphics drawContext, int mouseX, int mouseY)
+    *///?}
     {
         super.drawHoveredWidget(drawContext, mouseX, mouseY);
         if (this.listWidget != null)
@@ -387,13 +405,25 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseClicked(MouseButtonEvent event, boolean isDoubleClick)
+    //?} else {
+    /*public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
         if (super.onMouseClicked(event, isDoubleClick))
+        //?} else {
+        /*if (super.onMouseClicked(mouseX, mouseY, mouseButton))
+        *///?}
         {
             return true;
         }
+        //? if >=26.2 {
         if (this.listWidget != null && this.listWidget.onMouseClicked(event, isDoubleClick))
+        //?} else {
+        /*if (this.listWidget != null && this.listWidget.onMouseClicked(mouseX, mouseY, mouseButton))
+        *///?}
         {
             return true;
         }
@@ -402,15 +432,28 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseReleased(MouseButtonEvent event)
+    //?} else {
+    /*public boolean onMouseReleased(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
         super.onMouseReleased(event);
         if (this.listWidget != null) this.listWidget.onMouseReleased(event);
+        //?} else {
+        /*super.onMouseReleased(mouseX, mouseY, mouseButton);
+        if (this.listWidget != null) this.listWidget.onMouseReleased(mouseX, mouseY, mouseButton);
+        *///?}
         return false;
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount)
+    //?} else {
+    /*public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount)
+    *///?}
     {
         if (super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount))
         {
@@ -424,22 +467,36 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onKeyTyped(KeyEvent event)
+    //?} else {
+    /*public boolean onKeyTyped(int keyCode, int scanCode, int modifiers)
+    *///?}
     {
-        if (event.key() == KeyCodes.KEY_ESCAPE)
+        //? if >=26.2 {
+        int key = event.key();
+        //?} else {
+        /*int key = keyCode;
+        *///?}
+        if (key == KeyCodes.KEY_ESCAPE)
         {
             GuiBase.openGui(this.getParent());
             return true;
         }
-        if (event.key() == KeyCodes.KEY_ENTER && this.confirmButton != null && !this.submitted)
+        if (key == KeyCodes.KEY_ENTER && this.confirmButton != null && !this.submitted)
         {
             confirm();
             return true;
         }
+        //? if >=26.2 {
         return super.onKeyTyped(event);
+        //?} else {
+        /*return super.onKeyTyped(key, scanCode, modifiers);
+        *///?}
     }
 
-    public boolean shouldPause()
+    @Override
+    public boolean isPauseScreen()
     {
         return false;
     }
@@ -455,7 +512,11 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
             this.shouldSortList = false;
         }
 
+        //? if >=26.2 {
         public void renderHoverEffects(GuiContext drawContext, int mouseX, int mouseY)
+        //?} else {
+        /*public void renderHoverEffects(GuiGraphics drawContext, int mouseX, int mouseY)
+        *///?}
         {
             // super. 显式指向 WidgetListBase 的实现：外部类 GuiPlayerSelectDialog
             // 也覆写了同名方法，不加限定会被 SpotBugs 判为歧义调用
@@ -509,13 +570,27 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         }
 
         @Override
+        //? if >=26.2 {
         public boolean onMouseClicked(MouseButtonEvent event, boolean isDoubleClick)
+        //?} else {
+        /*public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton)
+        *///?}
         {
+            //? if >=26.2 {
+            int mouseX = (int) event.x();
+            int mouseY = (int) event.y();
+            //?} else {
+            /*boolean isDoubleClick = false;
+            *///?}
+            //? if >=26.2 {
             if (super.onMouseClicked(event, isDoubleClick))
+            //?} else {
+            /*if (super.onMouseClicked(mouseX, mouseY, mouseButton))
+            *///?}
             {
                 return true;
             }
-            if (this.isMouseOver((int) event.x(), (int) event.y()))
+            if (this.isMouseOver(mouseX, mouseY))
             {
                 toggleSelection(this.entry.name());
                 return true;
@@ -524,7 +599,11 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         }
 
         @Override
+        //? if >=26.2 {
         public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+        //?} else {
+        /*public void render(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+        *///?}
         {
             boolean isSelected = GuiPlayerSelectDialog.this.selected.contains(this.entry.name());
 

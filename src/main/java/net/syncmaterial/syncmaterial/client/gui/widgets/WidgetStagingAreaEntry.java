@@ -8,12 +8,18 @@
 
 package net.syncmaterial.syncmaterial.client.gui.widgets;
 
+//? if >=26.2 {
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 
 
 import java.util.List;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorSubRegion;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
@@ -73,13 +79,25 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     }
 
     @Override
+    //? if >=26.2 {
     public boolean canSelectAt(MouseButtonEvent event)
+    //?} else {
+    /*public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
         return event.x() < this.buttonsStartX && super.canSelectAt(event);
+        //?} else {
+        /*return mouseX < this.buttonsStartX && super.canSelectAt(mouseX, mouseY, mouseButton);
+        *///?}
     }
 
     @Override
+    //? if >=26.2 {
     public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+    //?} else {
+    /*public void render(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+    *///?}
     {
         // Draw a lighter background for the hovered and the selected entry
         if (selected || this.isMouseOver(mouseX, mouseY))
@@ -120,7 +138,7 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
             // 与玩家当前维度不一致时标黄，提示线框和扫描都不会在此维度生效
             var clientPlayer = net.minecraft.client.Minecraft.getInstance().player;
             String currentWorld = clientPlayer != null
-                    ? clientPlayer.level().dimension().identifier().toString()
+                    ? net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(clientPlayer.level())
                     : null;
             int color = world.equals(currentWorld) ? 0xFF888888 : 0xFFFFAA00;
             this.drawString(drawContext,
@@ -132,7 +150,11 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     }
 
     @Override
+    //? if >=26.2 {
     public void postRenderHovered(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+    //?} else {
+    /*public void postRenderHovered(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+    *///?}
     {
         List<String> text = new java.util.ArrayList<>();
 
@@ -165,8 +187,13 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     private static class ButtonListener implements IButtonActionListener
     {
         private static boolean hasShiftDown() {
+            //? if >=26.2 {
+            long window = net.minecraft.client.Minecraft.getInstance().getWindow().handle();
+            //?} else {
+            /*long window = net.minecraft.client.Minecraft.getInstance().getWindow().getWindow();
+            *///?}
             return org.lwjgl.glfw.GLFW.glfwGetKey(
-                net.minecraft.client.Minecraft.getInstance().getWindow().handle(),
+                window,
                 org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
         }
 
@@ -198,7 +225,8 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                     selection.setSelectedSubRegionBox(box.getName());
                     GuiStagingAreaEditorSubRegion sub = new GuiStagingAreaEditorSubRegion(
                             selection, box, null, this.widget.parent.getEditorGui().getSchematicId());
-                    sub.setParent(net.minecraft.client.Minecraft.getInstance().gui.screen());
+                    sub.setParent(net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(
+                            net.minecraft.client.Minecraft.getInstance()));
                     GuiBase.openGui(sub);
                 }
             }

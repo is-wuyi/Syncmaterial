@@ -11,7 +11,11 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+//? if >=26.2 {
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.BlockItem;
@@ -35,8 +39,13 @@ public abstract class HandledScreenMixin<T extends AbstractContainerMenu> {
 
     @Shadow protected T menu;
 
+    //? if >=26.2 {
     @Inject(method = "extractLabels", at = @At("TAIL"))
     private void onDrawForeground(GuiGraphicsExtractor context, int mouseX, int mouseY, CallbackInfo ci) {
+    //?} else {
+    /*@Inject(method = "renderLabels", at = @At("TAIL"))
+    private void onDrawForeground(GuiGraphics context, int mouseX, int mouseY, CallbackInfo ci) {
+    *///?}
         if (!GuiMaterialList.isPickupModeStatic()) {
             // 退出取货模式后缓存必须失效，否则下次开启时会先闪一帧旧高亮
             PickupHighlight.invalidate();
@@ -73,7 +82,11 @@ public abstract class HandledScreenMixin<T extends AbstractContainerMenu> {
                 && blockItem.getBlock() instanceof ShulkerBoxBlock) {
             var container = stack.get(DataComponents.CONTAINER);
             if (container != null) {
+                //? if >=26.2 {
                 container.nonEmptyItemCopyStream()
+                //?} else {
+                /*container.nonEmptyStream()
+                *///?}
                         .forEach(s -> stored.add(new StackSnapshot(s.getItem().toString(), s.getCount())));
             }
         }
@@ -86,7 +99,11 @@ public abstract class HandledScreenMixin<T extends AbstractContainerMenu> {
     }
 
     @Unique
+    //? if >=26.2 {
     private void drawHighlight(GuiGraphicsExtractor context, Slot slot) {
+    //?} else {
+    /*private void drawHighlight(GuiGraphics context, Slot slot) {
+    *///?}
         int slotX = slot.x;
         int slotY = slot.y;
         int color = 0xFFFFAA00;

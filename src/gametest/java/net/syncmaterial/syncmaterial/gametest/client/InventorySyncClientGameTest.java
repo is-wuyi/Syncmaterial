@@ -10,6 +10,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerCon
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -73,7 +74,7 @@ public class InventorySyncClientGameTest implements FabricClientGameTest {
             // 关闭界面 —— bug 的触发点。关闭后监听必须继续存活，
             // 因为 HUD 的生命周期长于 GUI
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.closeGui(false);
                 }
             });

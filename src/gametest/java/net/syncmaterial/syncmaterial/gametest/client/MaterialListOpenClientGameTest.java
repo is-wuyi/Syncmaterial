@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
@@ -85,7 +86,7 @@ public class MaterialListOpenClientGameTest implements FabricClientGameTest {
 
             // 数据断言：等 CollaborationStatus 包覆盖完条目后取最终值
             boolean dataOk = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
 
                 if (!schematicId.equals(gui.getSchematicId())) return false;
                 if (!gui.isOwner() || !gui.isMainOwner()) return false;
@@ -106,7 +107,7 @@ public class MaterialListOpenClientGameTest implements FabricClientGameTest {
             }));
             if (!dataOk) {
                 String actual = ctx.computeOnClient(client ->
-                    client.gui.screen() instanceof GuiMaterialList gui
+                    ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui
                         ? describeEntries(gui) : "GUI 已关闭");
                 throw new AssertionError("材料清单数据与预期不符: " + actual);
             }
@@ -120,7 +121,7 @@ public class MaterialListOpenClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.closeGui(false);
                 }
                 InventoryWatcher.clearContext();

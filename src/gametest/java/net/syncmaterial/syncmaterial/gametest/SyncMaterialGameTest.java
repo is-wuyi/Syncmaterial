@@ -7,7 +7,6 @@ import java.util.List;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.level.block.Blocks;
@@ -515,7 +514,11 @@ public class SyncMaterialGameTest {
     @GameTest(structure = "empty")
     public void shulkerContents_extractsItems(GameTestHelper ctx) {
         // 创建一个装有物品的潜影盒
+        //? if >=26.2 {
         ItemStack shulker = new ItemStack(Blocks.DYED_SHULKER_BOX.purple());
+        //?} else {
+        /*ItemStack shulker = new ItemStack(Blocks.PURPLE_SHULKER_BOX);
+        *///?}
         ItemContainerContents contents = ItemContainerContents.fromItems(List.of(
             new ItemStack(Items.DIAMOND, 64),
             new ItemStack(Items.STONE, 32)
@@ -543,7 +546,11 @@ public class SyncMaterialGameTest {
 
     @GameTest(structure = "empty")
     public void shulkerContents_emptyShulker_returnsEmpty(GameTestHelper ctx) {
+        //? if >=26.2 {
         ItemStack shulker = new ItemStack(Blocks.DYED_SHULKER_BOX.purple());
+        //?} else {
+        /*ItemStack shulker = new ItemStack(Blocks.PURPLE_SHULKER_BOX);
+        *///?}
         var result = InventoryWatcher.getShulkerContents(shulker);
         ctx.assertTrue(result.isEmpty(), Component.literal("空潜影盒应返回空列表"));
         ctx.succeed();

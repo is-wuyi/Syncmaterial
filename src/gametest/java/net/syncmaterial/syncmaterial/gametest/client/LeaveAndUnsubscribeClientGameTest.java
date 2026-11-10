@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerCon
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -78,7 +79,7 @@ public class LeaveAndUnsubscribeClientGameTest implements FabricClientGameTest {
                 new JoinCollaborationC2SPacket(schematicId, materialId, Map.of())));
 
             boolean joined = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
                 var status = gui.getMaterialList().getCollaborationStatusFor(materialId);
                 return status != null && status.participants().stream()
                     .anyMatch(p -> p.playerName().equals("Player0"));
@@ -95,7 +96,7 @@ public class LeaveAndUnsubscribeClientGameTest implements FabricClientGameTest {
                 int claims = activeClaimCount(server, schematicId, materialId);
                 if (claims != 0) return false;
                 return Boolean.TRUE.equals(ctx.computeOnClient(client -> {
-                    if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                    if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
                     var status = gui.getMaterialList().getCollaborationStatusFor(materialId);
                     return status != null && status.participants().isEmpty();
                 }));
@@ -122,7 +123,7 @@ public class LeaveAndUnsubscribeClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreenAndShow(null);
+                ClientScreenAccess.showScreen(client, null);
                 InventoryWatcher.clearContext();
             });
         }
@@ -130,7 +131,7 @@ public class LeaveAndUnsubscribeClientGameTest implements FabricClientGameTest {
 
     private boolean isSubscribed(TestDedicatedServerContext server, String schematicId) {
         return Boolean.TRUE.equals(server.computeOnServer(s -> {
-            var player = s.getPlayerList().getPlayer("Player0");
+            var player = s.getPlayerList().getPlayerByName("Player0");
             return player != null
                 && Phase4Handler.getSubscribedSchematics(player).contains(schematicId);
         }));

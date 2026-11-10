@@ -75,15 +75,20 @@ public class StatisticsProcessorTest {
     @Test
     void bed_headPart_filtered() {
         Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
-        blocks.put(new BlockPos(0, 0, 0), Blocks.BED.red().defaultBlockState()
+        //? if >=26.2 {
+        Block bed = Blocks.BED.red();
+        //?} else {
+        /*Block bed = Blocks.RED_BED;
+        *///?}
+        blocks.put(new BlockPos(0, 0, 0), bed.defaultBlockState()
             .setValue(BedBlock.PART, BedPart.FOOT));
-        blocks.put(new BlockPos(0, 0, 1), Blocks.BED.red().defaultBlockState()
+        blocks.put(new BlockPos(0, 0, 1), bed.defaultBlockState()
             .setValue(BedBlock.PART, BedPart.HEAD));
 
         var processor = new StatisticsProcessor();
         var materials = processor.process(resultOf(blocks), false);
 
-        assertEquals(1, findCount(materials, Blocks.BED.red()));
+        assertEquals(1, findCount(materials, bed));
     }
 
     @Test

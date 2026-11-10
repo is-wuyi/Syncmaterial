@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -78,7 +79,7 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
 
             // ===== 分配：勾选 2 个材料 → 弹窗选假人 → 确认 =====
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.getSelectedMaterialIds().add(dirtId);
                     gui.getSelectedMaterialIds().add(stoneId);
                     gui.openAssignDialog();
@@ -88,14 +89,14 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
             });
 
             boolean assignDialogReady = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
-                client.gui.screen() instanceof GuiPlayerSelectDialog d && d.hasLoadedPlayers()));
+                ClientScreenAccess.currentScreen(client) instanceof GuiPlayerSelectDialog d && d.hasLoadedPlayers()));
             if (!assignDialogReady) {
                 throw new AssertionError("分配弹窗未收到玩家列表响应");
             }
 
             // 在线假人必须出现在真实玩家列表响应中
             boolean botListed = ctx.computeOnClient(client ->
-                client.gui.screen() instanceof GuiPlayerSelectDialog d
+                ClientScreenAccess.currentScreen(client) instanceof GuiPlayerSelectDialog d
                     && d.getAvailablePlayers().stream()
                         .anyMatch(p -> p.name().equals(BOT_NAME) && p.online()));
             if (!botListed) {
@@ -103,7 +104,7 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
             }
 
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiPlayerSelectDialog d) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiPlayerSelectDialog d) {
                     d.selectPlayer(BOT_NAME);
                     d.confirmSelection();
                 } else {
@@ -119,7 +120,7 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
 
             // 客户端：勾选清空 + 两个材料的参与者状态都刷新出假人
             boolean assignSynced = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
                 if (!gui.getSelectedMaterialIds().isEmpty()) return false;
                 var dirtStatus = gui.getMaterialList().getCollaborationStatusFor(dirtId);
                 var stoneStatus = gui.getMaterialList().getCollaborationStatusFor(stoneId);
@@ -136,7 +137,7 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
 
             // ===== 踢出：重新勾选 → KICK 弹窗选假人 → 确认 =====
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.getSelectedMaterialIds().add(dirtId);
                     gui.getSelectedMaterialIds().add(stoneId);
                     gui.openKickDialog();
@@ -146,13 +147,13 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
             });
 
             boolean kickDialogReady = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
-                client.gui.screen() instanceof GuiPlayerSelectDialog d && d.hasLoadedPlayers()));
+                ClientScreenAccess.currentScreen(client) instanceof GuiPlayerSelectDialog d && d.hasLoadedPlayers()));
             if (!kickDialogReady) {
                 throw new AssertionError("踢出弹窗未收到玩家列表响应");
             }
 
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiPlayerSelectDialog d) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiPlayerSelectDialog d) {
                     d.selectPlayer(BOT_NAME);
                     d.confirmSelection();
                 } else {
@@ -168,7 +169,7 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
 
             // 客户端：两个材料的参与者都不再含假人
             boolean kickSynced = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
                 var dirtStatus = gui.getMaterialList().getCollaborationStatusFor(dirtId);
                 var stoneStatus = gui.getMaterialList().getCollaborationStatusFor(stoneId);
                 return dirtStatus != null && !hasParticipant(dirtStatus, BOT_NAME)
@@ -189,7 +190,7 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.closeGui(false);
                 }
                 InventoryWatcher.clearContext();

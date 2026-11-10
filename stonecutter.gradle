@@ -1,0 +1,36 @@
+stonecutter.active null
+
+List<String> nodes = new groovy.json.JsonSlurper()
+        .parse(file('versions/versions.json')).minecraft
+
+tasks.register('buildAllVersions') {
+    dependsOn ':shared:build'
+    dependsOn nodes.collect { ":${it}:build" }
+}
+
+tasks.register('verifyShared', Exec) {
+    dependsOn ':shared:build', ':shared:spotbugsMain'
+    commandLine 'python3', '-I', file('scripts/verify_multiversion.py').absolutePath,
+            '--root', projectDir.absolutePath, '--scope', 'static,shared', '--strict'
+}
+
+tasks.register('checkAllVersions') {
+    dependsOn 'verifyShared'
+    dependsOn nodes.collect { ":${it}:checkPlatform" }
+}
+
+tasks.register('testAllClients', Exec) {
+    dependsOn nodes.collect { ":${it}:runClientGameTest" }
+    dependsOn nodes.collect { ":${it}:runFoundationClientGameTest" }
+    commandLine 'python3', '-I', file('scripts/verify_multiversion.py').absolutePath,
+            '--root', projectDir.absolutePath, '--scope', 'client', '--strict'
+}
+
+tasks.register('testOptionalDependencies', Exec) {
+    dependsOn nodes.collectMany { node ->
+        ['runOptionalGameTest', 'runOptionalFoundationGameTest',
+         'runOptionalClientGameTest', 'runOptionalFoundationClientGameTest'].collect { ":${node}:${it}" }
+    }
+    commandLine 'python3', '-I', file('scripts/verify_multiversion.py').absolutePath,
+            '--root', projectDir.absolutePath, '--scope', 'optional', '--strict'
+}

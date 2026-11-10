@@ -1,0 +1,24 @@
+{
+    "schemaVersion": 1,
+    "id": "syncmaterial-optional-test",
+    "version": "1.0.0",
+    "name": "SyncMaterial Optional Dependency GameTest",
+    "environment": "*",
+    "languageAdapters": {
+        "syncmaterial-optional-test-report": "net.syncmaterial.syncmaterial.gametest.ClientTestReportingAdapter"
+    },
+    "entrypoints": {
+        "fabric-gametest": [
+            "net.syncmaterial.syncmaterial.gametest.optional.OptionalDependencyServerGameTest"
+        ],
+        "fabric-client-gametest": [
+            {"adapter": "syncmaterial-optional-test-report", "value": "net.syncmaterial.syncmaterial.gametest.optional.OptionalDependencyClientGameTest"}
+        ]
+    },
+    "depends": {
+        "fabricloader": ">=0.19.3",
+        "minecraft": "${minecraft_dependency}",
+        "fabric-api": "*",
+        "syncmaterial": "*"
+    }
+}

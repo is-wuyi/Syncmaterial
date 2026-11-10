@@ -3,7 +3,11 @@ package net.syncmaterial.syncmaterial.client.gui;
 import java.util.ArrayList;
 import java.util.List;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiListBase;
@@ -160,7 +164,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             AreaSelection selection = new AreaSelection();
             GuiStagingAreaEditorNormal editor = new GuiStagingAreaEditorNormal(selection, null, this.materialList.getSchematicId());
             editor.setParent(this);
-            this.mc.setScreenAndShow(editor);
+            net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(this.mc, editor);
         });
         return button.getWidth();
     }
@@ -388,7 +392,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
      * 因此框体一定在按钮下方，不会盖住它们。
      */
     @Override
+    //? if >=26.2 {
     protected void drawScreenBackground(GuiContext drawContext, int mouseX, int mouseY) {
+    //?} else {
+    /*protected void drawScreenBackground(GuiGraphics drawContext, int mouseX, int mouseY) {
+    *///?}
         super.drawScreenBackground(drawContext, mouseX, mouseY);
 
         if (!isOwner) {
@@ -492,7 +500,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         if (newDeputyOwners != null) this.deputyOwners = new ArrayList<>(newDeputyOwners);
         this.allowSelfClaim = newAllowSelfClaim;
         this.materialList.setAllowSelfClaim(newAllowSelfClaim);
-        if (isOwner && this.mc != null && this.mc.gui != null && this.mc.gui.screen() == this) {
+        if (isOwner && net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(this.mc) == this) {
             this.initGui(); // 副负责人行数/开关状态可能变了，重建右栏
         }
     }
@@ -566,7 +574,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     // ========== 渲染 ==========
 
     @Override
+    //? if >=26.2 {
     public void drawContents(GuiContext drawContext, int mouseX, int mouseY, float partialTicks) {
+    //?} else {
+    /*public void drawContents(GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks) {
+    *///?}
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
 
         // Phase 5: 数据新鲜度警告
@@ -587,7 +599,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     /**
      * 在列表上方显示数据新鲜度警告
      */
+    //? if >=26.2 {
     private void renderFreshnessWarnings(GuiContext drawContext) {
+    //?} else {
+    /*private void renderFreshnessWarnings(GuiGraphics drawContext) {
+    *///?}
         int y = 46; // 按钮行下方
         int x = 12;
         int bgColor = 0xA0FF8800; // 橙色半透明背景
@@ -604,11 +620,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         }
         String text = sb.toString();
 
-        int textWidth = this.font.width(text);
+        int textWidth = this.mc.font.width(text);
         int boxWidth = textWidth + 10;
         int boxHeight = 16;
         drawContext.fill(x, y, x + boxWidth, y + boxHeight, bgColor);
-        drawContext.text(this.font, "⚠ " + text, x + 4, y + 3, textColor, false);
+        drawContext.drawString(this.mc.font, "⚠ " + text, x + 4, y + 3, textColor, false);
     }
 
     public void closeGui(boolean showParent) {
@@ -619,7 +635,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         super.closeGui(showParent);
     }
 
-    public boolean shouldPause() {
+    @Override
+    public boolean isPauseScreen() {
         return false;
     }
 }

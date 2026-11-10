@@ -101,7 +101,8 @@ public class SyncMaterialList extends MaterialListBase {
         }
         updateEntriesWithCollaborationStatus();
         // Phase 5: 更新数据新鲜度警告（取最新的 freshnessInfo，所有材料共享同一份）
-        if (!status.freshnessInfo().isEmpty() && Minecraft.getInstance().gui.screen() instanceof GuiMaterialList gui) {
+        if (!status.freshnessInfo().isEmpty()
+                && net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiMaterialList gui) {
             gui.updateFreshnessWarnings(status.freshnessInfo());
         }
         if (onStatusUpdate != null) {

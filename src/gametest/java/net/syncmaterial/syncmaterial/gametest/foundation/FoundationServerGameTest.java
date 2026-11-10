@@ -30,14 +30,14 @@ public class FoundationServerGameTest {
         PlayerIdentity participant = new PlayerIdentity(UUID.randomUUID(), "Participant");
         var before = new SchematicMetadata(id, "Before", Path.of("before.litematic"), "old", owner);
         try {
-            runtime.store().ingest(before, List.of(new MaterialCount("minecraft:stone", 64))).join();
+            runtime.store().ingest(before, List.of(new MaterialCount("minecraft:stone", 64)), runtime.interpretationId()).join();
             int materialId = runtime.store().findProject(id).join().orElseThrow().materials().get(0).id();
             helper.assertTrue(runtime.store().join(id, materialId, participant).join(), Component.literal("认领应成功"));
             runtime.connected(participant.uuid());
             runtime.reportInventory(id, materialId, participant, 32).join();
             helper.assertTrue(runtime.inventoryCount(participant.uuid(), id, materialId) == 32, Component.literal("在线持有量应可读取"));
             runtime.store().ingest(new SchematicMetadata(id, "After", Path.of("after.litematic"), "new", owner),
-                    List.of(new MaterialCount("minecraft:stone", 128))).join();
+                    List.of(new MaterialCount("minecraft:stone", 128)), runtime.interpretationId()).join();
             var updated = runtime.store().snapshot(id).join().orElseThrow();
             helper.assertTrue(updated.project().materials().get(0).id() == materialId, Component.literal("更新不能改变保留物品的 ID"));
             helper.assertTrue(updated.claims().size() == 1, Component.literal("更新不能删除保留物品的认领"));

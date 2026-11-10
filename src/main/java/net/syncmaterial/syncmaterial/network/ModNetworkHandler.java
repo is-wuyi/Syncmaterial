@@ -1,6 +1,5 @@
 package net.syncmaterial.syncmaterial.network;
 
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
 import net.syncmaterial.syncmaterial.SyncMaterial;
@@ -8,6 +7,7 @@ import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.PlacementsUtil;
 import net.syncmaterial.syncmaterial.server.StagingAreaManager;
+import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
 
 import java.util.*;
@@ -41,38 +41,38 @@ public class ModNetworkHandler {
      */
     public static void registerPayloadTypes() {
         // C2S (客户端到服务端)
-        PayloadTypeRegistry.serverboundPlay().register(HelloC2SPacket.ID, HelloC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(MaterialStatsRequestC2SPacket.ID, MaterialStatsRequestC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(JoinCollaborationC2SPacket.ID, JoinCollaborationC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(InventoryUpdateC2SPacket.ID, InventoryUpdateC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(StagingAreaConfigC2SPacket.ID, StagingAreaConfigC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(RescanStagingAreaC2SPacket.ID, RescanStagingAreaC2SPacket.CODEC);
+        PayloadRegistrar.c2s(HelloC2SPacket.ID, HelloC2SPacket.CODEC);
+        PayloadRegistrar.c2s(MaterialStatsRequestC2SPacket.ID, MaterialStatsRequestC2SPacket.CODEC);
+        PayloadRegistrar.c2s(JoinCollaborationC2SPacket.ID, JoinCollaborationC2SPacket.CODEC);
+        PayloadRegistrar.c2s(LeaveCollaborationC2SPacket.ID, LeaveCollaborationC2SPacket.CODEC);
+        PayloadRegistrar.c2s(InventoryUpdateC2SPacket.ID, InventoryUpdateC2SPacket.CODEC);
+        PayloadRegistrar.c2s(QueryMaterialStatusC2SPacket.ID, QueryMaterialStatusC2SPacket.CODEC);
+        PayloadRegistrar.c2s(StagingAreaConfigC2SPacket.ID, StagingAreaConfigC2SPacket.CODEC);
+        PayloadRegistrar.c2s(RescanStagingAreaC2SPacket.ID, RescanStagingAreaC2SPacket.CODEC);
         // Phase 4
-        PayloadTypeRegistry.serverboundPlay().register(OwnerActionC2SPacket.ID, OwnerActionC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(BatchAssignC2SPacket.ID, BatchAssignC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(KickFromMaterialC2SPacket.ID, KickFromMaterialC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(PlayerListRequestC2SPacket.ID, PlayerListRequestC2SPacket.CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(MaterialListCloseC2SPacket.ID, MaterialListCloseC2SPacket.CODEC);
+        PayloadRegistrar.c2s(OwnerActionC2SPacket.ID, OwnerActionC2SPacket.CODEC);
+        PayloadRegistrar.c2s(BatchAssignC2SPacket.ID, BatchAssignC2SPacket.CODEC);
+        PayloadRegistrar.c2s(KickFromMaterialC2SPacket.ID, KickFromMaterialC2SPacket.CODEC);
+        PayloadRegistrar.c2s(PlayerListRequestC2SPacket.ID, PlayerListRequestC2SPacket.CODEC);
+        PayloadRegistrar.c2s(MaterialListCloseC2SPacket.ID, MaterialListCloseC2SPacket.CODEC);
         // Phase 5
-        PayloadTypeRegistry.serverboundPlay().register(WarehouseContainerRequestC2SPacket.ID, WarehouseContainerRequestC2SPacket.CODEC);
+        PayloadRegistrar.c2s(WarehouseContainerRequestC2SPacket.ID, WarehouseContainerRequestC2SPacket.CODEC);
 
         // S2C (服务端到客户端)
-        PayloadTypeRegistry.clientboundPlay().register(HelloS2CPacket.ID, HelloS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(MaterialCatalogUpdateS2CPacket.ID, MaterialCatalogUpdateS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(RescanStagingAreaResponseS2CPacket.ID, RescanStagingAreaResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(HelloS2CPacket.ID, HelloS2CPacket.CODEC);
+        PayloadRegistrar.s2c(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(MaterialCatalogUpdateS2CPacket.ID, MaterialCatalogUpdateS2CPacket.CODEC);
+        PayloadRegistrar.s2c(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
+        PayloadRegistrar.s2c(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(RescanStagingAreaResponseS2CPacket.ID, RescanStagingAreaResponseS2CPacket.CODEC);
         // Phase 4
-        PayloadTypeRegistry.clientboundPlay().register(OwnerActionResponseS2CPacket.ID, OwnerActionResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(BatchAssignResponseS2CPacket.ID, BatchAssignResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(KickFromMaterialResponseS2CPacket.ID, KickFromMaterialResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(PlayerListResponseS2CPacket.ID, PlayerListResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(OwnerActionResponseS2CPacket.ID, OwnerActionResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(BatchAssignResponseS2CPacket.ID, BatchAssignResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(KickFromMaterialResponseS2CPacket.ID, KickFromMaterialResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(PlayerListResponseS2CPacket.ID, PlayerListResponseS2CPacket.CODEC);
         // Phase 5
-        PayloadTypeRegistry.clientboundPlay().register(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
     }
 
     /**
@@ -641,14 +641,14 @@ public class ModNetworkHandler {
 
     /**
      * 校验客户端上报的区域数据；合法返回 null，否则返回中文错误原因。
-     * world 是客户端可控字符串，语法非法会让服务端扫描时 Identifier.parse 崩溃，
+     * world 是客户端可控字符串，语法非法会让服务端扫描时解析资源 ID 崩溃，
      * 这里只挡语法非法（用 tryParse）；语法合法但维度不存在由扫描侧安全跳过（world==null 返回）。
      */
     private static String validateAreaData(StagingAreaConfigC2SPacket.AreaData d, MinecraftServer server) {
         if (!isAreaGeometryValid(d.x1(), d.y1(), d.z1(), d.x2(), d.y2(), d.z2())) {
             return "区域坐标超出范围或区域过大";
         }
-        if (d.world().isPresent() && net.minecraft.resources.Identifier.tryParse(d.world().get()) == null) {
+        if (d.world().isPresent() && McCompat.tryParseId(d.world().get()) == null) {
             return "维度 ID 格式非法";
         }
         return null;
@@ -681,7 +681,7 @@ public class ModNetworkHandler {
                         ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD", schematicId, "", false, geomErr, List.of()));
                         return;
                     }
-                    String world = data.world().orElse(player.level().dimension().identifier().toString());
+                    String world = data.world().orElse(McCompat.dimensionId(player.level()));
                     int areaId = manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     if (areaId > 0) {
                         manager.rescanStagingArea(areaId);
@@ -893,7 +893,7 @@ public class ModNetworkHandler {
 
         List<String> participants = collaborationManager.getParticipants(schematicId, materialId);
         for (String name : participants) {
-            var player = server.getPlayerList().getPlayer(name);
+            var player = McCompat.findPlayerByName(server, name);
             if (player != null) {
                 recipients.add(player);
             }

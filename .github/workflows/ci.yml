@@ -7,166 +7,374 @@ on:
     branches: [dev, 'feature/**', 'rewrite/**', '*-lts']
   workflow_dispatch:
 
-jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 版本节点只来自 versions/versions.json；矩阵由预检 job 生成。
+# scripts/verify_multiversion.py（架构/包守卫）按 scope 分阶段执行，不裸跑 all：
+#   static   -> 预检 job（只读源码/清单）
+#   shared   -> shared job（共享 SpotBugs 基线 0 单独核验）
+#   matrix 节点 -> unit / server / optional / package / spotbugs 各自带 --node
+#   client 节点 -> client 带 --node
+# 该脚本从 --root 读取 versions/versions.json；若其参数约定变化，只改下列入口。
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # 安装两个 JDK，JAVA_HOME 默认指向最后安装的 21；
-      # Gradle toolchain（languageVersion 按 minecraft_mapping 决定 21 或 25）
-      # 会自动探测到另一个已安装的版本
-      - name: Setup Java 25 (for MC 26.x)
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 25
-          cache: gradle
+      - name: Version and test registry summary
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py info --root . | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Setup Java 21
+      - name: Multiversion static guard
+        run: |
+          test -f scripts/verify_multiversion.py \
+            || { echo "::error::缺少 scripts/verify_multiversion.py（static scope）"; exit 1; }
+          python3 -I scripts/verify_multiversion.py --root . --scope static
+
+      - name: Build matrix from versions/versions.json
+        id: matrix
+        run: echo "matrix=$(python3 -I .github/scripts/ci_guard.py matrix --root .)" >> "$GITHUB_OUTPUT"
+
+  shared:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # 构建 JVM 固定 Java 25；toolchain 同时探测 21 与 25。
+      - name: Setup Java 21 (toolchain)
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
+      - name: Setup Java 25 (build JVM)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Cache Gradle (shared)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-shared-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties', 'versions/versions.json') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-shared-
+            gradle-${{ runner.os }}-
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build
-        run: ./gradlew build --stacktrace
+      # 共享模块没有 Minecraft 依赖；显式跑纯测试并产出 shared jar，
+      # 供 verify_multiversion shared scope 核验（不能只靠 build 的退出码）。
+      - name: Shared pure tests, jar, JaCoCo and SpotBugs
+        run: >
+          ./gradlew :shared:clean :shared:test :shared:jar :shared:spotbugsMain
+          :shared:jacocoTestReport --no-build-cache --stacktrace
+
+      # shared scope 需要真实构建产物，必须放在 shared 执行之后；静态检查已在 preflight。
+      - name: Multiversion shared guard
+        run: |
+          test -f scripts/verify_multiversion.py \
+            || { echo "::error::缺少 scripts/verify_multiversion.py（shared scope）"; exit 1; }
+          python3 -I scripts/verify_multiversion.py --root . --scope shared
+
+      - name: Shared unit test summary
+        run: |
+          set -o pipefail
+          echo "## 共享模块（不含 Minecraft）" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -I .github/scripts/ci_guard.py unit --suite shared \
+            --results shared/build/test-results/test \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # shared SpotBugs 基线由 verify_multiversion shared scope 独立核验（0 条）。
+      - name: Shared SpotBugs summary
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py spotbugs --suite shared \
+            --report shared/build/reports/spotbugs/main.xml \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Shared JaCoCo summary
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py jacoco --suite shared \
+            --report shared/build/reports/jacoco/test/jacocoTestReport.xml \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # 根聚合任务必须显式覆盖 shared 与三个节点；用 dry-run 校验任务图，
+      # 不重复执行真实测试（真实测试由各 matrix job 负责）。
+      - name: Verify root aggregate task graph
+        run: |
+          ./gradlew buildAllVersions checkAllVersions testAllClients testOptionalDependencies \
+            --dry-run --no-build-cache --stacktrace > "$RUNNER_TEMP/aggregates.log"
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py aggregates --root . \
+            --log "$RUNNER_TEMP/aggregates.log" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload shared reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shared-reports
+          path: |
+            shared/build/reports/tests/
+            shared/build/test-results/
+            shared/build/reports/jacoco/
+            shared/build/reports/spotbugs/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  platform:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.preflight.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java 21 (toolchain)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Java 25 (build JVM)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Cache Gradle (${{ matrix.node }})
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ matrix.slug }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties', 'versions/versions.json') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ matrix.slug }}-
+            gradle-${{ runner.os }}-
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # Stonecutter 只允许从根 src 生成节点源，构建前后根 src 哈希必须一致。
+      - name: Record root source hash before generation
+        run: |
+          python3 -I .github/scripts/ci_guard.py source-hash --root . --path src \
+            --out "$RUNNER_TEMP/src-before-${{ matrix.slug }}.sha"
+
+      - name: Prepare server run directories
+        run: |
+          mkdir -p ".runs/${{ matrix.node }}/legacy-server" \
+                   ".runs/${{ matrix.node }}/foundation-server" \
+                   ".runs/${{ matrix.node }}/optional-legacy-server" \
+                   ".runs/${{ matrix.node }}/optional-foundation-server"
+
+      - name: Start platform summary
+        run: echo "## 平台回归 ${{ matrix.node }}（Java ${{ matrix.java }}）" >> "$GITHUB_STEP_SUMMARY"
+
+      # 先 clean + 禁用构建缓存，强制 Stonecutter 重新生成节点源并使单测真实执行。
+      - name: Build, unit tests and SpotBugs
+        run: >
+          ./gradlew :${{ matrix.node }}:clean :${{ matrix.node }}:build
+          :${{ matrix.node }}:spotbugsMain :${{ matrix.node }}:test
+          --no-build-cache --stacktrace
+
+      # 四个服务端回归分开执行，任一失败后仍尝试其余后端，避免一条失败掩盖其它缺口。
+      - name: Legacy server GameTest
+        if: always()
+        run: ./gradlew :${{ matrix.node }}:runGameTest --no-build-cache --stacktrace
 
       - name: Foundation server GameTest
-        run: ./gradlew runFoundationGameTest --stacktrace
-
-      # 打包产物守卫：F1（分发 jar 漏嵌套 sqlite 驱动）曾全绿逃逸，
-      # 构建成功不代表产物正确，这里直接断言 jar 内容
-      - name: Verify distributable jar contents
-        run: |
-          JAR=$(ls build/libs/*.jar | grep -v -- '-sources' | head -1)
-          echo "检查 $JAR"
-          test -n "$JAR"
-          unzip -l "$JAR" | grep -q "META-INF/jars/sqlite-jdbc" \
-            || { echo "::error::分发 jar 未嵌套 sqlite-jdbc 驱动"; exit 1; }
-          unzip -l "$JAR" | grep -q "syncmaterial.mixins.json" \
-            || { echo "::error::分发 jar 缺少 mixins 清单"; exit 1; }
-          unzip -p "$JAR" fabric.mod.json | python3 -c \
-            "import json,sys; m=json.load(sys.stdin); assert m['entrypoints'], 'entrypoints 为空'" \
-            || { echo "::error::fabric.mod.json 异常"; exit 1; }
-          echo "产物检查通过"
-
-      - name: Static analysis
         if: always()
-        run: ./gradlew spotbugsMain
+        run: ./gradlew :${{ matrix.node }}:runFoundationGameTest --no-build-cache --stacktrace
 
-      - name: Static analysis summary
+      - name: Optional dependency legacy server GameTest
+        if: always()
+        run: ./gradlew :${{ matrix.node }}:runOptionalGameTest --no-build-cache --stacktrace
+
+      - name: Optional dependency foundation server GameTest
+        if: always()
+        run: ./gradlew :${{ matrix.node }}:runOptionalFoundationGameTest --no-build-cache --stacktrace
+
+      - name: Verify source hash unchanged
         if: always()
         run: |
-          echo "## 静态分析（SpotBugs）" >> $GITHUB_STEP_SUMMARY
-          if [ -f build/reports/spotbugs/main.xml ]; then
-            python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
-          import xml.etree.ElementTree as ET, collections
-          root = ET.parse('build/reports/spotbugs/main.xml').getroot()
-          bugs = root.findall('BugInstance')
-          pri = collections.Counter(b.get('priority') for b in bugs)
-          names = {'1': '高', '2': '中', '3': '低'}
-          parts = [f"{names.get(k, k)} {pri[k]}" for k in ('1', '2', '3') if pri[k]]
-          print(f"- 共 {len(bugs)} 条（{'，'.join(parts) if parts else '无'}）")
-          if len(bugs) > 28:
-              raise SystemExit(f"SpotBugs 超过 28 条基线：{len(bugs)}")
-          high = [b for b in bugs if b.get('priority') == '1']
-          if high:
-              print("")
-              print("| 类型 | 位置 |")
-              print("|---|---|")
-              for b in high:
-                  cls = b.find('Class')
-                  line = b.find('SourceLine')
-                  name = cls.get('classname', '?').split('.')[-1] if cls is not None else '?'
-                  at = line.get('start', '?') if line is not None else '?'
-                  print(f"| {b.get('type')} | {name}:{at} |")
-          EOF
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py source-compare --root . --path src \
+            --before "$RUNNER_TEMP/src-before-${{ matrix.slug }}.sha" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # 每个 scope 单独调用，避免依赖逗号分隔支持，也不在单节点裸跑 all。
+      # optional 已按 optional-server / optional-client 拆分，各自只在对应 job 执行。
+      - name: Node guard scopes
+        if: always()
+        run: |
+          test -f scripts/verify_multiversion.py \
+            || { echo "::error::缺少 scripts/verify_multiversion.py（node scopes）"; exit 1; }
+          for scope in unit server optional-server package spotbugs; do
+            echo "::group::verify_multiversion $scope"
+            python3 -I scripts/verify_multiversion.py --root . --scope "$scope" --node "${{ matrix.node }}"
+            echo "::endgroup::"
+          done
+
+      - name: Unit test summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py unit --suite platform --node "${{ matrix.node }}" \
+            --results "versions/${{ matrix.node }}/build/test-results/test" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Server GameTest summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py server --backend legacy \
+            --run-dir ".runs/${{ matrix.node }}/legacy-server" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -I .github/scripts/ci_guard.py server --backend foundation \
+            --run-dir ".runs/${{ matrix.node }}/foundation-server" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -I .github/scripts/ci_guard.py server --backend optional-legacy \
+            --run-dir ".runs/${{ matrix.node }}/optional-legacy-server" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -I .github/scripts/ci_guard.py server --backend optional-foundation \
+            --run-dir ".runs/${{ matrix.node }}/optional-foundation-server" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Stonecutter generated source summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py generated --root . --node "${{ matrix.node }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # 平台 SpotBugs 每节点独立 <= 28，由 verify_multiversion spotbugs scope 核验；
+      # 这里只汇总，不复制基线数字。
+      - name: SpotBugs summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py spotbugs --suite platform --node "${{ matrix.node }}" \
+            --report "versions/${{ matrix.node }}/build/reports/spotbugs/main.xml" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: JaCoCo summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py jacoco --suite platform --node "${{ matrix.node }}" \
+            --report "versions/${{ matrix.node }}/build/reports/jacoco/test/jacocoTestReport.xml" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Distributable jar guard
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py artifact --root . --node "${{ matrix.node }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Platform conclusion
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "- 结论: 通过（单测、四个服务端 GameTest、SpotBugs、产物）" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "- 报告未生成" >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Test summary
-        if: always()
-        run: |
-          echo "## 测试结果" >> $GITHUB_STEP_SUMMARY
-          if ls build/test-results/test/*.xml >/dev/null 2>&1; then
-            python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
-          import glob, xml.etree.ElementTree as ET
-          total = failed = skipped = 0
-          for f in glob.glob('build/test-results/test/*.xml'):
-              root = ET.parse(f).getroot()
-              total += int(root.get('tests', 0))
-              failed += int(root.get('failures', 0)) + int(root.get('errors', 0))
-              skipped += int(root.get('skipped', 0))
-          print(f"- 单元测试: {total} 个（失败 {failed}，跳过 {skipped}）")
-          EOF
-          else
-            echo "- 测试未运行（编译失败？）" >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ -f build/reports/jacoco/test/jacocoTestReport.xml ]; then
-            echo "## 覆盖率（JaCoCo 指令级）" >> $GITHUB_STEP_SUMMARY
-            python3 - <<'EOF' >> $GITHUB_STEP_SUMMARY
-          import xml.etree.ElementTree as ET
-          root = ET.parse('build/reports/jacoco/test/jacocoTestReport.xml').getroot()
-          for counter in root.findall('counter'):
-              if counter.get('type') == 'INSTRUCTION':
-                  missed = int(counter.get('missed')); covered = int(counter.get('covered'))
-                  pct = covered * 100 // (missed + covered) if (missed + covered) else 0
-                  print(f"- 指令覆盖率: {pct}%（覆盖 {covered} / 未覆盖 {missed}）")
-          EOF
+            echo "- 结论: 失败，详见本 job 日志与上传的报告/运行目录" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload jar
         if: success()
         uses: actions/upload-artifact@v6
         with:
-          name: SyncMaterial-jar
-          path: build/libs/*.jar
+          name: SyncMaterial-${{ matrix.node }}
+          path: |
+            versions/${{ matrix.node }}/build/libs/SyncMaterial-${{ matrix.node }}-*.jar
+            !versions/${{ matrix.node }}/build/libs/*-sources.jar
           retention-days: 30
 
-      - name: Upload test results
+      - name: Upload platform reports
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: test-results
+          name: reports-${{ matrix.node }}
           path: |
-            build/reports/tests/
-            build/test-results/
-            build/reports/jacoco/
-            build/reports/spotbugs/
+            versions/${{ matrix.node }}/build/reports/tests/
+            versions/${{ matrix.node }}/build/test-results/
+            versions/${{ matrix.node }}/build/reports/jacoco/
+            versions/${{ matrix.node }}/build/reports/spotbugs/
           retention-days: 7
+          if-no-files-found: ignore
 
-  # 客户端 GameTest 独立成 job：它要起真实 MC 客户端（需要虚拟显示器与软件渲染），
-  # 耗时与不稳定性都高于主构建，不该拖住主流程。
-  # 主构建（build-and-test）不依赖本 job，本 job 也不阻塞 jar 产物上传。
-  client-gametest:
+      - name: Upload server run artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: server-gametest-${{ matrix.node }}
+          path: |
+            .runs/${{ matrix.node }}/*-server/logs/
+            .runs/${{ matrix.node }}/*-server/crash-reports/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  client:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.preflight.outputs.matrix) }}
     runs-on: ubuntu-latest
-
+    timeout-minutes: 150
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup Java 25 (for MC 26.x)
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 25
-          cache: gradle
-
-      - name: Setup Java 21
+      - name: Setup Java 21 (toolchain)
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
-      # 真实客户端需要 GL 上下文。CI runner 无显卡，用 Mesa 软件渲染 +
-      # xvfb 虚拟显示器；缺 libgl1/libglx-mesa0 会在窗口创建阶段直接崩
+      - name: Setup Java 25 (build JVM)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Cache Gradle (${{ matrix.node }})
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-client-${{ runner.os }}-${{ matrix.slug }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties', 'versions/versions.json') }}
+          restore-keys: |
+            gradle-client-${{ runner.os }}-${{ matrix.slug }}-
+            gradle-${{ runner.os }}-${{ matrix.slug }}-
+            gradle-${{ runner.os }}-
+
+      # 真实客户端需要 GL 上下文；runner 无显卡，用 Mesa 软件渲染 + xvfb。
       - name: Install virtual display and software GL
         run: |
           sudo apt-get update
@@ -177,66 +385,132 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # runDir 在 build.gradle 里被指向 /tmp（本地 exFAT 不支持文件锁），
-      # CI 上同样落在 /tmp，这里先建好避免首次运行找不到目录
-      - name: Prepare run directory
-        run: mkdir -p /tmp/syncmaterial-gametest/run-client
-
-      - name: Verify client GameTest tasks
+      - name: Record root source hash before client runs
         run: |
-          ./gradlew -q help --task runClientGameTest
-          ./gradlew -q help --task runFoundationClientGameTest
+          python3 -I .github/scripts/ci_guard.py source-hash --root . --path src \
+            --out "$RUNNER_TEMP/src-before-client-${{ matrix.slug }}.sha"
 
-      - name: Run client GameTest
-        env:
-          # 强制软件渲染：runner 没有硬件 GL，走 llvmpipe
-          LIBGL_ALWAYS_SOFTWARE: 1
-          MESA_GL_VERSION_OVERRIDE: 4.6
-          MESA_GLSL_VERSION_OVERRIDE: 460
+      - name: Prepare client run directories
         run: |
-          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
-            ./gradlew runClientGameTest --stacktrace
+          mkdir -p ".runs/${{ matrix.node }}/legacy-client" \
+                   ".runs/${{ matrix.node }}/foundation-client" \
+                   ".runs/${{ matrix.node }}/optional-legacy-client" \
+                   ".runs/${{ matrix.node }}/optional-foundation-client"
 
-      - name: Run foundation client GameTest
+      - name: Start client summary
+        run: echo "## 客户端回归 ${{ matrix.node }}（Java ${{ matrix.java }}）" >> "$GITHUB_STEP_SUMMARY"
+
+      # 四个客户端任务分开执行，保证一个后端失败时其余入口仍被真实运行。
+      # --no-build-cache 避免客户端测试任务被缓存结果顶替。
+      - name: Legacy client GameTest
         env:
           LIBGL_ALWAYS_SOFTWARE: 1
           MESA_GL_VERSION_OVERRIDE: 4.6
           MESA_GLSL_VERSION_OVERRIDE: 460
         run: |
           xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
-            ./gradlew runFoundationClientGameTest --stacktrace
+            ./gradlew :${{ matrix.node }}:runClientGameTest --no-build-cache --stacktrace
 
-      - name: Client GameTest summary
+      - name: Foundation client GameTest
+        if: always()
+        env:
+          LIBGL_ALWAYS_SOFTWARE: 1
+          MESA_GL_VERSION_OVERRIDE: 4.6
+          MESA_GLSL_VERSION_OVERRIDE: 460
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
+            ./gradlew :${{ matrix.node }}:runFoundationClientGameTest --no-build-cache --stacktrace
+
+      - name: Optional dependency legacy client GameTest
+        if: always()
+        env:
+          LIBGL_ALWAYS_SOFTWARE: 1
+          MESA_GL_VERSION_OVERRIDE: 4.6
+          MESA_GLSL_VERSION_OVERRIDE: 460
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
+            ./gradlew :${{ matrix.node }}:runOptionalClientGameTest --no-build-cache --stacktrace
+
+      - name: Optional dependency foundation client GameTest
+        if: always()
+        env:
+          LIBGL_ALWAYS_SOFTWARE: 1
+          MESA_GL_VERSION_OVERRIDE: 4.6
+          MESA_GLSL_VERSION_OVERRIDE: 460
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
+            ./gradlew :${{ matrix.node }}:runOptionalFoundationClientGameTest --no-build-cache --stacktrace
+
+      # 客户端真实执行以 verify_multiversion client scope 为准；这里只汇总标签，
+      # 不复制 23/2/1 等基线数字，避免双基线漂移。
+      - name: Legacy client test summary
         if: always()
         run: |
-          echo "## 客户端 GameTest" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ job.status }}" = "success" ]; then
-            echo "- 旧后端和 Foundation 客户端测试全部通过" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- 失败，详见日志与上传的 run 目录" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "- 测试类清单（fabric-client-gametest entrypoint）：" >> $GITHUB_STEP_SUMMARY
-          python3 -I - <<'EOF' >> $GITHUB_STEP_SUMMARY
-          import json
-          for path in ('src/gametest/resources/fabric.mod.json', 'src/foundationtest/resources/fabric.mod.json'):
-              with open(path) as f:
-                  m = json.load(f)
-              for cls in m['entrypoints'].get('fabric-client-gametest', []):
-                  print(f"  - {cls.split('.')[-1]}")
-          EOF
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py client --mod syncmaterial-test \
+            --metadata src/gametest/resources/fabric.mod.json --node "${{ matrix.node }}" \
+            --run-dir ".runs/${{ matrix.node }}/legacy-client" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # 失败时把客户端日志与崩溃报告捞出来，否则只能看 Gradle 的转述
+      - name: Foundation client test summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py client --mod syncmaterial-foundation-test \
+            --metadata src/foundationtest/resources/fabric.mod.json --node "${{ matrix.node }}" \
+            --run-dir ".runs/${{ matrix.node }}/foundation-client" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Optional legacy client test summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py client --mod syncmaterial-optional-test \
+            --metadata src/optionaltest/resources/fabric.mod.json --node "${{ matrix.node }}" \
+            --run-dir ".runs/${{ matrix.node }}/optional-legacy-client" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Optional foundation client test summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py client --mod syncmaterial-optional-test \
+            --metadata src/optionaltest/resources/fabric.mod.json --node "${{ matrix.node }}" \
+            --run-dir ".runs/${{ matrix.node }}/optional-foundation-client" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Client guard scopes
+        if: always()
+        run: |
+          test -f scripts/verify_multiversion.py \
+            || { echo "::error::缺少 scripts/verify_multiversion.py（client scopes）"; exit 1; }
+          python3 -I scripts/verify_multiversion.py --root . --scope client --node "${{ matrix.node }}"
+          python3 -I scripts/verify_multiversion.py --root . --scope optional-client --node "${{ matrix.node }}"
+
+      - name: Verify source hash unchanged
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py source-compare --root . --path src \
+            --before "$RUNNER_TEMP/src-before-client-${{ matrix.slug }}.sha" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Client conclusion
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "- 结论: 通过（全部客户端入口真实 PASS，详见 verify_multiversion client scope）" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- 结论: 失败，详见本 job 日志与上传的客户端运行目录" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload client run artifacts
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: client-gametest-run
+          name: client-gametest-${{ matrix.node }}
           path: |
-            /tmp/syncmaterial-gametest/run-client/logs/
-            /tmp/syncmaterial-gametest/run-client/crash-reports/
-            /tmp/syncmaterial-gametest/run-client/screenshots/
-            /tmp/syncmaterial-gametest/run-foundation-client/logs/
-            /tmp/syncmaterial-gametest/run-foundation-client/crash-reports/
-            /tmp/syncmaterial-gametest/run-foundation-client/screenshots/
+            .runs/${{ matrix.node }}/*-client/logs/
+            .runs/${{ matrix.node }}/*-client/crash-reports/
+            .runs/${{ matrix.node }}/*-client/screenshots/
           retention-days: 7
           if-no-files-found: ignore

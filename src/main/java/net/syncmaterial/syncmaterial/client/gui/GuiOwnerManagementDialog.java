@@ -7,14 +7,20 @@ import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiDialogBase;
 import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.KeyCodes;
 import fi.dy.masa.malilib.util.StringUtils;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+//? if >=26.2 {
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
 
 /**
@@ -234,12 +240,20 @@ public class GuiOwnerManagementDialog extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public void drawContents(GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
+    //?} else {
+    /*public void drawContents(GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks)
+    *///?}
     {
         // 背后可见：重绘父界面（材料列表）后再叠半透明面板
         if (this.getParent() != null)
         {
+            //? if >=26.2 {
             this.getParent().extractRenderState(drawContext.getGuiGraphics(), mouseX, mouseY, partialTicks);
+            //?} else {
+            /*this.getParent().render(drawContext, mouseX, mouseY, partialTicks);
+            *///?}
         }
 
         RenderUtils.drawOutlinedBox(drawContext, this.dialogLeft, this.dialogTop,
@@ -262,15 +276,29 @@ public class GuiOwnerManagementDialog extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseClicked(MouseButtonEvent event, boolean isDoubleClick)
+    //?} else {
+    /*public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
+        int mouseX = (int) event.x();
+        int mouseY = (int) event.y();
+        //?} else {
+        /*boolean isDoubleClick = false;
+        *///?}
+        //? if >=26.2 {
         if (super.onMouseClicked(event, isDoubleClick))
+        //?} else {
+        /*if (super.onMouseClicked(mouseX, mouseY, mouseButton))
+        *///?}
         {
             return true;
         }
         // 点击面板外关闭（与旧 Overlay 行为一致）
-        if (event.x() < this.dialogLeft || event.x() > this.dialogLeft + this.dialogWidth
-                || event.y() < this.dialogTop || event.y() > this.dialogTop + this.dialogHeight)
+        if (mouseX < this.dialogLeft || mouseX > this.dialogLeft + this.dialogWidth
+                || mouseY < this.dialogTop || mouseY > this.dialogTop + this.dialogHeight)
         {
             GuiBase.openGui(this.getParent());
             return true;
@@ -279,17 +307,31 @@ public class GuiOwnerManagementDialog extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onKeyTyped(KeyEvent event)
+    //?} else {
+    /*public boolean onKeyTyped(int keyCode, int scanCode, int modifiers)
+    *///?}
     {
-        if (event.key() == KeyCodes.KEY_ESCAPE)
+        //? if >=26.2 {
+        int key = event.key();
+        //?} else {
+        /*int key = keyCode;
+        *///?}
+        if (key == KeyCodes.KEY_ESCAPE)
         {
             GuiBase.openGui(this.getParent());
             return true;
         }
+        //? if >=26.2 {
         return super.onKeyTyped(event);
+        //?} else {
+        /*return super.onKeyTyped(key, scanCode, modifiers);
+        *///?}
     }
 
-    public boolean shouldPause()
+    @Override
+    public boolean isPauseScreen()
     {
         return false;
     }

@@ -8,7 +8,9 @@
     "Kilo"
   ],
   "contact": {
-    "homepage": "https://github.com/Kilo-Org/syncmaterial"
+    "homepage": "https://github.com/is-wuyi/Syncmaterial",
+    "sources": "https://github.com/is-wuyi/Syncmaterial",
+    "issues": "https://github.com/is-wuyi/Syncmaterial/issues"
   },
   "license": "GPL-3.0-only",
   "icon": "assets/syncmaterial/icon.png",
@@ -27,11 +29,12 @@
   "depends": {
     "fabricloader": "${loader_dependency}",
     "minecraft": "${minecraft_dependency}",
+    "java": ">=${java_version}",
     "fabric-api": "*"
   },
   "recommends": {
-    "malilib": ">=0.29.4",
-    "litematica": ">=0.23.5",
-    "syncmatica": ">=0.3.15"
+    "malilib": ">=${malilib_version}",
+    "litematica": ">=${litematica_version}",
+    "syncmatica": ">=${syncmatica_version}"
   }
 }

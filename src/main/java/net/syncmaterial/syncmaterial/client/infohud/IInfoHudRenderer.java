@@ -2,7 +2,11 @@ package net.syncmaterial.syncmaterial.client.infohud;
 
 import java.util.List;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 
 import fi.dy.masa.malilib.config.HudAlignment;
 
@@ -44,7 +48,11 @@ public interface IInfoHudRenderer
      * @param alignment the screen position to render at
      * @return the required y height used up for the rendered content
      */
+    //? if >=26.2 {
     default int render(GuiContext drawContext, int xOffset, int yOffset, HudAlignment alignment)
+    //?} else {
+    /*default int render(GuiGraphics drawContext, int xOffset, int yOffset, HudAlignment alignment)
+    *///?}
     {
         return 0;
     }

@@ -4,7 +4,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.util.data.ItemType;
+//?} else {
+/*import fi.dy.masa.malilib.util.ItemType;
+*///?}
 import net.minecraft.world.item.ItemStack;
 
 public class MaterialListEntry implements net.syncmaterial.syncmaterial.client.PickupModeState.MaterialSnapshot

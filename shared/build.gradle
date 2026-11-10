@@ -1,0 +1,68 @@
+plugins {
+    id 'java-library'
+    id 'net.fabricmc.fabric-loom-companion' version "${loom_version}"
+    id 'jacoco'
+    id 'com.github.spotbugs' version '6.5.10'
+}
+
+group = 'net.syncmaterial'
+version = rootProject.mod_version
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withSourcesJar()
+}
+
+dependencies {
+    implementation "org.xerial:sqlite-jdbc:${rootProject.sqlite_version}"
+    implementation "com.google.code.gson:gson:${rootProject.gson_version}"
+    implementation "org.slf4j:slf4j-api:${rootProject.slf4j_version}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testRuntimeOnly "org.slf4j:slf4j-simple:${rootProject.slf4j_version}"
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-Xlint:all,-this-escape'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    failOnNoDiscoveredTests = true
+    finalizedBy tasks.named('jacocoTestReport')
+}
+
+jacocoTestReport {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+spotbugs {
+    ignoreFailures = true
+    effort = 'max'
+    reportLevel = 'default'
+    excludeFilter = rootProject.file('config/spotbugs/exclude.xml')
+}
+
+spotbugsMain {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.named('spotbugsTest') {
+    enabled = false
+}

@@ -4,7 +4,11 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 import fi.dy.masa.malilib.gui.widgets.WidgetListBase;
@@ -31,7 +35,11 @@ public class WidgetListWarehouseRefs extends WidgetListBase<StagingAreaConfigRes
         return this.entries.size();
     }
 
+    //? if >=26.2 {
     public void renderHoverEffects(GuiContext drawContext, int mouseX, int mouseY)
+    //?} else {
+    /*public void renderHoverEffects(GuiGraphics drawContext, int mouseX, int mouseY)
+    *///?}
     {
         this.drawHoveredWidget(drawContext, mouseX, mouseY);
         this.drawButtonHoverTexts(drawContext, mouseX, mouseY, 0f);

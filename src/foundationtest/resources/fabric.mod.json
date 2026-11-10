@@ -4,18 +4,21 @@
   "version": "1.0.0",
   "name": "SyncMaterial Foundation GameTest",
   "environment": "*",
+  "languageAdapters": {
+    "syncmaterial-foundation-test-report": "net.syncmaterial.syncmaterial.gametest.ClientTestReportingAdapter"
+  },
   "entrypoints": {
     "fabric-gametest": [
       "net.syncmaterial.syncmaterial.gametest.foundation.FoundationServerGameTest"
     ],
     "fabric-client-gametest": [
-      "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClientGameTest",
-      "net.syncmaterial.syncmaterial.gametest.foundation.MaterialResolverOracleClientGameTest"
+      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClientGameTest"},
+      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.MaterialResolverOracleClientGameTest"}
     ]
   },
   "depends": {
     "fabricloader": ">=0.19.3",
-    "minecraft": "26.2",
+    "minecraft": "${minecraft_dependency}",
     "fabric-api": "*",
     "syncmaterial": "*"
   }

@@ -4,6 +4,9 @@
     "version": "1.0.0",
     "name": "SyncMaterial GameTest",
     "environment": "*",
+    "languageAdapters": {
+        "syncmaterial-test-report": "net.syncmaterial.syncmaterial.gametest.ClientTestReportingAdapter"
+    },
     "entrypoints": {
         "fabric-gametest": [
             "net.syncmaterial.syncmaterial.gametest.SyncMaterialGameTest",
@@ -11,34 +14,34 @@
             "net.syncmaterial.syncmaterial.gametest.StagingAreaScanGameTest"
         ],
         "fabric-client-gametest": [
-            "net.syncmaterial.syncmaterial.gametest.client.SmokeTestClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.InventorySyncClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.DisconnectCleanupClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.HudToggleDataFlowClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSelectionClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.PickupHighlightClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.WarehouseCrudClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.OwnerManagementClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.MultiplayerClaimBroadcastClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.MaterialListOpenClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.BatchAssignKickClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.RefreshPickupClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.LeaveAndUnsubscribeClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.WarehousePickupIndicatorClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.WarehouseContainerPushClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.MaterialListSortClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.ConfigPersistenceClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.ConcurrencyClaimsClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.OwnerActionConflictClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.StressContainerPushClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaScanPerfClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSnapshotClientGameTest",
-            "net.syncmaterial.syncmaterial.gametest.client.StagingAreaEditorClientGameTest"
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.SmokeTestClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.InventorySyncClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.DisconnectCleanupClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.HudToggleDataFlowClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSelectionClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.PickupHighlightClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.WarehouseCrudClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.OwnerManagementClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.MultiplayerClaimBroadcastClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.MaterialListOpenClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.BatchAssignKickClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.RefreshPickupClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.LeaveAndUnsubscribeClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.WarehousePickupIndicatorClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.WarehouseContainerPushClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.MaterialListSortClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.ConfigPersistenceClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.ConcurrencyClaimsClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.OwnerActionConflictClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StressContainerPushClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StagingAreaScanPerfClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSnapshotClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StagingAreaEditorClientGameTest"}
         ]
     },
     "depends": {
         "fabricloader": ">=0.19.3",
-        "minecraft": "26.2",
+        "minecraft": "${minecraft_dependency}",
         "fabric-api": "*",
         "syncmaterial": "*"
     }

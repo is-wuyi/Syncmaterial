@@ -1,66 +1,52 @@
-// Gradle settings for SyncMaterial
 plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
+    id 'net.fabricmc.fabric-loom-remap' version "${loom_version}" apply false
     id 'jacoco'
     id 'com.github.spotbugs' version '6.5.10'
 }
 
-// 26.2 用 Mojang 官方映射直读（minecraft_mapping=none → fabric-loom 原生，不 remap）
-if (minecraft_mapping == 'none') {
-    apply plugin: 'net.fabricmc.fabric-loom'
-} else {
-    apply plugin: 'net.fabricmc.fabric-loom-remap'
-}
+evaluationDependsOn(':shared')
+
+boolean modern = minecraft_mapping == 'none'
+apply plugin: modern ? 'net.fabricmc.fabric-loom' : 'net.fabricmc.fabric-loom-remap'
 
 version = "${minecraft_version}-${mod_version}"
-
-group = "net.syncmaterial"
-
-base {
-    archivesName = "SyncMaterial"
-}
+group = 'net.syncmaterial'
+base.archivesName = 'SyncMaterial'
 
 repositories {
-    // 核心：Fabric 官方仓库（必须放第一个）
-    maven { url = "https://maven.fabricmc.net/" }
+    maven { url = 'https://maven.fabricmc.net/' }
     mavenCentral()
     exclusiveContent {
-        forRepository { maven { url = "https://repo.maven.apache.org/maven2/" } }
+        forRepository { maven { url = 'https://repo.maven.apache.org/maven2/' } }
         filter {
             includeModule('com.github.stephenc.jcip', 'jcip-annotations')
             includeGroup('org.ow2.asm')
         }
     }
-    maven { url "https://maven.meteordev.org/releases" }
-    maven { url "https://maven.architectury.dev/" }
-    maven { url "https://www.cursemaven.com" }
-    maven { url "https://api.modrinth.com/maven" }
+    maven {
+        url = 'https://maven.lucko.me/'
+        content { includeModule('me.lucko', 'fabric-permissions-api') }
+    }
+    maven {
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup('maven.modrinth') }
+    }
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
-    if (minecraft_mapping != 'none') {
-        if (minecraft_mapping == 'mojmap') {
-            mappings loom.officialMojangMappings()
-        } else {
-            mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
-        }
-    }
-    if (minecraft_mapping == 'none') {
+    if (modern) {
         implementation "net.fabricmc:fabric-loader:${loader_version}"
         implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
         compileOnly "maven.modrinth:malilib:${malilib_dependency}"
         compileOnly "maven.modrinth:litematica:${litematica_dependency}"
         compileOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
-        testCompileOnly "maven.modrinth:malilib:${malilib_dependency}"
-        testCompileOnly "maven.modrinth:litematica:${litematica_dependency}"
-        testCompileOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
         runtimeOnly "maven.modrinth:malilib:${malilib_dependency}"
         runtimeOnly "maven.modrinth:litematica:${litematica_dependency}"
         runtimeOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
-        implementation "com.google.code.findbugs:jsr305:3.0.2"
-        include "org.xerial:sqlite-jdbc:${sqlite_version}"
-        implementation "org.xerial:sqlite-jdbc:${sqlite_version}"
     } else {
+        mappings loom.officialMojangMappings()
         modImplementation "net.fabricmc:fabric-loader:${loader_version}"
         modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
         modCompileOnly "maven.modrinth:malilib:${malilib_dependency}"
@@ -69,179 +55,268 @@ dependencies {
         modRuntimeOnly "maven.modrinth:malilib:${malilib_dependency}"
         modRuntimeOnly "maven.modrinth:litematica:${litematica_dependency}"
         modRuntimeOnly "maven.modrinth:syncmatica:${syncmatica_dependency}"
-        compileOnly "com.google.code.findbugs:jsr305:3.0.2"
-        include "org.xerial:sqlite-jdbc:${sqlite_version}"
-        runtimeOnly "org.xerial:sqlite-jdbc:${sqlite_version}"
-        testImplementation "net.fabricmc:fabric-loader-junit:${loader_version}"
+        // Loom removes nested mod jars from dev dependencies; Syncmatica 0.3.15 needs its permissions API at runtime.
+        modRuntimeOnly 'me.lucko:fabric-permissions-api:0.4.1'
     }
-
-    testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
+    implementation project(':shared')
+    include project(':shared')
+    include "org.xerial:sqlite-jdbc:${sqlite_version}"
+    implementation "org.xerial:sqlite-jdbc:${sqlite_version}"
+    compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testImplementation "net.fabricmc:fabric-loader-junit:${loader_version}"
-    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
-    testImplementation "org.mockito:mockito-core:5.23.0"
-    testImplementation "org.xerial:sqlite-jdbc:${sqlite_version}"
-    testRuntimeOnly "org.slf4j:slf4j-simple:2.0.13"
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'org.mockito:mockito-core:5.23.0'
+    testRuntimeOnly "org.slf4j:slf4j-simple:${slf4j_version}"
 }
 
 processResources {
-    // 版本号统一从 gradle.properties 注入，避免 fabric.mod.json 里写死后与构建配置漂移
-    inputs.property "version", project.version
-    inputs.property "minecraft_dependency", minecraft_dependency
-    inputs.property "loader_dependency", loader_dependency
-    filesMatching("fabric.mod.json") {
-        expand(
-            "version": project.version,
-            "minecraft_dependency": minecraft_dependency,
-            "loader_dependency": loader_dependency
-        )
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_dependency', minecraft_dependency
+    inputs.property 'loader_dependency', ">=${loader_version}"
+    inputs.property 'java_version', java_version
+    inputs.property 'malilib_version', malilib_version
+    inputs.property 'litematica_version', litematica_version
+    inputs.property 'syncmatica_version', syncmatica_version
+    filesMatching('fabric.mod.json') {
+        expand(version: project.version, minecraft_dependency: minecraft_dependency,
+                loader_dependency: ">=${loader_version}", java_version: java_version,
+                malilib_version: malilib_version,
+                litematica_version: litematica_version, syncmatica_version: syncmatica_version)
     }
 }
 
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = "UTF-8"
-    // 编译期静态检查。排除对本项目无意义的类别：
-    //   classfile/processing —— 第三方 jar（guava/gson 缺 errorprone 注解）产生，无法修
-    //   this-escape        —— MaLiLib 控件基类要求构造器中 addButton，是上游继承模式固有产物
-    //   serial             —— Minecraft 相关类普遍不声明 serialVersionUID
-    // 不加 -Werror：警告不阻塞构建，避免上游 API 废弃时卡住开发
-    options.compilerArgs << '-Xlint:all,-classfile,-processing,-this-escape,-serial'
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(Integer.parseInt(java_version))
+    withSourcesJar()
 }
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = Integer.parseInt(java_version)
+    options.compilerArgs += ['-Xlint:all,-classfile,-processing,-this-escape,-serial', '-Xmaxerrs', '1000']
+}
+
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    failOnNoDiscoveredTests = true
+    doFirst {
+        def authlib = classpath.files.findAll { it.name.startsWith('authlib-') }
+        if (!authlib.isEmpty()) systemProperty 'fabric.systemLibraries', authlib.collect { it.absolutePath }.join(File.pathSeparator)
+    }
 }
-
+test.finalizedBy jacocoTestReport
 jacocoTestReport {
-    dependsOn test
     reports {
         xml.required = true
         html.required = true
     }
-    // 排除 JUnit 环境物理上无法执行的渲染/屏幕/输入层（需要真实客户端渲染循环）。
-    // 保留已测的纯逻辑类：InventoryWatcher、MaterialListBase、MaterialListUtils。
-    // 排除后覆盖率反映"可单测代码"的真实情况，数字升降才有趋势意义。
     classDirectories.setFrom(files(classDirectories.files.collect {
         fileTree(dir: it, exclude: [
-            'net/syncmaterial/syncmaterial/client/gui/widgets/**',
-            'net/syncmaterial/syncmaterial/client/render/**',
-            'net/syncmaterial/syncmaterial/client/config/**',
-            'net/syncmaterial/syncmaterial/client/infohud/**',
-            'net/syncmaterial/syncmaterial/mixin/**',
-            'net/syncmaterial/syncmaterial/client/SyncMaterialClient*',
-            // client.gui 中依赖屏幕/控件/渲染的类（含嵌套类）
-            'net/syncmaterial/syncmaterial/client/gui/Gui*',
-            'net/syncmaterial/syncmaterial/client/gui/StagingAreaSelector*',
-            'net/syncmaterial/syncmaterial/client/gui/SyncMaterialList*',
-            'net/syncmaterial/syncmaterial/client/gui/MaterialListHudRenderer*',
-        ])
+                'net/syncmaterial/syncmaterial/client/gui/widgets/**',
+                'net/syncmaterial/syncmaterial/client/render/**',
+                'net/syncmaterial/syncmaterial/client/config/**',
+                'net/syncmaterial/syncmaterial/client/infohud/**',
+                'net/syncmaterial/syncmaterial/mixin/**',
+                'net/syncmaterial/syncmaterial/client/SyncMaterialClient*',
+                'net/syncmaterial/syncmaterial/client/gui/Gui*',
+                'net/syncmaterial/syncmaterial/client/gui/StagingAreaSelector*',
+                'net/syncmaterial/syncmaterial/client/gui/SyncMaterialList*',
+                'net/syncmaterial/syncmaterial/client/gui/MaterialListHudRenderer*'])
     }))
 }
 
-test {
-    finalizedBy jacocoTestReport
-}
-
-// 静态分析（SpotBugs）。只分析主源集，测试/GameTest 源集不参与：
-// 测试代码里的 mock 与断言模式会产生大量无意义告警。
 spotbugs {
-    ignoreFailures = true          // 不阻塞构建，静态分析是体检而非门禁
+    ignoreFailures = true
     effort = 'max'
     reportLevel = 'default'
     excludeFilter = rootProject.file('config/spotbugs/exclude.xml')
 }
-tasks.named('spotbugsMain') {
+spotbugsMain {
     reports {
-        xml.required = true        // CI 汇总用
-        html.required = true       // 人工查看用
+        xml.required = true
+        html.required = true
     }
 }
-// 测试源集不跑静态分析
-tasks.matching { it.name in ['spotbugsTest', 'spotbugsGametest'] }.configureEach {
+tasks.matching { it.name in ['spotbugsTest', 'spotbugsGametest', 'spotbugsFoundationtest', 'spotbugsOptionaltest'] }.configureEach {
     enabled = false
 }
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(minecraft_mapping == 'none' ? 25 : 21)
-    }
-    withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
-}
-
 sourceSets {
+    optionaltest {
+        java.srcDirs = []
+        resources.srcDirs = [rootProject.file('src/optionaltest/resources')]
+    }
     foundationtest {
         java.srcDirs = []
-        resources.srcDirs = ['src/foundationtest/resources']
+        resources.srcDirs = [rootProject.file('src/foundationtest/resources')]
     }
 }
 
-// 服务端 GameTest 配置
 fabricApi {
     configureTests {
         createSourceSet = true
-        modId = "syncmaterial-test"
+        modId = 'syncmaterial-test'
         enableGameTests = true
         enableClientGameTests = true
         eula = true
-        clearRunDirectory = true
+        clearRunDirectory = false
     }
 }
 
+tasks.withType(ProcessResources).configureEach {
+    inputs.property 'minecraft_dependency', minecraft_dependency
+    filesMatching('fabric.mod.json') {
+        expand(minecraft_dependency: minecraft_dependency)
+    }
+}
+
+File runRoot = rootProject.file(".runs/${minecraft_version}")
 afterEvaluate {
-    // GameTest 运行目录改到本地磁盘（项目在外置 exFAT 硬盘上，不支持文件锁）
-    // 必须在 afterEvaluate 中设置：configureTests 在此阶段才创建 gameTest run 配置
-    def gameTestRun = loom.runs.findByName("gameTest")
-    if (gameTestRun != null) {
-        gameTestRun.runDir = rootProject.file("/tmp/syncmaterial-gametest/run")
-    }
-
-    // 客户端 GameTest 同样需要 /tmp 运行目录
-    def clientGameTestRun = loom.runs.findByName("clientGameTest")
-    if (clientGameTestRun != null) {
-        clientGameTestRun.runDir = rootProject.file("/tmp/syncmaterial-gametest/run-client")
-    }
-
-    // 独立实验后端测试：复用已编译 GameTest 类，但用独立 entrypoint 清单。
+    def gameTestRun = loom.runs.getByName('gameTest')
+    def clientGameTestRun = loom.runs.getByName('clientGameTest')
+    gameTestRun.runDir = new File(runRoot, 'legacy-server').absolutePath
+    clientGameTestRun.runDir = new File(runRoot, 'legacy-client').absolutePath
     def foundationResources = sourceSets.foundationtest.output.resourcesDir
-    def foundationRun = loom.runs.create('foundationGameTest') {
+    loom.runs.create('foundationGameTest') {
         inherit gameTestRun
         source sourceSets.gametest
         property 'syncmaterial.backend', 'foundation'
         property 'fabric-api.gametest', ''
         property 'fabric-api.gametest.filter', 'syncmaterial-foundation-test:foundation_server_game_test_*'
-        runDir = '/tmp/syncmaterial-gametest/run-foundation'
+        runDir = new File(runRoot, 'foundation-server').absolutePath
     }
-    def foundationClientRun = loom.runs.create('foundationClientGameTest') {
+    loom.runs.create('foundationClientGameTest') {
         inherit clientGameTestRun
         source sourceSets.gametest
         property 'syncmaterial.backend', 'foundation'
         property 'fabric.client.gametest', ''
         property 'fabric.client.gametest.modid', 'syncmaterial-foundation-test'
         property 'fabric.client.gametest.testModResourcesPath', foundationResources.absolutePath
-        runDir = '/tmp/syncmaterial-gametest/run-foundation-client'
+        runDir = new File(runRoot, 'foundation-client').absolutePath
     }
     loom.mods {
-        'syncmaterial-foundation-test' {
-            sourceSet sourceSets.foundationtest
-        }
+        'syncmaterial-foundation-test' { sourceSet sourceSets.foundationtest }
+        'syncmaterial' { sourceSet sourceSets.main }
+        'syncmaterial-shared' { sourceSet('main', project(':shared')) }
     }
     tasks.matching { it.name in ['runFoundationGameTest', 'runFoundationClientGameTest'] }.configureEach {
         dependsOn tasks.named('gametestClasses'), tasks.named('foundationtestClasses')
         classpath += files(foundationResources)
         doFirst {
-            def directory = file(name == 'runFoundationClientGameTest'
-                    ? '/tmp/syncmaterial-gametest/run-foundation-client'
-                    : '/tmp/syncmaterial-gametest/run-foundation')
+            def directory = new File(runRoot, name == 'runFoundationClientGameTest' ? 'foundation-client' : 'foundation-server')
             directory.mkdirs()
             new File(directory, 'eula.txt').text = 'eula=true\n'
         }
     }
-
-    // gametest 源集运行时依赖（SQLite 驱动）
-    if (configurations.findByName("gametestRuntimeOnly") != null) {
-        dependencies {
-            gametestRuntimeOnly "org.xerial:sqlite-jdbc:${sqlite_version}"
+    tasks.named('runFoundationClientGameTest') { mustRunAfter tasks.named('runClientGameTest') }
+    tasks.named('runFoundationGameTest') { mustRunAfter tasks.named('runGameTest') }
+    Map<String, String> standardRuns = [runGameTest: 'legacy-server',
+            runClientGameTest: 'legacy-client', runFoundationGameTest: 'foundation-server',
+            runFoundationClientGameTest: 'foundation-client']
+    standardRuns.each { taskName, directory ->
+        def clearTask = tasks.register("clear${taskName.substring(0, 1).toUpperCase(Locale.ROOT)}${taskName.substring(1)}", Delete) {
+            delete new File(runRoot, directory)
+        }
+        tasks.named(taskName) {
+            dependsOn clearTask
+            doFirst {
+                def runDirectory = new File(runRoot, directory)
+                runDirectory.mkdirs()
+                new File(runDirectory, 'eula.txt').text = 'eula=true\n'
+            }
         }
     }
+
+    def optionalResources = sourceSets.optionaltest.output.resourcesDir
+    loom.mods {
+        'syncmaterial-optional-test' { sourceSet sourceSets.optionaltest }
+    }
+    def sharedProject = project(':shared')
+    def sharedJar = sharedProject.tasks.named('jar').get().archiveFile.get().asFile
+    String optionalClassPathGroups = [
+            sourceSets.main.output.files,
+            sharedProject.sourceSets.main.output.files + [sharedJar],
+            sourceSets.gametest.output.classesDirs.files + [optionalResources]]
+            .collect { group -> group.collect { it.absolutePath }.join(File.pathSeparator) }
+            .join(File.pathSeparator + File.pathSeparator)
+    Map<String, List> optionalRuns = [
+            optionalGameTest: [false, false],
+            optionalFoundationGameTest: [true, false],
+            optionalClientGameTest: [false, true],
+            optionalFoundationClientGameTest: [true, true]]
+    optionalRuns.each { runName, mode ->
+        boolean foundation = mode[0]
+        boolean client = mode[1]
+        String directory = "optional-${foundation ? 'foundation' : 'legacy'}-${client ? 'client' : 'server'}"
+        loom.runs.create(runName) {
+            inherit client ? clientGameTestRun : gameTestRun
+            source sourceSets.gametest
+            property 'syncmaterial.backend', foundation ? 'foundation' : 'legacy'
+            property 'fabric.debug.disableModIds', 'malilib,litematica,syncmatica,syncmaterial-test,syncmaterial-foundation-test'
+            property 'fabric.classPathGroups', optionalClassPathGroups
+            if (client) {
+                property 'fabric.client.gametest', ''
+                property 'fabric.client.gametest.modid', 'syncmaterial-optional-test'
+                property 'fabric.client.gametest.testModResourcesPath', optionalResources.absolutePath
+            } else {
+                property 'fabric-api.gametest', ''
+                property 'fabric-api.gametest.filter', 'syncmaterial-optional-test:optional_dependency_server_game_test_*'
+            }
+            runDir = new File(runRoot, directory).absolutePath
+        }
+        String taskName = 'run' + runName.substring(0, 1).toUpperCase(Locale.ROOT) + runName.substring(1)
+        def clearTask = tasks.register("clear${taskName.substring(0, 1).toUpperCase(Locale.ROOT)}${taskName.substring(1)}", Delete) {
+            delete new File(runRoot, directory)
+        }
+        tasks.named(taskName) {
+            dependsOn clearTask, tasks.named('gametestClasses'), tasks.named('optionaltestClasses'), tasks.named('generateDLIConfig')
+            useArgFile.set(false)
+            classpath += files(optionalResources)
+            classpath = classpath.filter { candidate ->
+                String name = candidate.name.toLowerCase(Locale.ROOT)
+                !name.contains('malilib') && !name.contains('litematica') && !name.contains('syncmatica')
+                        && candidate != sourceSets.gametest.output.resourcesDir
+                        && candidate != foundationResources
+            }
+            doFirst {
+                // DLI 从配置文件覆盖同名系统属性；每个运行用自己的配置保持测试类组隔离。
+                File originalConfig = rootProject.file(".gradle/loom-cache/projects/${minecraft_version}/launch.cfg")
+                File isolatedConfig = layout.buildDirectory.file("optional-launch/${runName}.cfg").get().asFile
+                isolatedConfig.parentFile.mkdirs()
+                isolatedConfig.text = originalConfig.readLines().collect { line ->
+                    line.trim().startsWith('fabric.classPathGroups=')
+                            ? "\tfabric.classPathGroups=${optionalClassPathGroups}" : line
+                }.join('\n') + '\n'
+                // JVM 参数提供器晚于系统属性，必须替换 Loom 的原始 DLI 配置参数。
+                jvmArgumentProviders.clear()
+                jvmArgs getInternalJvmArgs().get().findAll { !it.startsWith('-Dfabric.dli.config=') }
+                jvmArgs '-cp', classpath.asPath
+                systemProperty 'fabric.dli.config', isolatedConfig.absolutePath
+                def runDirectory = new File(runRoot, directory)
+                runDirectory.mkdirs()
+                new File(runDirectory, 'eula.txt').text = 'eula=true\n'
+            }
+            mustRunAfter tasks.named(client ? 'runFoundationClientGameTest' : 'runFoundationGameTest')
+        }
+    }
+}
+
+def verifyPlatform = tasks.register('verifyPlatform', Exec) {
+    dependsOn tasks.named('build'), tasks.named('spotbugsMain'), tasks.named('runGameTest'), tasks.named('runFoundationGameTest')
+    commandLine 'python3', '-I', rootProject.file('scripts/verify_multiversion.py').absolutePath,
+            '--root', rootProject.projectDir.absolutePath, '--node', minecraft_version,
+            '--scope', 'unit,server,package,spotbugs', '--strict'
+}
+
+tasks.register('checkPlatform') {
+    dependsOn verifyPlatform
+}
+
+tasks.register('writeCompileClasspath') {
+    dependsOn tasks.named('classes')
+    doLast { file("${rootProject.projectDir}/classpath-${minecraft_version}.txt").text = sourceSets.main.compileClasspath.asPath }
 }

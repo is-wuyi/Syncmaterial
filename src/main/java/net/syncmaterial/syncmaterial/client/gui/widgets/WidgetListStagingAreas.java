@@ -14,7 +14,11 @@ import java.util.List;
 
 import net.minecraft.core.BlockPos;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEditorGui;
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaEntry;
@@ -49,7 +53,11 @@ public class WidgetListStagingAreas extends WidgetListBase<StagingAreaEntry, Wid
         return this.selection;
     }
 
+    //? if >=26.2 {
     public void renderHoverEffects(GuiContext drawContext, int mouseX, int mouseY)
+    //?} else {
+    /*public void renderHoverEffects(GuiGraphics drawContext, int mouseX, int mouseY)
+    *///?}
     {
         this.drawHoveredWidget(drawContext, mouseX, mouseY);
         this.drawButtonHoverTexts(drawContext, mouseX, mouseY, 0f);

@@ -8,6 +8,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -49,7 +50,7 @@ public class StagingAreaScanPerfClientGameTest implements FabricClientGameTest {
 
             // 放 10×10 = 100 个满备战箱
             server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
+                var player = s.getPlayerList().getPlayerByName("Player0");
                 if (player == null) throw new AssertionError("Player0 不在线");
                 BlockPos base = player.blockPosition();
                 var world = player.level();
@@ -71,7 +72,7 @@ public class StagingAreaScanPerfClientGameTest implements FabricClientGameTest {
 
             // 创建备货区（覆盖 100 箱）并计时 rescan
             long scanMs = server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
+                var player = s.getPlayerList().getPlayerByName("Player0");
                 BlockPos base = player.blockPosition();
                 var sam = SyncMaterial.getServerStagingAreaManager();
                 int areaId = sam.addStagingArea(schematicId, "minecraft:overworld", "perf_area",
@@ -99,7 +100,7 @@ public class StagingAreaScanPerfClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreenAndShow(null);
+                ClientScreenAccess.showScreen(client, null);
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();
             });

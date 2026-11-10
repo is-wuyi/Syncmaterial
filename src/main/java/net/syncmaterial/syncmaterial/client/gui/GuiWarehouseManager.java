@@ -169,7 +169,11 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     }
 
     @Override
+    //? if >=26.2 {
     public void drawContents(fi.dy.masa.malilib.render.GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
+    //?} else {
+    /*public void drawContents(net.minecraft.client.gui.GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks)
+    *///?}
     {
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
     }
@@ -197,7 +201,7 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
         // 取一次局部引用，避免两次 getInstance().player 之间状态变化
         var clientPlayer = Minecraft.getInstance().player;
         String world = clientPlayer != null
-            ? clientPlayer.level().dimension().identifier().toString()
+            ? net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(clientPlayer.level())
             : "minecraft:overworld";
 
         ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,

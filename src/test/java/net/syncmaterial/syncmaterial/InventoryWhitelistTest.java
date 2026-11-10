@@ -47,7 +47,11 @@ public class InventoryWhitelistTest {
     }
 
     private ItemStack shulkerWith(int diamondCount) {
+        //? if >=26.2 {
         ItemStack shulker = new ItemStack(net.minecraft.world.level.block.Blocks.DYED_SHULKER_BOX.purple());
+        //?} else {
+        /*ItemStack shulker = new ItemStack(net.minecraft.world.level.block.Blocks.PURPLE_SHULKER_BOX);
+        *///?}
         shulker.set(DataComponents.CONTAINER,
             ItemContainerContents.fromItems(List.of(new ItemStack(Items.DIAMOND, diamondCount))));
         return shulker;

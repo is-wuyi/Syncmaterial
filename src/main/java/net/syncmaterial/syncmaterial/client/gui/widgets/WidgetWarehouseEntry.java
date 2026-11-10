@@ -1,12 +1,18 @@
 
 package net.syncmaterial.syncmaterial.client.gui.widgets;
 
+//? if >=26.2 {
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 
 
 import java.util.List;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 
 import net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager;
 import net.syncmaterial.syncmaterial.client.gui.WarehouseEntry;
@@ -71,13 +77,25 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
     }
 
     @Override
+    //? if >=26.2 {
     public boolean canSelectAt(MouseButtonEvent event)
+    //?} else {
+    /*public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
         return event.x() < this.buttonsStartX && super.canSelectAt(event);
+        //?} else {
+        /*return mouseX < this.buttonsStartX && super.canSelectAt(mouseX, mouseY, mouseButton);
+        *///?}
     }
 
     @Override
+    //? if >=26.2 {
     public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+    //?} else {
+    /*public void render(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+    *///?}
     {
         if (selected || this.isMouseOver(mouseX, mouseY))
         {
@@ -110,7 +128,7 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
             // 与玩家当前维度不一致时标黄，提示线框和扫描都不会在此维度生效
             var clientPlayer = net.minecraft.client.Minecraft.getInstance().player;
             String currentWorld = clientPlayer != null
-                    ? clientPlayer.level().dimension().identifier().toString()
+                    ? net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(clientPlayer.level())
                     : null;
             int color = world.equals(currentWorld) ? 0xFF888888 : 0xFFFFAA00;
             String tag = "  @" + WidgetStagingAreaEntry.shortWorldName(world);
@@ -123,7 +141,11 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
     }
 
     @Override
+    //? if >=26.2 {
     public void postRenderHovered(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+    //?} else {
+    /*public void postRenderHovered(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+    *///?}
     {
         List<String> text = new java.util.ArrayList<>();
 
@@ -199,8 +221,13 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
         }
 
         private static boolean hasShiftDown() {
+            //? if >=26.2 {
+            long window = net.minecraft.client.Minecraft.getInstance().getWindow().handle();
+            //?} else {
+            /*long window = net.minecraft.client.Minecraft.getInstance().getWindow().getWindow();
+            *///?}
             return org.lwjgl.glfw.GLFW.glfwGetKey(
-                net.minecraft.client.Minecraft.getInstance().getWindow().handle(),
+                window,
                 org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
         }
 

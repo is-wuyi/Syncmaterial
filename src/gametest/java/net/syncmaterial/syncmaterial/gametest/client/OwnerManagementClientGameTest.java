@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog;
@@ -41,12 +42,12 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
             insertSchematic(server, schematicId, "Player0");
 
             // 打开材料列表（isOwner/isMainOwner=true，右栏在 initGui 里构建）
-            ctx.runOnClient(client -> Minecraft.getInstance().setScreenAndShow(new GuiMaterialList(
+            ctx.runOnClient(client -> ClientScreenAccess.showScreen(Minecraft.getInstance(), new GuiMaterialList(
                 schematicId, "OwnerMgmtTest", List.of(), true, true, "Player0", List.of(), true)));
             ctx.waitTicks(10);
 
             GuiMaterialList materialList = ctx.computeOnClient(client ->
-                Minecraft.getInstance().gui.screen() instanceof GuiMaterialList m ? m : null);
+                ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiMaterialList m ? m : null);
             if (materialList == null) {
                 throw new AssertionError("材料列表界面未打开");
             }
@@ -148,11 +149,11 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
             });
             // 重新打开界面（isMainOwner 按构造参数仍为 true，与真实场景一致：
             // 玩家刷新列表时服务端会下发最新负责人身份）
-            ctx.runOnClient(client -> Minecraft.getInstance().setScreenAndShow(new GuiMaterialList(
+            ctx.runOnClient(client -> ClientScreenAccess.showScreen(Minecraft.getInstance(), new GuiMaterialList(
                 schematicId, "OwnerMgmtTest", List.of(), true, true, "Player0", List.of(), true)));
             ctx.waitTicks(10);
             GuiMaterialList freshList = ctx.computeOnClient(client ->
-                Minecraft.getInstance().gui.screen() instanceof GuiMaterialList m ? m : null);
+                ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiMaterialList m ? m : null);
 
             // 服务端预置 6 个副负责人（超过平铺上限 4），刷新客户端数据
             onDatabase(server, db -> {
@@ -202,12 +203,12 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
                 return null;
             });
         } finally {
-            ctx.runOnClient(client -> Minecraft.getInstance().setScreenAndShow(null));
+            ctx.runOnClient(client -> ClientScreenAccess.showScreen(Minecraft.getInstance(), null));
         }
     }
 
     private static Screen currentScreen() {
-        return Minecraft.getInstance().gui.screen();
+        return ClientScreenAccess.currentScreen(Minecraft.getInstance());
     }
 
     private void insertSchematic(TestDedicatedServerContext server, String schematicId, String uploadedBy) {

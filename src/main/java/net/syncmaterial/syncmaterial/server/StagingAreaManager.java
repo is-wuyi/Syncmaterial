@@ -6,7 +6,7 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.Container;
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.Identifier;
+import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 
 import java.sql.SQLException;
@@ -202,7 +202,7 @@ public class StagingAreaManager {
      * 检查位置是否在任何备货区或仓库区域内（脏容器检测用）
      */
     public boolean isInAnyContainerArea(BlockPos pos, ServerLevel world) {
-        String worldId = world.dimension().identifier().toString();
+        String worldId = McCompat.dimensionId(world);
         // 检查备货区
         List<StagingArea> areas = stagingAreasByWorld.get(worldId);
         if (areas != null) {
@@ -397,7 +397,7 @@ public class StagingAreaManager {
                     blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
                     var container = stack.get(net.minecraft.core.component.DataComponents.CONTAINER);
                     if (container != null) {
-                        for (var stored : container.nonEmptyItemCopyStream().toList()) {
+                        for (var stored : McCompat.nonEmptyShulkerItems(container).toList()) {
                             if (!stored.isEmpty()) {
                                 items.add(stored.getItem().toString());
                             }
@@ -418,7 +418,7 @@ public class StagingAreaManager {
 
 
     private Integer findAreaId(BlockPos pos, ServerLevel world) {
-        String worldId = world.dimension().identifier().toString();
+        String worldId = McCompat.dimensionId(world);
         List<StagingArea> areas = stagingAreasByWorld.get(worldId);
         if (areas != null) {
             for (StagingArea area : areas) {
@@ -434,7 +434,7 @@ public class StagingAreaManager {
      * 查找位置所在的仓库 ID
      */
     private Integer findWarehouseId(BlockPos pos, ServerLevel world) {
-        String worldId = world.dimension().identifier().toString();
+        String worldId = McCompat.dimensionId(world);
         List<Warehouse> warehouses = warehousesByWorld.get(worldId);
         if (warehouses == null) return null;
         for (Warehouse wh : warehouses) {
@@ -458,9 +458,9 @@ public class StagingAreaManager {
         StagingArea area = findStagingAreaById(areaId);
         if (area == null) return null;
 
-        // 用 tryParse：world 是客户端可控字符串，非法值不能让 Identifier.parse 抛异常
+        // 用 tryParse：world 是客户端可控字符串，非法值不能让资源 ID 解析抛异常
         // 穿透到 tick 回调（否则每次脏容器事件都会崩服）
-        Identifier dim = Identifier.tryParse(area.world);
+        var dim = McCompat.tryParseId(area.world);
         if (dim == null) {
             SyncMaterial.LOGGER.warn("[StagingArea] areaId={} 的 world 非法: {}", areaId, area.world);
             return null;
@@ -551,7 +551,7 @@ public class StagingAreaManager {
                 blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
                 var container = stack.get(net.minecraft.core.component.DataComponents.CONTAINER);
                 if (container != null) {
-                    for (var stored : container.nonEmptyItemCopyStream().toList()) {
+                    for (var stored : McCompat.nonEmptyShulkerItems(container).toList()) {
                         if (!stored.isEmpty()) {
                             totalItems.merge(stored.getItem().toString(), stored.getCount(), Integer::sum);
                         }
@@ -644,7 +644,7 @@ public class StagingAreaManager {
     }
 
     public void onContainerRemoved(BlockPos pos, ServerLevel world) {
-        String worldId = world.dimension().identifier().toString();
+        String worldId = McCompat.dimensionId(world);
         boolean found = false;
         Set<String> affectedSchematics = new HashSet<>();
 
@@ -825,7 +825,7 @@ public class StagingAreaManager {
         Warehouse wh = warehousesById.get(warehouseId);
         if (wh == null) return null;
 
-        Identifier dim = Identifier.tryParse(wh.world());
+        var dim = McCompat.tryParseId(wh.world());
         if (dim == null) {
             SyncMaterial.LOGGER.warn("[StagingArea] warehouse id={} 的 world 非法: {}", warehouseId, wh.world());
             return null;
@@ -924,7 +924,7 @@ public class StagingAreaManager {
                 blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
                 var container = stack.get(net.minecraft.core.component.DataComponents.CONTAINER);
                 if (container != null) {
-                    for (var stored : container.nonEmptyItemCopyStream().toList()) {
+                    for (var stored : McCompat.nonEmptyShulkerItems(container).toList()) {
                         if (!stored.isEmpty()) {
                             itemIds.add(stored.getItem().toString());
                         }
@@ -1010,9 +1010,9 @@ public class StagingAreaManager {
      * 区块加载时扫描：检查该区块内是否有仓库/备货区的箱子，有则扫描写入数据库
      */
     public void scanChunkForContainerAreas(net.minecraft.world.level.chunk.LevelChunk chunk, ServerLevel world) {
-        String worldId = world.dimension().identifier().toString();
-        int chunkX = chunk.getPos().x();
-        int chunkZ = chunk.getPos().z();
+        String worldId = McCompat.dimensionId(world);
+        int chunkX = McCompat.chunkX(chunk.getPos());
+        int chunkZ = McCompat.chunkZ(chunk.getPos());
         long chunkPos = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
 
         // 检查备货区（只处理未初始化的）
@@ -1106,12 +1106,12 @@ public class StagingAreaManager {
      */
     private void scanChunkForArea(net.minecraft.world.level.chunk.LevelChunk chunk, ServerLevel world, int areaId, String areaType,
             int x1, int y1, int z1, int x2, int y2, int z2) {
-        int minX = Math.max(chunk.getPos().x() << 4, Math.min(x1, x2));
-        int maxX = Math.min((chunk.getPos().x() << 4) + 15, Math.max(x1, x2));
+        int minX = Math.max(McCompat.chunkX(chunk.getPos()) << 4, Math.min(x1, x2));
+        int maxX = Math.min((McCompat.chunkX(chunk.getPos()) << 4) + 15, Math.max(x1, x2));
         int minY = Math.min(y1, y2);
         int maxY = Math.max(y1, y2);
-        int minZ = Math.max(chunk.getPos().z() << 4, Math.min(z1, z2));
-        int maxZ = Math.min((chunk.getPos().z() << 4) + 15, Math.max(z1, z2));
+        int minZ = Math.max(McCompat.chunkZ(chunk.getPos()) << 4, Math.min(z1, z2));
+        int maxZ = Math.min((McCompat.chunkZ(chunk.getPos()) << 4) + 15, Math.max(z1, z2));
 
         Map<String, Integer> items = new HashMap<>();
         for (int x = minX; x <= maxX; x++) {

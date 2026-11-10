@@ -74,6 +74,7 @@ class FoundationNetworkAdapterTest {
         when(runtime.store()).thenReturn(store);
         when(runtime.isOpen()).thenReturn(true);
         when(runtime.connection(playerId)).thenReturn(1L);
+        when(runtime.isMaterialSnapshotCurrent(any(ProjectSnapshot.class))).thenReturn(true);
         when(runtime.catalogs()).thenReturn(new MaterialCatalogTracker());
         when(runtime.subscribers(PROJECT)).thenReturn(Set.of(playerId));
         context = mock(ServerPlayNetworking.Context.class);
@@ -158,6 +159,51 @@ class FoundationNetworkAdapterTest {
         assertTrue(packets.isEmpty());
         assertTrue(runtime.catalogs().changed(playerId, 2L, project).isPresent());
         verify(runtime, never()).subscribe(any(), any());
+    }
+
+    @Test
+    void staleSnapshotIsRejectedBeforeSendingOrSubscribing() {
+        when(runtime.isMaterialSnapshotCurrent(any(ProjectSnapshot.class))).thenReturn(false);
+        requestMaterials();
+        assertTrue(packets.isEmpty());
+        verify(runtime, never()).subscribe(any(), any());
+        verify(player).sendSystemMessage(argThat(message -> message.getString().contains("统计已过期")));
+    }
+
+    @Test
+    void staleSnapshotCannotPublishCatalogOrCollaborationStatus() {
+        requestMaterials();
+        packets.clear();
+        when(runtime.isMaterialSnapshotCurrent(any(ProjectSnapshot.class))).thenReturn(false);
+        FoundationNetworkAdapter.broadcast(server, PROJECT);
+        assertTrue(packets.isEmpty());
+    }
+
+    @Test
+    void staleSnapshotCannotBeClaimedOrReportInitialInventory() {
+        var project = new ProjectSnapshot(PROJECT, "Original", "old-hash", owner(), true, List.of(),
+                List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
+        when(store.findProject(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(project)));
+        when(runtime.isMaterialSnapshotCurrent(project)).thenReturn(false);
+        receive(JoinCollaborationC2SPacket.ID, new JoinCollaborationC2SPacket(PROJECT, 1, Map.of(1, 32)));
+        verify(store, never()).join(anyString(), anyInt(), any(PlayerIdentity.class));
+        verify(runtime, never()).reportInventory(anyString(), anyInt(), any(PlayerIdentity.class), anyLong());
+        verify(player).sendSystemMessage(argThat(message -> message.getString().contains("统计已过期")));
+        assertTrue(packets.isEmpty());
+    }
+
+    @Test
+    void currentSnapshotCanBeClaimedAndReportsInitialInventory() {
+        var project = new ProjectSnapshot(PROJECT, "Original", "hash", owner(), true, List.of(),
+                List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
+        when(store.findProject(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(project)));
+        when(store.join(eq(PROJECT), eq(1), any(PlayerIdentity.class))).thenReturn(CompletableFuture.completedFuture(true));
+        when(runtime.reportInventory(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(32L)))
+                .thenReturn(CompletableFuture.completedFuture(null));
+        receive(JoinCollaborationC2SPacket.ID, new JoinCollaborationC2SPacket(PROJECT, 1, Map.of(1, 32)));
+        verify(store).join(eq(PROJECT), eq(1), any(PlayerIdentity.class));
+        verify(runtime).reportInventory(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(32L));
+        verify(runtime).requestBroadcast(PROJECT);
     }
 
     @Test

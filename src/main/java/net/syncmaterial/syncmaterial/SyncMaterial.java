@@ -3,7 +3,7 @@ package net.syncmaterial.syncmaterial;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
+import net.syncmaterial.syncmaterial.adapter.fabric.ServerEventAdapter;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -185,7 +185,7 @@ public class SyncMaterial implements ModInitializer {
         });
 
         // Phase 5: 区块加载时扫描仓库/备货区箱子
-        ServerChunkEvents.CHUNK_LOAD.register((serverWorld, chunk, isNew) -> {
+        ServerEventAdapter.onChunkLoaded((serverWorld, chunk) -> {
             if (sharedStagingAreaManager == null) return;
             MinecraftServer srv = serverWorld.getServer();
             srv.execute(() -> {
@@ -204,7 +204,8 @@ public class SyncMaterial implements ModInitializer {
             try {
                 var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntime.open(worldRoot, gameRoot,
                         new net.syncmaterial.syncmaterial.adapter.litematica.LitematicMaterialDecoder(),
-                        projectId -> net.syncmaterial.syncmaterial.network.FoundationNetworkAdapter.broadcast(server, projectId));
+                        projectId -> net.syncmaterial.syncmaterial.network.FoundationNetworkAdapter.broadcast(server, projectId),
+                        new net.syncmaterial.syncmaterial.server.ingest.SyncmaticaDiscoveryAdapter());
                 net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.install(server, runtime);
                 LOGGER.info("实验后端已启用，使用独立新库: {}", worldRoot.resolve("syncmaterial/runtime-v2.sqlite"));
             } catch (Exception error) {

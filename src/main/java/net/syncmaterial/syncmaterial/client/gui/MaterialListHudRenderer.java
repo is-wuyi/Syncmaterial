@@ -7,7 +7,11 @@ import java.util.Map;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 
 import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.GuiBase;
@@ -103,7 +107,11 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
     }
 
     @Override
+    //? if >=26.2 {
     public int render(GuiContext drawContext, int xOffset, int yOffset, HudAlignment alignment) {
+    //?} else {
+    /*public int render(GuiGraphics drawContext, int xOffset, int yOffset, HudAlignment alignment) {
+    *///?}
         Minecraft mc = Minecraft.getInstance();
         long currentTime = System.currentTimeMillis();
         boolean isPickupMode = GuiMaterialList.isPickupModeStatic();
@@ -190,8 +198,8 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             int x2 = x1 + maxLineLength + 4;
             int y2 = y1 + contentHeight + 2;
             drawContext.fill(x1, y1, x2, y2, bgColor);
-            drawContext.text(font, title, posX + 2, posY + 2, textColor, false);
-            drawContext.text(font, hint, posX + 5, posY + 16, 0xFFAAAAAA, false);
+            drawContext.drawString(font, title, posX + 2, posY + 2, textColor, false);
+            drawContext.drawString(font, hint, posX + 5, posY + 16, 0xFFAAAAAA, false);
 
             if (scaled) {
                 drawContext.pose().popMatrix();
@@ -277,7 +285,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         int y = posY + 12;
 
         for (int i = 0; i < size; ++i) {
-            drawContext.item(list.get(i).getStack(), x, y);
+            drawContext.renderItem(list.get(i).getStack(), x, y);
             y += lineHeight;
             // 取货模式下仓库小字占位
             if (isPickupMode && list.get(i).getWarehouseCount() > 0) {
@@ -288,7 +296,7 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
         // 标题：取货模式时显示"材料清单 · 取货模式"
         String titleKey = isPickupMode ? "syncmaterial.gui.title.material_list_pickup" : "syncmaterial.gui.title.material_list";
         String title = GuiBase.TXT_BOLD + fi.dy.masa.malilib.util.StringUtils.translate(titleKey) + GuiBase.TXT_RST;
-        drawContext.text(font, title, posX + 2, posY + 2, textColor, false);
+        drawContext.drawString(font, title, posX + 2, posY + 2, textColor, false);
 
         x = posX + 18;
         y = posY + 16;
@@ -306,14 +314,14 @@ public class MaterialListHudRenderer implements IInfoHudRenderer {
             int cntLen = font.width(strCount);
             int cntPosX = posX + maxLineLength - cntLen - 2;
 
-            drawContext.text(font, text, x, y, textColor, false);
-            drawContext.text(font, strCount, cntPosX, y, textColor, false);
+            drawContext.drawString(font, text, x, y, textColor, false);
+            drawContext.drawString(font, strCount, cntPosX, y, textColor, false);
             y += lineHeight;
 
             // 取货模式下显示仓库小字
             if (isPickupMode && entry.getWarehouseCount() > 0) {
                 String whText = StringUtils.translate("syncmaterial.gui.label.warehouse_has", entry.getWarehouseCount());
-                drawContext.text(font, whText, x + 4, y, 0xFFAAAAAA, false);
+                drawContext.drawString(font, whText, x + 4, y, 0xFFAAAAAA, false);
                 y += warehouseLineHeight;
             }
         }

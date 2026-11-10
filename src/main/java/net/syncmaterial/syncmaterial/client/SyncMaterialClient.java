@@ -86,7 +86,9 @@ public class SyncMaterialClient implements ClientModInitializer {
                     InventoryScanner.liveCountsByItemId(client.player));
         });
 
-        // 26.2 移除了 HudRenderCallback，改用 HudElementRegistry
+        // 26.2 移除了 HudRenderCallback，改用 HudElementRegistry；
+        // 1.21.7/1.21.8 仍用 HudRenderCallback，渲染上下文是 GuiGraphics
+        //? if >=26.2 {
         net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
                 net.minecraft.resources.Identifier.fromNamespaceAndPath("syncmaterial", "material_list_hud"),
                 (drawContext, tickDelta) -> {
@@ -99,6 +101,18 @@ public class SyncMaterialClient implements ClientModInitializer {
                         activeMaterialList.getHudRenderer().render(fi.dy.masa.malilib.render.GuiContext.fromGuiGraphics(drawContext), x, y, alignment);
                     }
                 });
+        //?} else {
+        /*net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
+            if (activeMaterialList != null && Configs.Generic.HUD_ENABLED.getBooleanValue()
+                    && activeMaterialList.getHudRenderer().getShouldRender()) {
+                fi.dy.masa.malilib.config.HudAlignment alignment =
+                        ((HudAlignmentOption) Configs.Hud.HUD_ALIGNMENT.getOptionListValue()).toMalilib();
+                int x = Configs.Hud.HUD_X_OFFSET.getIntegerValue();
+                int y = Configs.Hud.HUD_Y_OFFSET.getIntegerValue();
+                activeMaterialList.getHudRenderer().render(drawContext, x, y, alignment);
+            }
+        });
+        *///?}
 
         fi.dy.masa.malilib.event.RenderEventHandler.getInstance().registerWorldLastRenderer(
                 StagingAreaRenderer.getInstance());
@@ -107,11 +121,17 @@ public class SyncMaterialClient implements ClientModInitializer {
             StagingAreaSelector.getInstance().onTick();
         });
 
+        //? if >=26.2 {
         net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
                 net.minecraft.resources.Identifier.fromNamespaceAndPath("syncmaterial", "staging_selector_hud"),
                 (drawContext, tickDelta) -> {
                     StagingAreaSelector.getInstance().onRenderHUD(fi.dy.masa.malilib.render.GuiContext.fromGuiGraphics(drawContext));
                 });
+        //?} else {
+        /*net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
+            StagingAreaSelector.getInstance().onRenderHUD(drawContext);
+        });
+        *///?}
 
         // 进服后立刻发版本握手：服务端据此得知本客户端装了本 mod 及其协议版本，
         // 握手通过后才会推送备货区与仓库的初始数据
@@ -174,7 +194,7 @@ public class SyncMaterialClient implements ClientModInitializer {
         activeMaterialList = gui.getMaterialList();
         catalogRevision = -1;
         activeMaterialList.getHudRenderer().setShouldRender(hudState);
-        Minecraft.getInstance().setScreenAndShow(gui);
+        ClientScreenAccess.showScreen(Minecraft.getInstance(), gui);
     }
 
     public static void onMaterialCatalogUpdate(net.syncmaterial.syncmaterial.network.MaterialCatalogUpdateS2CPacket update) {
@@ -190,7 +210,7 @@ public class SyncMaterialClient implements ClientModInitializer {
         StagingAreaRenderer.getInstance().setSchematicName(update.schematicId(), update.schematicName());
         var mc = Minecraft.getInstance();
         if (mc.player != null) MaterialListUtils.updateAvailableCounts(activeMaterialList.getMaterialsAll(), mc.player);
-        if (mc.gui != null && mc.gui.screen() instanceof GuiMaterialList gui
+        if (ClientScreenAccess.currentScreen(mc) instanceof GuiMaterialList gui
                 && gui.getSchematicId().equals(update.schematicId())) {
             gui.onMaterialCatalogUpdated();
         }
@@ -210,10 +230,9 @@ public class SyncMaterialClient implements ClientModInitializer {
     public static void clearActiveSchematic(String schematicId) {
         // 关闭当前打开的材料列表 GUI（如果属于被删除的原理图）
         Minecraft mc = Minecraft.getInstance();
-        var screen = mc == null || mc.gui == null ? null : mc.gui.screen();
-        if (screen instanceof GuiMaterialList gui) {
+        if (ClientScreenAccess.currentScreen(mc) instanceof GuiMaterialList gui) {
             if (schematicId.equals(gui.getMaterialList().getSchematicId())) {
-                mc.setScreenAndShow(null);
+                ClientScreenAccess.showScreen(mc, null);
             }
         }
 

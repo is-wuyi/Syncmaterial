@@ -6,10 +6,15 @@ import java.util.List;
 import com.google.common.collect.ImmutableList;
 
 import net.minecraft.client.Minecraft;
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.resources.ResourceLocation;
+*///?}
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
@@ -39,7 +44,11 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     }
 
     @Override
+    //? if >=26.2 {
     public void drawContents(GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
+    //?} else {
+    /*public void drawContents(GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks)
+    *///?}
     {
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
         lastScrollbarPosition = this.scrollBar.getValue();
@@ -50,7 +59,7 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
             int textWidth = mc.font.width(hint);
             int x = this.posX + (this.browserWidth - textWidth) / 2;
             int y = this.posY + this.browserHeight / 2 - 4;
-            drawContext.text(mc.font, hint, x, y, 0xFFAAAAAA, false);
+            drawContext.drawString(mc.font, hint, x, y, 0xFFAAAAAA, false);
         }
     }
 
@@ -100,16 +109,13 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     protected List<String> getEntryStringsForFilter(MaterialListEntry entry)
     {
         ItemStack stack = entry.getStack();
+        //? if >=26.2 {
         Identifier rl = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        //?} else {
+        /*ResourceLocation rl = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        *///?}
 
-        if (rl != null)
-        {
-            return ImmutableList.of(stack.getHoverName().getString().toLowerCase(), rl.toString().toLowerCase());
-        }
-        else
-        {
-            return ImmutableList.of(stack.getHoverName().getString().toLowerCase());
-        }
+        return ImmutableList.of(stack.getHoverName().getString().toLowerCase(), rl.toString().toLowerCase());
     }
 
     @Override

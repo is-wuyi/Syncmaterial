@@ -1,5 +1,6 @@
 package net.syncmaterial.syncmaterial;
 
+//? if >=26.2 {
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -14,6 +15,7 @@ import net.minecraft.core.component.DataComponentInitializers;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.tags.TagKey;
+//?}
 
 /**
  * 单测环境的 MC 初始化垫片。
@@ -29,6 +31,7 @@ import net.minecraft.tags.TagKey;
  * 标签缺失时返回空 named 集，与"加载了空标签包"语义一致。
  */
 public final class TestGameBootstrap {
+    //? if >=26.2 {
     private static boolean bound;
 
     private TestGameBootstrap() {}
@@ -99,4 +102,11 @@ public final class TestGameBootstrap {
             }
         };
     }
+    //?} else {
+    /*private TestGameBootstrap() {}
+
+    public static void bindDataComponents() {
+        // 1.21.x binds default item components during Bootstrap.bootStrap().
+    }
+    *///?}
 }

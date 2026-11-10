@@ -1,13 +1,19 @@
 
 package net.syncmaterial.syncmaterial.client.gui.widgets;
 
+//? if >=26.2 {
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 
 
 import java.util.List;
 import org.joml.Matrix3x2fStack;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 import net.minecraft.world.item.ItemStack;
 
 import fi.dy.masa.malilib.gui.GuiBase;
@@ -98,10 +104,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.header8 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[7]) + GuiBase.TXT_RST;
         }
 
-        int posX = x + width;
-        int posY = y + 1;
-
-        posX = this.createButtonGeneric(posX, posY, ButtonListener.ButtonType.CLAIM);
+        this.createButtonGeneric(x + width, y + 1, ButtonListener.ButtonType.CLAIM);
     }
 
     private int createButtonGeneric(int xRight, int y, ButtonListener.ButtonType type)
@@ -154,7 +157,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     }
 
     @Override
+    //? if >=26.2 {
     public boolean canSelectAt(MouseButtonEvent event)
+    //?} else {
+    /*public boolean canSelectAt(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
         return false;
     }
@@ -229,13 +236,23 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     }
 
     @Override
+    //? if >=26.2 {
     protected boolean onMouseClickedImpl(net.minecraft.client.input.MouseButtonEvent event, boolean isDoubleClick)
+    //?} else {
+    /*protected boolean onMouseClickedImpl(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
+        int mouseX = (int) event.x();
+        int mouseY = (int) event.y();
+        //?} else {
+        /*boolean isDoubleClick = false;
+        *///?}
         // Phase 4: 负责人复选框点击
         if (this.isOwner && this.entry != null) {
             int cbX = this.x + 2;
             int cbY = this.y + 7;
-            if (event.x() >= cbX && event.x() <= cbX + 12 && event.y() >= cbY && event.y() <= cbY + 12) {
+            if (mouseX >= cbX && mouseX <= cbX + 12 && mouseY >= cbY && mouseY <= cbY + 12) {
                 var selected = this.listWidget.getGui().getSelectedMaterialIds();
                 int id = this.entry.getDatabaseId();
                 if (selected.contains(id)) {
@@ -247,7 +264,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             }
         }
 
+        //? if >=26.2 {
         if (super.onMouseClickedImpl(event, isDoubleClick))
+        //?} else {
+        /*if (super.onMouseClickedImpl(mouseX, mouseY, mouseButton))
+        *///?}
         {
             return true;
         }
@@ -257,7 +278,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             return false;
         }
 
-        int column = this.getMouseOverColumn((int) event.x(), (int) event.y());
+        int column = this.getMouseOverColumn(mouseX, mouseY);
 
         SortCriteria criteria = MaterialListBase.criteriaForColumn(column);
         if (criteria == null)
@@ -273,7 +294,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     }
 
     @Override
+    //? if >=26.2 {
     public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+    //?} else {
+    /*public void render(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+    *///?}
     {
         // Draw a lighter background for the hovered and the selected entry
         if (this.header1 == null && (selected || this.isMouseOver(mouseX, mouseY)))
@@ -429,7 +454,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             y = this.y + 3;
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
-            drawContext.item(this.entry.getStack(), x1, y);
+            drawContext.renderItem(this.entry.getStack(), x1, y);
 
             // 进度条止于行高亮框右边缘（this.x + this.width），起点 x1 已含复选框偏移
             int progressWidth = this.x + this.width - x1;
@@ -439,7 +464,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         }
     }
 
+    //? if >=26.2 {
     private void renderProgressBar(GuiContext drawContext, int x, int y, int totalWidth) {
+    //?} else {
+    /*private void renderProgressBar(GuiGraphics drawContext, int x, int y, int totalWidth) {
+    *///?}
         int countTotal = this.entry.getCountTotal();
         int stagingCount = this.entry.getStagingCount();
         int warehouseCount = this.entry.getWarehouseCount();
@@ -553,7 +582,11 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     }
 
     @Override
+    //? if >=26.2 {
     public void postRenderHovered(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+    //?} else {
+    /*public void postRenderHovered(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+    *///?}
     {
         if (this.entry != null)
         {
@@ -615,7 +648,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.drawString(drawContext, x2, y, 0xFFFFFFFF, strCountMissing);
 
             RenderUtils.drawRect(drawContext, x2, y1, 16, 16, 0x20FFFFFF);
-            drawContext.item(stack, x2, y1);
+            drawContext.renderItem(stack, x2, y1);
 
             y += 18;
             if (stagingCount > 0 || warehouseCount > 0 || !participants.isEmpty()) {

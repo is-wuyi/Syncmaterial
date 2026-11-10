@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.syncmaterial.syncmaterial.SyncMaterial;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.core.MaterialCount;
@@ -35,19 +36,19 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                     var player = instance.getPlayerList().getPlayers().get(0);
                     var metadata = new SchematicMetadata(projectId, "Foundation test", Path.of("foundation.litematic"),
                             "fixture", new PlayerIdentity(player.getUUID(), player.getName().getString()));
-                    runtime.store().ingest(metadata, List.of(new MaterialCount("minecraft:dirt", 64))).join();
+                    runtime.store().ingest(metadata, List.of(new MaterialCount("minecraft:dirt", 64)), runtime.interpretationId()).join();
                     return runtime.store().findProject(projectId).join().orElseThrow().materials().get(0).id();
                 });
                 context.runOnClient(client -> ClientPlayNetworking.send(new MaterialStatsRequestC2SPacket(projectId)));
                 context.waitForScreen(GuiMaterialList.class);
                 waitFor(context, () -> context.computeOnClient(client -> {
-                    if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                    if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
                     var entries = gui.getMaterialList().getMaterialsAll();
                     return projectId.equals(gui.getSchematicId()) && entries.size() == 1
                             && entries.get(0).getDatabaseId() == materialId && entries.get(0).getCountTotal() == 64
                             && InventoryWatcher.hasPeriodicReports() && !gui.getMaterialList().isPreparationKnown();
                 }));
-                GuiMaterialList originalScreen = context.computeOnClient(client -> (GuiMaterialList) client.gui.screen());
+                GuiMaterialList originalScreen = context.computeOnClient(client -> (GuiMaterialList) ClientScreenAccess.currentScreen(client));
                 context.runOnClient(client -> originalScreen.getSelectedMaterialIds().add(materialId));
                 context.runOnClient(client -> ClientPlayNetworking.send(
                         new JoinCollaborationC2SPacket(projectId, materialId, java.util.Map.of(materialId, 0))));
@@ -73,14 +74,14 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                     var player = instance.getPlayerList().getPlayers().get(0);
                     runtime.store().ingest(new SchematicMetadata(projectId, "Updated", Path.of("updated.litematic"),
                                     "updated", new PlayerIdentity(player.getUUID(), player.getName().getString())),
-                            List.of(new MaterialCount("minecraft:dirt", 128), new MaterialCount("minecraft:stone", 32))).join();
+                            List.of(new MaterialCount("minecraft:dirt", 128), new MaterialCount("minecraft:stone", 32)), runtime.interpretationId()).join();
                     runtime.requestBroadcast(projectId);
                     return null;
                 });
                 waitFor(context, () -> context.computeOnClient(client -> {
-                    if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                    if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
                     var entries = gui.getMaterialList().getMaterialsAll();
-                    return client.gui.screen() == originalScreen && entries.size() == 2
+                    return ClientScreenAccess.currentScreen(client) == originalScreen && entries.size() == 2
                             && gui.getMaterialList().getTitle().equals("Updated")
                             && gui.getSelectedMaterialIds().contains(materialId)
                             && entries.stream().anyMatch(entry -> entry.getDatabaseId() == materialId
@@ -90,11 +91,11 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                     var runtime = ServerRuntimeRegistry.get(instance);
                     var player = instance.getPlayerList().getPlayers().get(0);
                     runtime.store().ingest(new SchematicMetadata(projectId, "Renamed without content changes", Path.of("renamed.litematic"),
-                                    "updated", new PlayerIdentity(player.getUUID(), player.getName().getString())), List.of()).join();
+                                    "updated", new PlayerIdentity(player.getUUID(), player.getName().getString())), List.of(), runtime.interpretationId()).join();
                     runtime.requestBroadcast(projectId);
                     return null;
                 });
-                waitFor(context, () -> context.computeOnClient(client -> client.gui.screen() == originalScreen
+                waitFor(context, () -> context.computeOnClient(client -> ClientScreenAccess.currentScreen(client) == originalScreen
                         && originalScreen.getMaterialList().getTitle().equals("Renamed without content changes")));
                 context.runOnClient(client -> ClientPlayNetworking.send(new LeaveCollaborationC2SPacket(projectId, materialId)));
                 waitFor(context, () -> server.computeOnServer(instance ->

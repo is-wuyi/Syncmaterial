@@ -7,6 +7,7 @@ import java.util.List;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal;
 import net.syncmaterial.syncmaterial.network.ClientProtocolState;
@@ -53,7 +54,7 @@ public class StagingAreaEditorClientGameTest implements FabricClientGameTest {
 
             // 等 LIST 响应回填服务端真实 ID
             boolean synced = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (client.gui.screen() instanceof GuiStagingAreaEditorNormal editor) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiStagingAreaEditorNormal editor) {
                     return Integer.valueOf(areaId).equals(editor.getAreaServerId("EditorArea"));
                 }
                 return false;
@@ -76,13 +77,13 @@ public class StagingAreaEditorClientGameTest implements FabricClientGameTest {
                 return null;
             });
         } finally {
-            ctx.runOnClient(client -> client.setScreenAndShow(null));
+            ctx.runOnClient(client -> ClientScreenAccess.showScreen(client, null));
         }
     }
 
     private int countButtons(ClientGameTestContext ctx) {
         return ctx.computeOnClient(client -> {
-            if (!(client.gui.screen() instanceof GuiStagingAreaEditorNormal editor)) {
+            if (!(ClientScreenAccess.currentScreen(client) instanceof GuiStagingAreaEditorNormal editor)) {
                 throw new AssertionError("编辑器界面未打开");
             }
             try {

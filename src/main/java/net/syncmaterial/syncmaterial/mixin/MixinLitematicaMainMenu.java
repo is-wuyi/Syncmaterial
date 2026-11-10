@@ -4,6 +4,7 @@ import fi.dy.masa.litematica.gui.GuiMainMenu;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.button.ButtonBase;
 import fi.dy.masa.malilib.gui.button.ButtonGeneric;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.client.gui.GuiSettings;
 import net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager;
 import org.spongepowered.asm.mixin.Mixin;
@@ -26,7 +27,7 @@ public abstract class MixinLitematicaMainMenu extends GuiBase {
         String settingsLabel = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.button.settings");
         ButtonGeneric settingsBtn = new ButtonGeneric(x, y, buttonWidth, 20, settingsLabel);
         addButton(settingsBtn, (ButtonBase b, int mb) -> {
-            mc.setScreenAndShow(new GuiSettings((GuiMainMenu) (Object) this));
+            ClientScreenAccess.showScreen(mc, new GuiSettings((GuiMainMenu) (Object) this));
         });
 
         // Phase 5: 仓库管理按钮
@@ -34,7 +35,7 @@ public abstract class MixinLitematicaMainMenu extends GuiBase {
         String warehouseLabel = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.title.warehouse_manager");
         ButtonGeneric warehouseBtn = new ButtonGeneric(x, y, buttonWidth, 20, warehouseLabel);
         addButton(warehouseBtn, (ButtonBase b, int mb) -> {
-            mc.setScreenAndShow(new GuiWarehouseManager());
+            ClientScreenAccess.showScreen(mc, new GuiWarehouseManager());
         });
     }
 

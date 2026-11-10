@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.core.BlockPos;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -68,7 +69,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
 
             BlockPos[] positions = new BlockPos[2];
             int warehouseId = server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
+                var player = s.getPlayerList().getPlayerByName("Player0");
                 if (player == null) throw new AssertionError("Player0 不在线");
                 BlockPos base = player.blockPosition();
                 positions[0] = placeChestWithItem(player.level(), base.offset(2, 0, 0), Items.STONE);
@@ -95,7 +96,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
                 new JoinCollaborationC2SPacket(schematicId, materialId, Map.of())));
 
             boolean claimed = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
                 return gui.getMaterialList().getMaterialsAll().stream()
                     .anyMatch(e -> e.getDatabaseId() == materialId && e.isCurrentPlayerClaimed());
             }));
@@ -104,7 +105,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
             }
 
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.togglePickupMode();
                 } else {
                     throw new AssertionError("材料列表未打开");
@@ -187,7 +188,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
             });
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreenAndShow(null);
+                ClientScreenAccess.showScreen(client, null);
                 PickupModeState.clear();
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();

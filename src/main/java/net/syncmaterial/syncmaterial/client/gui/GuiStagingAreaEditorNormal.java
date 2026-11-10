@@ -13,9 +13,11 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 
 import net.minecraft.client.Minecraft;
+//? if >=26.2 {
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.minecraft.core.BlockPos;
 
 import fi.dy.masa.malilib.gui.*;
@@ -27,7 +29,11 @@ import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
 import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
 import fi.dy.masa.malilib.gui.widgets.WidgetCheckBox;
 import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.KeyCodes;
 import fi.dy.masa.malilib.util.StringUtils;
@@ -58,10 +64,6 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     protected final String schematicId;
     protected WidgetCheckBox checkBoxCorner1;
     protected WidgetCheckBox checkBoxCorner2;
-    protected int xNext;
-    protected int yNext;
-    protected int xOrigin;
-    protected int xSet;
     @Nullable protected String selectionId;
     protected boolean needsServerLoad = false;
     protected boolean loadingFromServer = false;
@@ -115,7 +117,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     protected static String currentWorldId() {
         Minecraft mc = Minecraft.getInstance();
         return mc.player != null
-                ? mc.player.level().dimension().identifier().toString()
+                ? net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(mc.player.level())
                 : null;
     }
 
@@ -423,7 +425,11 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     // ========== 渲染 ==========
 
     @Override
+    //? if >=26.2 {
     protected void drawContents(GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
+    //?} else {
+    /*protected void drawContents(GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks)
+    *///?}
     {
         if (this.stagingListWidget != null)
         {
@@ -448,7 +454,11 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     }
 
     @Override
+    //? if >=26.2 {
     protected void drawHoveredWidget(GuiContext drawContext, int mouseX, int mouseY)
+    //?} else {
+    /*protected void drawHoveredWidget(GuiGraphics drawContext, int mouseX, int mouseY)
+    *///?}
     {
         super.drawHoveredWidget(drawContext, mouseX, mouseY);
 
@@ -467,38 +477,78 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     // ========== 事件分发 ==========
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseClicked(MouseButtonEvent event, boolean isDoubleClick)
+    //?} else {
+    /*public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
+        int mouseX = (int) event.x();
+        int mouseY = (int) event.y();
+        //?} else {
+        /*boolean isDoubleClick = false;
+        *///?}
+
+        //? if >=26.2 {
         if (super.onMouseClicked(event, isDoubleClick))
+        //?} else {
+        /*if (super.onMouseClicked(mouseX, mouseY, mouseButton))
+        *///?}
         {
             return true;
         }
 
-        if (isMouseInRegion((int) event.x(), (int) event.y(), this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
+        if (isMouseInRegion(mouseX, mouseY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
         {
+            //? if >=26.2 {
             return this.stagingListWidget.onMouseClicked(event, isDoubleClick);
+            //?} else {
+            /*return this.stagingListWidget.onMouseClicked(mouseX, mouseY, mouseButton);
+            *///?}
         }
-        if (isMouseInRegion((int) event.x(), (int) event.y(), this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
+        if (isMouseInRegion(mouseX, mouseY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
         {
+            //? if >=26.2 {
             return this.warehouseListWidget.onMouseClicked(event, isDoubleClick);
+            //?} else {
+            /*return this.warehouseListWidget.onMouseClicked(mouseX, mouseY, mouseButton);
+            *///?}
         }
         return false;
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseReleased(MouseButtonEvent event)
+    //?} else {
+    /*public boolean onMouseReleased(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
         if (super.onMouseReleased(event))
+        //?} else {
+        /*if (super.onMouseReleased(mouseX, mouseY, mouseButton))
+        *///?}
         {
             return true;
         }
+        //? if >=26.2 {
         if (this.stagingListWidget != null) this.stagingListWidget.onMouseReleased(event);
         if (this.warehouseListWidget != null) this.warehouseListWidget.onMouseReleased(event);
+        //?} else {
+        /*if (this.stagingListWidget != null) this.stagingListWidget.onMouseReleased(mouseX, mouseY, mouseButton);
+        if (this.warehouseListWidget != null) this.warehouseListWidget.onMouseReleased(mouseX, mouseY, mouseButton);
+        *///?}
         return false;
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount)
+    //?} else {
+    /*public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount)
+    *///?}
     {
         if (super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount))
         {
@@ -516,18 +566,40 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onKeyTyped(KeyEvent event)
+    //?} else {
+    /*public boolean onKeyTyped(int keyCode, int scanCode, int modifiers)
+    *///?}
     {
-        if (event.key() != KeyCodes.KEY_ESCAPE && super.onKeyTyped(event))
+        //? if >=26.2 {
+        int key = event.key();
+        //?} else {
+        /*int key = keyCode;
+        *///?}
+
+        //? if >=26.2 {
+        if (key != KeyCodes.KEY_ESCAPE && super.onKeyTyped(event))
+        //?} else {
+        /*if (key != KeyCodes.KEY_ESCAPE && super.onKeyTyped(key, scanCode, modifiers))
+        *///?}
         {
             return true;
         }
         // 键盘事件优先给备货区列表（它有搜索栏）
+        //? if >=26.2 {
         if (this.stagingListWidget != null && this.stagingListWidget.onKeyTyped(event))
+        //?} else {
+        /*if (this.stagingListWidget != null && this.stagingListWidget.onKeyTyped(key, scanCode, modifiers))
+        *///?}
         {
             return true;
         }
-        if (event.key() == KeyCodes.KEY_ESCAPE && super.onKeyTyped(event))
+        //? if >=26.2 {
+        if (key == KeyCodes.KEY_ESCAPE && super.onKeyTyped(event))
+        //?} else {
+        /*if (key == KeyCodes.KEY_ESCAPE && super.onKeyTyped(key, scanCode, modifiers))
+        *///?}
         {
             return true;
         }
@@ -535,8 +607,13 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onCharTyped(CharacterEvent event)
+    //?} else {
+    /*public boolean onCharTyped(char chr, int modifiers)
+    *///?}
     {
+        //? if >=26.2 {
         if (super.onCharTyped(event))
         {
             return true;
@@ -546,14 +623,35 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             return true;
         }
         return super.onCharTyped(event);
+        //?} else {
+        /*if (super.onCharTyped(chr, modifiers))
+        {
+            return true;
+        }
+        if (this.stagingListWidget != null && this.stagingListWidget.onCharTyped(chr, modifiers))
+        {
+            return true;
+        }
+        return super.onCharTyped(chr, modifiers);
+        *///?}
     }
 
     @Override
+    //? if >=26.2 {
     public void resize(int width, int height)
+    //?} else {
+    /*public void resize(Minecraft mc, int width, int height)
+    *///?}
     {
+        //? if >=26.2 {
         super.resize(width, height);
         if (this.stagingListWidget != null) this.stagingListWidget.resize(width, height);
         if (this.warehouseListWidget != null) this.warehouseListWidget.resize(width, height);
+        //?} else {
+        /*super.resize(mc, width, height);
+        if (this.stagingListWidget != null) this.stagingListWidget.resize(mc, width, height);
+        if (this.warehouseListWidget != null) this.warehouseListWidget.resize(mc, width, height);
+        *///?}
     }
 
     private boolean isMouseInRegion(int mouseX, int mouseY, int regionY, int regionHeight)
@@ -723,7 +821,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 break;
         }
 
-        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.font);
+        GuiTextFieldInteger textField = new GuiTextFieldInteger(x + offset, y, width, 16, this.mc.font);
         TextFieldListener listener = new TextFieldListener(coordType, corner, this);
         textField.setTextWrapper(text);
         this.addTextField(textField, listener);

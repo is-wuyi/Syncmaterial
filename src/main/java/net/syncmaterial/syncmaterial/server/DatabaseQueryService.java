@@ -38,8 +38,8 @@ public class DatabaseQueryService {
                 }
 
                 var itemRegistry = net.minecraft.core.registries.BuiltInRegistries.ITEM;
-                var identifier = net.minecraft.resources.Identifier.parse(itemId);
-                // 26.2 的 Registry.get 返回 Optional<Holder.Reference>，与旧版直接返回 Item 不同
+                var identifier = net.syncmaterial.syncmaterial.compat.McCompat.parseId(itemId);
+                // Mojmap 的 Registry.get 返回 Optional<Holder.Reference>（1.21.7/8 与 26.2 相同）
                 var itemRef = itemRegistry.get(identifier);
 
                 if (itemRef.isPresent() && itemRef.get().value() != net.minecraft.world.item.Items.AIR) {

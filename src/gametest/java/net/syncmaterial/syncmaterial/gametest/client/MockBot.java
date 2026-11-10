@@ -6,13 +6,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.mojang.authlib.GameProfile;
 
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelOutboundHandlerAdapter;
-import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.level.ServerLevel;
@@ -27,8 +28,8 @@ import net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket;
  * EmbeddedChannel + PlayerList.placeNewPlayer）。
  *
  * 构造后假人真实存在于服务端玩家列表：玩家列表响应会包含它，
- * broadcastStatus 按参与者名字能解析到它；EmbeddedChannel 上挂的出站
- * 捕获 handler 能拿到真实发给它的每一个包（编码前的原始 packet 对象）。
+ * broadcastStatus 按参与者名字能解析到它；Connection 出站重载捕获编码前的
+ * 原始 packet 对象，EmbeddedChannel 只负责假连接生命周期。
  */
 final class MockBot {
 
@@ -52,15 +53,24 @@ final class MockBot {
                 }
             };
             List<Object> captured = new CopyOnWriteArrayList<>();
-            Connection botConnection = new Connection(PacketFlow.SERVERBOUND);
-            EmbeddedChannel botChannel = new EmbeddedChannel(botConnection);
-            botChannel.pipeline().addLast("mock-bot-capture", new ChannelOutboundHandlerAdapter() {
+            // 假人没有接收端：直接捕获编码前的出站包，不污染测试框架的真实网络计数。
+            Connection botConnection = new Connection(PacketFlow.SERVERBOUND) {
+                private Channel outboundChannel;
+
                 @Override
-                public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
-                    captured.add(msg);
-                    super.write(ctx, msg, promise);
+                public void channelActive(ChannelHandlerContext context) throws Exception {
+                    super.channelActive(context);
+                    outboundChannel = context.channel();
                 }
-            });
+
+                @Override
+                public void send(Packet<?> packet, ChannelFutureListener listener, boolean flush) {
+                    captured.add(packet);
+                    var future = flush ? outboundChannel.writeAndFlush(packet) : outboundChannel.write(packet);
+                    if (listener != null) future.addListener(listener);
+                }
+            };
+            new EmbeddedChannel(botConnection);
             s.getPlayerList().placeNewPlayer(botConnection, bot, cookie);
             return new MockBot(bot, captured);
         });
@@ -90,7 +100,7 @@ final class MockBot {
     /** 把假人移出服务端玩家列表 */
     void despawn(TestDedicatedServerContext server) {
         server.computeOnServer(s -> {
-            var bot = s.getPlayerList().getPlayer(player.getName().getString());
+            var bot = s.getPlayerList().getPlayerByName(player.getName().getString());
             if (bot != null) {
                 s.getPlayerList().remove(bot);
             }

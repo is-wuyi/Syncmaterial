@@ -6,7 +6,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
+//? if >=26.2 {
 import fi.dy.masa.malilib.render.GuiContext;
+//?} else {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?}
 
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiDialogBase;
@@ -40,7 +44,8 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         this.useTitleHierarchy = false;
         this.title = StringUtils.translate("syncmaterial.gui.title.select_warehouse");
 
-        this.setParent(net.minecraft.client.Minecraft.getInstance().gui.screen());
+        this.setParent(net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(
+                net.minecraft.client.Minecraft.getInstance()));
         this.setWidthAndHeight(320, 200);
         this.centerOnScreen();
     }
@@ -84,7 +89,11 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public void drawContents(GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
+    //?} else {
+    /*public void drawContents(GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks)
+    *///?}
     {
         // 渲染父界面（半透明覆盖效果）
         // 26.2 的 Screen.render 改用 state 化渲染，弹窗直接跳过父界面重绘（半透明底由 drawOutlinedBox 提供）
@@ -116,7 +125,11 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     protected void drawHoveredWidget(GuiContext drawContext, int mouseX, int mouseY)
+    //?} else {
+    /*protected void drawHoveredWidget(GuiGraphics drawContext, int mouseX, int mouseY)
+    *///?}
     {
         super.drawHoveredWidget(drawContext, mouseX, mouseY);
         if (this.listWidget != null)
@@ -126,19 +139,37 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseClicked(net.minecraft.client.input.MouseButtonEvent event, boolean isDoubleClick)
+    //?} else {
+    /*public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
+        int mouseX = (int) event.x();
+        int mouseY = (int) event.y();
+        //?} else {
+        /*boolean isDoubleClick = false;
+        *///?}
+        //? if >=26.2 {
         if (super.onMouseClicked(event, isDoubleClick))
+        //?} else {
+        /*if (super.onMouseClicked(mouseX, mouseY, mouseButton))
+        *///?}
         {
             return true;
         }
+        //? if >=26.2 {
         if (this.listWidget != null && this.listWidget.onMouseClicked(event, isDoubleClick))
+        //?} else {
+        /*if (this.listWidget != null && this.listWidget.onMouseClicked(mouseX, mouseY, mouseButton))
+        *///?}
         {
             return true;
         }
         // 点击弹窗外关闭
-        if (event.x() < dialogLeft || event.x() > dialogLeft + dialogWidth
-                || event.y() < dialogTop || event.y() > dialogTop + dialogHeight)
+        if (mouseX < dialogLeft || mouseX > dialogLeft + dialogWidth
+                || mouseY < dialogTop || mouseY > dialogTop + dialogHeight)
         {
             GuiBase.openGui(this.getParent());
             return true;
@@ -147,15 +178,28 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseReleased(net.minecraft.client.input.MouseButtonEvent event)
+    //?} else {
+    /*public boolean onMouseReleased(int mouseX, int mouseY, int mouseButton)
+    *///?}
     {
+        //? if >=26.2 {
         super.onMouseReleased(event);
         if (this.listWidget != null) this.listWidget.onMouseReleased(event);
+        //?} else {
+        /*super.onMouseReleased(mouseX, mouseY, mouseButton);
+        if (this.listWidget != null) this.listWidget.onMouseReleased(mouseX, mouseY, mouseButton);
+        *///?}
         return false;
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount)
+    //?} else {
+    /*public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount)
+    *///?}
     {
         if (super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount))
         {
@@ -169,18 +213,31 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
     }
 
     @Override
+    //? if >=26.2 {
     public boolean onKeyTyped(net.minecraft.client.input.KeyEvent event)
+    //?} else {
+    /*public boolean onKeyTyped(int keyCode, int scanCode, int modifiers)
+    *///?}
     {
-        if (event.key() == KeyCodes.KEY_ESCAPE)
+        //? if >=26.2 {
+        int key = event.key();
+        //?} else {
+        /*int key = keyCode;
+        *///?}
+        if (key == KeyCodes.KEY_ESCAPE)
         {
             GuiBase.openGui(this.getParent());
             return true;
         }
+        //? if >=26.2 {
         return super.onKeyTyped(event);
+        //?} else {
+        /*return super.onKeyTyped(key, scanCode, modifiers);
+        *///?}
     }
 
-    
-    public boolean shouldPause()
+    @Override
+    public boolean isPauseScreen()
     {
         return false;
     }
@@ -211,9 +268,13 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
             this.refreshEntries();
         }
 
+        //? if >=26.2 {
         public void renderHoverEffects(GuiContext drawContext, int mouseX, int mouseY)
+        //?} else {
+        /*public void renderHoverEffects(GuiGraphics drawContext, int mouseX, int mouseY)
+        *///?}
         {
-            this.drawHoveredWidget(drawContext, mouseX, mouseY);
+            super.drawHoveredWidget(drawContext, mouseX, mouseY);
             this.drawButtonHoverTexts(drawContext, mouseX, mouseY, 0f);
         }
 
@@ -265,7 +326,11 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         }
 
         @Override
+        //? if >=26.2 {
         public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+        //?} else {
+        /*public void render(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+        *///?}
         {
             if (selected || this.isMouseOver(mouseX, mouseY))
             {

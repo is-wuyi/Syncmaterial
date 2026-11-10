@@ -89,7 +89,11 @@ public final class CoordinateNudge
                 return;
             }
 
+            //? if >=26.2 {
             long window = mc.getWindow().handle();
+            //?} else {
+            /*long window = mc.getWindow().getWindow();
+            *///?}
             boolean physicalLeft = isMouseDown(window, GLFW.GLFW_MOUSE_BUTTON_LEFT);
             boolean physicalRight = isMouseDown(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
             boolean ctrlPhysical = isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL)

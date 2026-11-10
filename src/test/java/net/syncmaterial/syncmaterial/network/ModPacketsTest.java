@@ -2,7 +2,11 @@ package net.syncmaterial.syncmaterial.network;
 
 import org.junit.jupiter.api.Test;
 
+//? if >=26.2 {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 
 import java.util.HashSet;
 import java.util.List;
@@ -19,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ModPacketsTest {
 
-    private static final List<Identifier> ALL_IDS = List.of(
+    private static final List<Object> ALL_IDS = List.<Object>of(
         ModPackets.HELLO_C2S, ModPackets.HELLO_S2C,
         ModPackets.REQUEST_MATERIAL_LIST, ModPackets.MATERIAL_LIST_RESPONSE,
         ModPackets.MATERIAL_LIST_CLOSE_C2S, ModPackets.QUERY_MATERIAL_STATUS,
@@ -42,15 +46,20 @@ class ModPacketsTest {
 
     @Test
     void ids_areUnique() {
-        Set<Identifier> seen = new HashSet<>();
-        for (Identifier id : ALL_IDS) {
+        Set<Object> seen = new HashSet<>();
+        for (Object id : ALL_IDS) {
             assertTrue(seen.add(id), "包 ID 重复: " + id);
         }
     }
 
     @Test
     void ids_useSyncmaterialNamespace() {
-        for (Identifier id : ALL_IDS) {
+        for (Object raw : ALL_IDS) {
+            //? if >=26.2 {
+            Identifier id = (Identifier) raw;
+            //?} else {
+            /*ResourceLocation id = (ResourceLocation) raw;
+            *///?}
             assertEquals("syncmaterial", id.getNamespace(), () -> "命名空间错误: " + id);
             assertFalse(id.getPath().isEmpty());
             assertTrue(id.getPath().matches("[a-z0-9_/.-]+"), () -> "路径含非法字符: " + id);

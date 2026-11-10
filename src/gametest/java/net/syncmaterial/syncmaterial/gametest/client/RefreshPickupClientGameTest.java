@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -68,7 +69,7 @@ public class RefreshPickupClientGameTest implements FabricClientGameTest {
 
             // ===== 链路 3：刷新按钮 =====
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     if (!gui.refreshStagingAreas()) {
                         throw new AssertionError("刷新请求未发出（schematicId 为空？）");
                     }
@@ -78,7 +79,7 @@ public class RefreshPickupClientGameTest implements FabricClientGameTest {
             });
 
             boolean rescanOk = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
-                client.gui.screen() instanceof GuiMaterialList gui
+                ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui
                     && Boolean.TRUE.equals(gui.getLastRescanResult())));
             if (!rescanOk) {
                 throw new AssertionError("刷新响应未回流或结果不是成功");
@@ -86,7 +87,7 @@ public class RefreshPickupClientGameTest implements FabricClientGameTest {
 
             // ===== 链路 4：取货模式开关 =====
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.togglePickupMode();
                 } else {
                     throw new AssertionError("材料列表未打开");
@@ -107,7 +108,7 @@ public class RefreshPickupClientGameTest implements FabricClientGameTest {
 
             // 关闭：状态退出 + 容器缓存清空
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.togglePickupMode();
                 } else {
                     throw new AssertionError("材料列表未打开");
@@ -134,7 +135,7 @@ public class RefreshPickupClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.closeGui(false);
                 }
                 InventoryWatcher.clearContext();

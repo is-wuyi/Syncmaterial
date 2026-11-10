@@ -12,6 +12,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -70,7 +71,7 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
 
             // 一次放 200 个空箱子（10×20 网格），都在仓库区域内
             List<BlockPos> positions = server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
+                var player = s.getPlayerList().getPlayerByName("Player0");
                 if (player == null) throw new AssertionError("Player0 不在线");
                 BlockPos base = player.blockPosition();
                 var world = player.level();
@@ -91,7 +92,7 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
             }
 
             int warehouseId = server.computeOnServer(s -> {
-                var player = s.getPlayerList().getPlayer("Player0");
+                var player = s.getPlayerList().getPlayerByName("Player0");
                 BlockPos base = player.blockPosition();
                 var sam = SyncMaterial.getServerStagingAreaManager();
                 int whId = sam.addWarehouse("Stress WH", "minecraft:overworld",
@@ -113,14 +114,14 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
             ctx.runOnClient(client -> ClientPlayNetworking.send(
                 new JoinCollaborationC2SPacket(schematicId, materialId, Map.of())));
             boolean claimed = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
-                if (!(client.gui.screen() instanceof GuiMaterialList gui)) return false;
+                if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
                 return gui.getMaterialList().getMaterialsAll().stream()
                     .anyMatch(e -> e.getDatabaseId() == materialId && e.isCurrentPlayerClaimed());
             }), 100);
             if (!claimed) throw new AssertionError("认领未生效");
 
             ctx.runOnClient(client -> {
-                if (client.gui.screen() instanceof GuiMaterialList gui) {
+                if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                     gui.togglePickupMode();
                 } else {
                     throw new AssertionError("材料列表未打开");
@@ -197,7 +198,7 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreenAndShow(null);
+                ClientScreenAccess.showScreen(client, null);
                 PickupModeState.clear();
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();

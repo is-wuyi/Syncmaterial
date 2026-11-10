@@ -9,12 +9,12 @@ import java.util.function.Consumer;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
+import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.core.ClaimSnapshot;
 import net.syncmaterial.syncmaterial.core.MaterialSnapshot;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
@@ -98,6 +98,9 @@ public final class FoundationNetworkAdapter {
             runtime.store().findProject(request.schematicId()).thenCompose(project -> {
                 if (project.isEmpty()) return CompletableFuture.completedFuture(false);
                 ProjectSnapshot value = project.get();
+                if (!runtime.isMaterialSnapshotCurrent(value)) {
+                    return CompletableFuture.failedFuture(new StaleMaterialSnapshotException());
+                }
                 if (!value.allowSelfClaim() && !isOwner(value.owner(), identity)
                         && !value.deputies().contains(identity.name())) return CompletableFuture.completedFuture(false);
                 if (request.inventoryCounts().keySet().stream().anyMatch(id -> value.materials().stream().noneMatch(material -> material.id() == id))) {
@@ -188,15 +191,21 @@ public final class FoundationNetworkAdapter {
     }
 
     private static CompletableFuture<Optional<ProjectData>> read(ServerRuntime runtime, String projectId) {
-        return runtime.store().snapshot(projectId).thenApply(state -> state.map(value ->
-                new ProjectData(value.project(), value.claims())));
+        return runtime.store().snapshot(projectId).thenApply(state -> state.map(value -> {
+            ProjectSnapshot project = value.project();
+            // 内容 hash 和材料解释必须均匹配最新公告，失败重解析留下的旧统计不可复用。
+            if (!runtime.isMaterialSnapshotCurrent(project)) {
+                throw new StaleMaterialSnapshotException();
+            }
+            return new ProjectData(project, value.claims());
+        }));
     }
 
     private static List<MaterialEntry> materialEntries(ProjectSnapshot project) {
         List<MaterialEntry> result = new ArrayList<>();
         for (MaterialSnapshot material : project.materials()) {
             checkedCount(material.required());
-            Identifier key = Identifier.tryParse(material.itemId());
+            var key = McCompat.tryParseId(material.itemId());
             if (key == null || !BuiltInRegistries.ITEM.containsKey(key)) {
                 throw new IllegalArgumentException("Unknown material: " + material.itemId());
             }
@@ -226,6 +235,10 @@ public final class FoundationNetworkAdapter {
         read(runtime, projectId).whenComplete((data, error) -> execute(server, runtime, () -> {
             if (error != null) {
                 SyncMaterial.LOGGER.warn("新后端材料快照查询失败", error);
+                for (UUID playerId : runtime.subscribers(projectId)) {
+                    ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+                    if (player != null) failed(player, error);
+                }
                 return;
             }
             if (data.isEmpty()) {
@@ -295,8 +308,27 @@ public final class FoundationNetworkAdapter {
     }
 
     private static void failed(ServerPlayer player, Throwable error) {
+        Throwable cause = error;
+        while (cause instanceof java.util.concurrent.CompletionException && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        if (cause instanceof StaleMaterialSnapshotException) {
+            // 只给安全的通用诊断：不泄露 hash/解释版本/数据库细节，也不发任何当前统计。
+            if (player.connection != null) {
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                        "该原理图的材料统计已过期，服务端正在重新解析，请稍后重新打开材料清单"));
+            }
+            return;
+        }
         SyncMaterial.LOGGER.warn("实验后端请求失败", error);
         if (player.connection != null) player.sendSystemMessage(net.minecraft.network.chat.Component.literal("实验后端请求失败，请查看服务端日志"));
+    }
+
+    /** 已提交材料快照与当前内容或解释不一致；旧数据不能冒充当前统计。 */
+    private static final class StaleMaterialSnapshotException extends RuntimeException {
+        StaleMaterialSnapshotException() {
+            super("stale material snapshot", null, false, false);
+        }
     }
 
     private record ProjectData(ProjectSnapshot project, List<ClaimSnapshot> claims) {}

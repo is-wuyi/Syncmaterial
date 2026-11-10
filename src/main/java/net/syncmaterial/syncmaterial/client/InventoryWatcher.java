@@ -76,15 +76,20 @@ public class InventoryWatcher {
             blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
             var container = stack.get(net.minecraft.core.component.DataComponents.CONTAINER);
             if (container != null) {
+                //? if >=26.2 {
                 return container.nonEmptyItemCopyStream().toList();
+                //?} else {
+                /*return container.nonEmptyStream().toList();
+                *///?}
             }
         }
         return List.of();
     }
 
     public static Map<Integer, Integer> getCurrentCounts() {
-        if (Minecraft.getInstance().player == null) return Map.of();
-        return getCounts(Minecraft.getInstance().player.getInventory());
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return Map.of();
+        return getCounts(mc.player.getInventory());
     }
 
     /**

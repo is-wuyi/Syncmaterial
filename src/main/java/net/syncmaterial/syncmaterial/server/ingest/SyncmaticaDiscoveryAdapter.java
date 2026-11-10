@@ -9,23 +9,40 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.SchematicMetadata;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntime;
+import net.syncmaterial.syncmaterial.server.runtime.LifecycleHook;
+//? if >=26.2 {
+import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 
-public final class SyncmaticaDiscoveryAdapter implements Consumer<Object>, AutoCloseable {
-    private final ServerRuntime runtime;
+public final class SyncmaticaDiscoveryAdapter implements Consumer<Object>, LifecycleHook {
+    private ServerRuntime runtime;
     private Object manager;
     private Path root;
 
-    public SyncmaticaDiscoveryAdapter(ServerRuntime runtime) {
-        this.runtime = runtime;
+    @Override
+    public synchronized void attach(ServerRuntime runtime) {
+        if (this.runtime != null) throw new IllegalStateException("Discovery hook is already attached");
+        this.runtime = java.util.Objects.requireNonNull(runtime);
+    }
+
+    @Override
+    public void tick() {
+        register();
     }
 
     public synchronized void register() {
-        if (manager != null || !runtime.isOpen() || !FabricLoader.getInstance().isModLoaded("syncmatica")) return;
+        if (manager != null || runtime == null || !runtime.isOpen() || !FabricLoader.getInstance().isModLoaded("syncmatica")) return;
         try {
             Class<?> entrypoint = Class.forName("ch.endte.syncmatica.Syncmatica");
             Class<?> contextType = Class.forName("ch.endte.syncmatica.Context");
             Object key = entrypoint.getField("SERVER_CONTEXT").get(null);
-            Object context = entrypoint.getMethod("getContext", net.minecraft.resources.Identifier.class).invoke(null, key);
+            //? if >=26.2 {
+            Object context = entrypoint.getMethod("getContext", Identifier.class).invoke(null, key);
+            //?} else {
+            /*Object context = entrypoint.getMethod("getContext", ResourceLocation.class).invoke(null, key);
+            *///?}
             if (context == null || !Boolean.TRUE.equals(contextType.getMethod("isServer").invoke(context))) return;
             Object candidate = contextType.getMethod("getSyncmaticManager").invoke(context);
             if (candidate == null) return;
@@ -42,14 +59,16 @@ public final class SyncmaticaDiscoveryAdapter implements Consumer<Object>, AutoC
 
     @Override
     public synchronized void close() {
-        if (manager == null) return;
         try {
-            manager.getClass().getMethod("removeServerPlacementConsumer", Consumer.class).invoke(manager, this);
+            if (manager != null) {
+                manager.getClass().getMethod("removeServerPlacementConsumer", Consumer.class).invoke(manager, this);
+            }
         } catch (ReflectiveOperationException error) {
             SyncMaterial.LOGGER.warn("停止 Syncmatica 发现监听失败", error);
         } finally {
             manager = null;
             root = null;
+            runtime = null;
         }
     }
 
@@ -57,18 +76,20 @@ public final class SyncmaticaDiscoveryAdapter implements Consumer<Object>, AutoC
     public void accept(Object placement) {
         Object currentManager;
         Path currentRoot;
+        ServerRuntime currentRuntime;
         synchronized (this) {
             currentManager = manager;
             currentRoot = root;
+            currentRuntime = runtime;
         }
-        if (placement == null || currentManager == null || currentRoot == null || !runtime.isOpen()) return;
+        if (placement == null || currentManager == null || currentRoot == null || currentRuntime == null || !currentRuntime.isOpen()) return;
         try {
             Class<?> type = placement.getClass();
             Object placementId = type.getMethod("getId").invoke(placement);
             UUID id = placementId instanceof UUID value ? value : UUID.fromString(placementId.toString());
             Object active = currentManager.getClass().getMethod("getPlacement", UUID.class).invoke(currentManager, id);
             if (active == null) {
-                runtime.removeProject(id.toString());
+                currentRuntime.removeProject(id.toString());
                 return;
             }
             String hash = type.getMethod("getHash").invoke(placement).toString();
@@ -87,7 +108,7 @@ public final class SyncmaticaDiscoveryAdapter implements Consumer<Object>, AutoC
             Object owner = type.getMethod("getOwner").invoke(placement);
             String ownerName = owner == null ? "unknown" : owner.getClass().getMethod("getName").invoke(owner).toString();
             var metadata = new SchematicMetadata(id.toString(), name, realFile, hash, new PlayerIdentity(null, ownerName));
-            runtime.ingest(metadata).whenComplete((ignored, error) -> {
+            currentRuntime.ingest(metadata).whenComplete((ignored, error) -> {
                 if (error != null) SyncMaterial.LOGGER.warn("Syncmatica 发现的原理图导入失败: {}", id, error);
             });
         } catch (Exception error) {

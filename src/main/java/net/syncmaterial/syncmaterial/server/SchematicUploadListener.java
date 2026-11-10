@@ -39,7 +39,6 @@ public class SchematicUploadListener implements Consumer<Object> {
             Object id = placementClass.getMethod("getId").invoke(placement);
             Path schematicFile = (Path) placementClass.getMethod("getFile").invoke(placement);
             String schematicId = id.toString();
-            String schematicName = (String) placementClass.getMethod("getName").invoke(placement);
 
             // 获取所有者信息
             Object owner = placementClass.getMethod("getOwner").invoke(placement);

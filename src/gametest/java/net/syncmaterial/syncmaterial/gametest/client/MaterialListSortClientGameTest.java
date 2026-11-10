@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
@@ -123,7 +124,7 @@ public class MaterialListSortClientGameTest implements FabricClientGameTest {
             });
         } finally {
             ctx.runOnClient(client -> {
-                client.setScreenAndShow(null);
+                ClientScreenAccess.showScreen(client, null);
                 InventoryWatcher.clearContext();
             });
         }
@@ -138,7 +139,7 @@ public class MaterialListSortClientGameTest implements FabricClientGameTest {
 
     private void clickColumn(ClientGameTestContext ctx, int column) {
         ctx.runOnClient(client -> {
-            if (client.gui.screen() instanceof GuiMaterialList gui) {
+            if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
                 gui.handleHeaderClick(column);
             } else {
                 throw new AssertionError("材料列表未打开");
@@ -155,7 +156,7 @@ public class MaterialListSortClientGameTest implements FabricClientGameTest {
         long deadline = System.currentTimeMillis() + 10_000;
         while (System.currentTimeMillis() < deadline) {
             int dirtAvail = ctx.computeOnClient(client -> {
-                if (!(client.gui.screen() instanceof GuiMaterialList gui)) {
+                if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) {
                     throw new AssertionError("材料列表未打开");
                 }
                 for (MaterialListEntry e : gui.getMaterialList().getMaterialsAll()) {
@@ -171,7 +172,7 @@ public class MaterialListSortClientGameTest implements FabricClientGameTest {
 
     private void assertOrder(ClientGameTestContext ctx, String phase, List<Integer> expectedIds) {
         List<Integer> actual = ctx.computeOnClient(client -> {
-            if (!(client.gui.screen() instanceof GuiMaterialList gui)) {
+            if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) {
                 throw new AssertionError("材料列表未打开");
             }
             return gui.getCurrentEntryIds();

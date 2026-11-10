@@ -241,7 +241,11 @@ public class StagingAreaScanGameTest {
                 testId, "Shulker Test", "/test.litematic");
 
             // 装有 64 钻石的潜影盒
+            //? if >=26.2 {
             ItemStack shulker = new ItemStack(Blocks.DYED_SHULKER_BOX.purple());
+            //?} else {
+            /*ItemStack shulker = new ItemStack(Blocks.PURPLE_SHULKER_BOX);
+            *///?}
             shulker.set(DataComponents.CONTAINER,
                 ItemContainerContents.fromItems(List.of(new ItemStack(Items.DIAMOND, 64))));
 

@@ -6,33 +6,41 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 **SyncMaterial** — Litematica/Syncmatica 的增强模组，为服务器共享原理图提供材料统计和团队协作收集功能。
 
-- **平台**: Fabric (Minecraft 1.21.7 ~ 1.21.8)
-- **Java**: 21
-- **构建**: Gradle 8.x + Fabric Loom 1.14.10
-- **核心依赖**: Fabric API 0.129.0+1.21.7, MaLiLib 0.25.7, SQLite JDBC 3.45.1.0
-- **可选依赖**: Litematica 0.23.6 (`modCompileOnly`), Syncmatica 0.3.15 (`modCompileOnly`)
+- **平台**: Fabric（Minecraft 1.21.7、1.21.8、26.2，同一开发线）
+- **Java**: 构建 JVM 25；共享模块及 1.21.x 编译目标 21，26.2 目标 25
+- **构建**: Gradle 9.8.2 + Fabric Loom 1.19.4 + Stonecutter 0.10
+- **版本依赖**: 见 `versions/<Minecraft>/gradle.properties`，不能用 26.2 构件替代 1.21.x 构件
+- **共享依赖**: SQLite JDBC 3.45.1.0；业务模块位于 `shared/`，禁止 Minecraft/Fabric/可选模组依赖
+
+多版本源码、detached 构建与测试矩阵见 [`docs/rewrite/multiversion.md`](docs/rewrite/multiversion.md)。旧 LTS 分支仅作历史参考，新功能和修复不再人工跨版本分支移植。
 
 ## 构建命令
 
 ```bash
-./gradlew build           # 构建 jar → build/libs/Syncmaterial-1-<version>.jar
-./gradlew runClient       # 启动客户端测试
-./gradlew runServer       # 启动专用服务器
-./gradlew runData         # 数据生成
-./gradlew clean           # 清理构建缓存
+JAVA_HOME=<Java25> ./gradlew buildAllVersions        # 三节点发行 jar
+JAVA_HOME=<Java25> ./gradlew checkAllVersions        # 共享纯测 + 平台/服务端回归
+JAVA_HOME=<Java25> ./gradlew testAllClients          # 三运行时客户端回归
+JAVA_HOME=<Java25> ./gradlew testOptionalDependencies # 缺可选依赖的双后端启动验证
+JAVA_HOME=<Java25> ./gradlew :26.2:runClient          # 单节点客户端调试
+JAVA_HOME=<Java25> ./gradlew :1.21.8:runServer        # 单节点专服调试
 ```
+
+产物位于 `versions/<Minecraft>/build/libs/SyncMaterial-<Minecraft>-<mod_version>.jar`。
 
 ## 测试
 
 ```bash
-./gradlew test            # 跑全部测试：单元测试 + GameTest（test 任务依赖 runGameTest）+ JaCoCo 报告
+./gradlew :shared:test                              # 无 Minecraft 的纯业务测试
+./gradlew :26.2:test :26.2:runGameTest                # 平台单测 + 旧后端 GameTest
+./gradlew :26.2:runFoundationGameTest                 # 独立新后端 GameTest
+./gradlew :26.2:runClientGameTest :26.2:runFoundationClientGameTest
 ```
 
-- **单元测试**在 `src/test/java`：纯逻辑测试不依赖 MC 运行时；需要注册表的测试用 `Bootstrap.initialize()`（参考 StatisticsProcessorTest）；网络 handler 测试用 Mockito `mockStatic`（参考 Phase4HandlerTest）
-- **GameTest** 在 `src/gametest/java`：真实服务器环境集成测试。**新类必须注册到 `src/gametest/resources/fabric.mod.json` 的 `fabric-gametest` entrypoint，否则不会运行**
-- 数据库测试直接实例化 `SchematicDatabase.initialize(临时路径)`，**不要**在测试里手工复制 DDL（影子 schema 漂移时测试会假绿）
-- GameTest 运行目录配置在 `/tmp/syncmaterial-gametest/run`（本仓库在外置 exFAT 磁盘上，Gradle 文件锁不可用，本机跑测试需先 `rsync` 到 /tmp 再执行）
-- CI（`.github/workflows/ci.yml`）通过 `./gradlew build` 跑全部测试，并在 Job Summary 输出测试数与覆盖率
+- 纯业务测试在 `shared/src/test/java`，不得加载 Minecraft/Fabric；平台测试在根 `src/test/java`，各节点生成后执行。需要注册表的测试用该节点 `Bootstrap.bootStrap()` 与版本化测试垫片。
+- GameTest 在 `src/gametest/java`。旧后端注册到 `src/gametest/resources/fabric.mod.json`，Foundation 注册到 `src/foundationtest/resources/fabric.mod.json`，缺依赖测试注册到 `src/optionaltest/resources/fabric.mod.json`；新类未注册不得当作已运行。
+- 数据库测试通过生产仓储创建 schema；迁移夹具使用明确的历史版本构建方式，不能手写影子 DDL 随意替代当前 schema。
+- 本机位于 exFAT，先复制受控源码到独立 `/tmp` 工程，再运行 Gradle；测试目录在副本 `.runs/<Minecraft>/`，不能跨工作区共用。
+- CI 每个节点显式跑平台单测、旧后端／Foundation 服务端与客户端回归。共享测试仅统计一次；构建成功不能当客户端已测。
 
 ## 架构要点
 
@@ -118,7 +126,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 ### Mixin 规范
 
 - 每个 Mixin 类只针对**一个目标类**，不能将多个目标放在同一个 `@Mixin(targets = {...})` 中
-- `SyncmaticaIntegrationMixin` 在 `mixins` 数组中（非 client），注入 LitematicManager.setContext
+- `SyncmaticaIntegrationMixin` 在 `mixins` 数组中（非 client），注入 LitematicManager.setActiveContext；Foundation 用运行时平台 hook 绑定服务端上下文。
 
 ### 关键实现细节
 
@@ -164,9 +172,9 @@ SQLite（`SchematicDatabase.java`，AutoCloseable）：
 ## 代码规范
 
 - **提交信息使用中文**
-- 修改代码时同步更新 `build.gradle` 中的版本号
-- `README.md` 中的版本号不需要同步更新
-- 版本格式: `{mod_version}+{mc_version}`（如 `2.0.0+1.21.7`）
+- 修改代码时更新根 `gradle.properties` 的唯一 `mod_version`，节点版本由构建派生
+- `README.md` 中不维护手写 mod 版本号
+- 发行版本保持 `<Minecraft>-<mod_version>`，不能在各节点分别硬编码 mod 版本
 
 ## 工作流约定
 
@@ -174,9 +182,9 @@ SQLite（`SchematicDatabase.java`，AutoCloseable）：
 
 顺序固定为：
 
-1. 跑 `./gradlew build spotbugsMain` —— 单测、GameTest 必须全绿，SpotBugs 条数不得超过基线（当前 28 条）
+1. 跑 `./gradlew buildAllVersions checkAllVersions testAllClients testOptionalDependencies` —— 三节点单测、GameTest、客户端和缺依赖启动全部通过；静态告警按共享／平台基线核对，不增加未经批准的新告警，不能将三节点数量直接相加与单版本 28 条比较
 2. 扫调试残留（`System.out` / `printStackTrace` / `TODO` / `FIXME`）
-3. 同步 `build.gradle` 版本号
+3. 核对根 `gradle.properties` 的 `mod_version` 与各节点产物版本
 4. 中文提交信息，说明改了什么、为什么这么改
 5. `git push` 到当前分支，并确认 CI 结果
 
@@ -184,7 +192,7 @@ SQLite（`SchematicDatabase.java`，AutoCloseable）：
 
 ## 发布流程
 
-1. 更新 `build.gradle` 版本号 → 提交
+1. 更新根 `gradle.properties` 版本号 → 完成三节点验证 → 提交
 2. 编写 `.github/release-notes/latest.md`（中文，面向玩家） → 提交
 3. 打 tag：`git tag v<版本号>`（如 `v1.21.7-0.2.0-alpha.1`）
 4. 推送 tag：`git push origin v<版本号>` → GitHub Actions 自动构建发布

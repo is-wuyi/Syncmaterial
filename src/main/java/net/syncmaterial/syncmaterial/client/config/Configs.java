@@ -6,7 +6,11 @@ import fi.dy.masa.malilib.config.IConfigBase;
 import fi.dy.masa.malilib.config.IConfigHandler;
 import fi.dy.masa.malilib.config.options.*;
 import fi.dy.masa.malilib.util.FileUtils;
+//? if >=26.2 {
 import fi.dy.masa.malilib.util.data.json.JsonUtils;
+//?} else {
+/*import fi.dy.masa.malilib.util.JsonUtils;
+*///?}
 import net.syncmaterial.syncmaterial.SyncMaterial;
 
 import java.nio.file.Files;
