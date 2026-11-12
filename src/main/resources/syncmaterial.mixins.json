@@ -3,6 +3,8 @@
   "package": "net.syncmaterial.syncmaterial.mixin",
   "mixins": [
     "BlockEntityMixin",
+    "ChunkAccessMixin",
+    "LevelChunkMixin",
     "SyncmaticaIntegrationMixin"
   ],
   "client": [

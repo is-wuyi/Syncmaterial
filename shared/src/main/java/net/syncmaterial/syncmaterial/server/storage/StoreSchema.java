@@ -18,7 +18,8 @@ import java.util.List;
 
 /** Fresh schema, version gate and migration for the Foundation store. */
 final class StoreSchema {
-    static final int SCHEMA_VERSION = 2;
+    static final int SCHEMA_VERSION = 3;
+
     private static final int BUSY_TIMEOUT_MILLIS = 5_000;
     private static final DateTimeFormatter BACKUP_TIMESTAMP =
             DateTimeFormatter.ofPattern("uuuuMMdd-HHmmss-SSS").withZone(ZoneOffset.UTC);
@@ -127,6 +128,8 @@ final class StoreSchema {
                 x2 INTEGER NOT NULL,
                 y2 INTEGER NOT NULL,
                 z2 INTEGER NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+                geometry_revision INTEGER NOT NULL DEFAULT 0 CHECK (geometry_revision >= 0),
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 CHECK (kind <> 'staging_area' OR project_id IS NOT NULL),
@@ -152,6 +155,100 @@ final class StoreSchema {
             """,
             """
             CREATE INDEX IF NOT EXISTS warehouse_refs_area ON warehouse_refs(area_id)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS store_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+                inventory_revision INTEGER NOT NULL DEFAULT 0 CHECK (inventory_revision >= 0),
+                scan_epoch INTEGER NOT NULL DEFAULT 0 CHECK (scan_epoch >= 0),
+                observation_sequence INTEGER NOT NULL DEFAULT 0 CHECK (observation_sequence >= 0)
+            )
+            """,
+            """
+            INSERT OR IGNORE INTO store_state
+                (id, revision, inventory_revision, scan_epoch, observation_sequence)
+                VALUES (1, 0, 0, 0, 0)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS containers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                world TEXT NOT NULL,
+                x INTEGER NOT NULL,
+                y INTEGER NOT NULL,
+                z INTEGER NOT NULL,
+                warning TEXT NOT NULL DEFAULT '',
+                observation_sequence INTEGER NOT NULL DEFAULT 0 CHECK (observation_sequence >= 0),
+                updated_at INTEGER NOT NULL,
+                UNIQUE (world, x, y, z)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS container_items (
+                container_id INTEGER NOT NULL,
+                item_id TEXT NOT NULL,
+                count INTEGER NOT NULL CHECK (count >= 0),
+                PRIMARY KEY (container_id, item_id),
+                FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS container_tombstones (
+                world TEXT NOT NULL,
+                x INTEGER NOT NULL,
+                y INTEGER NOT NULL,
+                z INTEGER NOT NULL,
+                observation_sequence INTEGER NOT NULL CHECK (observation_sequence >= 0),
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (world, x, y, z)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS area_chunks (
+                area_id INTEGER NOT NULL,
+                geometry_revision INTEGER NOT NULL,
+                world TEXT NOT NULL,
+                chunk_x INTEGER NOT NULL,
+                chunk_z INTEGER NOT NULL,
+                state TEXT NOT NULL CHECK (state IN ('scanning', 'complete', 'stale', 'dirty')),
+                generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0),
+                dirty_generation INTEGER NOT NULL DEFAULT 0 CHECK (dirty_generation >= 0),
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (area_id, geometry_revision, world, chunk_x, chunk_z),
+                FOREIGN KEY (area_id) REFERENCES areas(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS area_chunks_world_chunk
+                ON area_chunks(world, chunk_x, chunk_z)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS chunk_generations (
+                world TEXT NOT NULL,
+                chunk_x INTEGER NOT NULL,
+                chunk_z INTEGER NOT NULL,
+                generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0),
+                PRIMARY KEY (world, chunk_x, chunk_z)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS area_chunk_containers (
+                area_id INTEGER NOT NULL,
+                geometry_revision INTEGER NOT NULL,
+                world TEXT NOT NULL,
+                chunk_x INTEGER NOT NULL,
+                chunk_z INTEGER NOT NULL,
+                container_id INTEGER NOT NULL,
+                PRIMARY KEY (area_id, geometry_revision, world, chunk_x, chunk_z, container_id),
+                FOREIGN KEY (area_id, geometry_revision, world, chunk_x, chunk_z)
+                    REFERENCES area_chunks(area_id, geometry_revision, world, chunk_x, chunk_z)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS area_chunk_containers_container
+                ON area_chunk_containers(container_id)
             """
     );
 
@@ -257,6 +354,16 @@ final class StoreSchema {
                     statement.execute(
                             "ALTER TABLE projects ADD COLUMN interpretation_id TEXT NOT NULL "
                                     + "DEFAULT 'unversioned'");
+                }
+                if (!hasColumn(connection, "areas", "revision")) {
+                    statement.execute(
+                            "ALTER TABLE areas ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 "
+                                    + "CHECK (revision >= 0)");
+                }
+                if (!hasColumn(connection, "areas", "geometry_revision")) {
+                    statement.execute(
+                            "ALTER TABLE areas ADD COLUMN geometry_revision INTEGER NOT NULL DEFAULT 0 "
+                                    + "CHECK (geometry_revision >= 0)");
                 }
                 statement.execute("PRAGMA user_version=" + SCHEMA_VERSION);
             }

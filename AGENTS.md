@@ -39,7 +39,7 @@ JAVA_HOME=<Java25> ./gradlew :1.21.8:runServer        # 单节点专服调试
 - 纯业务测试在 `shared/src/test/java`，不得加载 Minecraft/Fabric；平台测试在根 `src/test/java`，各节点生成后执行。需要注册表的测试用该节点 `Bootstrap.bootStrap()` 与版本化测试垫片。
 - GameTest 在 `src/gametest/java`。旧后端注册到 `src/gametest/resources/fabric.mod.json`，Foundation 注册到 `src/foundationtest/resources/fabric.mod.json`，缺依赖测试注册到 `src/optionaltest/resources/fabric.mod.json`；新类未注册不得当作已运行。
 - 数据库测试通过生产仓储创建 schema；迁移夹具使用明确的历史版本构建方式，不能手写影子 DDL 随意替代当前 schema。
-- 本机位于 exFAT，先复制受控源码到独立 `/tmp` 工程，再运行 Gradle；测试目录在副本 `.runs/<Minecraft>/`，不能跨工作区共用。
+- 本机外置／网络文件系统不直接运行 Gradle；复制受控源码到本地持久目录的独立工程，测试目录在副本 `.runs/<Minecraft>/`，不能跨工作区共用。未提交源码不得只放 `/tmp`；临时产物可重建。
 - CI 每个节点显式跑平台单测、旧后端／Foundation 服务端与客户端回归。共享测试仅统计一次；构建成功不能当客户端已测。
 
 ## 架构要点
@@ -97,6 +97,8 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 | HelloS2CPacket | 版本握手回应，含服务端协议版本与是否接受该客户端（**格式永久冻结**） |
 | MaterialStatsResponseS2CPacket | 材料清单响应 |
 | MaterialStatusS2CPacket | 材料状态（认领数 + 认领者） |
+| MaterialCatalogUpdateS2CPacket | Foundation 材料目录原地更新（协议 2） |
+| AreaInventorySnapshotS2CPacket | Foundation 权威去重库存与新鲜度（协议 3，绑定目录修订与库存序号） |
 | CollaborationStatusS2CPacket | 协作状态（含参与者列表） |
 | StagingAreaConfigResponseS2CPacket | 备货区配置响应（含完整区域列表） |
 | RescanStagingAreaResponseS2CPacket | 刷新结果（success + message） |
@@ -130,7 +132,10 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 
 ### 关键实现细节
 
-- `countMissing` = `max(0, countTotal - stagingCount - allPlayersCount)`，HUD/GUI 直接使用
+- 收集缺口 = `max(0, countTotal - stagingCount - warehouseCount - allPlayersCount)`；搬运口径见 `ProgressFormulas.pickupMissing`，HUD/GUI 使用同一公式
+- Foundation 区域库存同项目按物理来源去重，备货区优先；重叠提示与未知／过期警告分开
+- Foundation 扫描只读已加载区块的现有方块实体；不初始化待加载实体，不展开 loot；卸载不等于拆箱
+- 区域扫描批次架构、协议与验收见 `docs/rewrite/area-scanning.md`
 - `StagingAreaSelector` 使用 `isPressed()` 而非 `wasPressed()` 检测鼠标点击（避免被游戏输入系统消耗）
 - HUD 颜色使用 ARGB 格式（`0xFFFFFFFF` 完全不透明白色）
 - `ModNetworkHandler` 所有 C2S handler 都有输入验证

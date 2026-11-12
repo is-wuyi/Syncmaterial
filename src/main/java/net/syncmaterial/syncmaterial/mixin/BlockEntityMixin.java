@@ -4,6 +4,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.Container;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.core.BlockPos;
+import net.syncmaterial.syncmaterial.adapter.minecraft.FoundationAreaEvents;
 import net.syncmaterial.syncmaterial.server.StagingAreaManager;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,6 +20,7 @@ public abstract class BlockEntityMixin {
         if (mgr != null) {
             this.withStagingAreaContext(mgr, mgr::scheduleContainerScan);
         }
+        this.withServerContainerContext(FoundationAreaEvents::containerChanged);
     }
 
     @Inject(method = "setRemoved", at = @At("HEAD"))
@@ -27,6 +29,7 @@ public abstract class BlockEntityMixin {
         if (mgr != null) {
             this.withStagingAreaContext(mgr, mgr::onContainerRemoved);
         }
+        this.withServerContainerContext(FoundationAreaEvents::containerRemovalSuspected);
     }
 
     private void withStagingAreaContext(StagingAreaManager mgr, java.util.function.BiConsumer<BlockPos, ServerLevel> action) {
@@ -46,5 +49,19 @@ public abstract class BlockEntityMixin {
         if (mgr.isInAnyContainerArea(pos, world)) {
             action.accept(pos, world);
         }
+    }
+
+    private void withServerContainerContext(java.util.function.BiConsumer<ServerLevel, BlockPos> action) {
+        BlockEntity self = (BlockEntity) (Object) this;
+
+        if (!(self instanceof Container)) {
+            return;
+        }
+
+        if (self.getLevel() == null || self.getLevel().isClientSide()) {
+            return;
+        }
+
+        action.accept((ServerLevel) self.getLevel(), self.getBlockPos());
     }
 }

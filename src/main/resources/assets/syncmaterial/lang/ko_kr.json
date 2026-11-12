@@ -3,6 +3,8 @@
     "syncmaterial.gui.title.material_list_pickup": "재료 목록 · 수령 표시기",
     "syncmaterial.gui.label.warehouse_has": "창고에 %d개",
     "syncmaterial.gui.label.freshness_warning": "⚠ 다음 구역이 아직 초기화되지 않았습니다:",
+    "syncmaterial.gui.label.area_overlap_warning": "구역 겹침 — 재고는 한 번만 집계",
+    "syncmaterial.gui.tooltip.area_overlap_warning": "설정된 준비 구역과 창고 범위가 겹칩니다. 프로젝트 내에서는 각 인벤토리 출처가 한 번만 집계되며, 준비 구역이 참조된 창고보다 우선합니다.",
     "syncmaterial.gui.label.no_warehouses": "사용 가능한 창고가 없습니다",
     "syncmaterial.gui.label.loading": "로딩 중...",
     "syncmaterial.gui.title.management": "소유자 관리",

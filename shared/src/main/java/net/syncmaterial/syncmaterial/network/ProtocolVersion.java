@@ -15,8 +15,10 @@ package net.syncmaterial.syncmaterial.network;
 public final class ProtocolVersion
 {
     /** 当前协议版本。握手时双端各自声明自己的这个值。 */
-    public static final int CURRENT = 2;
+    public static final int CURRENT = 3;
     public static final int MATERIAL_CATALOG_UPDATES = 2;
+    /** 区域库存权威快照：与材料目录投递序号绑定，带已知/未知与重叠警告语义。 */
+    public static final int AREA_INVENTORY_SNAPSHOTS = 3;
 
     /**
      * 服务端可接受的最低客户端协议版本。

@@ -202,6 +202,11 @@ class Guard:
         else:
             self.add("shared.spotbugs", FAIL if count > limit else PASS,
                      "shared SpotBugs %d (max %d)" % (count, limit))
+        rows = spotbugs_instances(self.root / "shared/build/reports/spotbugs/main.xml")
+        if rows is not None:
+            new_rows = new_spotbugs_findings(rows, self.baseline, "shared")
+            self.add("shared.spotbugs.regressions", FAIL if new_rows else PASS,
+                     "new findings: %s" % new_rows[:12] if new_rows else "no new shared SpotBugs findings")
         self.check_shared_jar()
 
     def check_shared_jar(self):
@@ -584,6 +589,10 @@ class Guard:
         else:
             self.add("spotbugs.%s" % node, FAIL if count > limit else PASS,
                      "SpotBugs %d (max %d)" % (count, limit))
+            rows = spotbugs_instances(self.root / "versions" / node / "build/reports/spotbugs/main.xml")
+            new_rows = new_spotbugs_findings(rows, self.baseline, node)
+            self.add("spotbugs.regressions.%s" % node, FAIL if new_rows else PASS,
+                     "new findings: %s" % new_rows[:12] if new_rows else "no new platform SpotBugs findings")
 
 
 # ------------------------------------------------------------------ helpers
@@ -924,6 +933,7 @@ def junit_summary(directory):
         return None
     tests = skipped = failures = errors = 0
     classes = set()
+    class_tests = Counter()
     try:
         for path in files:
             root = ET.parse(str(path)).getroot()
@@ -934,14 +944,16 @@ def junit_summary(directory):
                 failures += int(suite.get("failures", 0) or 0)
                 errors += int(suite.get("errors", 0) or 0)
             for case in root.iter("testcase"):
-                classes.add(case.get("classname", ""))
+                name = case.get("classname", "")
+                classes.add(name)
+                class_tests[name] += 1
                 skipped += 1 if case.find("skipped") is not None else 0
                 failures += 1 if case.find("failure") is not None else 0
                 errors += 1 if case.find("error") is not None else 0
     except Exception:
         return None
     return {"tests": tests, "skipped": skipped, "failures": failures,
-            "errors": errors, "classes": classes}
+            "errors": errors, "classes": classes, "class_tests": class_tests}
 
 
 def junit_issues(summary, baseline, key):
@@ -953,7 +965,38 @@ def junit_issues(summary, baseline, key):
                       % (summary["skipped"], summary["failures"], summary["errors"]))
     if summary["tests"] <= 0:
         issues.append("zero tests")
+    suite = "shared" if key == "shared_min_tests" else "platform"
+    required = set(baseline.get("junit", {}).get("required_classes", {}).get(suite, []))
+    missing = required - summary["classes"]
+    if missing:
+        issues.append("required regression classes missing: %s" % sorted(missing))
+    expected_counts = baseline.get("junit", {}).get("required_class_min_tests", {}).get(suite, {})
+    incomplete = {name: summary.get("class_tests", {}).get(name, 0)
+                  for name, count in expected_counts.items()
+                  if summary.get("class_tests", {}).get(name, 0) < count}
+    if incomplete:
+        issues.append("required regression test counts below minimum: %s" % incomplete)
     return issues
+
+
+def spotbugs_instances(path):
+    try:
+        root = ET.parse(str(path)).getroot()
+        if root.tag != "BugCollection":
+            return None
+        return Counter((bug.get("type"), bug.find("Class").get("classname"))
+                       for bug in root.findall("BugInstance"))
+    except Exception:
+        return None
+
+
+def new_spotbugs_findings(rows, baseline, scope):
+    expected = baseline.get("spotbugs", {}).get("accepted_findings", {}).get(scope)
+    if rows is None or expected is None:
+        return []
+    accepted = Counter({(item["type"], item["class"]): int(item["count"]) for item in expected})
+    return [{"type": kind, "class": name, "count": count}
+            for (kind, name), count in sorted((rows - accepted).items())]
 
 
 def spotbugs_count(path):

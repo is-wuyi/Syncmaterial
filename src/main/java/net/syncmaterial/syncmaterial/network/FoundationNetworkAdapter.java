@@ -1,11 +1,13 @@
 package net.syncmaterial.syncmaterial.network;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -15,6 +17,7 @@ import net.minecraft.world.item.ItemStack;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.api.MaterialEntry;
 import net.syncmaterial.syncmaterial.compat.McCompat;
+import net.syncmaterial.syncmaterial.core.AreaInventoryView;
 import net.syncmaterial.syncmaterial.core.ClaimSnapshot;
 import net.syncmaterial.syncmaterial.core.MaterialSnapshot;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
@@ -23,8 +26,7 @@ import net.syncmaterial.syncmaterial.server.runtime.ServerRuntime;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry;
 
 public final class FoundationNetworkAdapter {
-    private static final List<CollaborationStatusS2CPacket.AreaFreshnessInfo> UNKNOWN_STAGING = List.of(
-            new CollaborationStatusS2CPacket.AreaFreshnessInfo("staging_area", 0, "备货区", "尚未接入区域扫描，库存未知"));
+    private static final Map<ServerRuntime, FoundationDeliveryTracker> DELIVERIES = new WeakHashMap<>();
 
     private FoundationNetworkAdapter() {}
 
@@ -37,36 +39,44 @@ public final class FoundationNetworkAdapter {
             if (runtime == null) return;
             runtime.connected(player.getUUID());
             long connection = runtime.connection(player.getUUID());
+            if (connection == 0) return;
+            var token = delivery(runtime).beginProject(player.getUUID(), connection, request.schematicId(), true);
             read(runtime, request.schematicId()).whenComplete((snapshot, error) -> execute(server, runtime, () -> {
-                if (connection != runtime.connection(player.getUUID())) return;
+                ServerPlayer current = currentPlayer(server, runtime, token.playerId(), connection);
+                if (current == null || !delivery(runtime).acceptProject(token)) return;
                 if (error != null) {
-                    failed(player, error);
+                    failed(current, error);
                     return;
                 }
                 if (snapshot.isEmpty()) {
-                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal("原理图尚未就绪，请稍后重试"));
+                    current.sendSystemMessage(net.minecraft.network.chat.Component.literal("原理图尚未就绪，请稍后重试"));
                     return;
                 }
                 try {
                     ProjectData data = snapshot.get();
                     var project = data.project();
-                    boolean mainOwner = isOwner(project.owner(), player);
-                    boolean isOwner = mainOwner || project.deputies().contains(player.getName().getString());
+                    if (!runtime.isMaterialSnapshotCurrent(project)) throw new StaleMaterialSnapshotException();
+                    boolean mainOwner = isOwner(project.owner(), current);
+                    boolean isOwner = mainOwner || project.deputies().contains(current.getName().getString());
                     List<MaterialEntry> materials = materialEntries(project);
                     List<CollaborationStatusS2CPacket> statuses = statuses(runtime, data);
-                    runtime.subscribe(player.getUUID(), project.id());
-                    send(player, new MaterialStatsResponseS2CPacket(project.id(), project.name(), materials,
+                    runtime.subscribe(token.playerId(), project.id());
+                    send(current, new MaterialStatsResponseS2CPacket(project.id(), project.name(), materials,
                             isOwner, mainOwner, project.owner().name(), project.deputies(), project.allowSelfClaim()));
-                    long deliveryRevision = runtime.catalogs().sent(player.getUUID(), connection, project);
-                    if (ProtocolHandshake.supports(player, ProtocolVersion.MATERIAL_CATALOG_UPDATES)) {
-                        send(player, new MaterialCatalogUpdateS2CPacket(project.id(), project.name(), deliveryRevision, materials));
-                    } else {
-                        player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                                "实验后端：旧客户端显示的收集完成不代表有效备货；静止超过 10 秒的背包库存不计入可用量。更新客户端可支持心跳与清单原地更新"));
+                    long revision = runtime.catalogs().sent(token.playerId(), connection, project);
+                    if (ProtocolHandshake.supports(current, ProtocolVersion.MATERIAL_CATALOG_UPDATES)) {
+                        send(current, new MaterialCatalogUpdateS2CPacket(project.id(), project.name(), revision, materials));
                     }
-                    for (var status : statuses) send(player, status);
+                    if (!ProtocolHandshake.supports(current, ProtocolVersion.AREA_INVENTORY_SNAPSHOTS)) {
+                        current.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                                "实验后端：库存已按物理容器去重；请更新客户端以区分准备状态的未知、过期和已确认。静止超过 10 秒的背包库存不计入可用量"));
+                    }
+                    for (var status : statuses) send(current, status);
+                    sendInventory(runtime, current, data, revision, token.sequence());
+                    runtime.requestBroadcast(project.id());
+                    FoundationAreaNetworkAdapter.refreshWarehouseAreas(server, runtime, current);
                 } catch (Exception conversionError) {
-                    failed(player, conversionError);
+                    failed(current, conversionError);
                 }
             }));
         });
@@ -82,7 +92,12 @@ public final class FoundationNetworkAdapter {
         ServerPlayNetworking.registerGlobalReceiver(MaterialListCloseC2SPacket.ID, (request, context) -> {
             if (!allowed(context.player(), request.schematicId())) return;
             ServerRuntime runtime = ServerRuntimeRegistry.get(context.server());
-            if (runtime != null) runtime.unsubscribe(context.player().getUUID(), request.schematicId());
+            if (runtime != null) {
+                delivery(runtime).forgetProject(context.player().getUUID(), runtime.connection(context.player().getUUID()), request.schematicId());
+                runtime.unsubscribe(context.player().getUUID(), request.schematicId());
+                FoundationAreaNetworkAdapter.refreshWarehouseAreas(context.server(), runtime, context.player());
+                FoundationAreaNetworkAdapter.sendWarehouseContainers(context.server(), runtime, context.player());
+            }
         });
 
         ServerPlayNetworking.registerGlobalReceiver(JoinCollaborationC2SPacket.ID, (request, context) -> {
@@ -94,9 +109,11 @@ public final class FoundationNetworkAdapter {
             ServerRuntime runtime = ServerRuntimeRegistry.get(server);
             if (runtime == null) return;
             PlayerIdentity identity = identity(player);
-            long connection = runtime.connection(player.getUUID());
+            UUID playerId = player.getUUID();
+            long connection = runtime.connection(playerId);
+            if (connection == 0) return;
             runtime.store().findProject(request.schematicId()).thenCompose(project -> {
-                if (project.isEmpty()) return CompletableFuture.completedFuture(false);
+                if (project.isEmpty() || connection != runtime.connection(playerId)) return CompletableFuture.completedFuture(false);
                 ProjectSnapshot value = project.get();
                 if (!runtime.isMaterialSnapshotCurrent(value)) {
                     return CompletableFuture.failedFuture(new StaleMaterialSnapshotException());
@@ -108,13 +125,13 @@ public final class FoundationNetworkAdapter {
                 }
                 return runtime.store().join(request.schematicId(), request.materialId(), identity);
             }).thenCompose(joined -> {
-                if (!joined || connection == 0 || connection != runtime.connection(player.getUUID())) {
-                    return CompletableFuture.completedFuture(null);
-                }
+                if (!joined || connection != runtime.connection(playerId)) return CompletableFuture.completedFuture(null);
                 long count = request.inventoryCounts().getOrDefault(request.materialId(), 0);
                 return runtime.reportInventory(request.schematicId(), request.materialId(), identity, count);
             }).whenComplete((ignored, error) -> execute(server, runtime, () -> {
-                if (error != null) failed(player, error);
+                ServerPlayer current = currentPlayer(server, runtime, playerId, connection);
+                if (current == null) return;
+                if (error != null) failed(current, error);
                 else runtime.requestBroadcast(request.schematicId());
             }));
         });
@@ -123,9 +140,13 @@ public final class FoundationNetworkAdapter {
             if (!allowed(context.player(), request.schematicId()) || request.materialId() <= 0) return;
             ServerRuntime runtime = ServerRuntimeRegistry.get(context.server());
             if (runtime == null) return;
+            UUID playerId = context.player().getUUID();
+            long connection = runtime.connection(playerId);
             runtime.leave(request.schematicId(), request.materialId(), identity(context.player()))
                     .whenComplete((changed, error) -> execute(context.server(), runtime, () -> {
-                        if (error != null) failed(context.player(), error);
+                        ServerPlayer current = currentPlayer(context.server(), runtime, playerId, connection);
+                        if (current == null) return;
+                        if (error != null) failed(current, error);
                         else runtime.requestBroadcast(request.schematicId());
                     }));
         });
@@ -134,30 +155,17 @@ public final class FoundationNetworkAdapter {
             if (!allowed(context.player(), request.schematicId()) || request.materialId() <= 0 || request.count() < 0) return;
             ServerRuntime runtime = ServerRuntimeRegistry.get(context.server());
             if (runtime == null) return;
+            UUID playerId = context.player().getUUID();
+            long connection = runtime.connection(playerId);
             runtime.reportInventory(request.schematicId(), request.materialId(), identity(context.player()), request.count())
                     .whenComplete((ignored, error) -> execute(context.server(), runtime, () -> {
+                        if (currentPlayer(context.server(), runtime, playerId, connection) == null) return;
                         if (error != null) SyncMaterial.LOGGER.debug("忽略未认领或失效材料的背包更新", error);
                         else runtime.requestBroadcast(request.schematicId());
                     }));
         });
 
-        ServerPlayNetworking.registerGlobalReceiver(StagingAreaConfigC2SPacket.ID, (request, context) -> {
-            if (!ModNetworkHandler.validateHandshakedPlayer(context.player())
-                    || !ModNetworkHandler.validateStagingAction(request.action())
-                    || (!ModNetworkHandler.isGlobalWarehouseAction(request.action())
-                    && !ModNetworkHandler.validateSchematicId(request.schematicId()))) return;
-            send(context.player(), new StagingAreaConfigResponseS2CPacket(request.action(), request.schematicId(), "",
-                    false, "当前实验后端尚未接入区域配置或扫描", List.of()));
-        });
-        ServerPlayNetworking.registerGlobalReceiver(RescanStagingAreaC2SPacket.ID, (request, context) -> {
-            if (!allowed(context.player(), request.schematicId())) return;
-            send(context.player(), new RescanStagingAreaResponseS2CPacket(false, "当前实验后端尚未接入区域扫描"));
-        });
-        ServerPlayNetworking.registerGlobalReceiver(WarehouseContainerRequestC2SPacket.ID, (request, context) -> {
-            if (!allowed(context.player(), request.schematicId())) return;
-            context.player().sendSystemMessage(net.minecraft.network.chat.Component.literal("当前实验后端尚未接入仓库库存"));
-            send(context.player(), new WarehouseContainerResponseS2CPacket(List.of()));
-        });
+        FoundationAreaNetworkAdapter.register();
         ServerPlayNetworking.registerGlobalReceiver(OwnerActionC2SPacket.ID, (request, context) -> {
             if (allowed(context.player(), request.schematicId())) {
                 context.player().sendSystemMessage(net.minecraft.network.chat.Component.literal("当前实验后端尚未接入负责人管理"));
@@ -174,7 +182,7 @@ public final class FoundationNetworkAdapter {
         });
     }
 
-    private static boolean allowed(ServerPlayer player, String projectId) {
+    static boolean allowed(ServerPlayer player, String projectId) {
         return ModNetworkHandler.validateHandshakedPlayer(player) && ModNetworkHandler.validateSchematicId(projectId);
     }
 
@@ -193,11 +201,8 @@ public final class FoundationNetworkAdapter {
     private static CompletableFuture<Optional<ProjectData>> read(ServerRuntime runtime, String projectId) {
         return runtime.store().snapshot(projectId).thenApply(state -> state.map(value -> {
             ProjectSnapshot project = value.project();
-            // 内容 hash 和材料解释必须均匹配最新公告，失败重解析留下的旧统计不可复用。
-            if (!runtime.isMaterialSnapshotCurrent(project)) {
-                throw new StaleMaterialSnapshotException();
-            }
-            return new ProjectData(project, value.claims());
+            if (!runtime.isMaterialSnapshotCurrent(project)) throw new StaleMaterialSnapshotException();
+            return new ProjectData(project, value.claims(), value.inventory());
         }));
     }
 
@@ -214,8 +219,19 @@ public final class FoundationNetworkAdapter {
         return List.copyOf(result);
     }
 
+    private static List<CollaborationStatusS2CPacket.AreaFreshnessInfo> freshness(ServerRuntime runtime, ProjectData data) {
+        List<CollaborationStatusS2CPacket.AreaFreshnessInfo> warnings = data.inventory().freshness().stream()
+                .map(warning -> new CollaborationStatusS2CPacket.AreaFreshnessInfo(warning.kind().wireName(),
+                        warning.areaId(), warning.areaName(), warning.status())).toList();
+        if (warnings.isEmpty() && (!data.inventory().known() || !runtime.areas().isInventoryCurrent(data.project().id(), data.inventory()))) {
+            return List.of(new CollaborationStatusS2CPacket.AreaFreshnessInfo("staging_area", 0, "区域库存", "区域观测正在刷新，准备状态未知"));
+        }
+        return warnings;
+    }
+
     private static List<CollaborationStatusS2CPacket> statuses(ServerRuntime runtime, ProjectData data) {
         List<CollaborationStatusS2CPacket> result = new ArrayList<>();
+        List<CollaborationStatusS2CPacket.AreaFreshnessInfo> warnings = freshness(runtime, data);
         for (MaterialSnapshot material : data.project().materials()) {
             List<CollaborationStatusS2CPacket.ParticipantInfo> participants = data.claims().stream()
                     .filter(claim -> claim.materialId() == material.id())
@@ -224,74 +240,119 @@ public final class FoundationNetworkAdapter {
                     .toList();
             checkedCount(participants.stream().mapToLong(CollaborationStatusS2CPacket.ParticipantInfo::count).sum());
             result.add(new CollaborationStatusS2CPacket(data.project().id(), material.id(), checkedCount(material.required()),
-                    0, 0, participants, UNKNOWN_STAGING));
+                    checkedCount(data.inventory().staging().getOrDefault(material.itemId(), 0L)),
+                    checkedCount(data.inventory().warehouse().getOrDefault(material.itemId(), 0L)), participants, warnings));
         }
-        return result;
+        return List.copyOf(result);
+    }
+
+    private static void sendInventory(ServerRuntime runtime, ServerPlayer player, ProjectData data,
+                                      long catalogRevision, long sequence) {
+        if (!ProtocolHandshake.supports(player, ProtocolVersion.AREA_INVENTORY_SNAPSHOTS)) return;
+        List<AreaInventorySnapshotS2CPacket.MaterialInventory> counts = data.project().materials().stream()
+                .map(material -> new AreaInventorySnapshotS2CPacket.MaterialInventory(material.id(),
+                        checkedCount(data.inventory().staging().getOrDefault(material.itemId(), 0L)),
+                        checkedCount(data.inventory().warehouse().getOrDefault(material.itemId(), 0L)))).toList();
+        var warnings = freshness(runtime, data);
+        send(player, new AreaInventorySnapshotS2CPacket(data.project().id(), catalogRevision, sequence,
+                data.inventory().known() && warnings.isEmpty(), counts, warnings));
     }
 
     public static void broadcast(MinecraftServer server, String projectId) {
         ServerRuntime runtime = ServerRuntimeRegistry.get(server);
         if (runtime == null || !runtime.isOpen()) return;
+        Map<UUID, FoundationDeliveryTracker.ProjectToken> tokens = new HashMap<>();
+        for (UUID playerId : runtime.subscribers(projectId)) {
+            long connection = runtime.connection(playerId);
+            if (connection > 0) tokens.put(playerId, delivery(runtime).beginProject(playerId, connection, projectId, false));
+        }
+        if (tokens.isEmpty()) return;
         read(runtime, projectId).whenComplete((data, error) -> execute(server, runtime, () -> {
-            if (error != null) {
-                SyncMaterial.LOGGER.warn("新后端材料快照查询失败", error);
-                for (UUID playerId : runtime.subscribers(projectId)) {
-                    ServerPlayer player = server.getPlayerList().getPlayer(playerId);
-                    if (player != null) failed(player, error);
+            for (var token : tokens.values()) {
+                ServerPlayer player = currentPlayer(server, runtime, token.playerId(), token.connection());
+                if (player == null || !runtime.subscribers(projectId).contains(token.playerId())
+                        || !delivery(runtime).acceptProject(token)) continue;
+                if (error != null) {
+                    failed(player, error);
+                    continue;
                 }
-                return;
-            }
-            if (data.isEmpty()) {
-                for (UUID playerId : runtime.subscribers(projectId)) {
-                    ServerPlayer player = server.getPlayerList().getPlayer(playerId);
-                    if (player != null) {
-                        send(player, new StagingAreaConfigResponseS2CPacket("SCHEMATIC_DELETED", projectId, "", true, "", List.of()));
-                    }
-                    runtime.unsubscribe(playerId, projectId);
+                if (data.isEmpty()) {
+                    send(player, new StagingAreaConfigResponseS2CPacket("SCHEMATIC_DELETED", projectId, "", true, "", List.of()));
+                    delivery(runtime).forgetProject(token.playerId(), token.connection(), projectId);
+                    runtime.unsubscribe(token.playerId(), projectId);
+                    FoundationAreaNetworkAdapter.sendWarehouseContainers(server, runtime, player);
+                    FoundationAreaNetworkAdapter.refreshWarehouseAreas(server, runtime, player);
+                    continue;
                 }
-                return;
-            }
-            try {
-                ProjectSnapshot project = data.get().project();
-                List<MaterialEntry> entries = materialEntries(project);
-                List<CollaborationStatusS2CPacket> statuses = statuses(runtime, data.get());
-                for (UUID playerId : runtime.subscribers(projectId)) {
-                    ServerPlayer player = server.getPlayerList().getPlayer(playerId);
-                    if (player == null) continue;
-                    var deliveryRevision = runtime.catalogs().changed(playerId, runtime.connection(playerId), project);
-                    if (deliveryRevision.isPresent()) {
-                        if (ProtocolHandshake.supports(player, ProtocolVersion.MATERIAL_CATALOG_UPDATES)) {
-                            send(player, new MaterialCatalogUpdateS2CPacket(projectId, project.name(), deliveryRevision.getAsLong(), entries));
-                        } else {
-                            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("原理图材料已更新，请重新打开材料清单"));
-                        }
-                    }
-                    for (var status : statuses) send(player, status);
-                }
-            } catch (IllegalArgumentException limit) {
-                SyncMaterial.LOGGER.warn("实验后端无法发送材料目录", limit);
-                for (UUID playerId : runtime.subscribers(projectId)) {
-                    ServerPlayer player = server.getPlayerList().getPlayer(playerId);
-                    if (player != null) failed(player, limit);
-                }
-            }
-        }));
-    }
-
-    private static void sendSnapshot(MinecraftServer server, ServerRuntime runtime, String projectId, ServerPlayer player) {
-        read(runtime, projectId).whenComplete((data, error) -> execute(server, runtime, () -> {
-            if (error != null) failed(player, error);
-            else if (data.isPresent()) {
                 try {
-                    for (var status : statuses(runtime, data.get())) send(player, status);
-                } catch (IllegalArgumentException limit) {
+                    deliverUpdate(runtime, player, data.get(), token);
+                    if (delivery(runtime).hasWarehouseSubscription(token.playerId(), token.connection(), projectId)) {
+                        FoundationAreaNetworkAdapter.sendWarehouseContainers(server, runtime, player);
+                    }
+                } catch (IllegalArgumentException | StaleMaterialSnapshotException limit) {
                     failed(player, limit);
                 }
             }
         }));
     }
 
-    private static void execute(MinecraftServer server, ServerRuntime runtime, Runnable action) {
+    private static void deliverUpdate(ServerRuntime runtime, ServerPlayer player, ProjectData data,
+                                      FoundationDeliveryTracker.ProjectToken token) {
+        ProjectSnapshot project = data.project();
+        if (!runtime.isMaterialSnapshotCurrent(project)) throw new StaleMaterialSnapshotException();
+        List<MaterialEntry> entries = materialEntries(project);
+        var revision = runtime.catalogs().changed(token.playerId(), token.connection(), project);
+        if (revision.isPresent()) {
+            if (ProtocolHandshake.supports(player, ProtocolVersion.MATERIAL_CATALOG_UPDATES)) {
+                send(player, new MaterialCatalogUpdateS2CPacket(project.id(), project.name(), revision.getAsLong(), entries));
+            } else {
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("原理图材料已更新，请重新打开材料清单"));
+            }
+        }
+        for (var status : statuses(runtime, data)) send(player, status);
+        var current = runtime.catalogs().currentRevision(token.playerId(), project.id(), token.connection());
+        if (current.isPresent()) sendInventory(runtime, player, data, current.getAsLong(), token.sequence());
+    }
+
+    private static void sendSnapshot(MinecraftServer server, ServerRuntime runtime, String projectId, ServerPlayer player) {
+        long connection = runtime.connection(player.getUUID());
+        if (connection == 0) return;
+        var token = delivery(runtime).beginProject(player.getUUID(), connection, projectId, false);
+        read(runtime, projectId).whenComplete((data, error) -> execute(server, runtime, () -> {
+            ServerPlayer current = currentPlayer(server, runtime, token.playerId(), connection);
+            if (current == null || !runtime.subscribers(projectId).contains(token.playerId())
+                    || !delivery(runtime).acceptProject(token)) return;
+            if (error != null) failed(current, error);
+            else if (data.isPresent()) {
+                try {
+                    deliverUpdate(runtime, current, data.get(), token);
+                } catch (IllegalArgumentException | StaleMaterialSnapshotException limit) {
+                    failed(current, limit);
+                }
+            }
+        }));
+    }
+
+    public static void sendInitialData(MinecraftServer server, ServerPlayer player) {
+        ServerRuntime runtime = ServerRuntimeRegistry.get(server);
+        if (runtime != null) FoundationAreaNetworkAdapter.sendInitialData(server, runtime, player);
+    }
+
+    public static void onPlayerDisconnect(ServerRuntime runtime, UUID playerId) {
+        delivery(runtime).disconnected(playerId);
+    }
+
+    static synchronized FoundationDeliveryTracker delivery(ServerRuntime runtime) {
+        return DELIVERIES.computeIfAbsent(runtime, ignored -> new FoundationDeliveryTracker());
+    }
+
+    static ServerPlayer currentPlayer(MinecraftServer server, ServerRuntime runtime, UUID playerId, long connection) {
+        if (connection <= 0 || connection != runtime.connection(playerId)) return null;
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+        return player != null && player.connection != null && ProtocolHandshake.hasHandshaked(player) ? player : null;
+    }
+
+    static void execute(MinecraftServer server, ServerRuntime runtime, Runnable action) {
         if (!runtime.isOpen()) return;
         server.execute(() -> {
             if (runtime.isOpen() && ServerRuntimeRegistry.get(server) == runtime) action.run();
@@ -303,21 +364,16 @@ public final class FoundationNetworkAdapter {
         return (int) count;
     }
 
-    private static void send(ServerPlayer player, CustomPacketPayload packet) {
+    static void send(ServerPlayer player, CustomPacketPayload packet) {
         if (player.connection != null && ProtocolHandshake.hasHandshaked(player)) ServerPlayNetworking.send(player, packet);
     }
 
     private static void failed(ServerPlayer player, Throwable error) {
         Throwable cause = error;
-        while (cause instanceof java.util.concurrent.CompletionException && cause.getCause() != null) {
-            cause = cause.getCause();
-        }
+        while (cause instanceof java.util.concurrent.CompletionException && cause.getCause() != null) cause = cause.getCause();
         if (cause instanceof StaleMaterialSnapshotException) {
-            // 只给安全的通用诊断：不泄露 hash/解释版本/数据库细节，也不发任何当前统计。
-            if (player.connection != null) {
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                        "该原理图的材料统计已过期，服务端正在重新解析，请稍后重新打开材料清单"));
-            }
+            if (player.connection != null) player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    "该原理图的材料统计已过期，服务端正在重新解析，请稍后重新打开材料清单"));
             return;
         }
         SyncMaterial.LOGGER.warn("实验后端请求失败", error);
@@ -331,5 +387,5 @@ public final class FoundationNetworkAdapter {
         }
     }
 
-    private record ProjectData(ProjectSnapshot project, List<ClaimSnapshot> claims) {}
+    private record ProjectData(ProjectSnapshot project, List<ClaimSnapshot> claims, AreaInventoryView inventory) {}
 }

@@ -20,6 +20,7 @@ import net.syncmaterial.syncmaterial.adapter.litematica.MaterialDecoder;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
 import net.syncmaterial.syncmaterial.core.SchematicMetadata;
+import net.syncmaterial.syncmaterial.server.area.AreaScanService;
 import net.syncmaterial.syncmaterial.server.ingest.IngestService;
 import net.syncmaterial.syncmaterial.server.ingest.PlacementsDiscovery;
 import net.syncmaterial.syncmaterial.server.storage.SqliteProjectStore;
@@ -37,6 +38,7 @@ public final class ServerRuntime implements AutoCloseable {
     private final IngestService ingest;
     private final LifecycleHook lifecycleHook;
     private final String interpretationId;
+    private final AreaScanService areas;
     private final OnlineInventoryTracker inventories = new OnlineInventoryTracker();
     private final MaterialCatalogTracker catalogs = new MaterialCatalogTracker();
     private final Map<UUID, Set<String>> subscriptions = new ConcurrentHashMap<>();
@@ -63,6 +65,9 @@ public final class ServerRuntime implements AutoCloseable {
         // Freeze once: the runtime-wide stale guard must not observe a decoder that
         // changes interpretation between calls.
         this.interpretationId = ingest.interpretationId();
+        // Instantiate the scanner before attaching the lifecycle hook: the hook may
+        // synchronously observe or drive the runtime during attach.
+        this.areas = new AreaScanService(epoch, this::projectChanged, store);
         this.lifecycleHook = lifecycleHook == null ? LifecycleHook.NONE : lifecycleHook;
         try {
             this.lifecycleHook.attach(this);
@@ -126,6 +131,11 @@ public final class ServerRuntime implements AutoCloseable {
 
     public SqliteProjectStore store() {
         return store;
+    }
+
+    /** Runtime-owned area scanner; platform sources attach after the runtime opens. */
+    public AreaScanService areas() {
+        return areas;
     }
 
     public UUID epoch() {
@@ -216,6 +226,11 @@ public final class ServerRuntime implements AutoCloseable {
 
     public void tick() {
         if (!open.get()) return;
+        try {
+            areas.tick();
+        } catch (RuntimeException | Error error) {
+            LOGGER.warn("区域扫描 tick 失败，runtime 继续运行", error);
+        }
         if (++discoveryTicks % 20 == 0) {
             try {
                 lifecycleHook.tick();
@@ -253,6 +268,11 @@ public final class ServerRuntime implements AutoCloseable {
     @Override
     public void close() {
         if (!open.compareAndSet(true, false)) return;
+        try {
+            areas.close();
+        } catch (RuntimeException | Error error) {
+            LOGGER.warn("关闭区域扫描失败，继续 runtime 清理", error);
+        }
         try {
             ingest.close();
         } catch (RuntimeException | Error error) {

@@ -3,6 +3,8 @@
     "syncmaterial.gui.title.material_list_pickup": "Material List · Pickup Indicator",
     "syncmaterial.gui.label.warehouse_has": "Warehouse: %d",
     "syncmaterial.gui.label.freshness_warning": "⚠ The following areas are not yet initialized:",
+    "syncmaterial.gui.label.area_overlap_warning": "Area overlap — inventory counted once",
+    "syncmaterial.gui.tooltip.area_overlap_warning": "Configured staging and warehouse areas overlap. Within one project each inventory source is counted only once, and staging takes priority over referenced warehouses.",
     "syncmaterial.gui.label.no_warehouses": "No warehouses available",
     "syncmaterial.gui.label.loading": "Loading...",
     "syncmaterial.gui.title.management": "Owner Management",

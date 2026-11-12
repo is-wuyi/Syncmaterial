@@ -15,4 +15,12 @@ public final class ServerEventAdapter {
         /*ServerChunkEvents.CHUNK_LOAD.register(listener::accept);
         *///?}
     }
+
+    public static void onChunkUnloaded(BiConsumer<ServerLevel, LevelChunk> listener) {
+        //? if >=26.2 {
+        ServerChunkEvents.CHUNK_UNLOAD.register((level, chunk) -> listener.accept(level, chunk));
+        //?} else {
+        /*ServerChunkEvents.CHUNK_UNLOAD.register(listener::accept);
+        *///?}
+    }
 }

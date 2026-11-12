@@ -62,6 +62,7 @@ public class ModNetworkHandler {
         PayloadRegistrar.s2c(HelloS2CPacket.ID, HelloS2CPacket.CODEC);
         PayloadRegistrar.s2c(MaterialStatsResponseS2CPacket.ID, MaterialStatsResponseS2CPacket.CODEC);
         PayloadRegistrar.s2c(MaterialCatalogUpdateS2CPacket.ID, MaterialCatalogUpdateS2CPacket.CODEC);
+        PayloadRegistrar.s2c(AreaInventorySnapshotS2CPacket.ID, AreaInventorySnapshotS2CPacket.CODEC);
         PayloadRegistrar.s2c(CollaborationStatusS2CPacket.ID, CollaborationStatusS2CPacket.CODEC);
         PayloadRegistrar.s2c(StagingAreaConfigResponseS2CPacket.ID, StagingAreaConfigResponseS2CPacket.CODEC);
         PayloadRegistrar.s2c(RescanStagingAreaResponseS2CPacket.ID, RescanStagingAreaResponseS2CPacket.CODEC);
@@ -99,8 +100,12 @@ public class ModNetworkHandler {
 
                 if (accepted) {
                     var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(context.server());
-                    if (runtime != null) runtime.connected(player.getUUID());
-                    sendInitialData(player);
+                    if (runtime != null) {
+                        runtime.connected(player.getUUID());
+                        FoundationNetworkAdapter.sendInitialData(context.server(), player);
+                    } else {
+                        sendInitialData(player);
+                    }
                 }
             });
         });
@@ -607,7 +612,10 @@ public class ModNetworkHandler {
             var server = world == null ? null : world.getServer();
             if (server != null) {
                 var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(server);
-                if (runtime != null) runtime.disconnected(player.getUUID());
+                if (runtime != null) {
+                    FoundationNetworkAdapter.onPlayerDisconnect(runtime, player.getUUID());
+                    runtime.disconnected(player.getUUID());
+                }
             }
         }
         playerSchematicWarehouses.remove(player);

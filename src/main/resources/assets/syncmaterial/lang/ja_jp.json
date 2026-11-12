@@ -3,6 +3,8 @@
     "syncmaterial.gui.title.material_list_pickup": "材料リスト · 取り出しインジケーター",
     "syncmaterial.gui.label.warehouse_has": "倉庫に %d",
     "syncmaterial.gui.label.freshness_warning": "⚠ 以下のエリアはまだ初期化されていません:",
+    "syncmaterial.gui.label.area_overlap_warning": "エリア重複 — 在庫は一度だけ集計",
+    "syncmaterial.gui.tooltip.area_overlap_warning": "設定された仮置き場と倉庫の範囲が重複しています。1つのプロジェクト内では各インベントリの内容は一度だけ集計され、仮置き場が参照倉庫より優先されます。",
     "syncmaterial.gui.label.no_warehouses": "利用できる倉庫がありません",
     "syncmaterial.gui.label.loading": "読み込み中...",
     "syncmaterial.gui.title.management": "責任者管理",

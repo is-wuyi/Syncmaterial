@@ -1,5 +1,9 @@
 {
-  "expected_versions": ["1.21.7", "1.21.8", "26.2"],
+  "expected_versions": [
+    "1.21.7",
+    "1.21.8",
+    "26.2"
+  ],
   "java_versions": {
     "1.21.7": 21,
     "1.21.8": 21,
@@ -7,15 +11,293 @@
   },
   "spotbugs": {
     "platform_max": 28,
-    "shared_max": 0
+    "shared_max": 0,
+    "accepted_findings": {
+      "shared": [],
+      "1.21.7": [
+        {
+          "type": "EI_EXPOSE_STATIC_REP2",
+          "class": "net.syncmaterial.syncmaterial.network.ModNetworkHandler",
+          "count": 1
+        },
+        {
+          "type": "LI_LAZY_INIT_UPDATE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.client.SyncMaterialClient",
+          "count": 2
+        },
+        {
+          "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+          "class": "net.syncmaterial.syncmaterial.engine.impl.DefaultLitematicaParser",
+          "count": 1
+        },
+        {
+          "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicFolderWatcher",
+          "count": 1
+        },
+        {
+          "type": "OBL_UNSATISFIED_OBLIGATION_EXCEPTION_EDGE",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicDatabase",
+          "count": 1
+        },
+        {
+          "type": "RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE",
+          "class": "net.syncmaterial.syncmaterial.network.ModNetworkHandler",
+          "count": 4
+        },
+        {
+          "type": "REC_CATCH_EXCEPTION",
+          "class": "net.syncmaterial.syncmaterial.network.ModNetworkHandler",
+          "count": 2
+        },
+        {
+          "type": "REC_CATCH_EXCEPTION",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicFolderWatcher",
+          "count": 2
+        },
+        {
+          "type": "SS_SHOULD_BE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool",
+          "count": 1
+        },
+        {
+          "type": "SS_SHOULD_BE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool$ParsingThreadFactory",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.SyncMaterial",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.GuiSettings$TabButtonListener",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList",
+          "count": 2
+        },
+        {
+          "type": "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD",
+          "class": "net.syncmaterial.syncmaterial.selection.AreaSelection",
+          "count": 1
+        }
+      ],
+      "1.21.8": [
+        {
+          "type": "EI_EXPOSE_STATIC_REP2",
+          "class": "net.syncmaterial.syncmaterial.network.ModNetworkHandler",
+          "count": 1
+        },
+        {
+          "type": "LI_LAZY_INIT_UPDATE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.client.SyncMaterialClient",
+          "count": 2
+        },
+        {
+          "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+          "class": "net.syncmaterial.syncmaterial.engine.impl.DefaultLitematicaParser",
+          "count": 1
+        },
+        {
+          "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicFolderWatcher",
+          "count": 1
+        },
+        {
+          "type": "OBL_UNSATISFIED_OBLIGATION_EXCEPTION_EDGE",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicDatabase",
+          "count": 1
+        },
+        {
+          "type": "RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE",
+          "class": "net.syncmaterial.syncmaterial.network.ModNetworkHandler",
+          "count": 4
+        },
+        {
+          "type": "REC_CATCH_EXCEPTION",
+          "class": "net.syncmaterial.syncmaterial.network.ModNetworkHandler",
+          "count": 2
+        },
+        {
+          "type": "REC_CATCH_EXCEPTION",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicFolderWatcher",
+          "count": 2
+        },
+        {
+          "type": "SS_SHOULD_BE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool",
+          "count": 1
+        },
+        {
+          "type": "SS_SHOULD_BE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool$ParsingThreadFactory",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.SyncMaterial",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.GuiSettings$TabButtonListener",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList",
+          "count": 2
+        },
+        {
+          "type": "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD",
+          "class": "net.syncmaterial.syncmaterial.selection.AreaSelection",
+          "count": 1
+        }
+      ],
+      "26.2": [
+        {
+          "type": "EI_EXPOSE_STATIC_REP2",
+          "class": "net.syncmaterial.syncmaterial.network.ModNetworkHandler",
+          "count": 1
+        },
+        {
+          "type": "LI_LAZY_INIT_UPDATE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.client.SyncMaterialClient",
+          "count": 2
+        },
+        {
+          "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+          "class": "net.syncmaterial.syncmaterial.SyncMaterial",
+          "count": 1
+        },
+        {
+          "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+          "class": "net.syncmaterial.syncmaterial.engine.impl.DefaultLitematicaParser",
+          "count": 1
+        },
+        {
+          "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicFolderWatcher",
+          "count": 1
+        },
+        {
+          "type": "OBL_UNSATISFIED_OBLIGATION_EXCEPTION_EDGE",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicDatabase",
+          "count": 1
+        },
+        {
+          "type": "REC_CATCH_EXCEPTION",
+          "class": "net.syncmaterial.syncmaterial.network.ModNetworkHandler",
+          "count": 2
+        },
+        {
+          "type": "REC_CATCH_EXCEPTION",
+          "class": "net.syncmaterial.syncmaterial.server.SchematicFolderWatcher",
+          "count": 2
+        },
+        {
+          "type": "SS_SHOULD_BE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool",
+          "count": 1
+        },
+        {
+          "type": "SS_SHOULD_BE_STATIC",
+          "class": "net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool$ParsingThreadFactory",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.SyncMaterial",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.GuiSettings$TabButtonListener",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal",
+          "count": 1
+        },
+        {
+          "type": "ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD",
+          "class": "net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList",
+          "count": 2
+        },
+        {
+          "type": "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD",
+          "class": "net.syncmaterial.syncmaterial.selection.AreaSelection",
+          "count": 1
+        }
+      ]
+    }
   },
   "junit": {
-    "shared_min_tests": 182,
-    "platform_min_tests": 363
+    "shared_min_tests": 260,
+    "platform_min_tests": 425,
+    "required_classes": {
+      "shared": [
+        "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest",
+        "net.syncmaterial.syncmaterial.core.AreaRecordsTest",
+        "net.syncmaterial.syncmaterial.server.area.AreaScanServiceTest",
+        "net.syncmaterial.syncmaterial.server.runtime.AreaRuntimeIntegrationTest",
+        "net.syncmaterial.syncmaterial.server.runtime.MaterialCatalogTrackerTest",
+        "net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeTest",
+        "net.syncmaterial.syncmaterial.server.storage.AreaScanStoreTest",
+        "net.syncmaterial.syncmaterial.server.storage.AreaStoreTest",
+        "net.syncmaterial.syncmaterial.server.storage.SchemaMigrationTest"
+      ],
+      "platform": [
+        "net.syncmaterial.syncmaterial.adapter.minecraft.MinecraftAreaSnapshotSourceTest",
+        "net.syncmaterial.syncmaterial.client.gui.SyncMaterialListAuthorityTest",
+        "net.syncmaterial.syncmaterial.network.AreaInventorySnapshotCodecTest",
+        "net.syncmaterial.syncmaterial.network.AreaOverlapMessageTest",
+        "net.syncmaterial.syncmaterial.network.ClientPacketHandlerTest",
+        "net.syncmaterial.syncmaterial.network.FoundationDeliveryTrackerTest",
+        "net.syncmaterial.syncmaterial.network.FoundationNetworkAdapterTest"
+      ]
+    },
+    "required_class_min_tests": {
+      "platform": {
+        "net.syncmaterial.syncmaterial.client.gui.SyncMaterialListAuthorityTest": 8,
+        "net.syncmaterial.syncmaterial.network.AreaInventorySnapshotCodecTest": 4,
+        "net.syncmaterial.syncmaterial.network.AreaOverlapMessageTest": 3,
+        "net.syncmaterial.syncmaterial.network.ClientPacketHandlerTest": 13,
+        "net.syncmaterial.syncmaterial.network.FoundationNetworkAdapterTest": 28,
+        "net.syncmaterial.syncmaterial.network.FoundationDeliveryTrackerTest": 10,
+        "net.syncmaterial.syncmaterial.adapter.minecraft.MinecraftAreaSnapshotSourceTest": 15
+      },
+      "shared": {
+        "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest": 3,
+        "net.syncmaterial.syncmaterial.core.AreaRecordsTest": 9,
+        "net.syncmaterial.syncmaterial.server.area.AreaScanServiceTest": 24,
+        "net.syncmaterial.syncmaterial.server.runtime.AreaRuntimeIntegrationTest": 3,
+        "net.syncmaterial.syncmaterial.server.runtime.MaterialCatalogTrackerTest": 10,
+        "net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeTest": 7,
+        "net.syncmaterial.syncmaterial.server.storage.AreaScanStoreTest": 15,
+        "net.syncmaterial.syncmaterial.server.storage.AreaStoreTest": 18,
+        "net.syncmaterial.syncmaterial.server.storage.SchemaMigrationTest": 6
+      }
+    }
   },
   "server_run_test_counts": {
     "legacy": 40,
-    "foundation": 2
+    "foundation": 13
   },
   "client_entries_expected": {
     "syncmaterial-test": 23,
@@ -30,7 +312,7 @@
     },
     "syncmaterial-foundation-test": {
       "resources": "src/foundationtest/resources/fabric.mod.json",
-      "server_methods_min": 1,
+      "server_methods_min": 13,
       "client_entries_min": 2
     },
     "syncmaterial-optional-test": {

@@ -1,7 +1,12 @@
 package net.syncmaterial.syncmaterial.server.storage;
 
+import net.syncmaterial.syncmaterial.core.AreaCatalog;
+import net.syncmaterial.syncmaterial.core.AreaDefinition;
+import net.syncmaterial.syncmaterial.core.AreaInventoryView;
 import net.syncmaterial.syncmaterial.core.AreaKind;
+import net.syncmaterial.syncmaterial.core.AreaSpec;
 import net.syncmaterial.syncmaterial.core.ClaimSnapshot;
+import net.syncmaterial.syncmaterial.core.ContainerObservation;
 import net.syncmaterial.syncmaterial.core.MaterialCount;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
@@ -50,6 +55,7 @@ public final class SqliteProjectStore implements AutoCloseable {
     private final ExecutorService writer;
     private final FailureInjector failureInjector;
     private final long closeTimeoutMillis;
+    private final AreaScanStore scanStore;
     private final CountDownLatch closedLatch = new CountDownLatch(1);
     private final ReentrantLock gate = new ReentrantLock();
 
@@ -72,6 +78,7 @@ public final class SqliteProjectStore implements AutoCloseable {
         this.dbPath = dbPath;
         this.failureInjector = failureInjector;
         this.closeTimeoutMillis = closeTimeoutMillis;
+        this.scanStore = new AreaScanStore(this);
         this.writer = Executors.newSingleThreadExecutor(task -> {
             Thread thread = new Thread(task, WRITER_THREAD_NAME);
             thread.setDaemon(true);
@@ -324,6 +331,125 @@ public final class SqliteProjectStore implements AutoCloseable {
         }
     }
 
+    // ========== Areas (stable Foundation API) ==========
+
+    /** All area configuration plus references and project names, read in one transaction. */
+    public CompletableFuture<AreaCatalog> areaCatalog() {
+        return readOnWriter("areaCatalog", AreaReads::catalog);
+    }
+
+    /** Adds an area. {@code projectId} must be null only for a global warehouse. */
+    public CompletableFuture<AreaDefinition> addArea(String projectId, AreaKind kind, AreaSpec spec) {
+        try {
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(spec, "spec");
+            String scope = projectId == null ? null : requireNonBlank(projectId, "projectId");
+            return transactionOnWriter("addArea", connection ->
+                    AreaWrites.addArea(connection, scope, kind, spec));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /**
+     * Updates an existing area. Unknown ids, wrong kinds and project mismatches fail; a
+     * geometry change invalidates that area's scan coverage, a rename does not.
+     */
+    public CompletableFuture<AreaDefinition> updateArea(String projectId, AreaKind kind, int areaId,
+                                                        AreaSpec spec) {
+        try {
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(spec, "spec");
+            requireAreaId(areaId);
+            String scope = projectId == null ? null : requireNonBlank(projectId, "projectId");
+            return transactionOnWriter("updateArea", connection ->
+                    AreaWrites.updateArea(connection, scope, kind, areaId, spec));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Renames one staging area of a project; coverage survives because geometry is unchanged. */
+    public CompletableFuture<AreaDefinition> renameArea(String projectId, int areaId, String name) {
+        try {
+            requireProjectId(projectId);
+            requireAreaId(areaId);
+            requireNonBlank(name, "name");
+            return transactionOnWriter("renameArea", connection ->
+                    AreaWrites.renameArea(connection, projectId, areaId, name));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Removes an area. Unknown ids, wrong kinds and project mismatches fail. */
+    public CompletableFuture<Boolean> removeArea(String projectId, AreaKind kind, int areaId) {
+        try {
+            Objects.requireNonNull(kind, "kind");
+            requireAreaId(areaId);
+            String scope = projectId == null ? null : requireNonBlank(projectId, "projectId");
+            return transactionOnWriter("removeArea", connection ->
+                    AreaWrites.removeArea(connection, scope, kind, areaId));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Removes every staging area of a project and returns how many were deleted. */
+    public CompletableFuture<Integer> clearStagingAreas(String projectId) {
+        try {
+            requireProjectId(projectId);
+            return transactionOnWriter("clearStagingAreas", connection ->
+                    AreaWrites.clearStagingAreas(connection, projectId));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Adds a project reference to a warehouse; returns false when the valid reference already exists. */
+    public CompletableFuture<Boolean> addWarehouseReference(String projectId, int areaId) {
+        try {
+            requireProjectId(projectId);
+            requireAreaId(areaId);
+            return transactionOnWriter("addWarehouseReference", connection ->
+                    AreaWrites.addWarehouseReference(connection, projectId, areaId));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Removes a project reference to a warehouse; returns false when it did not exist. */
+    public CompletableFuture<Boolean> removeWarehouseReference(String projectId, int areaId) {
+        try {
+            requireProjectId(projectId);
+            requireAreaId(areaId);
+            return transactionOnWriter("removeWarehouseReference", connection ->
+                    AreaWrites.removeWarehouseReference(connection, projectId, areaId));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /**
+     * Effective referenced warehouse sources in one dimension: one observation per physical
+     * source, excluding sources observed by this project's staging areas.
+     */
+    public CompletableFuture<List<ContainerObservation>> warehouseContainers(String projectId, String world) {
+        try {
+            requireProjectId(projectId);
+            requireNonBlank(world, "world");
+            return readOnWriter("warehouseContainers", connection ->
+                    AreaReads.warehouseContainers(connection, projectId, world));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Internal scanner-facing store; see {@link AreaScanStore} for the token and CAS contract. */
+    public AreaScanStore areaScanStore() {
+        return scanStore;
+    }
+
     // ========== Package-private test support (not a public SQL surface) ==========
 
     /**
@@ -337,6 +463,31 @@ public final class SqliteProjectStore implements AutoCloseable {
         } catch (Throwable failure) {
             return failedFuture(failure);
         }
+    }
+
+    /** Package-private seam for the scan store: one read transaction on the writer thread. */
+    <T> CompletableFuture<T> readOnWriter(String operation, WriterWork<T> work) {
+        try {
+            Objects.requireNonNull(work, "work");
+            return submit(operation, () -> inReadTransaction(requireOpenConnection(), work::run));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Package-private seam for the scan store: one write transaction on the writer thread. */
+    <T> CompletableFuture<T> transactionOnWriter(String operation, WriterWork<T> work) {
+        try {
+            Objects.requireNonNull(work, "work");
+            return submit(operation, () -> inTransaction(operation, work::run));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    @FunctionalInterface
+    interface WriterWork<T> {
+        T run(Connection connection) throws SQLException;
     }
 
     // ========== Lifecycle ==========
@@ -486,7 +637,8 @@ public final class SqliteProjectStore implements AutoCloseable {
                 return Optional.empty();
             }
             List<ClaimSnapshot> claims = ProjectReads.claims(connection, projectId);
-            return Optional.of(new ProjectState(project.get(), claims));
+            AreaInventoryView inventory = AreaReads.projectInventory(connection, projectId);
+            return Optional.of(new ProjectState(project.get(), claims, inventory));
         });
     }
 
@@ -665,6 +817,13 @@ public final class SqliteProjectStore implements AutoCloseable {
             throw new IllegalArgumentException("materialId must be > 0");
         }
         return materialId;
+    }
+
+    private static int requireAreaId(int areaId) {
+        if (areaId <= 0) {
+            throw new IllegalArgumentException("areaId must be > 0");
+        }
+        return areaId;
     }
 
     private static String requireNonBlank(String value, String field) {

@@ -738,7 +738,9 @@ class SqliteProjectStoreTest {
             }
             assertTrue(tables.containsAll(Set.of(
                     "players", "projects", "materials", "material_claims", "player_inventories",
-                    "project_deputies", "areas", "warehouse_refs")));
+                    "project_deputies", "areas", "warehouse_refs", "store_state", "containers",
+                    "container_items", "container_tombstones", "chunk_generations", "area_chunks",
+                    "area_chunk_containers")));
 
             Set<String> projectColumns = new HashSet<>();
             try (ResultSet resultSet = statement.executeQuery("PRAGMA table_info(projects)")) {
@@ -747,6 +749,14 @@ class SqliteProjectStoreTest {
                 }
             }
             assertTrue(projectColumns.contains("interpretation_id"));
+
+            Set<String> areaColumns = new HashSet<>();
+            try (ResultSet resultSet = statement.executeQuery("PRAGMA table_info(areas)")) {
+                while (resultSet.next()) {
+                    areaColumns.add(resultSet.getString(2));
+                }
+            }
+            assertTrue(areaColumns.containsAll(Set.of("revision", "geometry_revision")));
         }
     }
 

@@ -34,6 +34,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private boolean filterMyMaterials = false;
     // 取货模式状态与需求量统一由 PickupModeState 持有（见该类注释）
     private List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessWarnings = java.util.Collections.emptyList();
+    /** LIST 快照携带的区域重叠提示；null 表示无提示。 */
+    private String overlapWarning;
     private List<Integer> selectedMaterialIds = new ArrayList<>();
     /** 最近一次刷新响应（测试断言 RescanResponse 真实回流；null=从未收到） */
     private Boolean lastRescanResult;
@@ -85,6 +87,20 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public void updateFreshnessWarnings(List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> info) {
         this.freshnessWarnings = info != null ? info : java.util.Collections.emptyList();
     }
+
+    public List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> getFreshnessWarnings() {
+        return freshnessWarnings;
+    }
+
+    /** 成功 LIST 响应的重叠提示；空串/null 清除。 */
+    public void updateOverlapWarning(String message) {
+        this.overlapWarning = AreaOverlapWarningRenderer.normalize(message);
+    }
+
+    public String getOverlapWarning() {
+        return overlapWarning;
+    }
+
     public boolean isMainOwner() { return isMainOwner; }
     public String getOwnerName() { return ownerName; }
     public List<String> getDeputyOwners() { return deputyOwners; }
@@ -473,7 +489,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.initGui();
         if (success) {
             this.materialList.requestCollaborationStatus();
-            MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
+            if (!this.materialList.hasAuthoritativeInventory()) {
+                MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
+            }
             this.getListWidget().refreshEntries();
             InfoUtils.showGuiOrActionBarMessage(MessageType.SUCCESS, message);
         } else {
@@ -581,9 +599,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     *///?}
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
 
-        // Phase 5: 数据新鲜度警告
+        // 区域重叠提示与数据新鲜度警告：重叠在上，新鲜度在下，两者互不覆盖
+        int warningY = 46;
+        if (overlapWarning != null) {
+            AreaOverlapWarningRenderer.render(drawContext, 12, warningY, overlapWarning, mouseX, mouseY);
+            warningY += 18;
+        }
         if (!freshnessWarnings.isEmpty()) {
-            renderFreshnessWarnings(drawContext);
+            renderFreshnessWarnings(drawContext, warningY);
         }
 
         // 右栏动态文本：已选材料数（勾选实时变，不能走 initGui 静态标签）
@@ -600,11 +623,10 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
      * 在列表上方显示数据新鲜度警告
      */
     //? if >=26.2 {
-    private void renderFreshnessWarnings(GuiContext drawContext) {
+    private void renderFreshnessWarnings(GuiContext drawContext, int y) {
     //?} else {
-    /*private void renderFreshnessWarnings(GuiGraphics drawContext) {
+    /*private void renderFreshnessWarnings(GuiGraphics drawContext, int y) {
     *///?}
-        int y = 46; // 按钮行下方
         int x = 12;
         int bgColor = 0xA0FF8800; // 橙色半透明背景
         int textColor = 0xFFFFFF00; // 黄色文字

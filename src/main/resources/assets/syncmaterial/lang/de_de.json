@@ -3,6 +3,8 @@
     "syncmaterial.gui.title.material_list_pickup": "Materialliste · Abhol-Indikator",
     "syncmaterial.gui.label.warehouse_has": "Lager: %d",
     "syncmaterial.gui.label.freshness_warning": "⚠ Diese Bereiche sind noch nicht initialisiert:",
+    "syncmaterial.gui.label.area_overlap_warning": "Bereichsüberschneidung — Bestand nur einmal gezählt",
+    "syncmaterial.gui.tooltip.area_overlap_warning": "Konfigurierte Staging- und Lagerbereiche überschneiden sich. Pro Projekt wird jede Inventarquelle nur einmal gezählt; Staging-Bereiche haben Vorrang vor verknüpften Lagern.",
     "syncmaterial.gui.label.no_warehouses": "Keine Lager verfügbar",
     "syncmaterial.gui.label.loading": "Laden...",
     "syncmaterial.gui.title.management": "Besitzer-Verwaltung",

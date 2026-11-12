@@ -3,6 +3,8 @@
     "syncmaterial.gui.title.material_list_pickup": "Lista de materiales · Indicador de recogida",
     "syncmaterial.gui.label.warehouse_has": "Almacén: %d",
     "syncmaterial.gui.label.freshness_warning": "⚠ Estas zonas aún no están inicializadas:",
+    "syncmaterial.gui.label.area_overlap_warning": "Zonas superpuestas — inventario contado una vez",
+    "syncmaterial.gui.tooltip.area_overlap_warning": "Las zonas de preparación y los almacenes configurados se solapan. En un proyecto cada fuente de inventario solo se cuenta una vez y la preparación tiene prioridad sobre los almacenes vinculados.",
     "syncmaterial.gui.label.no_warehouses": "No hay almacenes disponibles",
     "syncmaterial.gui.label.loading": "Cargando...",
     "syncmaterial.gui.title.management": "Gestión de propietarios",

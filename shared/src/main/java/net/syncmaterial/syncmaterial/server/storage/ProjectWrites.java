@@ -54,6 +54,7 @@ final class ProjectWrites {
                 insert.executeUpdate();
             }
             upsertMaterials(connection, metadata.id(), materialCounts);
+            StoreState.bumpConfigRevision(connection);
         } else if (existing.hash().equals(metadata.hash())
                 && existing.interpretationId().equals(interpretationId)) {
             // Same bytes and same material rules: path/name may refresh, counts/revision stay.
@@ -64,6 +65,9 @@ final class ProjectWrites {
                 update.setLong(3, now);
                 update.setString(4, metadata.id());
                 update.executeUpdate();
+            }
+            if (!existing.name().equals(displayName)) {
+                StoreState.bumpConfigRevision(connection);
             }
         } else {
             // New bytes or new material semantics: both invalidate the stored counts.
@@ -81,6 +85,9 @@ final class ProjectWrites {
                 update.executeUpdate();
             }
             upsertMaterials(connection, metadata.id(), materialCounts);
+            if (!existing.name().equals(displayName)) {
+                StoreState.bumpConfigRevision(connection);
+            }
         }
     }
 
@@ -156,9 +163,14 @@ final class ProjectWrites {
     }
 
     static void removeProject(Connection connection, String projectId) throws SQLException {
+        int removed;
         try (PreparedStatement delete = connection.prepareStatement("DELETE FROM projects WHERE id = ?")) {
             delete.setString(1, projectId);
-            delete.executeUpdate();
+            removed = delete.executeUpdate();
+        }
+        if (removed > 0) {
+            // Project names and any cascaded project-owned areas/references changed.
+            StoreState.bumpConfigAndInventory(connection);
         }
     }
 
@@ -206,11 +218,12 @@ final class ProjectWrites {
 
     private static ExistingProject findExistingProject(Connection connection, String projectId) throws SQLException {
         try (PreparedStatement select = connection.prepareStatement(
-                "SELECT hash, interpretation_id FROM projects WHERE id = ?")) {
+                "SELECT hash, interpretation_id, name FROM projects WHERE id = ?")) {
             select.setString(1, projectId);
             try (ResultSet resultSet = select.executeQuery()) {
                 return resultSet.next()
-                        ? new ExistingProject(resultSet.getString(1), resultSet.getString(2))
+                        ? new ExistingProject(resultSet.getString(1), resultSet.getString(2),
+                                resultSet.getString(3))
                         : null;
             }
         }
@@ -224,6 +237,6 @@ final class ProjectWrites {
         return fileName != null ? fileName.toString() : metadata.id();
     }
 
-    private record ExistingProject(String hash, String interpretationId) {
+    private record ExistingProject(String hash, String interpretationId, String name) {
     }
 }

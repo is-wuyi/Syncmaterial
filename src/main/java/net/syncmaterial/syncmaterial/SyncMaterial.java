@@ -4,6 +4,8 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.syncmaterial.syncmaterial.adapter.fabric.ServerEventAdapter;
+import net.syncmaterial.syncmaterial.adapter.minecraft.FoundationAreaEvents;
+import net.syncmaterial.syncmaterial.adapter.minecraft.MinecraftAreaSnapshotSource;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -188,6 +190,9 @@ public class SyncMaterial implements ModInitializer {
         ServerEventAdapter.onChunkLoaded((serverWorld, chunk) -> {
             if (sharedStagingAreaManager == null) return;
             MinecraftServer srv = serverWorld.getServer();
+            //? if >=26.2 {
+            if (srv == null) return;
+            //?}
             srv.execute(() -> {
                 sharedStagingAreaManager.scanChunkForContainerAreas(chunk, serverWorld);
             });
@@ -198,6 +203,9 @@ public class SyncMaterial implements ModInitializer {
 
     private void registerFoundationRuntime() {
         ModNetworkHandler.register();
+        ServerEventAdapter.onChunkLoaded(FoundationAreaEvents::chunkLoaded);
+        ServerEventAdapter.onChunkUnloaded(FoundationAreaEvents::chunkUnloaded);
+        ServerTickEvents.END_SERVER_TICK.register(FoundationAreaEvents::drain);
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             java.nio.file.Path worldRoot = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
             java.nio.file.Path gameRoot = FabricLoader.getInstance().getGameDir();
@@ -207,6 +215,9 @@ public class SyncMaterial implements ModInitializer {
                         projectId -> net.syncmaterial.syncmaterial.network.FoundationNetworkAdapter.broadcast(server, projectId),
                         new net.syncmaterial.syncmaterial.server.ingest.SyncmaticaDiscoveryAdapter());
                 net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.install(server, runtime);
+                // Bind the passive source before the first tick. It never loads a chunk:
+                // only Fabric's already-loaded cache and getChunkNow read existing state.
+                runtime.areas().attachSource(new MinecraftAreaSnapshotSource(server));
                 LOGGER.info("实验后端已启用，使用独立新库: {}", worldRoot.resolve("syncmaterial/runtime-v2.sqlite"));
             } catch (Exception error) {
                 throw new IllegalStateException("实验后端初始化失败，不会回退写入旧数据库", error);
@@ -217,6 +228,9 @@ public class SyncMaterial implements ModInitializer {
             if (runtime != null) {
                 runtime.startDiscovery(server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT),
                         FabricLoader.getInstance().getGameDir().resolve("syncmatics"));
+                // Re-attach after world setup: the source now reports every chunk that the
+                // initial load already produced, without triggering active loading.
+                runtime.areas().attachSource(new MinecraftAreaSnapshotSource(server));
             }
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
@@ -227,6 +241,7 @@ public class SyncMaterial implements ModInitializer {
             ModNetworkHandler.onPlayerDisconnect(handler.player);
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            FoundationAreaEvents.clear(server);
             net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.close(server);
         });
     }

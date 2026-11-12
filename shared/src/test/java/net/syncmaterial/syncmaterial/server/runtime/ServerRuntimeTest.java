@@ -196,6 +196,34 @@ class ServerRuntimeTest {
         }
     }
 
+    @Test
+    void runtimeTickDrainsAreaConfigurationAndCloseCompletesPendingRequests() throws Exception {
+        Path game = Files.createDirectory(directory.resolve("game-area-lifecycle"));
+        ServerRuntime runtime = ServerRuntime.open(directory.resolve("world-area-lifecycle"), game,
+                path -> List.of(new MaterialCount("minecraft:stone", 1)), id -> {});
+        try {
+            var refresh = runtime.areas().refreshConfiguration();
+            runtime.store().areaCatalog().get(5, TimeUnit.SECONDS);
+            assertFalse(refresh.isDone(), "storage completion must be applied on the runtime tick");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!refresh.isDone() && System.nanoTime() < deadline) {
+                runtime.tick();
+                Thread.yield();
+            }
+            refresh.get(5, TimeUnit.SECONDS);
+            assertTrue(runtime.areas().configuration().isPresent());
+
+            var pending = runtime.areas().refreshConfiguration();
+            runtime.store().areaCatalog().get(5, TimeUnit.SECONDS);
+            assertFalse(pending.isDone());
+            runtime.close();
+            assertTrue(pending.isCompletedExceptionally(), "runtime close must cancel pending scanner requests");
+            assertFalse(runtime.isOpen());
+        } finally {
+            runtime.close();
+        }
+    }
+
     private static final class MutableDecoder implements MaterialDecoder {
         private String interpretation;
 

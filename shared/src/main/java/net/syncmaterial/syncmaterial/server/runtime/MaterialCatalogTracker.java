@@ -28,8 +28,32 @@ public final class MaterialCatalogTracker {
         long revision = Math.addExact(deliveryRevision, 1L);
         deliveryRevision = revision;
         baselines.computeIfAbsent(playerId, ignored -> new HashMap<>())
-                .put(project.id(), new Baseline(connection, fingerprint(project)));
+                .put(project.id(), new Baseline(connection, fingerprint(project), revision));
         return revision;
+    }
+
+    /**
+     * Returns the exact catalog delivery sequence this connection last received for the
+     * project. Area inventory snapshots carry this value so the client can reject an
+     * inventory that belongs to a catalog it no longer has on screen.
+     *
+     * <p>Empty when no catalog was delivered on this connection (wrong connection
+     * generation, reconnected player, forgotten project, or reset baseline). A non-positive
+     * connection can never own a delivery and also yields empty instead of throwing: callers
+     * use this as a delivery gate, not as input validation.</p>
+     */
+    public synchronized OptionalLong currentRevision(UUID playerId, String projectId, long connection) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(projectId, "projectId");
+        if (connection <= 0) {
+            return OptionalLong.empty();
+        }
+        Map<String, Baseline> playerBaselines = baselines.get(playerId);
+        Baseline baseline = playerBaselines == null ? null : playerBaselines.get(projectId);
+        if (baseline == null || baseline.connection() != connection) {
+            return OptionalLong.empty();
+        }
+        return OptionalLong.of(baseline.revision());
     }
 
     /**
@@ -89,6 +113,6 @@ public final class MaterialCatalogTracker {
         }
     }
 
-    private record Baseline(long connection, Catalog catalog) {
+    private record Baseline(long connection, Catalog catalog, long revision) {
     }
 }

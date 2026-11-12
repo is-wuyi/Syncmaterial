@@ -37,6 +37,8 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
     private List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouses = new ArrayList<>();
     private boolean loading = true;
     private WarehouseListWidget listWidget;
+    /** 本项目 LIST_WAREHOUSES 快照携带的重叠提示；null 表示无提示。 */
+    private String overlapWarning;
 
     public GuiWarehouseRefPopup(String schematicId)
     {
@@ -48,6 +50,22 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
                 net.minecraft.client.Minecraft.getInstance()));
         this.setWidthAndHeight(320, 200);
         this.centerOnScreen();
+    }
+
+    public String getSchematicId()
+    {
+        return this.schematicId;
+    }
+
+    /** 成功 LIST_WAREHOUSES 的重叠提示；空串/null 清除。 */
+    public void updateOverlapWarning(String message)
+    {
+        this.overlapWarning = AreaOverlapWarningRenderer.normalize(message);
+    }
+
+    public String getOverlapWarning()
+    {
+        return this.overlapWarning;
     }
 
     public void onWarehouseListResponse(List<StagingAreaConfigResponseS2CPacket.AreaInfo> areas)
@@ -72,9 +90,9 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
 
         if (loading)
         {
-            // 首次打开时发请求
+            // 首次打开时发请求：带上本项目 id，服务端按项目范围判定重叠提示
             ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                    "", "LIST_WAREHOUSES", 0, Optional.empty()));
+                    this.schematicId, "LIST_WAREHOUSES", 0, Optional.empty()));
             return;
         }
 
@@ -104,6 +122,15 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         // 标题
         this.drawStringWithShadow(drawContext, this.getTitleString(),
                 this.dialogLeft + 10, this.dialogTop + 4, COLOR_WHITE);
+
+        if (this.overlapWarning != null)
+        {
+            String warningText = "⚠ " + StringUtils.translate("syncmaterial.gui.label.area_overlap_warning");
+            int warningWidth = this.mc.font.width(warningText);
+            AreaOverlapWarningRenderer.render(drawContext,
+                    this.dialogLeft + this.dialogWidth - warningWidth - 18, this.dialogTop + 4,
+                    this.overlapWarning, mouseX, mouseY);
+        }
 
         // 内容
         if (loading)

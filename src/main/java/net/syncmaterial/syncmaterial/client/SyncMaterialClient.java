@@ -20,6 +20,8 @@ public class SyncMaterialClient implements ClientModInitializer {
     private static final Logger LOGGER = SyncMaterial.LOGGER;
     private static SyncMaterialList activeMaterialList;
     private static long catalogRevision = -1;
+    /** 维度变化检测：仓库容器响应不带维度字段，换维度必须丢缓存并重订阅。 */
+    private static final DimensionChangeTracker WAREHOUSE_DIMENSION_TRACKER = new DimensionChangeTracker();
 
     /** 取货需求重算周期（tick）。10 tick ≈ 0.5 秒，比原先挂在 HUD 的 2 秒更及时 */
     private static final int PICKUP_RECOMPUTE_INTERVAL = 10;
@@ -84,6 +86,19 @@ public class SyncMaterialClient implements ClientModInitializer {
             PickupModeState.recompute(
                     activeMaterialList == null ? null : activeMaterialList.getMaterialsAll(),
                     InventoryScanner.liveCountsByItemId(client.player));
+        });
+
+        // 仓库容器缓存按维度隔离，但响应包不带维度；换维度时清缓存并按当前原理图重订阅，
+        // 否则新维度里同坐标的箱子会沿用上个维度的取货高亮。
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (client.player == null || client.player.level() == null) {
+                WAREHOUSE_DIMENSION_TRACKER.observe(null);
+                return;
+            }
+            String worldId = net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(client.player.level());
+            if (WAREHOUSE_DIMENSION_TRACKER.observe(worldId)) {
+                onClientDimensionChanged();
+            }
         });
 
         // 26.2 移除了 HudRenderCallback，改用 HudElementRegistry；
@@ -161,6 +176,7 @@ public class SyncMaterialClient implements ClientModInitializer {
             // 且 InventoryWatcher 仍持旧 schematicId，换服后朝新服发它不认识的背包更新包
             activeMaterialList = null;
             catalogRevision = -1;
+            WAREHOUSE_DIMENSION_TRACKER.reset();
             InventoryWatcher.clearContext();
             // 取货模式同理：不清会带着上个服的需求量继续高亮格子与仓库线框
             PickupModeState.clear();
@@ -203,7 +219,8 @@ public class SyncMaterialClient implements ClientModInitializer {
                 || activeMaterialList == null || !activeMaterialList.getSchematicId().equals(update.schematicId())
                 || update.revision() <= catalogRevision) return;
         catalogRevision = update.revision();
-        activeMaterialList.setMaterialEntries(update.materials());
+        // 目录更新同时失效旧区域快照：旧序号/计数不能继续冒充当前目录的权威值。
+        activeMaterialList.setMaterialEntries(update.materials(), update.revision());
         activeMaterialList.setTitle(update.schematicName());
         activeMaterialList.useFoundationBackend();
         InventoryWatcher.enablePeriodicReports();
@@ -220,6 +237,41 @@ public class SyncMaterialClient implements ClientModInitializer {
         LOGGER.info("收到协作状态更新: 材料 {} (总量: {}, 备货区: {}, 仓库: {})", status.materialId(), status.totalCount(), status.stagingCount(), status.warehouseCount());
         if (activeMaterialList != null && activeMaterialList.getSchematicId().equals(status.schematicId())) {
             activeMaterialList.onCollaborationStatus(status);
+        }
+    }
+
+    /**
+     * v3 区域库存权威快照入口。先做服务端能力闸门（旧服务端不发/客户端不认），
+     * 再交给当前材料目录做目录序号、快照序号与材料全集校验。
+     */
+    public static void onAreaInventorySnapshot(net.syncmaterial.syncmaterial.network.AreaInventorySnapshotS2CPacket snapshot) {
+        if (!net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.AREA_INVENTORY_SNAPSHOTS)) return;
+        if (activeMaterialList == null || !activeMaterialList.getSchematicId().equals(snapshot.schematicId())) return;
+        if (!activeMaterialList.applyAreaInventorySnapshot(snapshot)) return;
+        var mc = Minecraft.getInstance();
+        if (ClientScreenAccess.currentScreen(mc) instanceof GuiMaterialList gui
+                && gui.getSchematicId().equals(snapshot.schematicId())) {
+            // 空列表也下发：空表示当前没有未初始化区域，必须清掉旧警告。
+            gui.updateFreshnessWarnings(snapshot.freshnessInfo());
+        }
+    }
+
+    /**
+     * 维度切换后的仓库缓存处理：丢掉旧维度容器，若正处于取货模式则按当前原理图
+     * 重发订阅（复用既有 WarehouseContainerRequestC2SPacket，不新增包）。
+     */
+    public static void onClientDimensionChanged() {
+        StagingAreaRenderer.getInstance().clearWarehouseContainers();
+        if (activeMaterialList == null) {
+            return;
+        }
+        PickupModeState.recompute(activeMaterialList.getMaterialsAll(),
+                InventoryScanner.liveCountsByItemId(Minecraft.getInstance().player));
+        if (PickupModeState.isActive()) {
+            net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
+                    new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(
+                            activeMaterialList.getSchematicId(), true));
         }
     }
 

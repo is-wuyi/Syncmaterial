@@ -31,6 +31,8 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     private final List<WarehouseEntry> warehouses = new ArrayList<>();
     /** 待创建仓库的名称：先由名称弹窗填入，准星选区确认时取用 */
     private String pendingWarehouseName = null;
+    /** 全局 LIST_WAREHOUSES 快照携带的重叠提示；null 表示无提示。 */
+    private String overlapWarning;
 
     public GuiWarehouseManager()
     {
@@ -168,6 +170,17 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
         }
     }
 
+    /** 成功 LIST_WAREHOUSES 的重叠提示；空串/null 清除。 */
+    public void updateOverlapWarning(String message)
+    {
+        this.overlapWarning = AreaOverlapWarningRenderer.normalize(message);
+    }
+
+    public String getOverlapWarning()
+    {
+        return this.overlapWarning;
+    }
+
     @Override
     //? if >=26.2 {
     public void drawContents(fi.dy.masa.malilib.render.GuiContext drawContext, int mouseX, int mouseY, float partialTicks)
@@ -176,6 +189,13 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     *///?}
     {
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
+        if (this.overlapWarning != null)
+        {
+            String text = "⚠ " + StringUtils.translate("syncmaterial.gui.label.area_overlap_warning");
+            int width = this.mc.font.width(text);
+            AreaOverlapWarningRenderer.render(drawContext, this.getScreenWidth() - width - 18, 8,
+                    this.overlapWarning, mouseX, mouseY);
+        }
     }
 
     @Override

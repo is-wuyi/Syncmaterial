@@ -118,6 +118,45 @@ class MaterialCatalogTrackerTest {
     }
 
     @Test
+    void currentRevisionReturnsTheExactSequenceDeliveredOnThisConnection() {
+        long first = tracker.sent(PLAYER_A, 1L, project("a", "Project", "hash", 1L,
+                material(1, "minecraft:stone", 64)));
+        assertEquals(first, tracker.currentRevision(PLAYER_A, "a", 1L).getAsLong());
+        assertTrue(tracker.currentRevision(PLAYER_A, "b", 1L).isEmpty());
+        assertTrue(tracker.currentRevision(PLAYER_B, "a", 1L).isEmpty());
+
+        long second = tracker.sent(PLAYER_A, 1L, project("b", "Other", "hash-b", 1L,
+                material(2, "minecraft:dirt", 1)));
+        assertEquals(second, tracker.currentRevision(PLAYER_A, "b", 1L).getAsLong());
+        assertEquals(first, tracker.currentRevision(PLAYER_A, "a", 1L).getAsLong());
+
+        long changed = tracker.changed(PLAYER_A, 1L, project("a", "Project", "hash", 1L,
+                material(1, "minecraft:stone", 32))).getAsLong();
+        assertEquals(changed, tracker.currentRevision(PLAYER_A, "a", 1L).getAsLong());
+    }
+
+    @Test
+    void currentRevisionRejectsOtherConnectionGenerationAndInvalidInput() {
+        long revision = tracker.sent(PLAYER_A, 1L, project("a", "Project", "hash", 1L,
+                material(1, "minecraft:stone", 64)));
+        assertTrue(tracker.currentRevision(PLAYER_A, "a", 2L).isEmpty(),
+                "新旧连接不能共享目录基线");
+        assertTrue(tracker.currentRevision(PLAYER_A, "a", 0L).isEmpty());
+        assertTrue(tracker.currentRevision(PLAYER_A, "a", -1L).isEmpty());
+        assertThrows(NullPointerException.class, () -> tracker.currentRevision(null, "a", 1L));
+        assertThrows(NullPointerException.class, () -> tracker.currentRevision(PLAYER_A, null, 1L));
+
+        tracker.forget(PLAYER_A, "a");
+        assertTrue(tracker.currentRevision(PLAYER_A, "a", 1L).isEmpty());
+        tracker.sent(PLAYER_A, 1L, project("a", "Project", "hash", 1L,
+                material(1, "minecraft:stone", 64)));
+        tracker.disconnected(PLAYER_A);
+        assertTrue(tracker.currentRevision(PLAYER_A, "a", 1L).isEmpty());
+        assertEquals(revision + 2, tracker.sent(PLAYER_A, 1L, project("a", "Project", "hash", 1L,
+                material(1, "minecraft:stone", 64))));
+    }
+
+    @Test
     void nonPositiveConnectionIsRejected() {
         ProjectSnapshot project = project("a", "Project", "hash", 1L,
                 material(1, "minecraft:stone", 64));

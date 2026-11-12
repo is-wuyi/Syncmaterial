@@ -3,6 +3,8 @@
     "syncmaterial.gui.title.material_list_pickup": "材料清单 · 取货指示器",
     "syncmaterial.gui.label.warehouse_has": "仓库有 %d",
     "syncmaterial.gui.label.freshness_warning": "⚠ 以下区域尚未初始化：",
+    "syncmaterial.gui.label.area_overlap_warning": "区域重叠 — 库存仅计一次",
+    "syncmaterial.gui.tooltip.area_overlap_warning": "配置的备货区与仓库范围有重叠。同一原理图内每个库存来源只计一次，备货区优先于引用的仓库。",
     "syncmaterial.gui.label.no_warehouses": "暂无可用仓库",
     "syncmaterial.gui.label.loading": "加载中...",
     "syncmaterial.gui.title.management": "负责人管理",

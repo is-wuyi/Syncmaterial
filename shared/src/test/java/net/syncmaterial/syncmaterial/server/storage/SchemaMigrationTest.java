@@ -16,6 +16,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import net.syncmaterial.syncmaterial.core.AreaBounds;
+import net.syncmaterial.syncmaterial.core.AreaDefinition;
+import net.syncmaterial.syncmaterial.core.AreaKind;
+import net.syncmaterial.syncmaterial.core.AreaSpec;
 import net.syncmaterial.syncmaterial.core.MaterialCount;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
@@ -32,9 +36,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Real-schema migration tests. The v1 fixture is produced by the current store and
- * then stripped back to version 1 (no shadow DDL), so this file cannot silently
- * drift from {@link StoreSchema}'s actual table definitions.
+ * Real-schema migration tests. Historic v1/v2 fixtures are produced by the current store
+ * and then stripped back with {@link HistoricSchemaFixtures#revertToV2(Connection)} (no shadow
+ * guessed DDL), so this file cannot silently drift from the actual production table
+ * definitions.
  */
 class SchemaMigrationTest {
     private static final String STONE = "minecraft:stone";
@@ -85,7 +90,7 @@ class SchemaMigrationTest {
     }
 
     @Test
-    void failedV1ToV2MigrationRollsBackColumnAndUserVersion() throws Exception {
+    void failedV1ToCurrentMigrationRollsBackColumnTablesAndUserVersion() throws Exception {
         Path db = directory.resolve("rollback.sqlite");
         createV1Fixture(db);
 
@@ -97,6 +102,10 @@ class SchemaMigrationTest {
 
             assertEquals(1, StoreSchema.readUserVersion(connection));
             assertFalse(hasColumn(connection, "projects", "interpretation_id"));
+            assertFalse(hasColumn(connection, "areas", "revision"));
+            assertFalse(hasColumn(connection, "areas", "geometry_revision"));
+            assertFalse(tableExists(connection, "area_chunks"));
+            assertFalse(tableExists(connection, "store_state"));
             try (Statement statement = connection.createStatement();
                  ResultSet resultSet = statement.executeQuery("SELECT COUNT(*) FROM projects")) {
                 assertTrue(resultSet.next());
@@ -107,11 +116,106 @@ class SchemaMigrationTest {
             StoreSchema.migrateSchema(connection);
             assertEquals(StoreSchema.SCHEMA_VERSION, StoreSchema.readUserVersion(connection));
             assertTrue(hasColumn(connection, "projects", "interpretation_id"));
+            assertTrue(hasColumn(connection, "areas", "revision"));
+            assertTrue(hasColumn(connection, "areas", "geometry_revision"));
+            assertTrue(tableExists(connection, "area_chunks"));
+            assertTrue(tableExists(connection, "store_state"));
             try (Statement statement = connection.createStatement();
                  ResultSet resultSet = statement.executeQuery(
                          "SELECT interpretation_id FROM projects WHERE id = 'p1'")) {
                 assertTrue(resultSet.next());
                 assertEquals("unversioned", resultSet.getString(1));
+            }
+        }
+    }
+
+    @Test
+    void v2MigratesToCurrentPreservingAreasReferencesAndBacksUpRealV2Schema() throws Exception {
+        Path db = directory.resolve("v2.sqlite");
+        createV2Fixture(db);
+
+        try (SqliteProjectStore store = SqliteProjectStore.open(db)) {
+            assertEquals(StoreSchema.SCHEMA_VERSION, readVersion(db));
+            var catalog = await(store.areaCatalog());
+            assertEquals(2, catalog.areas().size());
+            AreaDefinition staging = catalog.areas().stream()
+                    .filter(area -> area.kind() == AreaKind.STAGING_AREA)
+                    .findFirst().orElseThrow();
+            AreaDefinition warehouse = catalog.areas().stream()
+                    .filter(area -> area.kind() == AreaKind.WAREHOUSE)
+                    .findFirst().orElseThrow();
+            assertEquals(0, staging.revision());
+            assertEquals(0, staging.geometryRevision());
+            assertEquals(0, warehouse.revision());
+            assertEquals(0, warehouse.geometryRevision());
+            assertEquals(Set.of(warehouse.id()), catalog.referencedWarehouseIds("p1"));
+            assertEquals("minecraft:overworld", staging.world());
+
+            ProjectState state = await(store.snapshot("p1")).orElseThrow();
+            assertEquals(1, state.claims().size());
+            assertEquals("Alice", state.claims().get(0).player().name());
+            assertFalse(state.inventory().known(), "migrated area has no coverage yet");
+        }
+
+        Path backups = directory.resolve("migration-backups");
+        assertTrue(Files.isDirectory(backups), "v2 store must be backed up before migration");
+        List<Path> backupDatabases;
+        try (var entries = Files.walk(backups)) {
+            backupDatabases = entries.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().equals("v2.sqlite"))
+                    .toList();
+        }
+        assertEquals(1, backupDatabases.size());
+        assertBackupIsV2(backupDatabases.get(0));
+
+        // Reopening a migrated store is stable and does not create another backup.
+        try (SqliteProjectStore store = SqliteProjectStore.open(db)) {
+            assertEquals(2, await(store.areaCatalog()).areas().size());
+        }
+        try (var entries = Files.walk(backups)) {
+            assertEquals(1, entries.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().equals("v2.sqlite"))
+                    .count());
+        }
+    }
+
+    @Test
+    void failedV2ToCurrentMigrationRollsBackTablesColumnsAndPreservesRows() throws Exception {
+        Path db = directory.resolve("v2-rollback.sqlite");
+        createV2Fixture(db);
+
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db)) {
+            assertThrows(IllegalStateException.class,
+                    () -> StoreSchema.migrateSchema(connection, () -> {
+                        throw new IllegalStateException("injected v2 migration failure");
+                    }));
+
+            assertEquals(2, StoreSchema.readUserVersion(connection));
+            for (String table : HistoricSchemaFixtures.V3_TABLES) {
+                assertFalse(tableExists(connection, table), "rolled back table: " + table);
+            }
+            for (String column : HistoricSchemaFixtures.V3_AREA_COLUMNS) {
+                assertFalse(hasColumn(connection, "areas", column), "rolled back column: " + column);
+            }
+            try (Statement statement = connection.createStatement()) {
+                try (ResultSet resultSet = statement.executeQuery("SELECT COUNT(*) FROM areas")) {
+                    assertTrue(resultSet.next());
+                    assertEquals(2, resultSet.getInt(1));
+                }
+                try (ResultSet resultSet = statement.executeQuery(
+                        "SELECT COUNT(*) FROM warehouse_refs")) {
+                    assertTrue(resultSet.next());
+                    assertEquals(1, resultSet.getInt(1));
+                }
+            }
+
+            StoreSchema.migrateSchema(connection);
+            assertEquals(StoreSchema.SCHEMA_VERSION, StoreSchema.readUserVersion(connection));
+            for (String table : HistoricSchemaFixtures.V3_TABLES) {
+                assertTrue(tableExists(connection, table), "migrated table: " + table);
+            }
+            for (String column : HistoricSchemaFixtures.V3_AREA_COLUMNS) {
+                assertTrue(hasColumn(connection, "areas", column), "migrated column: " + column);
             }
         }
     }
@@ -187,10 +291,28 @@ class SchemaMigrationTest {
 
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement statement = connection.createStatement()) {
+            HistoricSchemaFixtures.revertToV2(connection);
             statement.execute("ALTER TABLE projects DROP COLUMN interpretation_id");
             statement.execute("PRAGMA user_version=1");
         }
         return materialId;
+    }
+
+    private void createV2Fixture(Path db) throws Exception {
+        try (SqliteProjectStore store = SqliteProjectStore.open(db)) {
+            await(store.ingest(metadata("p1", "h1"), List.of(new MaterialCount(STONE, 10))));
+            int materialId = await(store.findProject("p1")).orElseThrow().materials().get(0).id();
+            assertTrue(await(store.join("p1", materialId, ALICE)));
+            await(store.addArea("p1", AreaKind.STAGING_AREA, new AreaSpec(
+                    "Staging", "minecraft:overworld", new AreaBounds(0, 0, 0, 15, 15, 15))));
+            AreaDefinition warehouse = await(store.addArea(null, AreaKind.WAREHOUSE, new AreaSpec(
+                    "Global", "minecraft:overworld", new AreaBounds(32, 0, 0, 47, 15, 15))));
+            assertTrue(await(store.addWarehouseReference("p1", warehouse.id())));
+        }
+
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db)) {
+            HistoricSchemaFixtures.revertToV2(connection);
+        }
     }
 
     private static void assertBackupIsV1WithClaim(Path backup) throws Exception {
@@ -215,6 +337,32 @@ class SchemaMigrationTest {
         }
     }
 
+    private static void assertBackupIsV2(Path backup) throws Exception {
+        SQLiteConfig readOnly = new SQLiteConfig();
+        readOnly.setReadOnly(true);
+        try (Connection connection = readOnly.createConnection("jdbc:sqlite:" + backup);
+             Statement statement = connection.createStatement()) {
+            try (ResultSet resultSet = statement.executeQuery("PRAGMA user_version")) {
+                assertTrue(resultSet.next());
+                assertEquals(2, resultSet.getInt(1));
+            }
+            assertEquals(2, count(statement, "areas"));
+            assertEquals(1, count(statement, "warehouse_refs"));
+            assertTrue(hasColumn(connection, "projects", "interpretation_id"));
+            assertFalse(hasColumn(connection, "areas", "revision"));
+            assertFalse(hasColumn(connection, "areas", "geometry_revision"));
+            assertFalse(tableExists(connection, "store_state"));
+            assertFalse(tableExists(connection, "area_chunks"));
+        }
+    }
+
+    private static int count(Statement statement, String table) throws SQLException {
+        try (ResultSet resultSet = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+            assertTrue(resultSet.next());
+            return resultSet.getInt(1);
+        }
+    }
+
     private static int readVersion(Path db) throws Exception {
         SQLiteConfig readOnly = new SQLiteConfig();
         readOnly.setReadOnly(true);
@@ -232,6 +380,16 @@ class SchemaMigrationTest {
                 }
             }
             return false;
+        }
+    }
+
+    private static boolean tableExists(Connection connection, String table) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")) {
+            statement.setString(1, table);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
         }
     }
 

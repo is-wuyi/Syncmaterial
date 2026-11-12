@@ -49,33 +49,12 @@ public class ModNetworkHandlerClient {
             });
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(AreaInventorySnapshotS2CPacket.ID, (payload, context) -> {
+            context.client().execute(() -> SyncMaterialClient.onAreaInventorySnapshot(payload));
+        });
+
         ClientPlayNetworking.registerGlobalReceiver(StagingAreaConfigResponseS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> {
-                var screen = currentScreen();
-
-                // Phase 5: 仓库管理界面响应
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager warehouseMgr)
-                {
-                    warehouseMgr.onWarehouseListResponse(payload.areas());
-                    return;
-                }
-
-                // Phase 5: 仓库引用弹窗响应
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseRefPopup popup)
-                {
-                    popup.onWarehouseListResponse(payload.areas());
-                    return;
-                }
-
-                if (screen instanceof GuiStagingAreaEditorNormal editor)
-                {
-                    editor.onServerResponse(payload);
-                }
-                else
-                {
-                    handleStagingAreaConfigResponseForWorld(payload);
-                }
-            });
+            context.client().execute(() -> routeStagingAreaResponse(payload));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(RescanStagingAreaResponseS2CPacket.ID, (payload, context) -> {
@@ -150,6 +129,107 @@ public class ModNetworkHandlerClient {
      */
     static net.minecraft.client.gui.screens.Screen currentScreen() {
         return ClientScreenAccess.currentScreen(Minecraft.getInstance());
+    }
+
+    /**
+     * 按 action/success 路由备货区配置响应。列表快照只更新它自己的列表，
+     * 敌对操作的确认/错误不得清空其它列表。
+     */
+    static void routeStagingAreaResponse(StagingAreaConfigResponseS2CPacket payload) {
+        String action = payload.action() == null ? "" : payload.action();
+        if (!payload.success()) {
+            fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                    fi.dy.masa.malilib.gui.Message.MessageType.ERROR, payload.message());
+            return;
+        }
+        if ("SCHEMATIC_DELETED".equals(action)) {
+            handleStagingAreaConfigResponseForWorld(payload);
+            return;
+        }
+        var screen = currentScreen();
+        String scope = payload.schematicId();
+
+        if ("LIST_WAREHOUSES".equals(action)) {
+            String warning = overlapWarningMessage(payload);
+            if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager manager) {
+                if (isBlank(scope)) {
+                    manager.onWarehouseListResponse(payload.areas());
+                    manager.updateOverlapWarning(warning);
+                }
+                return;
+            }
+            if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseRefPopup popup) {
+                if (isBlank(scope) || popup.getSchematicId().equals(scope)) {
+                    popup.onWarehouseListResponse(payload.areas());
+                    popup.updateOverlapWarning(warning);
+                }
+                return;
+            }
+            // 没有对应的仓库列表界面时不要把它当备货区列表处理
+            return;
+        }
+
+        if ("LIST_WAREHOUSE_REFS".equals(action)) {
+            if (screen instanceof GuiStagingAreaEditorNormal editor) {
+                if (matchesProject(scope, editor.getSchematicId())) {
+                    editor.updateOverlapWarning(overlapWarningMessage(payload));
+                    editor.onServerResponse(payload);
+                }
+            } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList list) {
+                if (matchesProject(scope, list.getSchematicId())) {
+                    list.updateOverlapWarning(overlapWarningMessage(payload));
+                }
+            }
+            return;
+        }
+
+        if ("LIST".equals(action)) {
+            if (screen instanceof GuiStagingAreaEditorNormal editor) {
+                if (matchesProject(scope, editor.getSchematicId())) {
+                    editor.updateOverlapWarning(overlapWarningMessage(payload));
+                    editor.onServerResponse(payload);
+                }
+                return;
+            }
+            if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList list
+                    && matchesProject(scope, list.getSchematicId())) {
+                list.updateOverlapWarning(overlapWarningMessage(payload));
+            }
+            handleStagingAreaConfigResponseForWorld(payload);
+            return;
+        }
+
+        // 变更确认/错误：只交给编辑器显示；仓库列表界面保持原列表不动。
+        if (screen instanceof GuiStagingAreaEditorNormal editor) {
+            editor.onServerResponse(payload);
+            return;
+        }
+        if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager
+                || screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseRefPopup) {
+            return;
+        }
+        handleStagingAreaConfigResponseForWorld(payload);
+    }
+
+    /**
+     * 只有新服务端在成功 LIST 类响应里写入的翻译键标记才算区域重叠提示。
+     * 旧服务端的 "ok"、变更确认（如“备货区已添加”）以及任意其它文本都不是；
+     * 协议 2 及以下完全不解析该字段。
+     */
+    static String overlapWarningMessage(StagingAreaConfigResponseS2CPacket payload) {
+        if (!payload.success() || !ClientProtocolState.serverSupports(ProtocolVersion.AREA_INVENTORY_SNAPSHOTS)) {
+            return null;
+        }
+        return AreaOverlapStatus.isWarning(payload.message()) ? AreaOverlapStatus.MESSAGE_KEY : null;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    /** 项目级 LIST 只更新对应项目的界面；空 scope 无法归属，不误报。 */
+    private static boolean matchesProject(String scope, String ownProject) {
+        return scope != null && !scope.isBlank() && scope.equals(ownProject);
     }
 
     /**

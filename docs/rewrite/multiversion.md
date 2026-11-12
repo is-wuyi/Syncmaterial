@@ -22,7 +22,7 @@ Stonecutter 只管理源码生成，不自动修复 API 或行为差异。条件
 
 ## 构建与验证
 
-本机仓库位于 exFAT，必须将受控源码复制到独立 `/tmp` 工程运行 Gradle。每个副本的 `.runs/<Minecraft>/` 隔离各测试运行目录，多个工作区不得共用同一目录。
+本机外置／网络文件系统不直接运行 Gradle，受控源码复制到本地持久目录中的独立工程；不要把未提交源码仅放 `/tmp`。每个副本的 `.runs/<Minecraft>/` 隔离各测试运行目录，多个工作区不得共用同一目录。
 
 ```bash
 JAVA_HOME=<Java25> ./gradlew buildAllVersions
@@ -40,7 +40,7 @@ JAVA_HOME=<Java25> ./gradlew :26.2:runClientGameTest
 
 产物位于 `versions/<Minecraft>/build/libs/`，每个 jar 只声明对应 Minecraft 和 Java 范围。共享业务装配一次，检查整个嵌套依赖闭包无重复业务类；SQLite 驱动必须存在。含注册表／ItemStack 的 codec 按节点验证，不要求跨 Minecraft 的字节完全一致。
 
-根验收任务在真实执行后统一调用 `scripts/verify_multiversion.py`，共享静态告警上限为 0、平台每节点上限为 28。缺失报告、零测试、跳过测试或缺少任一注册客户端入口都不能通过；测试专属语言适配器只记录实际 `runTest` 的开始／完成／失败，不替代测试。需要只读检查已有产物时：
+根验收任务在真实执行后统一调用 `scripts/verify_multiversion.py`，共享静态告警上限为 0、平台每节点上限为 28，并按已验证基线的 type／class／count 拒绝新告警，不能靠总数较低掩盖回归。必需的回归测试类及类内最少用例数也纳入验收。缺失报告、零测试、跳过测试或缺少任一注册客户端入口都不能通过；测试专属语言适配器只记录实际 `runTest` 的开始／完成／失败，不替代测试。需要只读检查已有产物时：
 
 ```bash
 python3 -I scripts/verify_multiversion.py --root . --scope all --strict
@@ -78,4 +78,4 @@ Foundation 客户端包含实际 Litematica 材料规则对照，三个节点各
 
 发现结构性阻塞时先说明失败证据、已完成部分和调整建议；不删除测试、不静默关闭功能、不退回两份业务代码。
 
-默认仍是旧后端，Foundation 用独立 `runtime-v2.sqlite`；不自动导入旧业务库，不切换正式服，不打 tag。真实区域扫描在多版本基座完成后的下一批接入。
+默认仍是旧后端，Foundation 用独立 `runtime-v2.sqlite`；不自动导入旧业务库，不切换正式服，不打 tag。真实区域扫描在多版本基座之后接入，见 [区域扫描重写](area-scanning.md)。

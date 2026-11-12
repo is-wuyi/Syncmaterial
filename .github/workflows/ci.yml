@@ -37,6 +37,9 @@ jobs:
           set -o pipefail
           python3 -I .github/scripts/ci_guard.py info --root . | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify acceptance guard regressions
+        run: python3 -I scripts/test_verify_multiversion.py
+
       - name: Multiversion static guard
         run: |
           test -f scripts/verify_multiversion.py \

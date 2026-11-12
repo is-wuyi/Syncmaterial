@@ -61,6 +61,9 @@ public class ModPackets {
     // Phase 5: 仓库区域线框（全局广播，不按原理图订阅）
     public static final Identifier WAREHOUSE_AREA_RESPONSE = id("warehouse_area_response");
 
+    // 区域库存权威快照（协议 3，与材料目录投递序号绑定）
+    public static final Identifier AREA_INVENTORY_SNAPSHOT = id("area_inventory_snapshot");
+
     private static Identifier id(String path) {
         return Identifier.fromNamespaceAndPath(NAMESPACE, path);
     }
@@ -108,6 +111,9 @@ public class ModPackets {
 
     // Phase 5: 仓库区域线框（全局广播，不按原理图订阅）
     public static final ResourceLocation WAREHOUSE_AREA_RESPONSE = id("warehouse_area_response");
+
+    // 区域库存权威快照（协议 3，与材料目录投递序号绑定）
+    public static final ResourceLocation AREA_INVENTORY_SNAPSHOT = id("area_inventory_snapshot");
 
     private static ResourceLocation id(String path) {
         return ResourceLocation.fromNamespaceAndPath(NAMESPACE, path);

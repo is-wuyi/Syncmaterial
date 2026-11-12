@@ -3,6 +3,8 @@
     "syncmaterial.gui.title.material_list_pickup": "Список материалов · Индикатор выдачи",
     "syncmaterial.gui.label.warehouse_has": "Склад: %d",
     "syncmaterial.gui.label.freshness_warning": "⚠ Следующие зоны ещё не инициализированы:",
+    "syncmaterial.gui.label.area_overlap_warning": "Пересечение зон — содержимое учитывается один раз",
+    "syncmaterial.gui.tooltip.area_overlap_warning": "Настроенные зоны подготовки и склады пересекаются. В рамках одного проекта каждый источник содержимого учитывается один раз, зона подготовки имеет приоритет над подключёнными складами.",
     "syncmaterial.gui.label.no_warehouses": "Нет доступных складов",
     "syncmaterial.gui.label.loading": "Загрузка...",
     "syncmaterial.gui.title.management": "Управление владельцем",

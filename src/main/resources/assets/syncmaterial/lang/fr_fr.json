@@ -3,6 +3,8 @@
     "syncmaterial.gui.title.material_list_pickup": "Liste des matériaux · Indicateur de ramassage",
     "syncmaterial.gui.label.warehouse_has": "Entrepôt : %d",
     "syncmaterial.gui.label.freshness_warning": "⚠ Les zones suivantes ne sont pas encore initialisées :",
+    "syncmaterial.gui.label.area_overlap_warning": "Zones superposées — stock compté une seule fois",
+    "syncmaterial.gui.tooltip.area_overlap_warning": "Les zones de préparation et les entrepôts configurés se chevauchent. Dans un projet, chaque source d'inventaire n'est comptée qu'une fois et la préparation est prioritaire sur les entrepôts référencés.",
     "syncmaterial.gui.label.no_warehouses": "Aucun entrepôt disponible",
     "syncmaterial.gui.label.loading": "Chargement...",
     "syncmaterial.gui.title.management": "Gestion des propriétaires",

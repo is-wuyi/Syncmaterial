@@ -137,6 +137,20 @@ class ClientPacketHandlerTest {
             "取货模式容器数据应进入客户端缓存");
     }
 
+    @Test
+    void dimensionChangeClearsSameCoordinateWarehouseContainers() {
+        var containers = List.of(new WarehouseContainerResponseS2CPacket.ContainerEntry(
+            10, 64, 10, List.of("minecraft:stone")));
+        StagingAreaRenderer.getInstance().updateWarehouseContainers(containers, "minecraft:overworld");
+        assertTrue(StagingAreaRenderer.getInstance().hasWarehouseContainersLoaded());
+
+        // 同坐标在另一维度可能也是箱子，旧维度缓存必须整体丢弃。
+        net.syncmaterial.syncmaterial.client.SyncMaterialClient.onClientDimensionChanged();
+
+        assertTrue(StagingAreaRenderer.getInstance().getWarehouseContainers().isEmpty());
+        assertFalse(StagingAreaRenderer.getInstance().hasWarehouseContainersLoaded());
+    }
+
     // ========== 仓库区域线框 ==========
 
     @Test
@@ -163,6 +177,54 @@ class ClientPacketHandlerTest {
         assertTrue(StagingAreaRenderer.getInstance().getWarehouseAreas().isEmpty(),
             "仓库全部删除后应清空线框数据");
         assertFalse(StagingAreaRenderer.getInstance().isWarehouseReferenced(3));
+    }
+
+    @Test
+    void failedWarehouseListKeepsExistingManagerContentsAndWarning() {
+        var manager = mock(net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager.class);
+        try (var screens = mockStatic(net.syncmaterial.syncmaterial.client.ClientScreenAccess.class);
+             var info = mockStatic(fi.dy.masa.malilib.util.InfoUtils.class)) {
+            screens.when(() -> net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(any(Minecraft.class)))
+                    .thenReturn(manager);
+            ModNetworkHandlerClient.routeStagingAreaResponse(new StagingAreaConfigResponseS2CPacket(
+                    "LIST_WAREHOUSES", "", "", false, "请求失败", List.of()));
+            verify(manager, never()).onWarehouseListResponse(anyList());
+            verify(manager, never()).updateOverlapWarning(any());
+            info.verify(() -> fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                    fi.dy.masa.malilib.gui.Message.MessageType.ERROR, "请求失败"));
+        }
+    }
+
+    @Test
+    void failedStagingListDoesNotClearCurrentOverlapWarning() {
+        var list = mock(net.syncmaterial.syncmaterial.client.gui.GuiMaterialList.class);
+        when(list.getSchematicId()).thenReturn(SCHEMATIC);
+        try (var screens = mockStatic(net.syncmaterial.syncmaterial.client.ClientScreenAccess.class);
+             var info = mockStatic(fi.dy.masa.malilib.util.InfoUtils.class)) {
+            screens.when(() -> net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(any(Minecraft.class)))
+                    .thenReturn(list);
+            ModNetworkHandlerClient.routeStagingAreaResponse(new StagingAreaConfigResponseS2CPacket(
+                    "LIST", SCHEMATIC, "", false, "请求失败", List.of()));
+            verify(list, never()).updateOverlapWarning(any());
+            info.verify(() -> fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                    fi.dy.masa.malilib.gui.Message.MessageType.ERROR, "请求失败"));
+        }
+    }
+
+    @Test
+    void projectDeletionStillClearsWorldWhileWarehouseManagerIsOpen() {
+        StagingAreaRenderer.getInstance().updateSelection(SCHEMATIC, new AreaSelection());
+        var manager = mock(net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager.class);
+        try (var screens = mockStatic(net.syncmaterial.syncmaterial.client.ClientScreenAccess.class);
+             var client = mockStatic(net.syncmaterial.syncmaterial.client.SyncMaterialClient.class)) {
+            screens.when(() -> net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(any(Minecraft.class)))
+                    .thenReturn(manager);
+            ModNetworkHandlerClient.routeStagingAreaResponse(new StagingAreaConfigResponseS2CPacket(
+                    "SCHEMATIC_DELETED", SCHEMATIC, "", true, "", List.of()));
+            assertNull(StagingAreaRenderer.getInstance().getSelection(SCHEMATIC));
+            client.verify(() -> net.syncmaterial.syncmaterial.client.SyncMaterialClient.clearActiveSchematic(SCHEMATIC));
+            verifyNoInteractions(manager);
+        }
     }
 
     @Test

@@ -46,6 +46,7 @@ import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListStagingAreas;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListWarehouseRefs;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetStagingAreaEntry;
+import net.syncmaterial.syncmaterial.network.AreaOverlapStatus;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
@@ -97,6 +98,8 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     protected int stagingListHeight;
     protected int warehouseListY;
     protected int warehouseListHeight;
+    /** 本项目 LIST / LIST_WAREHOUSE_REFS 快照携带的重叠提示；null 表示无提示。 */
+    @Nullable private String overlapWarning;
 
     protected static StagingAreaConfigC2SPacket.AreaData toAreaData(String name, BlockPos pos1, BlockPos pos2) {
         return new StagingAreaConfigC2SPacket.AreaData(name,
@@ -191,6 +194,18 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     }
 
     // ========== 网络响应 ==========
+
+    /** 成功 LIST 类响应的重叠提示；空串/null 清除。 */
+    public void updateOverlapWarning(@Nullable String message)
+    {
+        this.overlapWarning = AreaOverlapWarningRenderer.normalize(message);
+    }
+
+    @Nullable
+    public String getOverlapWarning()
+    {
+        return this.overlapWarning;
+    }
 
     public void onServerResponse(StagingAreaConfigResponseS2CPacket packet)
     {
@@ -450,6 +465,14 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         if (this.warehouseListWidget != null)
         {
             this.warehouseListWidget.drawContents(drawContext, mouseX, mouseY, partialTicks);
+        }
+
+        if (this.overlapWarning != null)
+        {
+            String text = "⚠ " + StringUtils.translate(AreaOverlapStatus.MESSAGE_KEY);
+            int width = this.mc.font.width(text);
+            AreaOverlapWarningRenderer.render(drawContext, this.getScreenWidth() - width - 18, 8,
+                    this.overlapWarning, mouseX, mouseY);
         }
     }
 
