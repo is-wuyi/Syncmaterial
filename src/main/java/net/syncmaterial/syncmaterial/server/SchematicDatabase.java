@@ -4,15 +4,29 @@ import net.syncmaterial.syncmaterial.SyncMaterial;
 
 import java.io.File;
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * SQLite数据库管理器
- * 负责数据库连接、表创建和基本维护操作
+ * SQLite 数据库管理器。生命周期 NEW -> OPEN -> SEALED -> CLOSED；
+ * 非 OPEN 状态拒绝 SQL，初始化失败或关闭后不可重新打开。
  */
 public class SchematicDatabase implements AutoCloseable {
     private static final String DB_FILE = "syncmaterial.db";
+
+    private enum State {
+        NEW,
+        OPEN,
+        SEALED,
+        CLOSED
+    }
+
+    private State state = State.NEW;
     private Connection connection;
+    // 已签发但未关闭的查询结果，seal/close 时统一物理关闭
+    private final Set<QueryResult> openQueryResults = new HashSet<>();
     // 事务嵌套深度。单 Connection 被多线程共享（watch/parse/主线程/异步上传任务），
     // 若各自裸调 setAutoCommit，内层的 commit 会提前提交外层事务并使其 rollback
     // 抛出 "database in auto-commit mode"。计数保证只有最外层真正开启/提交事务。
@@ -35,17 +49,27 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 初始化数据库连接和表结构
      */
-    public void initialize() {
+    public synchronized void initialize() {
         initialize(getDatabasePath());
     }
 
     /**
-     * 初始化数据库连接和表结构（指定数据库文件路径，供测试注入临时路径）
+     * 初始化数据库和表结构。OPEN 时重复调用幂等；SEALED/CLOSED 或初始化失败后拒绝重开。
      */
-    public void initialize(String dbPath) {
+    public synchronized void initialize(String dbPath) {
+        if (state == State.OPEN) {
+            return;
+        }
+        if (state != State.NEW) {
+            throw new IllegalStateException("数据库对象已封存或关闭，不能重新初始化: " + state);
+        }
+
+        boolean success = false;
         try {
             // 创建数据库连接
             connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+            // 初始化全程持有 monitor；先标记 OPEN，让建表/迁移复用统一 SQL 入口
+            state = State.OPEN;
 
             // 启用WAL模式提升并发性能
             executePragma("PRAGMA journal_mode=WAL;");
@@ -55,11 +79,34 @@ public class SchematicDatabase implements AutoCloseable {
             // 创建表结构
             createTables();
 
+            success = true;
             SyncMaterial.LOGGER.info("数据库初始化完成: {}", dbPath);
 
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("数据库初始化失败", e);
             throw new RuntimeException("Failed to initialize database", e);
+        } finally {
+            if (!success) {
+                // 初始化失败：关闭可能已建立的半成品连接，并保持不可重开
+                state = State.CLOSED;
+                closeConnectionQuietly("数据库初始化失败");
+                notifyAll();
+            }
+        }
+    }
+
+    /**
+     * 关闭连接但不抛出受检异常（初始化失败、close 收尾共用）。
+     */
+    private void closeConnectionQuietly(String reason) {
+        Connection conn = connection;
+        connection = null;
+        if (conn != null) {
+            try {
+                conn.close();
+            } catch (SQLException e) {
+                SyncMaterial.LOGGER.warn("关闭数据库连接失败（{}）", reason, e);
+            }
         }
     }
 
@@ -369,9 +416,33 @@ public class SchematicDatabase implements AutoCloseable {
      * 执行UPDATE/INSERT/DELETE语句
      */
     public synchronized void executeUpdate(String sql, Object... params) throws SQLException {
+        awaitUsable();
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             setParameters(stmt, params);
             stmt.executeUpdate();
+        }
+    }
+
+    /**
+     * 校验准入并等待其他线程事务结束；所有 SQL 入口在持有 monitor 后调用。
+     */
+    private void awaitUsable() throws SQLException {
+        ensureOpen();
+        Thread self = Thread.currentThread();
+        while (transactionOwner != null && transactionOwner != self) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new SQLException("等待事务释放时被中断", e);
+            }
+            ensureOpen(); // 等待期间可能已被 seal/close
+        }
+    }
+
+    private void ensureOpen() throws SQLException {
+        if (state != State.OPEN) {
+            throw new SQLException("数据库未打开或已关闭，拒绝执行 SQL: " + state);
         }
     }
 
@@ -381,15 +452,8 @@ public class SchematicDatabase implements AutoCloseable {
      * 强行并发会让两个事务互相吞并（先开始者 commit 时报 auto-commit mode）。
      */
     public synchronized void beginTransaction() throws SQLException {
+        awaitUsable();
         Thread self = Thread.currentThread();
-        while (transactionOwner != null && transactionOwner != self) {
-            try {
-                wait();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new SQLException("等待事务释放时被中断", e);
-            }
-        }
         if (transactionDepth == 0) {
             connection.setAutoCommit(false);
             transactionRollbackOnly = false;
@@ -411,15 +475,36 @@ public class SchematicDatabase implements AutoCloseable {
         if (transactionDepth > 0) {
             return;
         }
-        try {
-            if (transactionRollbackOnly) {
-                connection.rollback();
-                throw new SQLException("事务已被内层标记为回滚，外层提交被拒绝");
+
+        Connection conn = connection;
+        if (transactionRollbackOnly) {
+            SQLException rejected = new SQLException("事务已被内层标记为回滚，外层提交被拒绝");
+            try {
+                conn.rollback();
+            } catch (SQLException rollbackFailure) {
+                rejected.addSuppressed(rollbackFailure);
+                sealAfterFailedCleanup(conn, "仅回滚事务清理失败");
+                throw rejected;
             }
-            connection.commit();
-        } finally {
-            endOutermostTransaction();
+            endTransactionAfterCleanup(rejected);
+            throw rejected;
         }
+
+        try {
+            conn.commit();
+        } catch (SQLException commitFailure) {
+            try {
+                // 不能直接恢复 autoCommit：JDBC 会提交残留事务，必须先回滚
+                conn.rollback();
+            } catch (SQLException rollbackFailure) {
+                commitFailure.addSuppressed(rollbackFailure);
+                sealAfterFailedCleanup(conn, "提交失败且回滚失败");
+                throw commitFailure;
+            }
+            endTransactionAfterCleanup(commitFailure);
+            throw commitFailure;
+        }
+        endOutermostTransaction();
     }
 
     /**
@@ -435,11 +520,61 @@ public class SchematicDatabase implements AutoCloseable {
             transactionRollbackOnly = true;
             return;
         }
+        Connection conn = connection;
         try {
-            connection.rollback();
-        } finally {
-            endOutermostTransaction();
+            conn.rollback();
+        } catch (SQLException rollbackFailure) {
+            sealAfterFailedCleanup(conn, "事务回滚失败");
+            throw rollbackFailure;
         }
+        endOutermostTransaction();
+    }
+
+    /**
+     * 在事务中执行回调。回调全程持有 connection monitor；
+     * 正常返回提交、异常回滚，嵌套沿用 depth 与 rollback-only 语义。
+     */
+    public synchronized <T> T inTransaction(Transaction<T> action) throws SQLException {
+        if (action == null) {
+            throw new NullPointerException("action");
+        }
+        beginTransaction();
+        try {
+            T result = action.run();
+            if (state != State.OPEN) {
+                throw new SQLException("数据库在事务回调期间已封存或关闭，事务不能提交");
+            }
+            if (transactionDepth == 0 || transactionOwner != Thread.currentThread()) {
+                throw new SQLException("事务在回调期间被提前结束，拒绝确认提交");
+            }
+            commitTransaction();
+            return result;
+        } catch (SQLException e) {
+            rollbackAfterFailure(e);
+            throw e;
+        } catch (RuntimeException e) {
+            rollbackAfterFailure(e);
+            throw e;
+        } catch (Error e) {
+            rollbackAfterFailure(e);
+            throw e;
+        }
+    }
+
+    private void rollbackAfterFailure(Throwable failure) {
+        try {
+            rollbackTransaction();
+        } catch (SQLException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+        }
+    }
+
+    /**
+     * 事务回调。运行期间数据库由当前线程独占，可直接调用本类 SQL 入口。
+     */
+    @FunctionalInterface
+    public interface Transaction<T> {
+        T run() throws SQLException;
     }
 
     /** 释放事务归属并唤醒等待中的线程 */
@@ -453,10 +588,43 @@ public class SchematicDatabase implements AutoCloseable {
         }
     }
 
+    /** 已成功回滚后收尾；恢复 autoCommit 失败只作为原异常的抑制异常。 */
+    private void endTransactionAfterCleanup(SQLException primary) {
+        try {
+            endOutermostTransaction();
+        } catch (SQLException cleanupFailure) {
+            primary.addSuppressed(cleanupFailure);
+        }
+    }
+
+    /**
+     * 提交或回滚失败且无法安全恢复：转为 SEALED、丢弃连接并唤醒等待者。
+     * 此时绝不能 setAutoCommit(true)，否则可能把残留事务提交出去。
+     */
+    private void sealAfterFailedCleanup(Connection conn, String reason) {
+        if (state != State.CLOSED) {
+            state = State.SEALED;
+        }
+        transactionDepth = 0;
+        transactionRollbackOnly = false;
+        transactionOwner = null;
+        closeOpenQueryResults(reason);
+        connection = null;
+        if (conn != null) {
+            try {
+                conn.close();
+            } catch (SQLException e) {
+                SyncMaterial.LOGGER.warn("关闭故障数据库连接失败（{}）", reason, e);
+            }
+        }
+        notifyAll();
+    }
+
     /**
      * 执行PRAGMA语句（可能返回结果）
      */
     public synchronized void executePragma(String sql) throws SQLException {
+        awaitUsable();
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             boolean hasResultSet = stmt.execute();
             if (hasResultSet) {
@@ -472,54 +640,177 @@ public class SchematicDatabase implements AutoCloseable {
     }
 
     /**
-     * 执行查询并返回结果。
-     * 返回的 QueryResult 实现 AutoCloseable，关闭时同时释放 ResultSet 和 PreparedStatement。
+     * 执行查询。已签发但未关闭的结果由 seal/close 统一物理关闭。
      */
     public synchronized QueryResult executeQuery(String sql, Object... params) throws SQLException {
+        awaitUsable();
         PreparedStatement stmt = connection.prepareStatement(sql);
-        setParameters(stmt, params);
         try {
+            setParameters(stmt, params);
             ResultSet rs = stmt.executeQuery();
-            return new QueryResult(rs, stmt);
-        } catch (SQLException e) {
-            stmt.close();
+            QueryResult queryResult = new QueryResult(this, rs, stmt);
+            openQueryResults.add(queryResult);
+            return queryResult;
+        } catch (SQLException | RuntimeException e) {
+            // 绑定参数或执行失败时也必须释放 Statement，否则连接上的语句资源泄漏
+            try {
+                stmt.close();
+            } catch (SQLException closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
             throw e;
         }
     }
 
     /**
-     * 查询结果封装，持有 ResultSet 和其背后的 PreparedStatement，
-     * 关闭时同时释放两者，防止 Statement 资源泄漏。
+     * 查询结果封装。代理读取与 close 均锁定所属数据库；
+     * seal/close 会从所有者侧物理关闭仍未关闭的结果。
      */
     public static class QueryResult implements AutoCloseable {
+        private final SchematicDatabase database;
         private final ResultSet resultSet;
         private final PreparedStatement statement;
+        private boolean closed = false;
 
-        QueryResult(ResultSet resultSet, PreparedStatement statement) {
+        QueryResult(SchematicDatabase database, ResultSet resultSet, PreparedStatement statement) {
+            this.database = database;
             this.resultSet = resultSet;
             this.statement = statement;
         }
 
+        /**
+         * 原始 ResultSet 逃生口：绕过本类锁与生命周期检查，仅供无法迁移的旧调用。
+         * seal/close 会物理关闭底层 ResultSet，之后继续使用会失败。
+         */
         public ResultSet getResultSet() {
             return resultSet;
         }
 
-        // 代理 ResultSet 常用方法
-        public boolean next() throws SQLException { return resultSet.next(); }
-        public String getString(String columnLabel) throws SQLException { return resultSet.getString(columnLabel); }
-        public String getString(int columnIndex) throws SQLException { return resultSet.getString(columnIndex); }
-        public int getInt(String columnLabel) throws SQLException { return resultSet.getInt(columnLabel); }
-        public int getInt(int columnIndex) throws SQLException { return resultSet.getInt(columnIndex); }
-        public long getLong(String columnLabel) throws SQLException { return resultSet.getLong(columnLabel); }
-        public long getLong(int columnIndex) throws SQLException { return resultSet.getLong(columnIndex); }
+        // 代理方法共用数据库 monitor，并拒绝已关闭或已 seal/close 的结果
+        public boolean next() throws SQLException {
+            synchronized (database) {
+                ensureUsable();
+                return resultSet.next();
+            }
+        }
+
+        public String getString(String columnLabel) throws SQLException {
+            synchronized (database) {
+                ensureUsable();
+                return resultSet.getString(columnLabel);
+            }
+        }
+
+        public String getString(int columnIndex) throws SQLException {
+            synchronized (database) {
+                ensureUsable();
+                return resultSet.getString(columnIndex);
+            }
+        }
+
+        public int getInt(String columnLabel) throws SQLException {
+            synchronized (database) {
+                ensureUsable();
+                return resultSet.getInt(columnLabel);
+            }
+        }
+
+        public int getInt(int columnIndex) throws SQLException {
+            synchronized (database) {
+                ensureUsable();
+                return resultSet.getInt(columnIndex);
+            }
+        }
+
+        public long getLong(String columnLabel) throws SQLException {
+            synchronized (database) {
+                ensureUsable();
+                return resultSet.getLong(columnLabel);
+            }
+        }
+
+        public long getLong(int columnIndex) throws SQLException {
+            synchronized (database) {
+                ensureUsable();
+                return resultSet.getLong(columnIndex);
+            }
+        }
+
+        private void ensureUsable() throws SQLException {
+            if (closed) {
+                throw new SQLException("查询结果已关闭");
+            }
+            // 已 seal/close 的数据库拒绝读取；其他线程持有事务时等待其结束
+            database.awaitUsable();
+        }
 
         @Override
         public void close() throws SQLException {
+            synchronized (database) {
+                if (closed) {
+                    return;
+                }
+                // 未封存时与其他 SQL 一样等待他线程事务结束，避免关闭语句干扰进行中的事务
+                if (database.state == State.OPEN) {
+                    try {
+                        database.awaitUsable();
+                    } catch (SQLException e) {
+                        // 等待期间可能被 seal/close 从所有者侧物理关闭；此时 close 仍是幂等的
+                        if (closed) {
+                            return;
+                        }
+                        throw e;
+                    }
+                }
+                closePhysical();
+            }
+        }
+
+        /**
+         * 物理关闭且只执行一次。调用方必须持有 database monitor。
+         * seal 路径会忽略异常，显式 close 保留 SQLException 兼容性。
+         */
+        private void closePhysical() throws SQLException {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            database.openQueryResults.remove(this);
+            SQLException failure = null;
             try {
                 resultSet.close();
-            } finally {
-                statement.close();
+            } catch (SQLException e) {
+                failure = e;
             }
+            try {
+                statement.close();
+            } catch (SQLException e) {
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
+            }
+            if (failure != null) {
+                throw failure;
+            }
+        }
+
+        private void closeQuietlyOnLifecycle(String reason) {
+            try {
+                closePhysical();
+            } catch (SQLException e) {
+                SyncMaterial.LOGGER.warn("关闭查询结果失败（{}）", reason, e);
+            }
+        }
+    }
+
+    /**
+     * 在 seal/close 时物理关闭所有尚未关闭的查询结果。调用方必须持有 monitor。
+     */
+    private void closeOpenQueryResults(String reason) {
+        for (QueryResult queryResult : new ArrayList<>(openQueryResults)) {
+            queryResult.closeQuietlyOnLifecycle(reason);
         }
     }
 
@@ -527,6 +818,7 @@ public class SchematicDatabase implements AutoCloseable {
      * 执行查询并使用Consumer处理结果（自动管理资源）
      */
     public synchronized void executeQueryAndProcess(String sql, ResultSetConsumer consumer, Object... params) throws SQLException {
+        awaitUsable();
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             setParameters(stmt, params);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -717,15 +1009,89 @@ public class SchematicDatabase implements AutoCloseable {
     }
 
     /**
-     * 关闭数据库连接
+     * 封存数据库：拒绝新的 SQL 与事务准入，回滚未完成事务并唤醒等待者。
+     * 幂等；已封存/已关闭时不做任何事。连接仍保持打开，最终由 {@link #close()} 释放。
      */
-    public void close() {
-        if (connection != null) {
+    public synchronized void seal() {
+        if (state == State.SEALED || state == State.CLOSED) {
+            return;
+        }
+        state = State.SEALED;
+        try {
+            closeOpenQueryResults("数据库封存");
+            abortActiveTransaction("数据库封存");
+        } finally {
+            // 无论回滚过程发生什么，都必须唤醒等待者
+            notifyAll();
+        }
+    }
+
+    /**
+     * 数据库是否处于可执行 SQL 的 OPEN 状态。
+     */
+    public synchronized boolean isOpen() {
+        return state == State.OPEN;
+    }
+
+    /**
+     * 回滚未完成事务并清除归属。只有回滚成功才恢复 auto-commit；
+     * 失败时交由 {@link #sealAfterFailedCleanup} 关闭连接，避免提交半成品。
+     */
+    private void abortActiveTransaction(String reason) {
+        if (transactionDepth == 0 && transactionOwner == null) {
+            return;
+        }
+        Connection conn = connection;
+        boolean rolledBack = false;
+        if (conn != null) {
             try {
-                connection.close();
-                SyncMaterial.LOGGER.info("数据库连接已关闭");
+                conn.rollback();
+                rolledBack = true;
             } catch (SQLException e) {
-                SyncMaterial.LOGGER.error("关闭数据库连接失败", e);
+                SyncMaterial.LOGGER.warn("回滚未完成事务失败（{}）", reason, e);
+            }
+        }
+        if (!rolledBack) {
+            sealAfterFailedCleanup(conn, reason);
+            return;
+        }
+        transactionDepth = 0;
+        transactionRollbackOnly = false;
+        transactionOwner = null;
+        try {
+            if (!conn.getAutoCommit()) {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.warn("恢复事务 auto-commit 失败（{}）", reason, e);
+        }
+    }
+
+    /**
+     * 关闭数据库连接。幂等；会先回滚未完成事务并拒绝后续 SQL。
+     */
+    public synchronized void close() {
+        if (state == State.CLOSED) {
+            return;
+        }
+        state = State.CLOSED;
+        try {
+            closeOpenQueryResults("数据库关闭");
+            abortActiveTransaction("数据库关闭");
+        } finally {
+            Connection conn = connection;
+            connection = null;
+            try {
+                if (conn != null) {
+                    try {
+                        conn.close();
+                        SyncMaterial.LOGGER.info("数据库连接已关闭");
+                    } catch (SQLException e) {
+                        SyncMaterial.LOGGER.error("关闭数据库连接失败", e);
+                    }
+                }
+            } finally {
+                notifyAll();
             }
         }
     }

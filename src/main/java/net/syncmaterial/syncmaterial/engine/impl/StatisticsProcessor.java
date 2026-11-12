@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.CancellationException;
 
 public class StatisticsProcessor {
     private static final Logger LOGGER = LoggerFactory.getLogger(StatisticsProcessor.class);
@@ -32,8 +33,14 @@ public class StatisticsProcessor {
         LOGGER.info("StatisticsProcessor: 输入 {} 个方块, {} 个TileEntity", 
             result.getGlobalBlockMap().size(), result.getGlobalTileEntityMap().size());
 
+        checkInterrupted("statistics start");
+
         // 1. 处理方块统计
+        int processedBlocks = 0;
         for (Map.Entry<BlockPos, net.minecraft.world.level.block.state.BlockState> entry : result.getGlobalBlockMap().entrySet()) {
+            if ((processedBlocks++ & 0x3FF) == 0) {
+                checkInterrupted("block statistics loop");
+            }
             net.minecraft.world.level.block.state.BlockState state = entry.getValue();
 
             if (isInvalidBlock(state)) {
@@ -111,6 +118,7 @@ public class StatisticsProcessor {
         // 2. 处理容器
         if (includeContainers) {
             for (CompoundTag teNbt : result.getGlobalTileEntityMap().values()) {
+                checkInterrupted("container statistics loop");
                 if (teNbt.contains("Items")) {
                     Tag itemsElement = teNbt.get("Items");
                     if (itemsElement instanceof ListTag itemsList) {
@@ -131,10 +139,12 @@ public class StatisticsProcessor {
             entries.add(new MaterialEntry(0, new ItemStack(Items.LAVA_BUCKET), lavaBucketCount));
         }
         for (Map.Entry<Item, Long> entry : itemCountMap.entrySet()) {
+            checkInterrupted("item material conversion");
             entries.add(new MaterialEntry(0, new ItemStack(entry.getKey()), entry.getValue()));
         }
 
         for (Map.Entry<Block, Long> entry : blockCountMap.entrySet()) {
+            checkInterrupted("block material conversion");
             entries.add(new MaterialEntry(0, new ItemStack(entry.getKey().asItem()), entry.getValue()));
         }
 
@@ -147,6 +157,12 @@ public class StatisticsProcessor {
         LOGGER.info("===========================");
 
         return entries;
+    }
+
+    private static void checkInterrupted(String phase) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("Material statistics interrupted during " + phase);
+        }
     }
 
     private Block normalizeBlock(Block block) {

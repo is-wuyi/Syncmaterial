@@ -5,8 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,78 +13,52 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
-import com.mojang.authlib.GameProfile;
-
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.server.Bootstrap;
-import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
-import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
+import net.syncmaterial.syncmaterial.server.StagingAreaManager;
+import net.syncmaterial.syncmaterial.server.legacy.LegacyServerContext;
 
 /**
  * Phase4Handler 权限分支与响应测试。
- * 通过 mockStatic 拦截 SyncMaterial.getSharedDatabase / ServerPlayNetworking.send，
- * 直接调用包私有 handler，验证：非 owner 拒绝、空参数拒绝、未知操作兜底、成功路径的数据库副作用。
+ * 业务服务全部来自显式 {@link LegacyServerContext}，不再 mock SyncMaterial 静态 getter。
  */
 class Phase4HandlerTest {
 
-    private MockedStatic<SyncMaterial> syncMaterialMock;
     private MockedStatic<ServerPlayNetworking> networkingMock;
 
+    private LegacyNetworkTestSupport support;
     private SchematicDatabase db;
     private CollaborationManager cm;
     private MinecraftServer server;
     private ServerPlayer player;
+    private LegacyServerContext owner;
 
     @BeforeAll
     static void setup() {
-        // mock ServerPlayer 会触发 Entity 静态初始化，需要注册表（与执行顺序无关）
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
+        LegacyNetworkTestSupport.bootstrap();
     }
 
     @BeforeEach
     void setUp() {
-        db = mock(SchematicDatabase.class);
-        cm = mock(CollaborationManager.class);
-        server = mockServer();
-        player = mockPlayer("Operator1");
-
-        syncMaterialMock = mockStatic(SyncMaterial.class);
-        syncMaterialMock.when(SyncMaterial::getSharedDatabase).thenReturn(db);
+        support = new LegacyNetworkTestSupport("Operator1");
+        db = support.db;
+        cm = support.collaboration;
+        server = support.server;
+        player = support.player;
+        owner = support.owner;
+        support.handshake();
 
         networkingMock = mockStatic(ServerPlayNetworking.class);
         networkingMock.when(() -> ServerPlayNetworking.send(any(), any())).thenAnswer(inv -> null);
-
-        ModNetworkHandler.initializeServices(mock(DatabaseQueryService.class), cm);
     }
 
     @AfterEach
     void tearDown() {
-        syncMaterialMock.close();
         networkingMock.close();
-    }
-
-    private MinecraftServer mockServer() {
-        MinecraftServer s = mock(MinecraftServer.class);
-        // server.execute(runnable) 立即同步执行，模拟主线程调度
-        doAnswer(inv -> {
-            ((Runnable) inv.getArgument(0)).run();
-            return CompletableFuture.completedFuture(null);
-        }).when(s).execute(any(Runnable.class));
-        return s;
-    }
-
-    private ServerPlayer mockPlayer(String name) {
-        ServerPlayer p = mock(ServerPlayer.class);
-        when(p.getGameProfile()).thenReturn(new GameProfile(UUID.randomUUID(), name));
-        when(p.getName()).thenReturn(net.minecraft.network.chat.Component.literal(name));
-        return p;
+        support.close();
     }
 
     private OwnerActionResponseS2CPacket captureOwnerActionResponse() {
@@ -107,7 +79,7 @@ class Phase4HandlerTest {
         allowSelfClaimByDefault();
         when(db.isMainOwner("s1", "Operator1")).thenReturn(false);
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "TRANSFER", "NewOwner"), player, server);
 
         var resp = captureOwnerActionResponse();
@@ -121,7 +93,7 @@ class Phase4HandlerTest {
         allowSelfClaimByDefault();
         when(db.isMainOwner("s1", "Operator1")).thenReturn(true);
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "TRANSFER", "  "), player, server);
 
         var resp = captureOwnerActionResponse();
@@ -135,7 +107,7 @@ class Phase4HandlerTest {
         allowSelfClaimByDefault();
         when(db.isMainOwner("s1", "Operator1")).thenReturn(false);
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "ADD_DEPUTY", "Deputy1"), player, server);
 
         var resp = captureOwnerActionResponse();
@@ -149,7 +121,7 @@ class Phase4HandlerTest {
         allowSelfClaimByDefault();
         when(db.isMainOwner("s1", "Operator1")).thenReturn(false);
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "REMOVE_DEPUTY", "Deputy1"), player, server);
 
         var resp = captureOwnerActionResponse();
@@ -163,7 +135,7 @@ class Phase4HandlerTest {
         allowSelfClaimByDefault();
         when(db.isOwner("s1", "Operator1")).thenReturn(false);
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "TOGGLE_SELF_CLAIM", ""), player, server);
 
         var resp = captureOwnerActionResponse();
@@ -176,7 +148,7 @@ class Phase4HandlerTest {
     void ownerAction_unknownAction_returnsOperationFailed() throws Exception {
         allowSelfClaimByDefault();
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "DESTROY_EVERYTHING", ""), player, server);
 
         var resp = captureOwnerActionResponse();
@@ -188,7 +160,7 @@ class Phase4HandlerTest {
     void ownerAction_nullAction_returnsOperationFailed() throws Exception {
         allowSelfClaimByDefault();
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", null, ""), player, server);
 
         var resp = captureOwnerActionResponse();
@@ -205,7 +177,7 @@ class Phase4HandlerTest {
         when(db.getUploadedBy("s1")).thenReturn("NewOwner");
         when(db.getDeputyOwners("s1")).thenReturn(List.of());
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "TRANSFER", "NewOwner"), player, server);
 
         verify(db).transferOwnership("s1", "NewOwner");
@@ -217,10 +189,10 @@ class Phase4HandlerTest {
 
     @Test
     void ownerAction_toggleSelfClaimByOwner_flipsState() throws Exception {
-        allowSelfClaimByDefault();  // 当前 true → 开关应设为 false
+        allowSelfClaimByDefault();
         when(db.isOwner("s1", "Operator1")).thenReturn(true);
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "TOGGLE_SELF_CLAIM", ""), player, server);
 
         verify(db).setAllowSelfClaim("s1", false);
@@ -235,7 +207,7 @@ class Phase4HandlerTest {
         when(db.getUploadedBy("s1")).thenReturn("Operator1");
         when(db.getDeputyOwners("s1")).thenReturn(List.of("Deputy1"));
 
-        Phase4Handler.handleOwnerAction(
+        Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "ADD_DEPUTY", "Deputy1"), player, server);
 
         verify(db).addDeputyOwner("s1", "Deputy1");
@@ -244,13 +216,29 @@ class Phase4HandlerTest {
         assertTrue(resp.deputyOwners().contains("Deputy1"));
     }
 
+    @Test
+    void ownerAction_broadcastsToOwnerScopedSubscribers() throws Exception {
+        allowSelfClaimByDefault();
+        when(db.isMainOwner("s1", "Operator1")).thenReturn(true);
+        when(db.getUploadedBy("s1")).thenReturn("Operator1");
+        when(db.getDeputyOwners("s1")).thenReturn(List.of());
+        owner.subscriptions().subscribeMaterials(player, "s1");
+
+        Phase4Handler.handleOwnerAction(owner,
+            new OwnerActionC2SPacket("s1", "ADD_DEPUTY", "Deputy1"), player, server);
+
+        // 订阅者广播 + 操作者兜底发送，都是本上下文连接
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player),
+            any(OwnerActionResponseS2CPacket.class)), atLeastOnce());
+    }
+
     // ========== BatchAssign ==========
 
     @Test
     void batchAssign_byNonOwner_rejected() throws Exception {
         when(db.isOwner("s1", "Operator1")).thenReturn(false);
 
-        Phase4Handler.handleBatchAssign(
+        Phase4Handler.handleBatchAssign(owner,
             new BatchAssignC2SPacket("s1", List.of(1), List.of("A")), player, server);
 
         ArgumentCaptor<BatchAssignResponseS2CPacket> captor =
@@ -265,7 +253,7 @@ class Phase4HandlerTest {
     void batchAssign_emptyMaterials_rejected() throws Exception {
         when(db.isOwner("s1", "Operator1")).thenReturn(true);
 
-        Phase4Handler.handleBatchAssign(
+        Phase4Handler.handleBatchAssign(owner,
             new BatchAssignC2SPacket("s1", List.of(), List.of("A")), player, server);
 
         ArgumentCaptor<BatchAssignResponseS2CPacket> captor =
@@ -279,7 +267,7 @@ class Phase4HandlerTest {
     void batchAssign_emptyPlayers_rejected() throws Exception {
         when(db.isOwner("s1", "Operator1")).thenReturn(true);
 
-        Phase4Handler.handleBatchAssign(
+        Phase4Handler.handleBatchAssign(owner,
             new BatchAssignC2SPacket("s1", List.of(1), List.of()), player, server);
 
         ArgumentCaptor<BatchAssignResponseS2CPacket> captor =
@@ -294,10 +282,9 @@ class Phase4HandlerTest {
         when(db.isOwner("s1", "Operator1")).thenReturn(true);
         when(cm.joinCollaboration(any(), anyInt(), any())).thenReturn(true);
 
-        Phase4Handler.handleBatchAssign(
+        Phase4Handler.handleBatchAssign(owner,
             new BatchAssignC2SPacket("s1", List.of(1, 2, 3), List.of("A", "B")), player, server);
 
-        // 3 材料 × 2 玩家 = 6 次分配
         verify(cm, times(6)).joinCollaboration(eq("s1"), anyInt(), any());
         verify(cm).joinCollaboration("s1", 1, "A");
         verify(cm).joinCollaboration("s1", 3, "B");
@@ -315,7 +302,7 @@ class Phase4HandlerTest {
     void kick_byNonOwner_rejected() throws Exception {
         when(db.isOwner("s1", "Operator1")).thenReturn(false);
 
-        Phase4Handler.handleKickFromMaterial(
+        Phase4Handler.handleKickFromMaterial(owner,
             new KickFromMaterialC2SPacket("s1", List.of(1), "Victim"), player, server);
 
         ArgumentCaptor<KickFromMaterialResponseS2CPacket> captor =
@@ -330,7 +317,7 @@ class Phase4HandlerTest {
     void kick_emptyTarget_rejected() throws Exception {
         when(db.isOwner("s1", "Operator1")).thenReturn(true);
 
-        Phase4Handler.handleKickFromMaterial(
+        Phase4Handler.handleKickFromMaterial(owner,
             new KickFromMaterialC2SPacket("s1", List.of(1), " "), player, server);
 
         ArgumentCaptor<KickFromMaterialResponseS2CPacket> captor =
@@ -345,7 +332,7 @@ class Phase4HandlerTest {
         when(db.isOwner("s1", "Operator1")).thenReturn(true);
         when(cm.leaveCollaboration(any(), anyInt(), any())).thenReturn(true);
 
-        Phase4Handler.handleKickFromMaterial(
+        Phase4Handler.handleKickFromMaterial(owner,
             new KickFromMaterialC2SPacket("s1", List.of(1, 2), "Victim"), player, server);
 
         verify(cm, times(2)).leaveCollaboration(eq("s1"), anyInt(), eq("Victim"));
@@ -359,12 +346,8 @@ class Phase4HandlerTest {
 
     @Test
     void rescan_invalidSchematicId_rejected() {
-        var context = mock(ServerPlayNetworking.Context.class);
-        when(context.player()).thenReturn(player);
-        when(context.server()).thenReturn(server);
-
-        ModNetworkHandler.handleRescanStagingArea(
-            new RescanStagingAreaC2SPacket(""), context);
+        ModNetworkHandler.handleRescanStagingArea(owner,
+            new RescanStagingAreaC2SPacket(""), player, server);
 
         ArgumentCaptor<RescanStagingAreaResponseS2CPacket> captor =
             ArgumentCaptor.forClass(RescanStagingAreaResponseS2CPacket.class);
@@ -375,20 +358,27 @@ class Phase4HandlerTest {
 
     @Test
     void rescan_noStagingAreas_rejected() {
-        var manager = mock(net.syncmaterial.syncmaterial.server.StagingAreaManager.class);
-        syncMaterialMock.when(SyncMaterial::getServerStagingAreaManager).thenReturn(manager);
+        StagingAreaManager manager = support.staging;
         when(manager.getStagingAreas("s1")).thenReturn(List.of());
-        var context = mock(ServerPlayNetworking.Context.class);
-        when(context.player()).thenReturn(player);
-        when(context.server()).thenReturn(server);
 
-        ModNetworkHandler.handleRescanStagingArea(
-            new RescanStagingAreaC2SPacket("s1"), context);
+        ModNetworkHandler.handleRescanStagingArea(owner,
+            new RescanStagingAreaC2SPacket("s1"), player, server);
 
         ArgumentCaptor<RescanStagingAreaResponseS2CPacket> captor =
             ArgumentCaptor.forClass(RescanStagingAreaResponseS2CPacket.class);
         networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
         assertFalse(captor.getValue().success());
         assertEquals("没有找到备货区", captor.getValue().message());
+    }
+
+    @Test
+    void phase4Handler_rejectsClosedOwnerWithoutDatabaseAccess() {
+        support.open.set(false);
+
+        Phase4Handler.handleOwnerAction(owner,
+            new OwnerActionC2SPacket("s1", "TOGGLE_SELF_CLAIM", ""), player, server);
+
+        verifyNoInteractions(db);
+        networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), never());
     }
 }

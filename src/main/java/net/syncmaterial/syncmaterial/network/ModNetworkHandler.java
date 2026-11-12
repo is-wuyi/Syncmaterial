@@ -1,38 +1,44 @@
 package net.syncmaterial.syncmaterial.network;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.syncmaterial.syncmaterial.SyncMaterial;
-import net.syncmaterial.syncmaterial.server.CollaborationManager;
-import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
-import net.syncmaterial.syncmaterial.server.PlacementsUtil;
-import net.syncmaterial.syncmaterial.server.StagingAreaManager;
 import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
+import net.syncmaterial.syncmaterial.server.PlacementsUtil;
+import net.syncmaterial.syncmaterial.server.StagingAreaManager;
+import net.syncmaterial.syncmaterial.server.legacy.LegacyServerContext;
+import net.syncmaterial.syncmaterial.server.legacy.LegacyServerRegistry;
+import net.syncmaterial.syncmaterial.server.runtime.BackendMode;
+import net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ModNetworkHandler {
-    private static DatabaseQueryService queryService;
-    private static CollaborationManager collaborationManager;
+    /**
+     * 接收器只注册一次。服务端上下文现在按 {@link MinecraftServer} 存放在
+     * {@link LegacyServerRegistry}，重进世界不需要也不能重装全局 receiver。
+     */
+    private static final AtomicBoolean RECEIVERS_REGISTERED = new AtomicBoolean();
 
-    static CollaborationManager getCollaborationManager() {
-        return collaborationManager;
-    }
-
-    public static void sendToPlayers(Set<net.minecraft.server.level.ServerPlayer> players, net.minecraft.network.protocol.common.custom.CustomPacketPayload packet) {
+    /** 广播入口：只发给仍属于原始上下文且完成握手的连接。 */
+    public static void sendToPlayers(LegacyServerContext owner, Set<ServerPlayer> players, CustomPacketPayload packet) {
+        if (owner == null || !owner.isCurrent() || players == null || packet == null) {
+            return;
+        }
         for (var player : players) {
-            if (player.isAlive() && player.connection != null) {
+            if (player != null && owner.isConnected(player)
+                    && ProtocolHandshake.hasHandshaked(player)) {
                 ServerPlayNetworking.send(player, packet);
             }
         }
-    }
-
-    public static void initializeServices(DatabaseQueryService queryService, CollaborationManager collaborationManager) {
-        ModNetworkHandler.queryService = queryService;
-        ModNetworkHandler.collaborationManager = collaborationManager;
-        SyncMaterial.LOGGER.info("服务端网络服务初始化完成");
     }
 
     /**
@@ -76,72 +82,108 @@ public class ModNetworkHandler {
         PayloadRegistrar.s2c(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
     }
 
-    /**
-     * 注册版本握手接收器。
-     *
-     * 客户端进服后主动发 HelloC2SPacket，服务端在此记录其协议版本并回应自己的版本。
-     * 握手成功后才推送初始数据 —— 相比原先在 JOIN 事件里盲推，
-     * 这样能避免给没装本 mod 的原版客户端白发一堆它读不懂的包。
-     */
+    /** 握手记录只能落在准入时捕获的 server 后端，后端缺失时不回退。 */
     private static void registerHandshakeReceiver() {
-        ServerPlayNetworking.registerGlobalReceiver(HelloC2SPacket.ID, (payload, context) -> {
-            var player = context.player();
-            if (!validatePlayer(player)) return;
-
-            boolean accepted = ProtocolHandshake.recordHandshake(
-                    player.getUUID(), player.getName().getString(),
-                    payload.protocolVersion(), payload.modVersion());
-
-            context.server().execute(() -> {
-                if (player.connection == null) return;
-
-                ServerPlayNetworking.send(player, new HelloS2CPacket(
-                        ProtocolVersion.CURRENT, SyncMaterial.getModVersion(), accepted));
-
-                if (accepted) {
-                    var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(context.server());
-                    if (runtime != null) {
-                        runtime.connected(player.getUUID());
-                        FoundationNetworkAdapter.sendInitialData(context.server(), player);
-                    } else {
-                        sendInitialData(player);
-                    }
-                }
-            });
-        });
+        ServerPlayNetworking.registerGlobalReceiver(HelloC2SPacket.ID, ModNetworkHandler::handleHello);
 
         SyncMaterial.LOGGER.info("版本握手接收器已注册，服务端协议版本 {}（mod 版本 {}）",
                 ProtocolVersion.CURRENT, SyncMaterial.getModVersion());
+    }
+
+    /** 包私有便于握手生命周期测试。 */
+    static void handleHello(HelloC2SPacket payload, ServerPlayNetworking.Context context) {
+        ServerPlayer player = context.player();
+        MinecraftServer server = context.server();
+        if (!validatePlayer(player) || server == null) return;
+
+        // 先捕获该 server 当前的后端；Foundation 缺 runtime 时不回退 legacy。
+        var registeredRuntime = ServerRuntimeRegistry.get(server);
+        var runtime = registeredRuntime != null && registeredRuntime.isOpen() ? registeredRuntime : null;
+        LegacyServerContext owner = LegacyServerRegistry.get(server);
+        if (runtime == null && (BackendMode.isFoundationEnabled() || owner == null)) {
+            return;
+        }
+        if (!isConnectedTo(server, player)) {
+            return;
+        }
+
+        var connection = player.connection;
+        server.execute(() -> {
+            if (player.connection != connection) return;
+
+            if (runtime != null) {
+                if (ServerRuntimeRegistry.get(server) != runtime
+                        || !runtime.isOpen()
+                        || !isConnectedTo(server, player)) {
+                    return;
+                }
+                boolean accepted = ProtocolHandshake.recordHandshake(
+                        server, player, payload.protocolVersion(), payload.modVersion());
+                ServerPlayNetworking.send(player, new HelloS2CPacket(
+                        ProtocolVersion.CURRENT, SyncMaterial.getModVersion(), accepted));
+                if (accepted) {
+                    runtime.connected(player.getUUID());
+                    FoundationNetworkAdapter.sendInitialData(server, player);
+                }
+                return;
+            }
+
+            // 原上下文必须仍是该 server 的登记上下文，且玩家仍持有原始连接。
+            if (LegacyServerRegistry.get(server) != owner
+                    || !owner.isOpen()
+                    || !owner.isConnected(player)) {
+                return;
+            }
+
+            boolean accepted = ProtocolHandshake.recordHandshake(
+                    server, player, payload.protocolVersion(), payload.modVersion());
+            ServerPlayNetworking.send(player, new HelloS2CPacket(
+                    ProtocolVersion.CURRENT, SyncMaterial.getModVersion(), accepted));
+            if (accepted) {
+                sendInitialData(owner, player);
+            }
+        });
+    }
+
+    private static boolean isConnectedTo(MinecraftServer server, ServerPlayer player) {
+        if (server == null || player == null || player.connection == null) {
+            return false;
+        }
+        if (LegacyNetworkDispatch.serverOf(player) != server) {
+            return false;
+        }
+        var playerList = server.getPlayerList();
+        return playerList != null && playerList.getPlayer(player.getUUID()) == player;
     }
 
     /**
      * 握手通过后向该玩家推送初始数据：各原理图的备货区，以及全局仓库区域。
      * 仅在确认对端装了本 mod 且版本兼容后调用。
      */
-    private static void sendInitialData(net.minecraft.server.level.ServerPlayer player) {
-        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
-        if (manager == null) return;
+    private static void sendInitialData(LegacyServerContext owner, ServerPlayer player) {
+        StagingAreaManager manager = owner.staging();
+        if (manager == null || !owner.isConnected(player)) return;
 
         try {
-            for (var entry : net.syncmaterial.syncmaterial.server.SchematicFolderWatcher.placementNames.entrySet()) {
+            for (var entry : owner.placementNames().entrySet()) {
                 String schematicId = entry.getKey();
                 var areas = manager.getStagingAreas(schematicId);
                 if (areas.isEmpty()) continue;
 
                 ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
-                        "LIST", schematicId, lookupSchematicName(schematicId), true, "",
+                        "LIST", schematicId, lookupSchematicName(owner, schematicId), true, "",
                         StagingAreaManager.buildAreaInfos(areas)));
             }
 
             // 仓库是全局资源，与原理图无关，单独推送一次供线框渲染
-            sendWarehouseAreasTo(player);
+            sendWarehouseAreasTo(owner, player);
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("握手后推送初始数据失败", e);
         }
     }
 
-    private static String lookupSchematicName(String schematicId) {
-        var database = SyncMaterial.getSharedDatabase();
+    private static String lookupSchematicName(LegacyServerContext owner, String schematicId) {
+        var database = owner.database();
         if (database == null) return "";
 
         try (var rs = database.executeQuery("SELECT name FROM schematics WHERE id = ?", schematicId)) {
@@ -183,7 +225,7 @@ public class ModNetworkHandler {
         return true;
     }
 
-    static boolean validatePlayer(net.minecraft.server.level.ServerPlayer player) {
+    static boolean validatePlayer(ServerPlayer player) {
         if (player == null) {
             SyncMaterial.LOGGER.warn("收到来自 null player 的网络包");
             return false;
@@ -200,7 +242,7 @@ public class ModNetworkHandler {
      *
      * 握手包本身不走这里，否则永远无法完成第一次握手。
      */
-    static boolean validateHandshakedPlayer(net.minecraft.server.level.ServerPlayer player) {
+    static boolean validateHandshakedPlayer(ServerPlayer player) {
         if (!validatePlayer(player)) {
             return false;
         }
@@ -238,101 +280,101 @@ public class ModNetworkHandler {
             || "DELETE_WAREHOUSE".equals(action);
     }
 
+    /** 生产入口只注册一次；legacy 服务从上下文读取，不再依赖全局 setter。 */
     public static void register() {
+        if (!RECEIVERS_REGISTERED.compareAndSet(false, true)) {
+            return;
+        }
         registerHandshakeReceiver();
-        if (net.syncmaterial.syncmaterial.server.runtime.BackendMode.isFoundationEnabled()) {
+        if (BackendMode.isFoundationEnabled()) {
             FoundationNetworkAdapter.register();
             return;
         }
+        registerLegacyReceivers();
+    }
 
-        if (queryService == null) {
-            SyncMaterial.LOGGER.error("DatabaseQueryService未初始化！");
-            return;
-        }
+    /** 测试捕获 receiver 的入口，不重置生产静态状态。 */
+    static void registerReceiversForTests() {
+        registerHandshakeReceiver();
+        registerLegacyReceivers();
+    }
 
+    private static void registerLegacyReceivers() {
         ServerPlayNetworking.registerGlobalReceiver(MaterialStatsRequestC2SPacket.ID, (payload, context) -> {
-            String schematicId = payload.schematicId();
-            var player = context.player();
+            ServerPlayer player = context.player();
+            MinecraftServer server = context.server();
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())) return;
 
-            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId)) return;
-
-            context.server().execute(() -> {
-                handleMaterialStatsRequest(payload, player, context.server());
-            });
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleMaterialStatsRequest(owner, payload, player, server));
         });
 
         ServerPlayNetworking.registerGlobalReceiver(JoinCollaborationC2SPacket.ID, (payload, context) -> {
-            String schematicId = payload.schematicId();
-            int materialId = payload.materialId();
-            var player = context.player();
-            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
+            ServerPlayer player = context.player();
+            MinecraftServer server = context.server();
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())
+                    || !validateMaterialId(payload.materialId())) return;
 
-            context.server().execute(() -> {
-                handleJoinCollaboration(payload, player, context.server());
-            });
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleJoinCollaboration(owner, payload, player, server));
         });
 
         ServerPlayNetworking.registerGlobalReceiver(LeaveCollaborationC2SPacket.ID, (payload, context) -> {
-            String schematicId = payload.schematicId();
-            int materialId = payload.materialId();
-            var player = context.player();
-            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId)) return;
+            ServerPlayer player = context.player();
+            MinecraftServer server = context.server();
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())
+                    || !validateMaterialId(payload.materialId())) return;
 
-            context.server().execute(() -> {
-                handleLeaveCollaboration(payload, player, context.server());
-            });
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleLeaveCollaboration(owner, payload, player, server));
         });
 
         ServerPlayNetworking.registerGlobalReceiver(InventoryUpdateC2SPacket.ID, (payload, context) -> {
-            String schematicId = payload.schematicId();
-            int materialId = payload.materialId();
-            int count = payload.count();
-            var player = context.player();
-            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId) || !validateMaterialId(materialId) || !validateCount(count)) return;
+            ServerPlayer player = context.player();
+            MinecraftServer server = context.server();
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())
+                    || !validateMaterialId(payload.materialId()) || !validateCount(payload.count())) return;
 
-            context.server().execute(() -> {
-                handleContainerUpdate(payload, player, context.server());
-            });
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleContainerUpdate(owner, payload, player, server));
         });
 
         ServerPlayNetworking.registerGlobalReceiver(QueryMaterialStatusC2SPacket.ID, (payload, context) -> {
-            String schematicId = payload.schematicId();
-            var player = context.player();
-            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId)) return;
+            ServerPlayer player = context.player();
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())) return;
 
-            context.server().execute(() -> {
-                handleQueryMaterialStatus(payload, player);
-            });
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleQueryMaterialStatus(owner, payload, player));
         });
 
         ServerPlayNetworking.registerGlobalReceiver(MaterialListCloseC2SPacket.ID, (payload, context) -> {
-            String schematicId = payload.schematicId();
-            var player = context.player();
-            if (!validateHandshakedPlayer(player) || !validateSchematicId(schematicId)) return;
+            ServerPlayer player = context.player();
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())) return;
 
-            context.server().execute(() -> {
-                handleMaterialListClose(payload, player);
-            });
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleMaterialListClose(owner, payload, player));
         });
 
         ServerPlayNetworking.registerGlobalReceiver(StagingAreaConfigC2SPacket.ID, (payload, context) -> {
-            var player = context.player();
+            ServerPlayer player = context.player();
+            MinecraftServer server = context.server();
             if (!validateHandshakedPlayer(player) || !validateStagingAction(payload.action())) return;
             // 全局仓库本体操作不隶属于原理图，允许 schematicId 为空；
             // 仓库引用操作必须带合法 schematicId，不能被前缀匹配误放行
             if (!isGlobalWarehouseAction(payload.action())
                     && !validateSchematicId(payload.schematicId())) return;
-            context.server().execute(() -> {
-                handleStagingAreaConfig(payload, player, context.server());
-            });
+
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleStagingAreaConfig(owner, payload, player, server));
         });
 
         ServerPlayNetworking.registerGlobalReceiver(RescanStagingAreaC2SPacket.ID, (payload, context) -> {
-            var player = context.player();
+            ServerPlayer player = context.player();
+            MinecraftServer server = context.server();
             if (!validateHandshakedPlayer(player)) return;
-            context.server().execute(() -> {
-                handleRescanStagingArea(payload, context);
-            });
+
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleRescanStagingArea(owner, payload, player, server));
         });
 
         // Phase 4 handlers (owner action, batch assign, kick, player list)
@@ -340,22 +382,29 @@ public class ModNetworkHandler {
 
         // Phase 5: 取货模式容器数据订阅
         ServerPlayNetworking.registerGlobalReceiver(WarehouseContainerRequestC2SPacket.ID, (payload, context) -> {
-            var player = context.player();
+            ServerPlayer player = context.player();
             if (!validateHandshakedPlayer(player)) return;
-            context.server().execute(() -> {
-                handleWarehouseContainerRequest(payload, player);
-            });
+
+            LegacyNetworkDispatch.dispatch(context, owner ->
+                    handleWarehouseContainerRequest(owner, payload, player));
         });
     }
 
-    static void handleJoinCollaboration(JoinCollaborationC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
+    static void handleJoinCollaboration(LegacyServerContext owner, JoinCollaborationC2SPacket payload,
+                                        ServerPlayer player, MinecraftServer server) {
+        if (!LegacyNetworkDispatch.accepts(owner, player, server)) return;
+
         String schematicId = payload.schematicId();
         int materialId = payload.materialId();
         Map<Integer, Integer> inventoryCounts = payload.inventoryCounts();
         String playerName = player.getName().getString();
 
         try {
-            var db = SyncMaterial.getSharedDatabase();
+            var db = owner.database();
+            if (db == null) {
+                SyncMaterial.LOGGER.warn("数据库不可用，拒绝加入协作: {}", schematicId);
+                return;
+            }
             boolean allowSelfClaim = db.getAllowSelfClaim(schematicId);
             boolean isOwner = db.isOwner(schematicId, playerName);
 
@@ -368,39 +417,57 @@ public class ModNetworkHandler {
             return;
         }
 
-        if (collaborationManager.joinCollaboration(schematicId, materialId, playerName)) {
+        var collaboration = owner.collaboration();
+        if (collaboration == null) return;
+        if (collaboration.joinCollaboration(schematicId, materialId, playerName)) {
             for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
-                collaborationManager.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
+                collaboration.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
             }
-            broadcastStatus(server, schematicId, materialId);
+            broadcastStatus(owner, schematicId, materialId);
         }
     }
 
-    static void handleContainerUpdate(InventoryUpdateC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
+    static void handleContainerUpdate(LegacyServerContext owner, InventoryUpdateC2SPacket payload,
+                                      ServerPlayer player, MinecraftServer server) {
+        if (!LegacyNetworkDispatch.accepts(owner, player, server)) return;
+
         String schematicId = payload.schematicId();
         int materialId = payload.materialId();
         int count = payload.count();
         String playerName = player.getName().getString();
 
+        var collaboration = owner.collaboration();
+        if (collaboration == null) return;
         SyncMaterial.LOGGER.debug("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
-        if (collaborationManager.isCollaborating(schematicId, materialId, playerName)) {
-            collaborationManager.updatePlayerInventory(playerName, schematicId, materialId, count);
-            broadcastStatus(server, schematicId, materialId);
+        if (collaboration.isCollaborating(schematicId, materialId, playerName)) {
+            collaboration.updatePlayerInventory(playerName, schematicId, materialId, count);
+            broadcastStatus(owner, schematicId, materialId);
         } else {
             SyncMaterial.LOGGER.debug("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
         }
     }
 
-    static void handleMaterialStatsRequest(MaterialStatsRequestC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
+    static void handleMaterialStatsRequest(LegacyServerContext owner, MaterialStatsRequestC2SPacket payload,
+                                           ServerPlayer player, MinecraftServer server) {
+        if (!LegacyNetworkDispatch.accepts(owner, player, server)) return;
+
         String schematicId = payload.schematicId();
         try {
             SyncMaterial.LOGGER.debug("收到玩家 {} 的材料统计请求: {}", player.getName().getString(), schematicId);
 
+            var queryService = owner.queryService();
+            var collaboration = owner.collaboration();
+            if (queryService == null || collaboration == null) {
+                ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(
+                        schematicId, "", List.of(), false, false, "", List.of(), true));
+                return;
+            }
+
             var materials = queryService.getMaterials(schematicId);
-            var statuses = new java.util.ArrayList<CollaborationStatusS2CPacket>();
+            var statuses = new ArrayList<CollaborationStatusS2CPacket>();
 
             for (var entry : materials) {
-                var status = collaborationManager.getCollaborationStatus(schematicId, entry.getDatabaseId());
+                var status = collaboration.getCollaborationStatus(schematicId, entry.getDatabaseId());
                 if (status != null) {
                     statuses.add(status);
                     int playersSum = 0;
@@ -414,15 +481,15 @@ public class ModNetworkHandler {
                 }
             }
 
-            String schematicName = PlacementsUtil.getDisplayName(schematicId);
+            String schematicName = PlacementsUtil.getDisplayName(owner, schematicId);
 
             // Phase 4: 查询负责人状态
-            var db = SyncMaterial.getSharedDatabase();
+            var db = owner.database();
             String playerName = player.getName().getString();
             boolean isOwner = db != null && db.isOwner(schematicId, playerName);
             boolean isMainOwner = db != null && db.isMainOwner(schematicId, playerName);
             String ownerName = "";
-            var deputyOwners = new java.util.ArrayList<String>();
+            var deputyOwners = new ArrayList<String>();
             boolean allowSelfClaim = true;
             if (db != null) {
                 try {
@@ -434,7 +501,8 @@ public class ModNetworkHandler {
                 }
             }
 
-            ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim));
+            ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(
+                    schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim));
 
             for (var status : statuses) {
                 ServerPlayNetworking.send(player, status);
@@ -442,144 +510,167 @@ public class ModNetworkHandler {
 
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("处理材料统计请求失败", e);
-            ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(schematicId, "", java.util.List.of(), false, false, "", java.util.List.of(), true));
+            ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(
+                    schematicId, "", List.of(), false, false, "", List.of(), true));
         }
     }
 
-    static void handleLeaveCollaboration(LeaveCollaborationC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
+    static void handleLeaveCollaboration(LegacyServerContext owner, LeaveCollaborationC2SPacket payload,
+                                         ServerPlayer player, MinecraftServer server) {
+        if (!LegacyNetworkDispatch.accepts(owner, player, server)) return;
+
         String schematicId = payload.schematicId();
         int materialId = payload.materialId();
         String playerName = player.getName().getString();
 
-        if (collaborationManager.leaveCollaboration(schematicId, materialId, playerName)) {
-            broadcastStatus(server, schematicId, materialId);
-            sendStatusToPlayer(player, schematicId, materialId);
+        var collaboration = owner.collaboration();
+        if (collaboration == null) return;
+        if (collaboration.leaveCollaboration(schematicId, materialId, playerName)) {
+            broadcastStatus(owner, schematicId, materialId);
+            sendStatusToPlayer(owner, player, schematicId, materialId);
         }
     }
 
-    static void handleQueryMaterialStatus(QueryMaterialStatusC2SPacket payload, net.minecraft.server.level.ServerPlayer player) {
+    static void handleQueryMaterialStatus(LegacyServerContext owner, QueryMaterialStatusC2SPacket payload,
+                                          ServerPlayer player) {
+        if (!LegacyNetworkDispatch.accepts(owner, player)) return;
+
         String schematicId = payload.schematicId();
         SyncMaterial.LOGGER.debug("收到玩家 {} 的原理图 {} 协作状态查询请求", player.getName().getString(), schematicId);
-        Phase4Handler.subscribeMaterialList(player, schematicId);
-        List<Integer> materialIds = collaborationManager.getAllMaterialIds(schematicId);
+        owner.subscriptions().subscribeMaterials(player, schematicId);
+        var collaboration = owner.collaboration();
+        if (collaboration == null) return;
+        List<Integer> materialIds = collaboration.getAllMaterialIds(schematicId);
         for (int materialId : materialIds) {
-            sendStatusToPlayer(player, schematicId, materialId);
+            sendStatusToPlayer(owner, player, schematicId, materialId);
         }
         // 订阅集合变了：该原理图引用的仓库现在应当高亮显示
-        sendWarehouseAreasTo(player);
+        sendWarehouseAreasTo(owner, player);
     }
 
-    static void handleMaterialListClose(MaterialListCloseC2SPacket payload, net.minecraft.server.level.ServerPlayer player) {
-        Phase4Handler.unsubscribeMaterialList(player, payload.schematicId());
-        sendWarehouseAreasTo(player);
+    static void handleMaterialListClose(LegacyServerContext owner, MaterialListCloseC2SPacket payload,
+                                        ServerPlayer player) {
+        if (!LegacyNetworkDispatch.accepts(owner, player)) return;
+
+        owner.subscriptions().unsubscribeMaterials(player, payload.schematicId());
+        sendWarehouseAreasTo(owner, player);
     }
 
-    // Phase 5: 取货模式订阅管理
-    private static final Map<net.minecraft.server.level.ServerPlayer, Map<String, Set<Integer>>> playerSchematicWarehouses = new ConcurrentHashMap<>();
+    // Phase 5: 取货模式订阅管理（状态由上下文持有的 LegacySubscriptions 隔离）
+    static void handleWarehouseContainerRequest(LegacyServerContext owner, WarehouseContainerRequestC2SPacket payload,
+                                                ServerPlayer player) {
+        if (!LegacyNetworkDispatch.accepts(owner, player)) return;
 
-    static void handleWarehouseContainerRequest(WarehouseContainerRequestC2SPacket payload, net.minecraft.server.level.ServerPlayer player) {
         String schematicId = payload.schematicId();
-        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+        StagingAreaManager manager = owner.staging();
         if (manager == null) return;
 
         if (payload.subscribe()) {
             // 订阅：获取该原理图引用的仓库 ID 集合
             var warehouses = manager.getWarehousesForSchematic(schematicId);
-            Set<Integer> warehouseIds = warehouses.stream().map(StagingAreaManager.Warehouse::id).collect(java.util.stream.Collectors.toSet());
+            Set<Integer> warehouseIds = warehouses.stream()
+                    .map(StagingAreaManager.Warehouse::id)
+                    .collect(java.util.stream.Collectors.toSet());
 
-            playerSchematicWarehouses.computeIfAbsent(player, k -> new ConcurrentHashMap<>()).put(schematicId, warehouseIds);
+            owner.subscriptions().subscribeWarehouses(player, schematicId, warehouseIds);
 
             // 计算该玩家所有活跃原理图的仓库并集
-            Set<Integer> allWarehouseIds = new HashSet<>();
-            for (var entry : playerSchematicWarehouses.get(player).values()) {
-                allWarehouseIds.addAll(entry);
-            }
+            Set<Integer> allWarehouseIds = owner.subscriptions().warehouseIds(player);
 
             // 查询所有仓库的容器数据
-            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers = manager.getContainerEntriesForWarehouses(allWarehouseIds);
-            ServerPlayNetworking.send(player, new WarehouseContainerResponseS2CPacket(containers));
-            SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 订阅取货模式: 原理图 {}, 仓库 {}", player.getName().getString(), schematicId, warehouseIds);
+            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers =
+                    manager.getContainerEntriesForWarehouses(allWarehouseIds);
+            sendToPlayers(owner, Set.of(player), new WarehouseContainerResponseS2CPacket(containers));
+            SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 订阅取货模式: 原理图 {}, 仓库 {}",
+                    player.getName().getString(), schematicId, warehouseIds);
         } else {
             // 取消订阅
-            Map<String, Set<Integer>> schematicMap = playerSchematicWarehouses.get(player);
-            if (schematicMap != null) {
-                schematicMap.remove(schematicId);
-                if (schematicMap.isEmpty()) {
-                    playerSchematicWarehouses.remove(player);
-                }
-            }
-            SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 取消订阅取货模式: 原理图 {}", player.getName().getString(), schematicId);
+            owner.subscriptions().unsubscribeWarehouses(player, schematicId);
+            SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 取消订阅取货模式: 原理图 {}",
+                    player.getName().getString(), schematicId);
         }
     }
 
     /**
-     * 供 StagingAreaManager 调用：容器数据变化后推送给取货模式中的玩家
+     * 供上下文/区域管理器调用：容器数据变化后推送给取货模式中的玩家。
      */
-    public static void pushWarehouseContainerUpdate(StagingAreaManager manager) {
-        for (var playerEntry : playerSchematicWarehouses.entrySet()) {
-            var player = playerEntry.getKey();
-            // 存活检查：断线玩家的条目可能尚未被清理，避免向失效连接发包
-            if (!player.isAlive() || player.connection == null) {
+    public static void pushWarehouseContainerUpdate(LegacyServerContext owner) {
+        if (owner == null || !owner.isCurrent()) return;
+
+        StagingAreaManager manager = owner.staging();
+        if (manager == null) return;
+
+        Map<ServerPlayer, Set<Integer>> subscribers = owner.subscriptions().warehouseSubscribers();
+        for (var playerEntry : subscribers.entrySet()) {
+            ServerPlayer player = playerEntry.getKey();
+            Set<Integer> allWarehouseIds = playerEntry.getValue();
+            if (allWarehouseIds.isEmpty() || !owner.isConnected(player)) {
                 continue;
             }
-            Set<Integer> allWarehouseIds = new HashSet<>();
-            for (var ids : playerEntry.getValue().values()) {
-                allWarehouseIds.addAll(ids);
-            }
-            if (allWarehouseIds.isEmpty()) continue;
-
-            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers = manager.getContainerEntriesForWarehouses(allWarehouseIds);
-            ServerPlayNetworking.send(player, new WarehouseContainerResponseS2CPacket(containers));
+            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers =
+                    manager.getContainerEntriesForWarehouses(allWarehouseIds);
+            sendToPlayers(owner, Set.of(player), new WarehouseContainerResponseS2CPacket(containers));
         }
     }
 
     /**
-     * 广播仓库区域数据给全部在线玩家（线框渲染用）。
+     * 广播仓库区域数据给该上下文中的全部在线玩家（线框渲染用）。
      *
-     * 仓库是全局资源而非按原理图订阅，所以是全员广播；
+     * <p>仓库是全局资源而非按原理图订阅，所以是全员广播；
      * 但 referencedIds 因人而异（取决于各自打开了哪个原理图的材料清单），
-     * 因此逐玩家单独组包。
+     * 因此逐玩家单独组包。</p>
      */
-    public static void broadcastWarehouseAreas(MinecraftServer server) {
-        if (server == null) return;
+    public static void broadcastWarehouseAreas(LegacyServerContext owner) {
+        if (owner == null || !owner.isCurrent()) return;
 
-        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+        StagingAreaManager manager = owner.staging();
         if (manager == null) return;
 
         // 线框广播是纯展示功能，不能因为它出错而中断调用方的业务流程
         try {
-            var playerList = server.getPlayerList() != null
-                ? server.getPlayerList().getPlayers() : null;
+            var server = owner.server();
+            var playerList = server == null || server.getPlayerList() == null
+                ? null : server.getPlayerList().getPlayers();
             if (playerList == null) return;
 
             var warehouseInfos = StagingAreaManager.buildWarehouseInfos(manager.getAllWarehouses());
             for (var player : playerList) {
-                sendWarehouseAreas(player, manager, warehouseInfos);
+                sendWarehouseAreas(owner, player, manager, warehouseInfos);
             }
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("[Phase5] 广播仓库区域数据失败", e);
         }
     }
 
+    /** 显式 server 兼容入口：只做同步上下文解析，排队后不再重新查注册表。 */
+    public static void broadcastWarehouseAreas(MinecraftServer server) {
+        LegacyServerContext owner = LegacyServerRegistry.get(server);
+        if (owner != null) {
+            broadcastWarehouseAreas(owner);
+        }
+    }
+
     /**
      * 向单个玩家推送仓库区域数据（玩家加入时的初始同步）。
      */
-    public static void sendWarehouseAreasTo(net.minecraft.server.level.ServerPlayer player) {
-        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+    public static void sendWarehouseAreasTo(LegacyServerContext owner, ServerPlayer player) {
+        if (owner == null || !owner.isCurrent()) return;
+
+        StagingAreaManager manager = owner.staging();
         if (manager == null) return;
 
         try {
-            sendWarehouseAreas(player, manager,
+            sendWarehouseAreas(owner, player, manager,
                 StagingAreaManager.buildWarehouseInfos(manager.getAllWarehouses()));
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("[Phase5] 推送仓库区域数据失败", e);
         }
     }
 
-    private static void sendWarehouseAreas(net.minecraft.server.level.ServerPlayer player,
+    private static void sendWarehouseAreas(LegacyServerContext owner, ServerPlayer player,
                                            StagingAreaManager manager,
                                            List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouseInfos) {
-        if (player == null || !player.isAlive() || player.connection == null) {
+        if (player == null || !owner.isConnected(player)) {
             return;
         }
 
@@ -589,7 +680,7 @@ public class ModNetworkHandler {
         }
 
         Set<Integer> referenced = new HashSet<>();
-        for (String schematicId : Phase4Handler.getSubscribedSchematics(player)) {
+        for (String schematicId : owner.subscriptions().projects(player)) {
             for (var wh : manager.getWarehousesForSchematic(schematicId)) {
                 referenced.add(wh.id());
             }
@@ -604,28 +695,37 @@ public class ModNetworkHandler {
      * 客户端正常退出会主动发退订包，但拔线/崩溃不会，
      * 若不清理则 ServerPlayer 引用永久驻留（内存泄漏 + 向死连接发包）。
      */
-    public static void onPlayerDisconnect(net.minecraft.server.level.ServerPlayer player) {
+    public static void onPlayerDisconnect(ServerPlayer player) {
         if (player == null) return;
 
-        if (net.syncmaterial.syncmaterial.server.runtime.BackendMode.isFoundationEnabled()) {
-            var world = player.level();
-            var server = world == null ? null : world.getServer();
-            if (server != null) {
-                var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(server);
-                if (runtime != null) {
-                    FoundationNetworkAdapter.onPlayerDisconnect(runtime, player.getUUID());
-                    runtime.disconnected(player.getUUID());
-                }
+        MinecraftServer server = LegacyNetworkDispatch.serverOf(player);
+        if (server == null) {
+            ProtocolHandshake.remove(player);
+            return;
+        }
+
+        if (BackendMode.isFoundationEnabled()) {
+            var runtime = ServerRuntimeRegistry.get(server);
+            var current = server.getPlayerList().getPlayer(player.getUUID());
+            if (runtime != null && (current == null || current == player)) {
+                FoundationNetworkAdapter.onPlayerDisconnect(runtime, player.getUUID());
+                runtime.disconnected(player.getUUID());
             }
         }
-        playerSchematicWarehouses.remove(player);
-        Phase4Handler.unsubscribeAllMaterialList(player);
-        ProtocolHandshake.remove(player);
 
-        var manager = SyncMaterial.getServerStagingAreaManager();
-        if (manager != null) {
-            manager.unsubscribeAll(player);
+        LegacyServerContext owner = LegacyServerRegistry.get(server);
+        if (owner != null) {
+            owner.execute(() -> {
+                // 排队期间的上下文切换不能再清另一个实例的订阅。
+                if (LegacyServerRegistry.get(server) != owner) return;
+                owner.subscriptions().forgetPlayer(player);
+                var manager = owner.staging();
+                if (manager != null) {
+                    manager.unsubscribeAll(player);
+                }
+            });
         }
+        ProtocolHandshake.remove(player);
     }
 
     /** 原版世界边界，坐标绝对值上限 */
@@ -652,7 +752,7 @@ public class ModNetworkHandler {
      * world 是客户端可控字符串，语法非法会让服务端扫描时解析资源 ID 崩溃，
      * 这里只挡语法非法（用 tryParse）；语法合法但维度不存在由扫描侧安全跳过（world==null 返回）。
      */
-    private static String validateAreaData(StagingAreaConfigC2SPacket.AreaData d, MinecraftServer server) {
+    private static String validateAreaData(StagingAreaConfigC2SPacket.AreaData d) {
         if (!isAreaGeometryValid(d.x1(), d.y1(), d.z1(), d.x2(), d.y2(), d.z2())) {
             return "区域坐标超出范围或区域过大";
         }
@@ -662,11 +762,15 @@ public class ModNetworkHandler {
         return null;
     }
 
-    static void handleStagingAreaConfig(StagingAreaConfigC2SPacket payload, net.minecraft.server.level.ServerPlayer player, MinecraftServer server) {
+    static void handleStagingAreaConfig(LegacyServerContext owner, StagingAreaConfigC2SPacket payload,
+                                        ServerPlayer player, MinecraftServer server) {
+        if (!LegacyNetworkDispatch.accepts(owner, player, server)) return;
+
         String schematicId = payload.schematicId();
-        StagingAreaManager manager = SyncMaterial.getServerStagingAreaManager();
+        StagingAreaManager manager = owner.staging();
         if (manager == null) {
-            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("", schematicId, "", false, "备货区服务未初始化", List.of()));
+            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                    "", schematicId, "", false, "备货区服务未初始化", List.of()));
             return;
         }
         String action = payload.action();
@@ -675,61 +779,68 @@ public class ModNetworkHandler {
             switch (action) {
                 case "LIST" -> {
                     manager.subscribe(player, schematicId);
-                    sendStagingAreaResponse(player, manager, schematicId, true, "");
+                    sendStagingAreaResponse(owner, player, manager, schematicId, true, "");
                 }
                 case "ADD" -> {
                     var ad = payload.areaData();
                     if (ad.isEmpty()) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD", schematicId, "", false, "缺少区域数据", List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                                "ADD", schematicId, "", false, "缺少区域数据", List.of()));
                         return;
                     }
                     AreaData data = ad.get();
-                    String geomErr = validateAreaData(data, server);
+                    String geomErr = validateAreaData(data);
                     if (geomErr != null) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD", schematicId, "", false, geomErr, List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                                "ADD", schematicId, "", false, geomErr, List.of()));
                         return;
                     }
                     String world = data.world().orElse(McCompat.dimensionId(player.level()));
-                    int areaId = manager.addStagingArea(schematicId, world, data.name(), data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    int areaId = manager.addStagingArea(schematicId, world, data.name(),
+                            data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     if (areaId > 0) {
                         manager.rescanStagingArea(areaId);
                     }
-                    sendStagingAreaResponse(player, manager, schematicId, true, "备货区已添加");
+                    sendStagingAreaResponse(owner, player, manager, schematicId, true, "备货区已添加");
                     manager.broadcastUpdate(schematicId);
                 }
                 case "RENAME" -> {
                     var ad = payload.areaData();
                     if (ad.isEmpty()) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("RENAME", schematicId, "", false, "缺少区域数据", List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                                "RENAME", schematicId, "", false, "缺少区域数据", List.of()));
                         return;
                     }
                     manager.renameStagingArea(payload.areaId(), schematicId, ad.get().name());
-                    sendStagingAreaResponse(player, manager, schematicId, true, "备货区已重命名");
+                    sendStagingAreaResponse(owner, player, manager, schematicId, true, "备货区已重命名");
                     manager.broadcastUpdate(schematicId);
                 }
                 case "DELETE" -> {
                     manager.removeStagingArea(payload.areaId(), schematicId);
-                    sendStagingAreaResponse(player, manager, schematicId, true, "备货区已删除");
+                    sendStagingAreaResponse(owner, player, manager, schematicId, true, "备货区已删除");
                     manager.broadcastUpdate(schematicId);
                 }
                 case "UPDATE" -> {
                     var ad = payload.areaData();
                     if (ad.isEmpty()) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE", schematicId, "", false, "缺少区域数据", List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                                "UPDATE", schematicId, "", false, "缺少区域数据", List.of()));
                         return;
                     }
                     AreaData data = ad.get();
-                    String updGeomErr = validateAreaData(data, server);
+                    String updGeomErr = validateAreaData(data);
                     if (updGeomErr != null) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE", schematicId, "", false, updGeomErr, List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                                "UPDATE", schematicId, "", false, updGeomErr, List.of()));
                         return;
                     }
                     SyncMaterial.LOGGER.debug("[StagingArea] UPDATE: areaId={} schematicId='{}' name='{}'",
                             payload.areaId(), schematicId, data.name());
-                    manager.updateStagingArea(payload.areaId(), schematicId, data.name(), data.world().orElse(null),
+                    manager.updateStagingArea(payload.areaId(), schematicId, data.name(),
+                            data.world().orElse(null),
                             data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     manager.rescanStagingArea(payload.areaId());
-                    sendStagingAreaResponse(player, manager, schematicId, true, "备货区已更新");
+                    sendStagingAreaResponse(owner, player, manager, schematicId, true, "备货区已更新");
                     manager.broadcastUpdate(schematicId);
                 }
                 case "CLEAR" -> {
@@ -737,7 +848,8 @@ public class ModNetworkHandler {
                     for (var area : areas) {
                         manager.removeStagingArea(area.id(), schematicId);
                     }
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("CLEAR", schematicId, "", true, "已清除所有备货区", List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                            "CLEAR", schematicId, "", true, "已清除所有备货区", List.of()));
                     manager.broadcastUpdate(schematicId);
                 }
                 // Phase 5: 仓库管理操作
@@ -748,9 +860,10 @@ public class ModNetworkHandler {
                 }
                 case "ADD_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
-                    String whGeomErr = validateAreaData(data, server);
+                    String whGeomErr = validateAreaData(data);
                     if (whGeomErr != null) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD_WAREHOUSE", schematicId, "", false, whGeomErr, List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                                "ADD_WAREHOUSE", schematicId, "", false, whGeomErr, List.of()));
                         return;
                     }
                     int id = manager.addWarehouse(data.name(), data.world().orElse("minecraft:overworld"),
@@ -759,55 +872,60 @@ public class ModNetworkHandler {
                         // 立即扫描：否则新仓库一直是"未初始化"状态，前端显示数据过时且库存为 0，
                         // 直到玩家手动改动某个容器才被动触发扫描
                         manager.rescanWarehouseAndMarkChunks(id);
-                        pushWarehouseContainerUpdate(manager);
-                        broadcastWarehouseAreas(server);
+                        pushWarehouseContainerUpdate(owner);
+                        broadcastWarehouseAreas(owner);
                     }
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("ADD_WAREHOUSE", schematicId, "", id > 0, id > 0 ? "仓库已创建" : "创建失败", List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                            "ADD_WAREHOUSE", schematicId, "", id > 0,
+                            id > 0 ? "仓库已创建" : "创建失败", List.of()));
                 }
                 case "UPDATE_WAREHOUSE" -> {
                     var data = payload.areaData().orElseThrow();
-                    String whUpdErr = validateAreaData(data, server);
+                    String whUpdErr = validateAreaData(data);
                     if (whUpdErr != null) {
-                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE_WAREHOUSE", schematicId, "", false, whUpdErr, List.of()));
+                        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                                "UPDATE_WAREHOUSE", schematicId, "", false, whUpdErr, List.of()));
                         return;
                     }
                     manager.updateWarehouse(payload.areaId(), data.name(), data.world().orElse(null),
                             data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                     // 范围可能变了：updateWarehouse 已重置初始化状态，这里按新范围立即重扫
                     manager.rescanWarehouseAndMarkChunks(payload.areaId());
-                    pushWarehouseContainerUpdate(manager);
-                    broadcastWarehouseAreas(server);
+                    pushWarehouseContainerUpdate(owner);
+                    broadcastWarehouseAreas(owner);
                     for (String affected : manager.getSchematicsReferencingWarehouse(payload.areaId())) {
-                        Phase4Handler.broadcastAllMaterialStatus(server, affected);
+                        Phase4Handler.broadcastAllMaterialStatus(owner, affected);
                     }
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("UPDATE_WAREHOUSE", schematicId, "", true, "仓库已更新", List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                            "UPDATE_WAREHOUSE", schematicId, "", true, "仓库已更新", List.of()));
                 }
                 case "DELETE_WAREHOUSE" -> {
                     // 先取引用方：deleteWarehouse 会级联清掉 schematic_warehouses
                     var affectedSchematics = manager.getSchematicsReferencingWarehouse(payload.areaId());
                     manager.deleteWarehouse(payload.areaId());
-                    pushWarehouseContainerUpdate(manager);
-                    broadcastWarehouseAreas(server);
+                    pushWarehouseContainerUpdate(owner);
+                    broadcastWarehouseAreas(owner);
                     for (String affected : affectedSchematics) {
-                        Phase4Handler.broadcastAllMaterialStatus(server, affected);
+                        Phase4Handler.broadcastAllMaterialStatus(owner, affected);
                     }
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("DELETE_WAREHOUSE", schematicId, "", true, "仓库已删除", List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                            "DELETE_WAREHOUSE", schematicId, "", true, "仓库已删除", List.of()));
                 }
                 case "ADD_WAREHOUSE_REF" -> {
                     manager.addWarehouseReference(schematicId, payload.areaId());
                     // 引用关系变了：材料的仓库计数与新鲜度提示都会变，必须重新广播状态，
                     // 否则界面停留在旧数据（仓库计数为 0 且显示"数据可能过时"）
-                    Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                    Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
                     // 引用集合变化会改变线框高亮色，必须重推区域数据
-                    broadcastWarehouseAreas(server);
+                    broadcastWarehouseAreas(owner);
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                         "ADD_WAREHOUSE_REF", schematicId, "", true, "已添加仓库引用",
                         StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
                 }
                 case "REMOVE_WAREHOUSE_REF" -> {
                     manager.removeWarehouseReference(schematicId, payload.areaId());
-                    Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
-                    broadcastWarehouseAreas(server);
+                    Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
+                    broadcastWarehouseAreas(owner);
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                         "REMOVE_WAREHOUSE_REF", schematicId, "", true, "已移除仓库引用",
                         StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
@@ -818,27 +936,29 @@ public class ModNetworkHandler {
                         StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
                 }
                 default -> {
-                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("", schematicId, "", false, "未知操作: " + action, List.of()));
+                    ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                            "", schematicId, "", false, "未知操作: " + action, List.of()));
                 }
             }
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("处理备货区配置失败", e);
-            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("", schematicId, "", false, "操作失败: " + e.getMessage(), List.of()));
+            ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                    "", schematicId, "", false, "操作失败: " + e.getMessage(), List.of()));
         }
     }
 
-    static void handleRescanStagingArea(RescanStagingAreaC2SPacket payload, ServerPlayNetworking.Context context) {
-        try {
-            var player = context.player();
-            if (!validatePlayer(player)) return;
+    static void handleRescanStagingArea(LegacyServerContext owner, RescanStagingAreaC2SPacket payload,
+                                        ServerPlayer player, MinecraftServer server) {
+        if (!LegacyNetworkDispatch.accepts(owner, player, server)) return;
 
+        try {
             String schematicId = payload.schematicId();
             if (!validateSchematicId(schematicId)) {
                 ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(false, "无效的原理图ID"));
                 return;
             }
 
-            var manager = SyncMaterial.getServerStagingAreaManager();
+            var manager = owner.staging();
             if (manager == null) {
                 ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(false, "备货区管理器未初始化"));
                 return;
@@ -856,31 +976,35 @@ public class ModNetworkHandler {
                 rescannedCount++;
             }
 
-            Phase4Handler.broadcastAllMaterialStatus(context.server(), schematicId);
+            Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
 
-            SyncMaterial.LOGGER.info("[StagingArea] 手动重新扫描完成: schematicId={}, 区域数={}", schematicId, rescannedCount);
-            ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(true, "成功重新扫描 " + rescannedCount + " 个备货区"));
+            SyncMaterial.LOGGER.info("[StagingArea] 手动重新扫描完成: schematicId={}, 区域数={}",
+                    schematicId, rescannedCount);
+            ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(
+                    true, "成功重新扫描 " + rescannedCount + " 个备货区"));
         } catch (Exception e) {
             SyncMaterial.LOGGER.error("处理重新扫描请求失败", e);
-            ServerPlayNetworking.send(context.player(), new RescanStagingAreaResponseS2CPacket(false, "重新扫描失败: " + e.getMessage()));
+            ServerPlayNetworking.send(player, new RescanStagingAreaResponseS2CPacket(
+                    false, "重新扫描失败: " + e.getMessage()));
         }
     }
 
     /**
      * 发送备货区列表响应
      */
-    private static void sendStagingAreaResponse(net.minecraft.server.level.ServerPlayer player,
-                                                 StagingAreaManager manager, String schematicId,
-                                                 boolean success, String message) {
-        String schematicName = getSchematicName(schematicId);
+    private static void sendStagingAreaResponse(LegacyServerContext owner, ServerPlayer player,
+                                                StagingAreaManager manager, String schematicId,
+                                                boolean success, String message) {
+        String schematicName = getSchematicName(owner, schematicId);
         var areas = manager.getStagingAreas(schematicId);
         var areaInfos = StagingAreaManager.buildAreaInfos(areas);
-        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket("LIST", schematicId, schematicName, success, message, areaInfos));
+        ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
+                "LIST", schematicId, schematicName, success, message, areaInfos));
     }
 
-    private static String getSchematicName(String schematicId) {
+    private static String getSchematicName(LegacyServerContext owner, String schematicId) {
         try {
-            var db = SyncMaterial.getSharedDatabase();
+            var db = owner.database();
             if (db != null) {
                 try (var rs = db.executeQuery("SELECT name FROM schematics WHERE id = ?", schematicId)) {
                     if (rs.next()) return rs.getString("name");
@@ -892,32 +1016,38 @@ public class ModNetworkHandler {
         return "";
     }
 
-    static void broadcastStatus(MinecraftServer server, String schematicId, int materialId) {
-        var status = collaborationManager.getCollaborationStatus(schematicId, materialId);
+    static void broadcastStatus(LegacyServerContext owner, String schematicId, int materialId) {
+        if (owner == null || !owner.isCurrent()) return;
+        var collaboration = owner.collaboration();
+        if (collaboration == null) return;
+
+        var status = collaboration.getCollaborationStatus(schematicId, materialId);
         if (status == null) return;
 
         // 收集所有接收者：参与者 + 材料列表订阅者（去重）
-        Set<net.minecraft.server.level.ServerPlayer> recipients = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        Set<ServerPlayer> recipients = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-        List<String> participants = collaborationManager.getParticipants(schematicId, materialId);
+        List<String> participants = collaboration.getParticipants(schematicId, materialId);
         for (String name : participants) {
-            var player = McCompat.findPlayerByName(server, name);
+            var player = McCompat.findPlayerByName(owner.server(), name);
             if (player != null) {
                 recipients.add(player);
             }
         }
 
-        Set<net.minecraft.server.level.ServerPlayer> subscribers = Phase4Handler.getMaterialListSubscribers().get(schematicId);
-        if (subscribers != null) {
-            recipients.addAll(subscribers);
-        }
+        recipients.addAll(owner.subscriptions().materialSubscribers(schematicId));
 
-        SyncMaterial.LOGGER.info("广播材料 {} 的状态给 {} 个玩家（参与者 + 订阅者）", materialId, recipients.size());
-        sendToPlayers(recipients, status);
+        SyncMaterial.LOGGER.info("广播材料 {} 的状态给 {} 个玩家（参与者 + 订阅者）",
+                materialId, recipients.size());
+        sendToPlayers(owner, recipients, status);
     }
 
-    private static void sendStatusToPlayer(net.minecraft.server.level.ServerPlayer player, String schematicId, int materialId) {
-        var status = collaborationManager.getCollaborationStatus(schematicId, materialId);
+    private static void sendStatusToPlayer(LegacyServerContext owner, ServerPlayer player,
+                                           String schematicId, int materialId) {
+        if (!LegacyNetworkDispatch.accepts(owner, player)) return;
+        var collaboration = owner.collaboration();
+        if (collaboration == null) return;
+        var status = collaboration.getCollaborationStatus(schematicId, materialId);
         if (status != null) {
             ServerPlayNetworking.send(player, status);
         }

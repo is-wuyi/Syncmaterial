@@ -1,199 +1,151 @@
 package net.syncmaterial.syncmaterial.server;
 
-import net.syncmaterial.syncmaterial.api.MaterialEntry;
-import net.syncmaterial.syncmaterial.SyncMaterial;
-import net.syncmaterial.syncmaterial.engine.LitematicaParser;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import net.syncmaterial.syncmaterial.SyncMaterial;
+import net.syncmaterial.syncmaterial.server.legacy.LegacySchematicIngest;
+import net.syncmaterial.syncmaterial.server.legacy.LegacyServerContext;
 
 /**
- * 原理图上传监听器
- * 监听Syncmatica原理图上传事件，自动解析并存储到数据库
- * 使用泛型避免直接依赖Syncmatica类
+ * Syncmatica 上传事件监听器（只负责旧后端）。
+ *
+ * <p>事件线程上只做一次同步反射，捕获不可变元数据后交给
+ * {@link LegacySchematicIngest}；不再自行创建 common-pool 任务，也不再查找全局
+ * manager/database。是否真实存在、是否仍由 Syncmatica manager 管理由服务端发现
+ * 适配器在调用 {@link #accept(Object)} 前判断；本类不注册/注销 consumer。</p>
  */
-public class SchematicUploadListener implements Consumer<Object> {
-    private final SchematicDatabase database;
-    private final DatabaseQueryService queryService;
-    private final LitematicaParser parser;
+public final class SchematicUploadListener implements Consumer<Object>, AutoCloseable {
 
-    public SchematicUploadListener(SchematicDatabase database,
-                                   DatabaseQueryService queryService,
-                                   LitematicaParser parser) {
-        this.database = database;
-        this.queryService = queryService;
-        this.parser = parser;
+    private final LegacyServerContext owner;
+    private final LegacySchematicIngest ingest;
+    private final Set<LegacySchematicIngest.Job> jobs = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean closed = new AtomicBoolean();
+
+    public SchematicUploadListener(LegacyServerContext owner) {
+        this(owner, owner.ingest());
     }
 
-    /**
-     * 处理原理图上传事件
-     * 这个方法会被Syncmatica的上传事件触发
-     */
-    public void onSchematicUploaded(Object placement) {
-        try {
-            // 使用反射获取ServerPlacement的方法
-            Class<?> placementClass = placement.getClass();
-            Object id = placementClass.getMethod("getId").invoke(placement);
-            Path schematicFile = (Path) placementClass.getMethod("getFile").invoke(placement);
-            String schematicId = id.toString();
-
-            // 获取所有者信息
-            Object owner = placementClass.getMethod("getOwner").invoke(placement);
-            String uploader = "unknown";
-            if (owner != null) {
-                uploader = (String) owner.getClass().getMethod("getName").invoke(owner);
-            }
-
-            SyncMaterial.LOGGER.info("检测到原理图上传: {} (文件: {}, 上传者: {})",
-                                   schematicId, schematicFile, uploader);
-
-            // 异步处理上传的原理图
-            CompletableFuture.runAsync(() -> {
-                try {
-                    processSchematicUpload(placement);
-                } catch (Exception e) {
-                    SyncMaterial.LOGGER.error("处理原理图上传失败: {}", schematicId, e);
-                }
-            });
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("处理ServerPlacement对象失败", e);
-        }
+    SchematicUploadListener(LegacyServerContext owner, LegacySchematicIngest ingest) {
+        this.owner = Objects.requireNonNull(owner, "owner");
+        this.ingest = Objects.requireNonNull(ingest, "ingest");
     }
 
-    /**
-     * Consumer接口实现
-     * 通过 SyncmaticManager.getPlacement() 判断 placement 是新增还是删除：
-     * - 新增：placement 仍在管理器中 → 处理上传
-     * - 删除：placement 已从管理器移除 → 清理渲染和数据库
-     */
     @Override
     public void accept(Object placement) {
-        // 仅处理新增/更新事件。原理图删除由服务器 SchematicFolderWatcher 通过
-        // SCHEMATIC_DELETED 网络包通知客户端，不依赖此 consumer。
         onSchematicUploaded(placement);
     }
 
-
-
     /**
-     * 实际的原理图处理逻辑
+     * 处理一次上传事件。方法本身只做同步元数据捕获和排队，解析与入库在
+     * {@link LegacySchematicIngest} 的串行线程上完成。
      */
-    private void processSchematicUpload(Object placement) {
-        try {
-            // 使用反射获取必要信息
-            Class<?> placementClass = placement.getClass();
-            Object id = placementClass.getMethod("getId").invoke(placement);
-            Path schematicFile = (Path) placementClass.getMethod("getFile").invoke(placement);
-            String schematicId = id.toString();
-            String schematicName = (String) placementClass.getMethod("getName").invoke(placement);
+    public void onSchematicUploaded(Object placement) {
+        if (placement == null || closed.get() || !owner.isCurrent()) return;
 
-            // 1. 检查文件是否存在
-            if (!Files.exists(schematicFile)) {
-                SyncMaterial.LOGGER.error("原理图文件不存在: {}", schematicFile);
+        LegacySchematicIngest.Metadata metadata;
+        try {
+            metadata = capture(placement);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            SyncMaterial.LOGGER.error("读取 Syncmatica 上传元数据失败", error);
+            return;
+        }
+        if (metadata == null) return;
+
+        try {
+            if (!Files.isRegularFile(metadata.file())) {
+                SyncMaterial.LOGGER.error("原理图文件不存在: {}", metadata.file());
                 return;
             }
+            if (closed.get() || !owner.isCurrent()) return;
 
-            // 2. 检查是否已经处理过
-            if (queryService.schematicExists(schematicId)) {
-                SyncMaterial.LOGGER.info("原理图已存在于数据库中: {}", schematicId);
+            SyncMaterial.LOGGER.info("检测到原理图上传: {} (文件: {}, 上传者: {})",
+                    metadata.id(), metadata.file(), metadata.uploader());
+            owner.setPlacementName(metadata.id(), metadata.name());
+            if (closed.get() || !owner.isCurrent()) return;
+
+            LegacySchematicIngest.Job job = ingest.submit(metadata, this);
+            if (job == null) return;
+            if (closed.get()) {
+                job.release(this);
                 return;
             }
+            jobs.add(job);
+            if (closed.get()) {
+                job.release(this);
+                jobs.remove(job);
+                return;
+            }
+            job.completion().whenComplete((ignored, error) -> jobs.remove(job));
+        } catch (RuntimeException error) {
+            SyncMaterial.LOGGER.error("排队原理图上传失败: {}", metadata.id(), error);
+        }
+    }
 
-            // 3. 解析原理图文件
-            SyncMaterial.LOGGER.info("开始解析原理图: {}", schematicId);
-            List<MaterialEntry> materials = parser.parseAsync(schematicFile.toString())
-                .join(); // 等待解析完成
+    private LegacySchematicIngest.Metadata capture(Object placement)
+            throws ReflectiveOperationException {
+        Class<?> type = placement.getClass();
+        Object rawId = type.getMethod("getId").invoke(placement);
+        if (rawId == null) return null;
+        String id = rawId.toString();
+        if (id.isEmpty()) return null;
 
-            // 4. 存储到数据库
-            storeSchematicToDatabase(placement, schematicId, schematicName, schematicFile, materials);
+        Object rawFile = type.getMethod("getFile").invoke(placement);
+        if (!(rawFile instanceof Path file)) {
+            throw new IllegalArgumentException("placement.getFile() 未返回 Path");
+        }
 
-            SyncMaterial.LOGGER.info("原理图处理完成: {} ({} 项材料)",
-                                   schematicId, materials.size());
+        String name = readName(type, placement, file);
+        String uploader = readUploader(type, placement);
+        String hash = readHash(type, placement);
+        return new LegacySchematicIngest.Metadata(
+                id, name, file.toAbsolutePath().normalize(), hash, uploader,
+                LegacySchematicIngest.Source.UPLOAD, false);
+    }
 
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("原理图上传处理失败", e);
+    private static String readName(Class<?> type, Object placement, Path file) {
+        try {
+            Object rawName = type.getMethod("getName").invoke(placement);
+            if (rawName != null && !rawName.toString().isEmpty()) return rawName.toString();
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // 老版本/测试对象可能没有 getName：退化为文件名。
+        }
+        Path fileName = file.getFileName();
+        return fileName == null ? "unknown" : fileName.toString();
+    }
+
+    private static String readUploader(Class<?> type, Object placement) {
+        try {
+            Object owner = type.getMethod("getOwner").invoke(placement);
+            if (owner == null) return "unknown";
+            Object name = owner.getClass().getMethod("getName").invoke(owner);
+            return name == null ? "unknown" : name.toString();
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return "unknown";
+        }
+    }
+
+    private static String readHash(Class<?> type, Object placement) {
+        try {
+            Object hash = type.getMethod("getHash").invoke(placement);
+            return hash == null ? "" : hash.toString();
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // 与旧行为一致：没有 getHash 的实现留空，文件监听会按空 hash 语义跳过更新检测。
+            return "";
         }
     }
 
     /**
-     * 将解析结果存储到数据库
+     * 取消本监听器提交的导入；不等待解析线程。主线程发现适配器负责注销 consumer。
      */
-    private void storeSchematicToDatabase(Object placement, String schematicId, String schematicName, Path schematicFile, List<MaterialEntry> materials) throws Exception {
-        try {
-            SyncMaterial.LOGGER.info("开始存储原理图到数据库: {} ({})", schematicId, schematicName);
-
-            // 使用反射获取所有者信息
-            Class<?> placementClass = placement.getClass();
-            Object owner = placementClass.getMethod("getOwner").invoke(placement);
-
-            String uploader = "unknown";
-            if (owner != null) {
-                uploader = (String) owner.getClass().getMethod("getName").invoke(owner);
-            }
-
-            // file_hash 必须写入：文件监听器(SchematicFolderWatcher)靠它检测原理图文件更新，
-            // 缺失会让这条路入库的原理图永远检测不到更新。用反射取（老版本/测试无 getHash 则留空）。
-            String fileHash = "";
-            try {
-                Object h = placementClass.getMethod("getHash").invoke(placement);
-                if (h != null) {
-                    fileHash = h.toString();
-                }
-            } catch (ReflectiveOperationException ignored) {
-                // 没有 getHash：退化为空 hash（与旧行为一致）
-            }
-
-            // 1. 插入原理图基本信息
-            database.executeUpdate(
-                "INSERT INTO schematics (id, name, file_path, uploaded_by, file_hash) VALUES (?, ?, ?, ?, ?)",
-                schematicId,
-                schematicName,
-                schematicFile.toString(),
-                uploader,
-                fileHash
-            );
-            SyncMaterial.LOGGER.info("插入原理图基本信息成功: {}", schematicId);
-
-            // 2. 批量插入材料条目
-            insertMaterialEntries(schematicId, materials);
-
-            SyncMaterial.LOGGER.info("数据库存储完成: 原理图={}, 材料条目={}",
-                                      schematicId, materials.size());
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("存储到数据库失败", e);
-            throw e;
-        }
+    @Override
+    public void close() {
+        if (!closed.compareAndSet(false, true)) return;
+        for (LegacySchematicIngest.Job job : jobs) job.release(this);
+        jobs.clear();
     }
-
-    /**
-     * 批量插入材料条目
-     */
-    private void insertMaterialEntries(String schematicId, List<MaterialEntry> materials) throws Exception {
-        // 使用事务确保数据一致性
-        database.beginTransaction();
-
-        try {
-            for (MaterialEntry entry : materials) {
-                // 从ItemStack获取物品ID
-                String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.getStack().getItem()).toString();
-                long countLong = entry.getCountTotal();
-                int count = (int) Math.min(countLong, Integer.MAX_VALUE); // 防止溢出
-
-                database.executeUpdate(
-                    "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?) " +
-                    "ON CONFLICT(schematic_id, item_id) DO UPDATE SET count = excluded.count",
-                    schematicId, itemId, count
-                );
-            }
-
-            database.commitTransaction();
-        } catch (Exception e) {
-            database.rollbackTransaction();
-            throw e;
-        }
-    }
-
 }

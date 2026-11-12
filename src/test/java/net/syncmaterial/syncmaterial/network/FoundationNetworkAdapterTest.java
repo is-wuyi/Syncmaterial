@@ -112,7 +112,9 @@ class FoundationNetworkAdapterTest {
             packets.add(invocation.getArgument(1));
             return null;
         });
-        ProtocolHandshake.recordHandshake(playerId, ProtocolVersion.CURRENT, "test");
+        when(world.getServer()).thenReturn(server);
+        ProtocolHandshake.registerServer(server);
+        ProtocolHandshake.recordHandshake(server, player, ProtocolVersion.CURRENT, "test");
         FoundationNetworkAdapter.register();
         snapshot("Original", "hash", 1, 64);
     }
@@ -121,12 +123,12 @@ class FoundationNetworkAdapterTest {
     void tearDown() {
         networking.close();
         registry.close();
-        ProtocolHandshake.remove(playerId);
+        ProtocolHandshake.clear(server);
     }
 
     @Test
     void protocolOneGetsNoNewPacketAndNoSpuriousFirstUpdateNotice() {
-        ProtocolHandshake.recordHandshake(playerId, 1, "old-client");
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
         requestMaterials();
         assertTrue(packets.stream().anyMatch(MaterialStatsResponseS2CPacket.class::isInstance));
         assertTrue(packets.stream().noneMatch(MaterialCatalogUpdateS2CPacket.class::isInstance));
@@ -141,7 +143,7 @@ class FoundationNetworkAdapterTest {
 
     @Test
     void protocolTwoGetsInitialCatalogAndSameHashRenameInPlace() {
-        ProtocolHandshake.recordHandshake(playerId, 2, "protocol-two");
+        ProtocolHandshake.recordHandshake(server, player, 2, "protocol-two");
         requestMaterials();
         var initial = packets.stream().filter(MaterialCatalogUpdateS2CPacket.class::isInstance)
                 .map(MaterialCatalogUpdateS2CPacket.class::cast).findFirst().orElseThrow();
@@ -284,7 +286,7 @@ class FoundationNetworkAdapterTest {
 
     @Test
     void protocolTwoNeverReceivesNewAreaPacketButTotalsStayDeduped() {
-        ProtocolHandshake.recordHandshake(playerId, 2, "protocol-two");
+        ProtocolHandshake.recordHandshake(server, player, 2, "protocol-two");
         inventory(new AreaInventoryView(Map.of("minecraft:stone", 32L), Map.of("minecraft:stone", 0L),
                 List.of(), true, true, 1));
         requestMaterials();
@@ -360,7 +362,7 @@ class FoundationNetworkAdapterTest {
 
     @Test
     void unhandshakedRequestsReceiveNoAreaOrInventoryPackets() {
-        ProtocolHandshake.remove(playerId);
+        ProtocolHandshake.remove(player);
         requestMaterials();
         receive(StagingAreaConfigC2SPacket.ID, new StagingAreaConfigC2SPacket("", "LIST_WAREHOUSES", -1, Optional.empty()));
         assertTrue(packets.isEmpty());
@@ -396,18 +398,21 @@ class FoundationNetworkAdapterTest {
         ServerPlayer observer = mock(ServerPlayer.class);
         observer.connection = mock(ServerGamePacketListenerImpl.class);
         when(observer.getUUID()).thenReturn(observerId);
+        when(observer.getName()).thenReturn(Component.literal("Observer"));
+        ServerLevel playerLevel = player.level();
+        when(observer.level()).thenReturn(playerLevel);
         when(runtime.connection(observerId)).thenReturn(2L);
         when(runtime.subscribers(PROJECT)).thenReturn(Set.of(observerId));
         when(server.getPlayerList().getPlayer(observerId)).thenReturn(observer);
         when(server.getPlayerList().getPlayers()).thenReturn(List.of(observer));
-        ProtocolHandshake.recordHandshake(observerId, ProtocolVersion.CURRENT, "test");
+        ProtocolHandshake.recordHandshake(server, observer, ProtocolVersion.CURRENT, "test");
         try {
             receive(StagingAreaConfigC2SPacket.ID, new StagingAreaConfigC2SPacket(PROJECT, "ADD", -1,
                     Optional.of(new StagingAreaConfigC2SPacket.AreaData("New", 0, 0, 0, 1, 2, 1,
                             Optional.of("minecraft:overworld")))));
             when(runtime.connection(playerId)).thenReturn(0L);
             when(server.getPlayerList().getPlayer(playerId)).thenReturn(null);
-            ProtocolHandshake.remove(playerId);
+            ProtocolHandshake.remove(player);
             pending.complete(added);
             verify(runtime).requestBroadcast(PROJECT);
             networking.verify(() -> ServerPlayNetworking.send(eq(observer), argThat(packet ->
@@ -415,7 +420,7 @@ class FoundationNetworkAdapterTest {
                             && response.action().equals("LIST") && response.areas().size() == 1)));
             assertTrue(packets.isEmpty(), "the disconnected initiator must not receive its old response");
         } finally {
-            ProtocolHandshake.remove(observerId);
+            ProtocolHandshake.remove(observer);
         }
     }
 
@@ -443,6 +448,7 @@ class FoundationNetworkAdapterTest {
     void warehouseDetailsFilterDimensionAndDeduplicatePhysicalSources() {
         ServerLevel overworld = mock(ServerLevel.class);
         when(overworld.dimension()).thenReturn(net.minecraft.world.level.Level.OVERWORLD);
+        when(overworld.getServer()).thenReturn(server);
         when(player.level()).thenReturn(overworld);
         var key = new ContainerKey("minecraft:overworld", 1, 64, 1);
         when(store.warehouseContainers(PROJECT, "minecraft:overworld")).thenReturn(CompletableFuture.completedFuture(List.of(
@@ -463,12 +469,14 @@ class FoundationNetworkAdapterTest {
     void warehouseResultFromPreviousDimensionIsNotDelivered() {
         ServerLevel overworld = mock(ServerLevel.class);
         when(overworld.dimension()).thenReturn(net.minecraft.world.level.Level.OVERWORLD);
+        when(overworld.getServer()).thenReturn(server);
         when(player.level()).thenReturn(overworld);
         var pending = new CompletableFuture<List<ContainerObservation>>();
         when(store.warehouseContainers(PROJECT, "minecraft:overworld")).thenReturn(pending);
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
         ServerLevel nether = mock(ServerLevel.class);
         when(nether.dimension()).thenReturn(net.minecraft.world.level.Level.NETHER);
+        when(nether.getServer()).thenReturn(server);
         when(player.level()).thenReturn(nether);
         pending.complete(List.of(new ContainerObservation(new ContainerKey("minecraft:overworld", 1, 64, 1), Map.of("minecraft:stone", 32L), "")));
         assertTrue(packets.isEmpty());

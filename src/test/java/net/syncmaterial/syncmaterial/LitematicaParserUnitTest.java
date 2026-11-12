@@ -38,7 +38,7 @@ public class LitematicaParserUnitTest {
     @TempDir
     Path tempDir;
 
-    // 线程池是非 daemon 的，必须在 @AfterAll 显式关闭，否则测试 JVM 无法退出
+    // 解析器拥有线程池生命周期，测试结束必须显式关闭并等待终止。
     private static ParsingThreadPool pool;
     private static DefaultLitematicaParser parser;
 
@@ -52,8 +52,9 @@ public class LitematicaParserUnitTest {
     }
 
     @AfterAll
-    static void tearDown() {
-        pool.shutdown();
+    static void tearDown() throws InterruptedException {
+        parser.close();
+        assertTrue(parser.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS));
     }
 
     // ========== NBT 构造 ==========

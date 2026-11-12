@@ -8,6 +8,7 @@ import net.minecraft.world.Container;
 import net.minecraft.core.BlockPos;
 import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.SyncMaterial;
+import net.syncmaterial.syncmaterial.server.legacy.LegacyServerContext;
 
 import java.sql.SQLException;
 import java.util.*;
@@ -18,7 +19,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.syncmaterial.syncmaterial.network.ModNetworkHandler;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 
-public class StagingAreaManager {
+public class StagingAreaManager implements AutoCloseable {
     private final SchematicDatabase database;
     private final Map<String, List<StagingArea>> stagingAreasBySchematic = new ConcurrentHashMap<>();
     // volatile 保证读线程立即看到新的 Map 引用（原子替换，无 clear/putAll 窗口期）
@@ -41,16 +42,84 @@ public class StagingAreaManager {
     // 临时区块跟踪：初始化阶段记录已扫描的区块，全部扫描完成后清除
     private final Map<String, Set<Long>> initChunkTracking = new ConcurrentHashMap<>();
     private MinecraftServer server;
+    private LegacyServerContext owner;
+    private volatile boolean closed;
 
     public StagingAreaManager(SchematicDatabase database) {
         this.database = database;
     }
 
     public void setServer(MinecraftServer server) {
-        this.server = server;
+        if (closed || (this.server != null && this.server != server)) {
+            throw new IllegalStateException("A staging manager cannot be rebound to another server");
+        }
+        this.server = java.util.Objects.requireNonNull(server);
+    }
+
+    public void bind(LegacyServerContext owner) {
+        if (this.owner != null) throw new IllegalStateException("A staging manager already has an owner");
+        setServer(owner.server());
+        this.owner = owner;
+    }
+
+    public LegacyServerContext owner() {
+        return owner;
+    }
+
+    private boolean isOpen() {
+        return !closed && (owner == null ? database.isOpen() : owner.isCurrent());
+    }
+
+    private boolean owns(ServerLevel world) {
+        return isOpen() && server != null && world != null && world.getServer() == server;
+    }
+
+    private void execute(Runnable task) {
+        if (!isOpen() || server == null) return;
+        if (owner != null) owner.execute(task);
+        else server.execute(() -> {
+            if (isOpen()) task.run();
+        });
+    }
+
+    @Override
+    public void close() {
+        closed = true;
+        dirtyContainers.clear();
+        pendingDeferredRescans.clear();
+        processedRemovals.clear();
+        subscribers.clear();
+        initializedAreas.clear();
+        initChunkTracking.clear();
+        stagingAreasBySchematic.clear();
+        stagingAreasByWorld = Map.of();
+        warehousesById.clear();
+        warehousesByWorld = Map.of();
+    }
+
+    public void refreshProject(String schematicId) {
+        if (!isOpen()) return;
+        List<StagingArea> previous = stagingAreasBySchematic.get(schematicId);
+        refreshCache(schematicId);
+        if (previous != null) {
+            Set<Integer> current = getStagingAreas(schematicId).stream().map(StagingArea::id)
+                    .collect(java.util.stream.Collectors.toSet());
+            for (StagingArea area : previous) {
+                if (!current.contains(area.id())) resetInitState("staging_area", area.id());
+            }
+        }
+    }
+
+    public void forgetProject(String schematicId) {
+        if (!isOpen()) return;
+        List<StagingArea> areas = stagingAreasBySchematic.remove(schematicId);
+        if (areas != null) areas.forEach(area -> resetInitState("staging_area", area.id()));
+        subscribers.remove(schematicId);
+        rebuildWorldIndex();
     }
 
     public void subscribe(ServerPlayer player, String schematicId) {
+        if (!isOpen() || owner == null || !owner.isConnected(player)) return;
         subscribers.computeIfAbsent(schematicId, k -> ConcurrentHashMap.newKeySet()).add(player);
         SyncMaterial.LOGGER.info("[StagingArea] 玩家 {} 订阅了原理图 {} 的备货区更新", player.getName().getString(), schematicId);
     }
@@ -74,6 +143,7 @@ public class StagingAreaManager {
     }
 
     public void broadcastUpdate(String schematicId) {
+        if (!isOpen() || owner == null) return;
         Set<ServerPlayer> set = subscribers.get(schematicId);
         if (set == null || set.isEmpty()) {
             return;
@@ -84,7 +154,7 @@ public class StagingAreaManager {
         List<StagingAreaConfigResponseS2CPacket.AreaInfo> areaInfos = buildAreaInfos(areas);
         StagingAreaConfigResponseS2CPacket packet = new StagingAreaConfigResponseS2CPacket("LIST", schematicId, schematicName, true, "", areaInfos);
 
-        ModNetworkHandler.sendToPlayers(set, packet);
+        ModNetworkHandler.sendToPlayers(owner, set, packet);
         SyncMaterial.LOGGER.info("[StagingArea] 广播原理图 {} 的备货区更新给 {} 个玩家", schematicId, set.size());
     }
 
@@ -189,6 +259,7 @@ public class StagingAreaManager {
     }
 
     public List<StagingArea> getStagingAreas(String schematicId) {
+        if (!isOpen()) return List.of();
         boolean needsRebuild = !stagingAreasBySchematic.containsKey(schematicId);
         List<StagingArea> areas = stagingAreasBySchematic.computeIfAbsent(schematicId, this::loadStagingAreasFromDb);
         // computeIfAbsent 首次加载时不经过 refreshCache，需要重建世界索引
@@ -202,6 +273,7 @@ public class StagingAreaManager {
      * 检查位置是否在任何备货区或仓库区域内（脏容器检测用）
      */
     public boolean isInAnyContainerArea(BlockPos pos, ServerLevel world) {
+        if (!owns(world)) return false;
         String worldId = McCompat.dimensionId(world);
         // 检查备货区
         List<StagingArea> areas = stagingAreasByWorld.get(worldId);
@@ -225,14 +297,15 @@ public class StagingAreaManager {
     }
 
     public void scheduleContainerScan(BlockPos pos, ServerLevel world) {
-        dirtyContainers.put(pos, world);
+        if (!owns(world)) return;
+        dirtyContainers.put(pos.immutable(), world);
         // 新的容器变化事件清除延迟标记（如玩家放下了新箱子）
         pendingDeferredRescans.remove(pos);
         SyncMaterial.LOGGER.info("[StagingArea] scheduleContainerScan: pos={},{},{}", pos.getX(), pos.getY(), pos.getZ());
     }
 
     public void processDirtyContainers() {
-        if (dirtyContainers.isEmpty()) {
+        if (!isOpen() || server == null || dirtyContainers.isEmpty()) {
             return;
         }
 
@@ -251,6 +324,7 @@ public class StagingAreaManager {
         for (Map.Entry<BlockPos, ServerLevel> entry : snapshot.entrySet()) {
             BlockPos pos = entry.getKey();
             ServerLevel world = entry.getValue();
+            if (!owns(world)) continue;
 
             Integer stagingAreaId = findAreaId(pos, world);
             if (stagingAreaId != null) {
@@ -266,7 +340,7 @@ public class StagingAreaManager {
 
         // 大箱子配对检测：记录已处理的配对位置，跳过扫描避免重复
 
-        server.execute(() -> {
+        execute(() -> {
             // 延迟重扫：跳过当前 tick 标记的位置，同时清理旧 container_inventory
             // 只跳过在之前 tick 标记的位置（pendingDeferredRescans tick < currentServerTick）
             // 当前 tick 标记的不跳过（会在下次 processDirtyContainers 时处理）
@@ -311,6 +385,7 @@ public class StagingAreaManager {
                 for (var posEntry : positions) {
                     BlockPos pos = posEntry.getKey();
                     ServerLevel world = posEntry.getValue();
+                    if (!owns(world)) continue;
                     String areaType = isWarehouse ? "warehouse" : "staging_area";
 
                     // 1. 扫描该箱子获取新物品集合（含潜影盒）
@@ -372,7 +447,7 @@ public class StagingAreaManager {
             // 广播受影响原理图的最新材料状态（含仓库/备货区计数）
             if (!affectedSchematics.isEmpty() && server != null) {
                 for (String schematicId : affectedSchematics) {
-                    net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                    if (owner != null) net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
                 }
             }
         });
@@ -383,6 +458,7 @@ public class StagingAreaManager {
      * 扫描单个容器位置的物品集合（含潜影盒），返回 item_id 集合
      */
     private Set<String> scanSingleContainerItems(ServerLevel world, BlockPos pos) {
+        if (!owns(world)) return Set.of();
         Set<String> items = new HashSet<>();
         BlockEntity be = world.getBlockEntity(pos);
         if (be instanceof Container) {
@@ -413,7 +489,7 @@ public class StagingAreaManager {
      * 推送更新给取货模式玩家
      */
     private void pushDirtyUpdateWithCooldown() {
-        net.syncmaterial.syncmaterial.network.ModNetworkHandler.pushWarehouseContainerUpdate(this);
+        if (owner != null) net.syncmaterial.syncmaterial.network.ModNetworkHandler.pushWarehouseContainerUpdate(owner);
     }
 
 
@@ -455,6 +531,7 @@ public class StagingAreaManager {
      */
     @Nullable
     private ScanResult scanAreaContents(int areaId) {
+        if (!isOpen() || server == null) return null;
         StagingArea area = findStagingAreaById(areaId);
         if (area == null) return null;
 
@@ -467,7 +544,7 @@ public class StagingAreaManager {
         }
         ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.create(
                 net.minecraft.core.registries.Registries.DIMENSION, dim));
-        if (world == null) return null;
+        if (!owns(world)) return null;
 
         Map<String, Integer> totalItems = new HashMap<>();
         int skippedChunks = 0;
@@ -644,6 +721,7 @@ public class StagingAreaManager {
     }
 
     public void onContainerRemoved(BlockPos pos, ServerLevel world) {
+        if (!owns(world)) return;
         String worldId = McCompat.dimensionId(world);
         boolean found = false;
         Set<String> affectedSchematics = new HashSet<>();
@@ -708,7 +786,7 @@ public class StagingAreaManager {
             // 广播受影响原理图的最新材料状态
             if (!affectedSchematics.isEmpty() && server != null) {
                 for (String schematicId : affectedSchematics) {
-                    net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(server, schematicId);
+                    if (owner != null) net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
                 }
             }
         }
@@ -801,6 +879,7 @@ public class StagingAreaManager {
      * 状态（前端显示"数据可能过时"且库存为 0），直到有容器变动才被动触发扫描。
      */
     public void rescanWarehouseAndMarkChunks(int warehouseId) {
+        if (!isOpen()) return;
         Warehouse wh = warehousesById.get(warehouseId);
         if (wh == null) return;
 
@@ -822,6 +901,7 @@ public class StagingAreaManager {
      */
     @Nullable
     private ScanResult scanWarehouseContents(int warehouseId) {
+        if (!isOpen() || server == null) return null;
         Warehouse wh = warehousesById.get(warehouseId);
         if (wh == null) return null;
 
@@ -832,7 +912,7 @@ public class StagingAreaManager {
         }
         ServerLevel world = server.getLevel(net.minecraft.resources.ResourceKey.create(
                 net.minecraft.core.registries.Registries.DIMENSION, dim));
-        if (world == null) return null;
+        if (!owns(world)) return null;
 
         // 全量重扫前清空旧明细，避免已移除的容器残留在取货模式高亮里
         try {
@@ -1010,6 +1090,7 @@ public class StagingAreaManager {
      * 区块加载时扫描：检查该区块内是否有仓库/备货区的箱子，有则扫描写入数据库
      */
     public void scanChunkForContainerAreas(net.minecraft.world.level.chunk.LevelChunk chunk, ServerLevel world) {
+        if (!owns(world) || chunk.getLevel() != world) return;
         String worldId = McCompat.dimensionId(world);
         int chunkX = McCompat.chunkX(chunk.getPos());
         int chunkZ = McCompat.chunkZ(chunk.getPos());
@@ -1223,6 +1304,7 @@ public class StagingAreaManager {
      * 加载所有全局仓库到内存
      */
     public void loadWarehousesFromDb() {
+        if (!isOpen()) return;
         try (var rs = database.executeQuery("SELECT id, name, world, x1, y1, z1, x2, y2, z2 FROM warehouses")) {
             Map<Integer, Warehouse> byId = new HashMap<>();
             while (rs.next()) {
@@ -1328,7 +1410,7 @@ public class StagingAreaManager {
      * 获取所有全局仓库
      */
     public List<Warehouse> getAllWarehouses() {
-        return new ArrayList<>(warehousesById.values());
+        return isOpen() ? new ArrayList<>(warehousesById.values()) : List.of();
     }
 
     // ========== 原理图-仓库引用管理 ==========

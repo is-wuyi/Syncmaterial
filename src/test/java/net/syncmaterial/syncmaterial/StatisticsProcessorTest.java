@@ -286,4 +286,23 @@ public class StatisticsProcessorTest {
         assertEquals(1, findCount(materials, Blocks.CAULDRON));
         assertEquals(1, findCount(materials, Items.LAVA_BUCKET));
     }
+
+    // ========== 协作式取消 ==========
+
+    @Test
+    void interruptedThread_abortsStatisticsWithCancellation() {
+        Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = new HashMap<>();
+        blocks.put(new BlockPos(0, 0, 0), Blocks.STONE.defaultBlockState());
+
+        Thread.currentThread().interrupt();
+        try {
+            var processor = new StatisticsProcessor();
+            assertThrows(java.util.concurrent.CancellationException.class,
+                () -> processor.process(resultOf(blocks), false),
+                "统计循环应响应线程中断并退出");
+        } finally {
+            // JUnit 线程会被复用，必须清除中断标记，避免影响后续测试。
+            Thread.interrupted();
+        }
+    }
 }

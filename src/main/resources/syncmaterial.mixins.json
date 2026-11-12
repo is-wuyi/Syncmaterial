@@ -4,8 +4,7 @@
   "mixins": [
     "BlockEntityMixin",
     "ChunkAccessMixin",
-    "LevelChunkMixin",
-    "SyncmaticaIntegrationMixin"
+    "LevelChunkMixin"
   ],
   "client": [
     "WidgetSyncmaticaServerPlacementEntryMixin",

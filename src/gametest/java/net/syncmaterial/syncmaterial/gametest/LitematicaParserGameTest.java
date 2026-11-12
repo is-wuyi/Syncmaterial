@@ -49,11 +49,12 @@ public class LitematicaParserGameTest {
             NbtIo.writeCompressed(rootNbt, tempFile);
 
             // 解析
-            var parser = new DefaultLitematicaParser(new ParsingThreadPool());
-            var materials = parser.parseAsync(tempFile.toString()).get();
+            try (var parser = new DefaultLitematicaParser(new ParsingThreadPool())) {
+                var materials = parser.parseAsync(tempFile.toString()).get();
 
-            // 验证不崩溃且有结果
-            ctx.assertTrue(materials.size() > 0, Component.literal("应有材料统计结果"));
+                // 验证不崩溃且有结果
+                ctx.assertTrue(materials.size() > 0, Component.literal("应有材料统计结果"));
+            }
 
             // 清理
             Files.deleteIfExists(tempFile);
@@ -98,13 +99,14 @@ public class LitematicaParserGameTest {
             NbtIo.writeCompressed(rootNbt, tempFile);
 
             // 解析
-            var parser = new DefaultLitematicaParser(new ParsingThreadPool());
-            var materials = parser.parseAsync(tempFile.toString()).get();
+            try (var parser = new DefaultLitematicaParser(new ParsingThreadPool())) {
+                var materials = parser.parseAsync(tempFile.toString()).get();
 
-            // 验证：不崩溃，有合理数量的材料
-            ctx.assertTrue(materials.size() > 0, Component.literal("应有材料统计结果"));
+                // 验证：不崩溃，有合理数量的材料
+                ctx.assertTrue(materials.size() > 0, Component.literal("应有材料统计结果"));
 
-            SyncMaterial.LOGGER.info("全量方块冒烟测试: {} 种方块 → {} 项材料", allStates.size(), materials.size());
+                SyncMaterial.LOGGER.info("全量方块冒烟测试: {} 种方块 → {} 项材料", allStates.size(), materials.size());
+            }
 
             // 清理
             Files.deleteIfExists(tempFile);
@@ -142,16 +144,17 @@ public class LitematicaParserGameTest {
             Path tempFile = Files.createTempFile("test-two-state", ".litematic");
             NbtIo.writeCompressed(rootNbt, tempFile);
 
-            var parser = new DefaultLitematicaParser(new ParsingThreadPool());
-            var materials = parser.parseAsync(tempFile.toString()).get();
+            try (var parser = new DefaultLitematicaParser(new ParsingThreadPool())) {
+                var materials = parser.parseAsync(tempFile.toString()).get();
 
-            long stoneCount = materials.stream()
-                .filter(m -> m.getStack().is(net.minecraft.world.item.Items.STONE))
-                .mapToLong(net.syncmaterial.syncmaterial.api.MaterialEntry::getCountTotal)
-                .sum();
-            ctx.assertTrue(stoneCount == 5,
-                Component.literal("2 项调色板应按 2 位解码得 5 个 stone，实际 " + stoneCount
-                    + "（1 位错误解码会得到 4）"));
+                long stoneCount = materials.stream()
+                    .filter(m -> m.getStack().is(net.minecraft.world.item.Items.STONE))
+                    .mapToLong(net.syncmaterial.syncmaterial.api.MaterialEntry::getCountTotal)
+                    .sum();
+                ctx.assertTrue(stoneCount == 5,
+                    Component.literal("2 项调色板应按 2 位解码得 5 个 stone，实际 " + stoneCount
+                        + "（1 位错误解码会得到 4）"));
+            }
 
             Files.deleteIfExists(tempFile);
         } catch (Exception e) {

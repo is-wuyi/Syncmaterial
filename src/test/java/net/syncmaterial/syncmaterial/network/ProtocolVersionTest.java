@@ -4,8 +4,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.UUID;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -65,110 +63,7 @@ class ProtocolVersionTest
         assertFalse(ProtocolVersion.isPeerNewer(ProtocolVersion.CURRENT - 1));
     }
 
-    // ==================== 服务端握手记录 ====================
-
-    @Test
-    void recordHandshake_acceptsCurrentVersion()
-    {
-        UUID player = UUID.randomUUID();
-        assertTrue(ProtocolHandshake.recordHandshake(player, ProtocolVersion.CURRENT, "test"));
-        assertTrue(ProtocolHandshake.hasHandshaked(player));
-        assertEquals(ProtocolVersion.CURRENT, ProtocolHandshake.getVersion(player));
-    }
-
-    @Test
-    void recordHandshake_withPlayerName_recordsSameAsWithout()
-    {
-        // 带玩家名的重载只影响日志可读性，记录行为必须完全一致
-        UUID a = UUID.randomUUID();
-        UUID b = UUID.randomUUID();
-        assertTrue(ProtocolHandshake.recordHandshake(a, "Alice", ProtocolVersion.CURRENT, "test"));
-        assertTrue(ProtocolHandshake.recordHandshake(b, ProtocolVersion.CURRENT, "test"));
-
-        assertEquals(ProtocolHandshake.getVersion(b), ProtocolHandshake.getVersion(a));
-        assertTrue(ProtocolHandshake.hasHandshaked(a));
-    }
-
-    @Test
-    void recordHandshake_blankPlayerNameStillRecords()
-    {
-        // 玩家名取不到时不应影响记录本身
-        UUID player = UUID.randomUUID();
-        assertTrue(ProtocolHandshake.recordHandshake(player, "  ", ProtocolVersion.CURRENT, "test"));
-        assertTrue(ProtocolHandshake.hasHandshaked(player));
-    }
-
-    @Test
-    void recordHandshake_acceptsNewerClient()
-    {
-        UUID player = UUID.randomUUID();
-        int newer = ProtocolVersion.CURRENT + 3;
-        assertTrue(ProtocolHandshake.recordHandshake(player, newer, "test"),
-                "客户端比服务端新时应接受，服务端按自身能力提供功能");
-        assertEquals(newer, ProtocolHandshake.getVersion(player));
-    }
-
-    @Test
-    void recordHandshake_rejectsTooOldClientAndDoesNotRecord()
-    {
-        UUID player = UUID.randomUUID();
-        assertFalse(ProtocolHandshake.recordHandshake(
-                player, ProtocolVersion.MIN_COMPATIBLE - 1, "old"));
-        // 被拒绝的客户端不写入记录，后续业务包因此会被 validateHandshakedPlayer 挡下
-        assertFalse(ProtocolHandshake.hasHandshaked(player));
-        assertEquals(0, ProtocolHandshake.getVersion(player));
-    }
-
-    @Test
-    void recordHandshake_nullPlayerIsRejected()
-    {
-        assertFalse(ProtocolHandshake.recordHandshake(null, ProtocolVersion.CURRENT, "test"));
-    }
-
-    @Test
-    void unknownPlayer_hasNotHandshaked()
-    {
-        assertFalse(ProtocolHandshake.hasHandshaked(UUID.randomUUID()));
-        assertFalse(ProtocolHandshake.hasHandshaked((UUID) null));
-        assertEquals(0, ProtocolHandshake.getVersion((UUID) null));
-    }
-
-    @Test
-    void remove_clearsRecord()
-    {
-        UUID player = UUID.randomUUID();
-        ProtocolHandshake.recordHandshake(player, ProtocolVersion.CURRENT, "test");
-        assertTrue(ProtocolHandshake.hasHandshaked(player));
-
-        ProtocolHandshake.remove(player);
-        assertFalse(ProtocolHandshake.hasHandshaked(player), "断连后不应残留版本记录");
-    }
-
-    @Test
-    void remove_isIdempotentAndNullSafe()
-    {
-        UUID player = UUID.randomUUID();
-        ProtocolHandshake.remove(player);
-        ProtocolHandshake.remove(player);
-        ProtocolHandshake.remove((UUID) null);
-        assertFalse(ProtocolHandshake.hasHandshaked(player));
-    }
-
-    @Test
-    void handshakeRecordsAreIndependentPerPlayer()
-    {
-        UUID a = UUID.randomUUID();
-        UUID b = UUID.randomUUID();
-        ProtocolHandshake.recordHandshake(a, ProtocolVersion.CURRENT, "a");
-        ProtocolHandshake.recordHandshake(b, ProtocolVersion.CURRENT + 2, "b");
-
-        assertEquals(ProtocolVersion.CURRENT, ProtocolHandshake.getVersion(a));
-        assertEquals(ProtocolVersion.CURRENT + 2, ProtocolHandshake.getVersion(b));
-
-        ProtocolHandshake.remove(a);
-        assertFalse(ProtocolHandshake.hasHandshaked(a));
-        assertTrue(ProtocolHandshake.hasHandshaked(b), "清理一个玩家不应影响其他玩家");
-    }
+    // 服务端握手的归属／记录／清理回归见 ProtocolHandshakeTest。
 
     // ==================== 客户端状态 ====================
 

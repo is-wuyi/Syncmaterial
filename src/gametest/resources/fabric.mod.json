@@ -36,7 +36,8 @@
             {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StressContainerPushClientGameTest"},
             {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StagingAreaScanPerfClientGameTest"},
             {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StagingAreaSnapshotClientGameTest"},
-            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StagingAreaEditorClientGameTest"}
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.StagingAreaEditorClientGameTest"},
+            {"adapter": "syncmaterial-test-report", "value": "net.syncmaterial.syncmaterial.gametest.client.LegacyServerReopenClientGameTest"}
         ]
     },
     "depends": {

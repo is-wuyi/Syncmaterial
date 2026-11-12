@@ -5,7 +5,7 @@ import net.minecraft.world.Container;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.core.BlockPos;
 import net.syncmaterial.syncmaterial.adapter.minecraft.FoundationAreaEvents;
-import net.syncmaterial.syncmaterial.server.StagingAreaManager;
+import net.syncmaterial.syncmaterial.server.legacy.LegacyServerRegistry;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -16,39 +16,24 @@ public abstract class BlockEntityMixin {
 
     @Inject(method = "setChanged", at = @At("HEAD"))
     private void onMarkDirty(CallbackInfo ci) {
-        StagingAreaManager mgr = net.syncmaterial.syncmaterial.SyncMaterial.getServerStagingAreaManager();
-        if (mgr != null) {
-            this.withStagingAreaContext(mgr, mgr::scheduleContainerScan);
-        }
-        this.withServerContainerContext(FoundationAreaEvents::containerChanged);
+        this.withServerContainerContext((world, pos) -> {
+            var owner = LegacyServerRegistry.get(world.getServer());
+            if (owner != null && owner.staging().isInAnyContainerArea(pos, world)) {
+                owner.staging().scheduleContainerScan(pos, world);
+            }
+            FoundationAreaEvents.containerChanged(world, pos);
+        });
     }
 
     @Inject(method = "setRemoved", at = @At("HEAD"))
     private void onMarkRemoved(CallbackInfo ci) {
-        StagingAreaManager mgr = net.syncmaterial.syncmaterial.SyncMaterial.getServerStagingAreaManager();
-        if (mgr != null) {
-            this.withStagingAreaContext(mgr, mgr::onContainerRemoved);
-        }
-        this.withServerContainerContext(FoundationAreaEvents::containerRemovalSuspected);
-    }
-
-    private void withStagingAreaContext(StagingAreaManager mgr, java.util.function.BiConsumer<BlockPos, ServerLevel> action) {
-        BlockEntity self = (BlockEntity) (Object) this;
-
-        if (!(self instanceof Container)) {
-            return;
-        }
-
-        if (self.getLevel() == null || self.getLevel().isClientSide()) {
-            return;
-        }
-
-        ServerLevel world = (ServerLevel) self.getLevel();
-        BlockPos pos = self.getBlockPos();
-
-        if (mgr.isInAnyContainerArea(pos, world)) {
-            action.accept(pos, world);
-        }
+        this.withServerContainerContext((world, pos) -> {
+            var owner = LegacyServerRegistry.get(world.getServer());
+            if (owner != null && owner.staging().isInAnyContainerArea(pos, world)) {
+                owner.staging().onContainerRemoved(pos, world);
+            }
+            FoundationAreaEvents.containerRemovalSuspected(world, pos);
+        });
     }
 
     private void withServerContainerContext(java.util.function.BiConsumer<ServerLevel, BlockPos> action) {

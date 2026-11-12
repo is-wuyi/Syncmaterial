@@ -72,6 +72,10 @@ final class MockBot {
             };
             new EmbeddedChannel(botConnection);
             s.getPlayerList().placeNewPlayer(botConnection, bot, cookie);
+            if (!net.syncmaterial.syncmaterial.network.ProtocolHandshake.recordHandshake(s, bot,
+                    net.syncmaterial.syncmaterial.network.ProtocolVersion.CURRENT, "mock-client")) {
+                throw new AssertionError("假人测试连接未完成 SyncMaterial 握手");
+            }
             return new MockBot(bot, captured);
         });
     }
@@ -102,6 +106,7 @@ final class MockBot {
         server.computeOnServer(s -> {
             var bot = s.getPlayerList().getPlayerByName(player.getName().getString());
             if (bot != null) {
+                net.syncmaterial.syncmaterial.network.ModNetworkHandler.onPlayerDisconnect(bot);
                 s.getPlayerList().remove(bot);
             }
             return null;

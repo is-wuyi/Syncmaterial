@@ -141,4 +141,38 @@ public class MaterialCacheTest {
         MaterialCache cache = new MaterialCache();
         assertNull(cache.get(tempDir.resolve("不存在.litematic").toString()));
     }
+
+    @Test
+    void close_preventsLateCompletionFromRepopulatingCache() throws Exception {
+        Path file = writeFile("v1");
+        MaterialCache cache = new MaterialCache();
+        CompletableFuture<List<MaterialEntry>> pending = new CompletableFuture<>();
+        var request = cache.getOrCompute(file.toString(), path -> pending);
+
+        cache.close();
+        pending.complete(materials(7));
+
+        assertEquals(7, request.join().get(0).getCountTotal(), "请求本身应正常收到解析结果");
+        assertNull(cache.get(file.toString()), "关闭后迟到的完成结果绝不能重新进入缓存");
+        cache.close();
+    }
+
+    @Test
+    void getOrCompute_afterClose_failsFastWithoutComputing() throws Exception {
+        Path file = writeFile("v1");
+        MaterialCache cache = new MaterialCache();
+        AtomicInteger calls = new AtomicInteger();
+
+        cache.close();
+        var rejected = cache.getOrCompute(file.toString(), path -> {
+            calls.incrementAndGet();
+            return CompletableFuture.completedFuture(materials(1));
+        });
+
+        assertTrue(rejected.isCompletedExceptionally());
+        java.util.concurrent.ExecutionException error = assertThrows(
+            java.util.concurrent.ExecutionException.class, () -> rejected.get(1, java.util.concurrent.TimeUnit.SECONDS));
+        assertInstanceOf(java.util.concurrent.RejectedExecutionException.class, error.getCause());
+        assertEquals(0, calls.get(), "关闭后不得再启动计算");
+    }
 }

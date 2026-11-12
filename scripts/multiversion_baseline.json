@@ -249,7 +249,7 @@
   },
   "junit": {
     "shared_min_tests": 260,
-    "platform_min_tests": 425,
+    "platform_min_tests": 576,
     "required_classes": {
       "shared": [
         "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest",
@@ -269,7 +269,21 @@
         "net.syncmaterial.syncmaterial.network.AreaOverlapMessageTest",
         "net.syncmaterial.syncmaterial.network.ClientPacketHandlerTest",
         "net.syncmaterial.syncmaterial.network.FoundationDeliveryTrackerTest",
-        "net.syncmaterial.syncmaterial.network.FoundationNetworkAdapterTest"
+        "net.syncmaterial.syncmaterial.network.FoundationNetworkAdapterTest",
+        "net.syncmaterial.syncmaterial.SchematicDatabaseLifecycleTest",
+        "net.syncmaterial.syncmaterial.DefaultLitematicaParserLifecycleTest",
+        "net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPoolTest",
+        "net.syncmaterial.syncmaterial.engine.DefaultMaterialStatisticsEngineLifecycleTest",
+        "net.syncmaterial.syncmaterial.network.ProtocolHandshakeTest",
+        "net.syncmaterial.syncmaterial.network.ModNetworkHandlerHandshakeTest",
+        "net.syncmaterial.syncmaterial.server.SchematicFolderWatcherTest",
+        "net.syncmaterial.syncmaterial.server.SchematicUploadListenerTest",
+        "net.syncmaterial.syncmaterial.server.legacy.LegacySchematicIngestTest",
+        "net.syncmaterial.syncmaterial.server.legacy.LegacyServerContextTest",
+        "net.syncmaterial.syncmaterial.server.legacy.LegacyStagingOwnershipTest",
+        "net.syncmaterial.syncmaterial.server.legacy.LegacySubscriptionsTest",
+        "net.syncmaterial.syncmaterial.server.legacy.LegacySyncmaticaDiscoveryTest",
+        "net.syncmaterial.syncmaterial.server.legacy.LegacyTickTasksTest"
       ]
     },
     "required_class_min_tests": {
@@ -280,7 +294,21 @@
         "net.syncmaterial.syncmaterial.network.ClientPacketHandlerTest": 13,
         "net.syncmaterial.syncmaterial.network.FoundationNetworkAdapterTest": 28,
         "net.syncmaterial.syncmaterial.network.FoundationDeliveryTrackerTest": 10,
-        "net.syncmaterial.syncmaterial.adapter.minecraft.MinecraftAreaSnapshotSourceTest": 15
+        "net.syncmaterial.syncmaterial.adapter.minecraft.MinecraftAreaSnapshotSourceTest": 15,
+        "net.syncmaterial.syncmaterial.SchematicDatabaseLifecycleTest": 23,
+        "net.syncmaterial.syncmaterial.DefaultLitematicaParserLifecycleTest": 2,
+        "net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPoolTest": 14,
+        "net.syncmaterial.syncmaterial.engine.DefaultMaterialStatisticsEngineLifecycleTest": 6,
+        "net.syncmaterial.syncmaterial.network.ProtocolHandshakeTest": 15,
+        "net.syncmaterial.syncmaterial.network.ModNetworkHandlerHandshakeTest": 8,
+        "net.syncmaterial.syncmaterial.server.SchematicFolderWatcherTest": 18,
+        "net.syncmaterial.syncmaterial.server.SchematicUploadListenerTest": 8,
+        "net.syncmaterial.syncmaterial.server.legacy.LegacySchematicIngestTest": 25,
+        "net.syncmaterial.syncmaterial.server.legacy.LegacyServerContextTest": 16,
+        "net.syncmaterial.syncmaterial.server.legacy.LegacyStagingOwnershipTest": 3,
+        "net.syncmaterial.syncmaterial.server.legacy.LegacySubscriptionsTest": 5,
+        "net.syncmaterial.syncmaterial.server.legacy.LegacySyncmaticaDiscoveryTest": 5,
+        "net.syncmaterial.syncmaterial.server.legacy.LegacyTickTasksTest": 6
       },
       "shared": {
         "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest": 3,
@@ -300,7 +328,7 @@
     "foundation": 13
   },
   "client_entries_expected": {
-    "syncmaterial-test": 23,
+    "syncmaterial-test": 24,
     "syncmaterial-foundation-test": 2,
     "syncmaterial-optional-test": 1
   },

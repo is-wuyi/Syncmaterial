@@ -1,135 +1,122 @@
 package net.syncmaterial.syncmaterial.network;
 
+import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.UUID;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+/** 服务端握手按服务器和连接归属，旧连接的清理不能删除新连接记录。 */
+public final class ProtocolHandshake {
+    private static final Object LOCK = new Object();
+    private static final Map<MinecraftServer, Map<UUID, Handshake>> SERVERS = new IdentityHashMap<>();
 
-/**
- * 服务端侧的协议握手状态：记录每个玩家客户端的协议版本。
- *
- * 用途有两个：
- * 1. 判断某玩家是否装了本 mod —— 没握手过就是没装，不该给他推任何包，
- *    否则原版客户端会收到一堆未知 payload（原版会静默丢弃，但白费带宽）。
- * 2. 将来新增功能时判断该玩家的客户端是否支持，不支持就不推。
- *
- * 用 UUID 而非 ServerPlayer 做键：玩家实体在跨维度传送时会被重建，
- * 且持有实体引用容易造成内存泄漏（onPlayerDisconnect 漏清就永久驻留）。
- */
-public final class ProtocolHandshake
-{
-    private static final Map<UUID, Integer> PLAYER_VERSIONS = new ConcurrentHashMap<>();
+    private record Handshake(Object connection, int version) {}
 
     private ProtocolHandshake() {}
 
-    /**
-     * 记录握手并返回该客户端是否被接受。
-     * 版本过低时不写入记录 —— 后续所有"是否装了 mod"的判断都会视其为未握手，
-     * 服务端因此不会给它推任何业务包。
-     *
-     * playerName 仅用于日志：UUID 对运维没有可读性，管理员需要据此确认
-     * 某个具体玩家究竟装没装本 mod、装的是什么版本。
-     */
-    public static boolean recordHandshake(UUID playerId, String playerName,
-                                          int clientProtocolVersion, String clientModVersion)
-    {
-        if (playerId == null)
-        {
-            return false;
-        }
-
-        String who = playerName != null && !playerName.isBlank() ? playerName : playerId.toString();
-
-        if (!ProtocolVersion.isClientAcceptable(clientProtocolVersion))
-        {
-            SyncMaterial.LOGGER.warn(
-                    "拒绝客户端 {}：协议版本 {} 低于服务端要求的最低版本 {}（客户端 mod 版本 {}）",
-                    who, clientProtocolVersion, ProtocolVersion.MIN_COMPATIBLE, clientModVersion);
-            return false;
-        }
-
-        PLAYER_VERSIONS.put(playerId, clientProtocolVersion);
-
-        // 正常握手也要打日志：这是管理员确认"该玩家装了本 mod"的唯一途径
-        SyncMaterial.LOGGER.info(
-                "版本握手成功：玩家 {} 协议版本 {}（mod 版本 {}），服务端协议版本 {}",
-                who, clientProtocolVersion, clientModVersion, ProtocolVersion.CURRENT);
-
-        if (ProtocolVersion.isPeerNewer(clientProtocolVersion))
-        {
-            SyncMaterial.LOGGER.info(
-                    "玩家 {} 的客户端比服务端新，服务端将按自身版本 {} 提供功能",
-                    who, ProtocolVersion.CURRENT);
-        }
-
-        return true;
-    }
-
-    /** 兼容旧签名，playerName 缺省时日志退化为 UUID。 */
-    public static boolean recordHandshake(UUID playerId, int clientProtocolVersion, String clientModVersion)
-    {
-        return recordHandshake(playerId, null, clientProtocolVersion, clientModVersion);
-    }
-
-    /** 该玩家是否完成过握手，即是否装了本 mod 且版本被接受。 */
-    public static boolean hasHandshaked(UUID playerId)
-    {
-        return playerId != null && PLAYER_VERSIONS.containsKey(playerId);
-    }
-
-    public static boolean hasHandshaked(ServerPlayer player)
-    {
-        return player != null && hasHandshaked(player.getUUID());
-    }
-
-    /** 该玩家的客户端协议版本；未握手过返回 0。 */
-    public static int getVersion(UUID playerId)
-    {
-        if (playerId == null)
-        {
-            return 0;
-        }
-        return PLAYER_VERSIONS.getOrDefault(playerId, 0);
-    }
-
-    public static int getVersion(ServerPlayer player)
-    {
-        return player == null ? 0 : getVersion(player.getUUID());
-    }
-
-    /**
-     * 该玩家的客户端是否支持某个需要最低协议版本的功能。
-     *
-     * 新增功能时在发包处调用，例如：
-     * if (ProtocolHandshake.supports(player, 2)) { ServerPlayNetworking.send(player, 新包); }
-     */
-    public static boolean supports(ServerPlayer player, int requiredVersion)
-    {
-        return player != null && ProtocolVersion.atLeast(getVersion(player.getUUID()), requiredVersion);
-    }
-
-    /** 玩家断开时清理，避免版本记录无限累积。 */
-    public static void remove(UUID playerId)
-    {
-        if (playerId != null)
-        {
-            PLAYER_VERSIONS.remove(playerId);
+    public static void registerServer(MinecraftServer server) {
+        synchronized (LOCK) {
+            if (server != null) SERVERS.computeIfAbsent(server, ignored -> new HashMap<>());
         }
     }
 
-    public static void remove(ServerPlayer player)
-    {
-        if (player != null)
-        {
-            remove(player.getUUID());
+    public static boolean recordHandshake(MinecraftServer server, ServerPlayer player,
+                                          int clientProtocolVersion, String clientModVersion) {
+        synchronized (LOCK) {
+            Map<UUID, Handshake> players = SERVERS.get(server);
+            if (players == null || player == null || getServer(player) != server
+                    || player.connection == null || server.getPlayerList() == null
+                    || server.getPlayerList().getPlayer(player.getUUID()) != player) return false;
+            UUID id = player.getUUID();
+            String name = player.getName().getString();
+            if (!ProtocolVersion.isClientAcceptable(clientProtocolVersion)) {
+                players.computeIfPresent(id, (ignored, previous) -> previous.connection() == player.connection ? null : previous);
+                SyncMaterial.LOGGER.warn("拒绝客户端 {}：协议版本 {} 低于服务端最低版本 {}（mod 版本 {}）",
+                        name, clientProtocolVersion, ProtocolVersion.MIN_COMPATIBLE, clientModVersion);
+                return false;
+            }
+            players.put(id, new Handshake(player.connection, clientProtocolVersion));
+            SyncMaterial.LOGGER.info("版本握手成功：玩家 {} 协议版本 {}（mod 版本 {}），服务端协议版本 {}",
+                    name, clientProtocolVersion, clientModVersion, ProtocolVersion.CURRENT);
+            if (ProtocolVersion.isPeerNewer(clientProtocolVersion)) {
+                SyncMaterial.LOGGER.info("玩家 {} 的客户端比服务端新，服务端按自身版本 {} 提供功能", name, ProtocolVersion.CURRENT);
+            }
+            return true;
         }
     }
 
-    /** 仅供测试使用，清空全部记录。 */
-    static void clearAll()
-    {
-        PLAYER_VERSIONS.clear();
+    public static MinecraftServer getServer(ServerPlayer player) {
+        return player == null || player.level() == null ? null : player.level().getServer();
+    }
+
+    public static int getVersion(ServerPlayer player) {
+        synchronized (LOCK) {
+            MinecraftServer server = getServer(player);
+            Map<UUID, Handshake> players = SERVERS.get(server);
+            if (players == null || player == null || player.connection == null || server.getPlayerList() == null) return 0;
+            Handshake handshake = players.get(player.getUUID());
+            return handshake != null && handshake.connection() == player.connection
+                    && server.getPlayerList().getPlayer(player.getUUID()) == player ? handshake.version() : 0;
+        }
+    }
+
+    public static boolean hasHandshaked(ServerPlayer player) {
+        return getVersion(player) != 0;
+    }
+
+    public static boolean supports(ServerPlayer player, int requiredVersion) {
+        return ProtocolVersion.atLeast(getVersion(player), requiredVersion);
+    }
+
+    public static void remove(ServerPlayer player) {
+        synchronized (LOCK) {
+            MinecraftServer server = getServer(player);
+            Map<UUID, Handshake> players = SERVERS.get(server);
+            if (players == null || player == null || server.getPlayerList() == null) return;
+            var current = server.getPlayerList().getPlayer(player.getUUID());
+            removeConnection(players, player.getUUID(), player.connection, current);
+        }
+    }
+
+    private static void removeConnection(Map<UUID, Handshake> players, UUID playerId,
+                                         @javax.annotation.Nullable Object connection,
+                                         @javax.annotation.Nullable ServerPlayer current) {
+        if (connection == null && current != null) return;
+        players.computeIfPresent(playerId, (ignored, previous) ->
+                previous.connection() == connection || (connection == null && current == null) ? null : previous);
+    }
+
+    public static void clear(MinecraftServer server) {
+        synchronized (LOCK) {
+            SERVERS.remove(server);
+        }
+    }
+
+    /** 无服务器的历史读取只在该 UUID 的归属唯一时返回版本。 */
+    public static int getVersion(UUID playerId) {
+        synchronized (LOCK) {
+            if (playerId == null) return 0;
+            Handshake result = null;
+            for (Map<UUID, Handshake> players : SERVERS.values()) {
+                Handshake candidate = players.get(playerId);
+                if (candidate == null) continue;
+                if (result != null) return 0;
+                result = candidate;
+            }
+            return result == null ? 0 : result.version();
+        }
+    }
+
+    public static boolean hasHandshaked(UUID playerId) {
+        return getVersion(playerId) != 0;
+    }
+
+    static void clearAll() {
+        synchronized (LOCK) {
+            SERVERS.clear();
+        }
     }
 }

@@ -15,30 +15,64 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DefaultLitematicaParser implements LitematicaParser {
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultLitematicaParser.class);
 
     private final ParsingThreadPool threadPool;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
+    /**
+     * 创建一个拥有独立线程池的解析器，关闭解析器会同时关闭该线程池。
+     */
+    public DefaultLitematicaParser() {
+        this(new ParsingThreadPool());
+    }
+
+    /**
+     * 使用给定线程池。解析器接管该池的生命周期：{@link #close()} 会立即关闭它。
+     */
     public DefaultLitematicaParser(ParsingThreadPool threadPool) {
-        this.threadPool = threadPool;
+        this.threadPool = Objects.requireNonNull(threadPool, "threadPool");
     }
 
     @Override
     public CompletableFuture<List<MaterialEntry>> parseAsync(String schematicPath) {
-        return CompletableFuture.supplyAsync(() -> {
+        Objects.requireNonNull(schematicPath, "schematicPath");
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new RejectedExecutionException("Litematica parser is closed"));
+        }
+        return threadPool.submit(() -> {
             try {
                 return performParse(schematicPath);
+            } catch (CancellationException e) {
+                throw e;
             } catch (Exception e) {
                 LOGGER.error("Failed to parse Litematica schematic: {}", schematicPath, e);
                 throw new RuntimeException("Schematic parsing failed", e);
             }
-        }, threadPool.getExecutor());
+        });
+    }
+
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            threadPool.close();
+        }
+    }
+
+    @Override
+    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+        return threadPool.awaitTermination(timeout, unit);
     }
 
     private List<MaterialEntry> performParse(String schematicPath) throws Exception {
+        checkInterrupted("parse start");
         File file = new File(schematicPath);
         if (!file.exists()) {
             throw new IllegalArgumentException("Schematic file not found: " + schematicPath);
@@ -48,6 +82,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
         // 否则几百 KB 的高压缩比文件可展开成数 GB 直接 OOM 掉服务端。
         // 512MB 远超任何正常原理图的解压体积，只挡解压炸弹。
         CompoundTag rootNbt = NbtIo.readCompressed(file.toPath(), NbtAccounter.create(512L * 1024 * 1024));
+        checkInterrupted("after NBT read");
 
         LitematicaParser.ParsingResult result = parseNbtToResult(rootNbt);
 
@@ -58,6 +93,15 @@ public class DefaultLitematicaParser implements LitematicaParser {
                    result.getGlobalBlockMap().size(), result.getGlobalTileEntityMap().size(), materials.size());
 
         return materials;
+    }
+
+    /**
+     * 协作式取消：解析任务被 future.cancel 或池关闭中断时，尽快退出实际循环。
+     */
+    private static void checkInterrupted(String phase) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("Schematic parsing interrupted during " + phase);
+        }
     }
 
     private LitematicaParser.ParsingResult parseNbtToResult(CompoundTag rootNbt) {
@@ -81,6 +125,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
         LOGGER.info("Regions keys: {}", regionsNbt.keySet());
 
         for (String regionName : regionsNbt.keySet()) {
+            checkInterrupted("region loop");
             Tag regionElement = regionsNbt.get(regionName);
             if (!(regionElement instanceof CompoundTag)) continue;
             CompoundTag regionNbt = (CompoundTag) regionElement;
@@ -102,6 +147,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
     }
 
     private void processRegionBlocks(CompoundTag regionNbt, int xOff, int yOff, int zOff, Map<BlockPos, BlockState> globalMap) {
+        checkInterrupted("region blocks");
         // Size 是 Vec3i，包含 x=width, y=height, z=length
         // 注意：Size 可以是负数（表示方向），需要结合 Position 计算
         Tag sizeElement = regionNbt.get("Size");
@@ -160,6 +206,9 @@ public class DefaultLitematicaParser implements LitematicaParser {
             }
             
             for (int i = 0; i < paletteList.size(); i++) {
+                if ((i & 0x3FF) == 0) {
+                    checkInterrupted("palette loop");
+                }
                 Tag itemElement = paletteList.get(i);
                 if (itemElement instanceof CompoundTag stateNbt) {
                     BlockState state = parseBlockStateFromNbt(stateNbt);
@@ -185,6 +234,7 @@ public class DefaultLitematicaParser implements LitematicaParser {
         if (bitsPerBlock == 0) {
             BlockState state = palette.get(0);
             for (int y = 0; y < height; y++) {
+                checkInterrupted("uniform fill loop");
                 for (int z = 0; z < length; z++) {
                     for (int x = 0; x < width; x++) {
                         globalMap.put(new BlockPos(x + xOff, y + yOff, z + zOff), state);
@@ -216,6 +266,9 @@ public class DefaultLitematicaParser implements LitematicaParser {
             for (int y = 0; y < height; y++) {
                 for (int z = 0; z < length; z++) {
                     for (int x = 0; x < width; x++) {
+                        if ((index & 0xFFF) == 0) {
+                            checkInterrupted("block decode loop");
+                        }
                         long startOffset = index * bitsPerBlock;
                         int startArrIndex = (int) (startOffset >> 6);
                         int endArrIndex = (int) (((index + 1L) * bitsPerBlock - 1L) >> 6);
@@ -256,6 +309,9 @@ public class DefaultLitematicaParser implements LitematicaParser {
         if (!(tileEntityElement instanceof ListTag tileEntityList)) return;
 
         for (int i = 0; i < tileEntityList.size(); i++) {
+            if ((i & 0xFF) == 0) {
+                checkInterrupted("tile entity loop");
+            }
             Tag teElement = tileEntityList.get(i);
             if (!(teElement instanceof CompoundTag teNbt)) continue;
 

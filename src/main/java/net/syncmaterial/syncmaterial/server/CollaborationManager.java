@@ -7,9 +7,10 @@ import java.sql.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class CollaborationManager {
+public class CollaborationManager implements AutoCloseable {
     private final SchematicDatabase database;
     private StagingAreaManager stagingAreaManager;
+    private volatile boolean closed;
     
     private final Map<String, Map<Integer, Integer>> playerInventories = new ConcurrentHashMap<>();
 
@@ -18,7 +19,21 @@ public class CollaborationManager {
     }
 
     public void setStagingAreaManager(StagingAreaManager stagingAreaManager) {
+        if (closed) throw new IllegalStateException("Collaboration manager is closed");
         this.stagingAreaManager = stagingAreaManager;
+    }
+
+    @Override
+    public void close() {
+        closed = true;
+        playerInventories.clear();
+    }
+
+    public void forgetMaterials(java.util.Set<Integer> materialIds) {
+        playerInventories.forEach((name, inventory) -> {
+            materialIds.forEach(inventory::remove);
+            if (inventory.isEmpty()) playerInventories.remove(name, inventory);
+        });
     }
 
     /**
@@ -26,6 +41,7 @@ public class CollaborationManager {
      * 确保离线玩家的进度数据在重启后不会丢失。
      */
     public void loadAllInventories() {
+        if (closed) return;
         try {
             Map<String, Map<Integer, Integer>> allInventories = new java.util.HashMap<>();
             List<String> schematicIds = new java.util.ArrayList<>();
@@ -51,6 +67,7 @@ public class CollaborationManager {
     }
 
     public boolean joinCollaboration(String schematicId, int materialId, String playerName) {
+        if (closed) return false;
         try {
             try (var rs = database.executeQuery(
                 "SELECT id FROM material_entries WHERE id = ? AND schematic_id = ?",
@@ -76,6 +93,7 @@ public class CollaborationManager {
     }
 
     public boolean leaveCollaboration(String schematicId, int materialId, String playerName) {
+        if (closed) return false;
         try {
             database.executeUpdate(
                 "DELETE FROM claims WHERE schematic_id = ? AND material_id = ? AND player_name = ? AND status = 'active'",
@@ -96,6 +114,7 @@ public class CollaborationManager {
     }
 
     public void updatePlayerInventory(String playerName, String schematicId, int materialId, int count) {
+        if (closed) return;
         playerInventories.computeIfAbsent(playerName, k -> new ConcurrentHashMap<>())
                          .put(materialId, count);
         try {

@@ -6,7 +6,6 @@ import static org.mockito.Mockito.*;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,71 +14,52 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
-import com.mojang.authlib.GameProfile;
-
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.server.Bootstrap;
-import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.network.chat.Component;
-import net.syncmaterial.syncmaterial.SyncMaterial;
-import net.syncmaterial.syncmaterial.server.CollaborationManager;
-import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
-import net.syncmaterial.syncmaterial.server.SchematicDatabase;
-import net.syncmaterial.syncmaterial.server.StagingAreaManager;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
+import net.syncmaterial.syncmaterial.server.StagingAreaManager;
+import net.syncmaterial.syncmaterial.server.legacy.LegacyServerContext;
 
 /**
  * 备货区/仓库网络配置操作全集测试（除 ADD 外的全部 action，ADD 见 ModNetworkHandlerBehaviorTest）。
+ * owner 管理层从显式上下文读取，不再使用 SyncMaterial 静态 getter。
  */
 class StagingAreaConfigHandlerTest {
 
-    private MockedStatic<SyncMaterial> syncMaterialMock;
     private MockedStatic<ServerPlayNetworking> networkingMock;
 
-    private SchematicDatabase db;
-    private CollaborationManager cm;
+    private LegacyNetworkTestSupport support;
     private MinecraftServer server;
     private ServerPlayer player;
+    private LegacyServerContext owner;
     private StagingAreaManager manager;
 
     @BeforeAll
     static void setup() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        net.syncmaterial.syncmaterial.TestGameBootstrap.bindDataComponents();
+        LegacyNetworkTestSupport.bootstrap();
     }
 
     @BeforeEach
     void setUp() {
-        db = mock(SchematicDatabase.class);
-        cm = mock(CollaborationManager.class);
-        server = mock(MinecraftServer.class);
-        player = mock(ServerPlayer.class);
-        when(player.getGameProfile()).thenReturn(new GameProfile(UUID.randomUUID(), "Operator1"));
-        when(player.getName()).thenReturn(Component.literal("Operator1"));
-        manager = mock(StagingAreaManager.class);
-
-        syncMaterialMock = mockStatic(SyncMaterial.class);
-        syncMaterialMock.when(SyncMaterial::getSharedDatabase).thenReturn(db);
-        syncMaterialMock.when(SyncMaterial::getServerStagingAreaManager).thenReturn(manager);
+        support = new LegacyNetworkTestSupport("Operator1");
+        server = support.server;
+        player = support.player;
+        owner = support.owner;
+        manager = support.staging;
+        support.handshake();
 
         networkingMock = mockStatic(ServerPlayNetworking.class);
-
-        ModNetworkHandler.initializeServices(mock(DatabaseQueryService.class), cm);
     }
 
     @AfterEach
     void tearDown() {
-        syncMaterialMock.close();
         networkingMock.close();
+        support.close();
     }
 
     private StagingAreaConfigResponseS2CPacket handle(StagingAreaConfigC2SPacket payload) {
-        ModNetworkHandler.handleStagingAreaConfig(payload, player, server);
-        // 仓库操作还会广播 WarehouseAreaResponseS2CPacket，而 ArgumentCaptor 不按类型过滤，
-        // 直接 getValue() 会拿到最后一次调用（可能是仓库区域包），必须自己筛类型
+        ModNetworkHandler.handleStagingAreaConfig(owner, payload, player, server);
         ArgumentCaptor<net.minecraft.network.protocol.common.custom.CustomPacketPayload> captor =
             ArgumentCaptor.forClass(net.minecraft.network.protocol.common.custom.CustomPacketPayload.class);
         networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()),
@@ -139,8 +119,6 @@ class StagingAreaConfigHandlerTest {
 
         var resp = handle(packet("UPDATE", 7, Optional.of(areaData("改名扩区", Optional.empty()))));
 
-        // 改坐标后必须立即重扫（联动初始化状态重置：新领土的已有物品靠这一步统计）
-        // world 传 null：客户端未指定维度时保持原维度
         verify(manager).updateStagingArea(eq(7), eq("s1"), eq("改名扩区"), isNull(),
             anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
         verify(manager).rescanStagingArea(7);
@@ -215,7 +193,8 @@ class StagingAreaConfigHandlerTest {
         when(manager.addWarehouse(any(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
             .thenReturn(9);
 
-        var resp = handle(packet("ADD_WAREHOUSE", 0, Optional.of(areaData("新仓库", Optional.of("minecraft:overworld")))));
+        var resp = handle(packet("ADD_WAREHOUSE", 0,
+                Optional.of(areaData("新仓库", Optional.of("minecraft:overworld")))));
 
         verify(manager).addWarehouse(eq("新仓库"), eq("minecraft:overworld"),
             anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
@@ -228,7 +207,8 @@ class StagingAreaConfigHandlerTest {
         when(manager.addWarehouse(any(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
             .thenReturn(-1);
 
-        var resp = handle(packet("ADD_WAREHOUSE", 0, Optional.of(areaData("新仓库", Optional.empty()))));
+        var resp = handle(packet("ADD_WAREHOUSE", 0,
+                Optional.of(areaData("新仓库", Optional.empty()))));
 
         assertFalse(resp.success());
         assertEquals("创建失败", resp.message());
@@ -238,7 +218,6 @@ class StagingAreaConfigHandlerTest {
     void updateWarehouse_updates() {
         var resp = handle(packet("UPDATE_WAREHOUSE", 9, Optional.of(areaData("改名", Optional.empty()))));
 
-        // world 传 null：客户端未指定维度时保持原维度
         verify(manager).updateWarehouse(eq(9), eq("改名"), isNull(),
             anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt());
         assertTrue(resp.success());
@@ -310,7 +289,7 @@ class StagingAreaConfigHandlerTest {
 
     @Test
     void managerMissing_rejected() {
-        syncMaterialMock.when(SyncMaterial::getServerStagingAreaManager).thenReturn(null);
+        when(owner.staging()).thenReturn(null);
 
         var resp = handle(packet("LIST", 0, Optional.empty()));
 
@@ -320,16 +299,11 @@ class StagingAreaConfigHandlerTest {
 
     @Test
     void isAreaGeometryValid_acceptsNormalAndRejectsAbusive() {
-        // 正常小区域
         assertTrue(ModNetworkHandler.isAreaGeometryValid(0, 64, 0, 5, 70, 5));
-        // 合理的大房间（仍在区块跨度上限内）
         assertTrue(ModNetworkHandler.isAreaGeometryValid(-100, 0, -100, 100, 100, 100));
-        // 坐标超出世界边界
         assertFalse(ModNetworkHandler.isAreaGeometryValid(0, 64, 0, 40_000_000, 64, 0));
-        // 天量坐标：区块跨度爆炸（旧代码会在扫描时冻死主线程）
         assertFalse(ModNetworkHandler.isAreaGeometryValid(
             Integer.MIN_VALUE, 64, Integer.MIN_VALUE, Integer.MAX_VALUE, 64, Integer.MAX_VALUE));
-        // Y 超出合理范围
         assertFalse(ModNetworkHandler.isAreaGeometryValid(0, -999999, 0, 1, 999999, 1));
     }
 }

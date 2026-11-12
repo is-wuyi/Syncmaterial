@@ -65,16 +65,17 @@ SchematicFolderWatcher 监控 placements.json
 
 ```
 ModInitializer.onInitialize()
-  └─ ModNetworkHandler.registerPayloadTypes()   ← 必须最先注册，否则客户端崩溃
+  ├─ ModNetworkHandler.registerPayloadTypes()   ← 必须最先注册，否则客户端崩溃
+  └─ ModNetworkHandler.register()               ← 服务端 receiver 全进程只注册一次
 
 SyncMaterialClient.onInitializeClient()
   └─ ModNetworkHandlerClient.register()          ← 注册客户端 receiver
 
 ServerLifecycleEvents.SERVER_STARTING
-  └─ ModNetworkHandler.register()                ← 注册服务端 handler
+  └─ 安装该 MinecraftServer 的 legacy context / Foundation runtime
 ```
 
-PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER_STARTING`。
+PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER_STARTING`。服务端 receiver 不捕获可替换的全局 service；按请求的服务器捕获原上下文，排队后复核上下文及连接身份。
 
 ### 网络包清单
 
@@ -130,7 +131,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 ### Mixin 规范
 
 - 每个 Mixin 类只针对**一个目标类**，不能将多个目标放在同一个 `@Mixin(targets = {...})` 中
-- `SyncmaticaIntegrationMixin` 在 `mixins` 数组中（非 client），注入 LitematicManager.setActiveContext；Foundation 用运行时平台 hook 绑定服务端上下文。
+- Syncmatica 发现监听必须绑定真实服务端上下文并保留注销句柄；不能通过客户端 `LitematicManager.setActiveContext` 选择服务端数据库。
 
 ### 关键实现细节
 
@@ -141,7 +142,8 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 - `StagingAreaSelector` 使用 `isPressed()` 而非 `wasPressed()` 检测鼠标点击（避免被游戏输入系统消耗）
 - HUD 颜色使用 ARGB 格式（`0xFFFFFFFF` 完全不透明白色）
 - `ModNetworkHandler` 所有 C2S handler 都有输入验证
-- `SchematicFolderWatcher.processPlacementsJson()` 有 synchronized 保护
+- `SchematicFolderWatcher.scanOnce()` 用扫描准入防止并发重入；解析完成经 owner 的串行摄取事务提交，关闭／新意图后拒绝旧结果。
+- legacy 资源、订阅与时钟任务由 `LegacyServerContext` 拥有；STOPPING 先封闭，STOPPED 有界回收并最后关库，详见 `docs/rewrite/legacy-lifecycle.md`。
 
 ### 数据库表
 
