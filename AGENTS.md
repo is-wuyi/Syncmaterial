@@ -14,6 +14,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 多版本源码、detached 构建与测试矩阵见 [`docs/rewrite/multiversion.md`](docs/rewrite/multiversion.md)。旧 LTS 分支仅作历史参考，新功能和修复不再人工跨版本分支移植。
 
+完整重构的进度、有效决策、下一批边界与验收记录统一维护在 [`docs/rewrite/progress.md`](docs/rewrite/progress.md)。开始新批次、确认重要决策、完成验收或提交／推送／CI 后同步更新；建议、待决策与已实现事实分开，不能把批次完成当成完整重构完成。
+
 ## 构建命令
 
 ```bash
@@ -159,6 +161,8 @@ SQLite（`SchematicDatabase.java`，AutoCloseable）：
 - **Configs** — 配置系统（通用/HUD/渲染三标签页），MaLiLib ConfigDouble/ConfigColor 等
 
 ## 当前开发阶段
+
+下列 Phase 记录为既有功能开发历史，不表示 Foundation 已完成相同能力的迁移；完整重构当前状态以 [`docs/rewrite/progress.md`](docs/rewrite/progress.md) 为准。
 
 ### 已完成
 
