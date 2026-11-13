@@ -29,7 +29,8 @@ class ProtocolVersionSharedTest {
         assertFalse(ProtocolVersion.isPeerNewer(ProtocolVersion.CURRENT));
         assertEquals(2, ProtocolVersion.MATERIAL_CATALOG_UPDATES);
         assertEquals(3, ProtocolVersion.AREA_INVENTORY_SNAPSHOTS);
-        assertEquals(3, ProtocolVersion.CURRENT);
+        assertEquals(4, ProtocolVersion.SCOPED_TEAM_MANAGEMENT);
+        assertEquals(4, ProtocolVersion.CURRENT);
         assertEquals(1, ProtocolVersion.MIN_COMPATIBLE);
     }
 }

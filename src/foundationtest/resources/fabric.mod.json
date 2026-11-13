@@ -9,11 +9,14 @@
   },
   "entrypoints": {
     "fabric-gametest": [
-      "net.syncmaterial.syncmaterial.gametest.foundation.FoundationServerGameTest"
+      "net.syncmaterial.syncmaterial.gametest.foundation.FoundationServerGameTest",
+      "net.syncmaterial.syncmaterial.gametest.foundation.FoundationTeamServerGameTest"
     ],
     "fabric-client-gametest": [
       {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.MaterialResolverOracleClientGameTest"}
+      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.MaterialResolverOracleClientGameTest"},
+      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationTeamOwnerClientGameTest"},
+      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationTeamAssignKickClientGameTest"}
     ]
   },
   "depends": {

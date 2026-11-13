@@ -94,6 +94,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 | BatchAssignC2SPacket | 批量分配材料给玩家 |
 | KickFromMaterialC2SPacket | 按材料踢出玩家 |
 | PlayerListRequestC2SPacket | 请求玩家列表 |
+| TeamCommandC2SPacket | 项目／请求关联的团队管理动作（协议 4，含 UUID 目标） |
 
 | S2C 包 | 用途 |
 |---|---|
@@ -109,6 +110,7 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 | BatchAssignResponseS2CPacket | 批量分配结果 |
 | KickFromMaterialResponseS2CPacket | 踢出结果 |
 | PlayerListResponseS2CPacket | 玩家列表（名称 + 在线状态） |
+| TeamResponseS2CPacket | 关联管理结果／玩家目录及项目团队状态推送（协议 4） |
 | WarehouseAreaResponseS2CPacket | 仓库区域线框（全局广播，含被引用仓库 ID） |
 
 ### 协议版本兼容（必读）
@@ -144,6 +146,8 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 - `ModNetworkHandler` 所有 C2S handler 都有输入验证
 - `SchematicFolderWatcher.scanOnce()` 用扫描准入防止并发重入；解析完成经 owner 的串行摄取事务提交，关闭／新意图后拒绝旧结果。
 - legacy 资源、订阅与时钟任务由 `LegacyServerContext` 拥有；STOPPING 先封闭，STOPPED 有界回收并最后关库，详见 `docs/rewrite/legacy-lifecycle.md`。
+- Foundation 团队权限与材料写入同 writer 事务；分配不生成背包量，踢人清持久／在线观测；身份与目标解析不依赖截断的可见目录。详见 `docs/rewrite/team-management.md`。
+- 管理回包按项目／请求／连接代次／原界面匹配；`requestId=0` 的团队状态推送不重开 GUI、不重置材料目录／区域快照。旧匿名响应不得跨订阅扇出。
 
 ### 数据库表
 

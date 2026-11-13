@@ -40,6 +40,7 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
             ctx.waitTicks(20);
 
             insertSchematic(server, schematicId, "Player0");
+            seedKnownOfflinePlayers(server);
 
             // 打开材料列表（isOwner/isMainOwner=true，右栏在 initGui 里构建）
             ctx.runOnClient(client -> ClientScreenAccess.showScreen(Minecraft.getInstance(), new GuiMaterialList(
@@ -73,6 +74,10 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
                 currentScreen() instanceof GuiPlayerSelectDialog s && s.hasLoadedPlayers()));
             if (!listLoaded) {
                 throw new AssertionError("玩家选择弹窗未收到真实玩家列表响应");
+            }
+            if (!ctx.computeOnClient(client -> ((GuiPlayerSelectDialog) currentScreen()).getAvailablePlayers()
+                    .stream().anyMatch(entry -> entry.name().equals("DeputyA") && !entry.online()))) {
+                throw new AssertionError("真实玩家目录必须包含已知离线玩家 DeputyA");
             }
 
             ctx.runOnClient(client -> {
@@ -145,27 +150,23 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
             // 先把主负责人改回 Player0（第 4 步已转让出去，服务端直改数据库恢复测试条件）
             onDatabase(server, db -> {
                 db.executeUpdate("UPDATE schematics SET uploaded_by = 'Player0' WHERE id = ?", schematicId);
-                return null;
-            });
-            // 重新打开界面（isMainOwner 按构造参数仍为 true，与真实场景一致：
-            // 玩家刷新列表时服务端会下发最新负责人身份）
-            ctx.runOnClient(client -> ClientScreenAccess.showScreen(Minecraft.getInstance(), new GuiMaterialList(
-                schematicId, "OwnerMgmtTest", List.of(), true, true, "Player0", List.of(), true)));
-            ctx.waitTicks(10);
-            GuiMaterialList freshList = ctx.computeOnClient(client ->
-                ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiMaterialList m ? m : null);
-
-            // 服务端预置 6 个副负责人（超过平铺上限 4），刷新客户端数据
-            onDatabase(server, db -> {
                 for (String name : List.of("D1", "D2", "D3", "D4", "D5", "D6")) {
                     db.addDeputyOwner(schematicId, name);
                 }
                 return null;
             });
-            ctx.runOnClient(client -> freshList.updateOwnerState("Player0",
-                List.of("D1", "D2", "D3", "D4", "D5", "D6"), true));
-            ctx.waitTicks(5);
+            // 从真实请求重开，必须像生产一样绑定客户端项目／界面会话。
+            ctx.runOnClient(client -> net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
+                    new net.syncmaterial.syncmaterial.network.MaterialStatsRequestC2SPacket(schematicId)));
+            ctx.waitForScreen(GuiMaterialList.class);
+            ctx.waitTicks(10);
+            GuiMaterialList freshList = ctx.computeOnClient(client ->
+                ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiMaterialList m ? m : null);
+            if (freshList == null || freshList == materialList || !freshList.isMainOwner()) {
+                throw new AssertionError("真实材料请求必须重开并绑定新的主负责人界面");
+            }
 
+            // 六个副负责人从服务端真实响应进入权威状态，不用手工改显示状态。
             if (!freshList.hasDeputyOverflow()) {
                 throw new AssertionError("6 个副负责人应触发溢出折叠");
             }
@@ -217,6 +218,26 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
                 "INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
                 schematicId, "Owner Mgmt Test", "/owner-mgmt.litematic", uploadedBy);
             return null;
+        });
+    }
+
+    private void seedKnownOfflinePlayers(TestDedicatedServerContext server) {
+        server.runOnServer(instance -> {
+            try {
+                // Names must really exist in the server directory; the selection hook must
+                // not invent rows that a player could never choose in the actual dialog.
+                var cache = instance.getFile("usercache.json");
+                var entries = new com.google.gson.JsonArray();
+                for (String name : List.of("DeputyA", "FirstPick", "SecondPick")) {
+                    var entry = new com.google.gson.JsonObject();
+                    entry.addProperty("name", name);
+                    entry.addProperty("uuid", java.util.UUID.randomUUID().toString());
+                    entries.add(entry);
+                }
+                java.nio.file.Files.writeString(cache, entries.toString());
+            } catch (java.io.IOException error) {
+                throw new IllegalStateException("Failed to seed isolated player directory", error);
+            }
         });
     }
 

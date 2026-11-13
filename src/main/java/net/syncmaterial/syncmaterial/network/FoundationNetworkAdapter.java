@@ -41,7 +41,9 @@ public final class FoundationNetworkAdapter {
             long connection = runtime.connection(player.getUUID());
             if (connection == 0) return;
             var token = delivery(runtime).beginProject(player.getUUID(), connection, request.schematicId(), true);
-            read(runtime, request.schematicId()).whenComplete((snapshot, error) -> execute(server, runtime, () -> {
+            PlayerIdentity actor = identity(player);
+            runtime.teams().reconcile(actor).thenCompose(ignored -> read(runtime, request.schematicId()))
+                    .whenComplete((snapshot, error) -> execute(server, runtime, () -> {
                 ServerPlayer current = currentPlayer(server, runtime, token.playerId(), connection);
                 if (current == null || !delivery(runtime).acceptProject(token)) return;
                 if (error != null) {
@@ -56,13 +58,14 @@ public final class FoundationNetworkAdapter {
                     ProjectData data = snapshot.get();
                     var project = data.project();
                     if (!runtime.isMaterialSnapshotCurrent(project)) throw new StaleMaterialSnapshotException();
-                    boolean mainOwner = isOwner(project.owner(), current);
-                    boolean isOwner = mainOwner || project.deputies().contains(current.getName().getString());
+                    boolean mainOwner = data.team().isMainOwner(identity(current));
+                    boolean isOwner = data.team().isOwner(identity(current));
                     List<MaterialEntry> materials = materialEntries(project);
                     List<CollaborationStatusS2CPacket> statuses = statuses(runtime, data);
                     runtime.subscribe(token.playerId(), project.id());
                     send(current, new MaterialStatsResponseS2CPacket(project.id(), project.name(), materials,
-                            isOwner, mainOwner, project.owner().name(), project.deputies(), project.allowSelfClaim()));
+                            isOwner, mainOwner, data.team().owner().name(), data.team().deputyNames(), data.team().allowSelfClaim()));
+                    FoundationTeamNetworkAdapter.sendInitialTeam(runtime, current, data.team(), data.teamSequence());
                     long revision = runtime.catalogs().sent(token.playerId(), connection, project);
                     if (ProtocolHandshake.supports(current, ProtocolVersion.MATERIAL_CATALOG_UPDATES)) {
                         send(current, new MaterialCatalogUpdateS2CPacket(project.id(), project.name(), revision, materials));
@@ -112,19 +115,8 @@ public final class FoundationNetworkAdapter {
             UUID playerId = player.getUUID();
             long connection = runtime.connection(playerId);
             if (connection == 0) return;
-            runtime.store().findProject(request.schematicId()).thenCompose(project -> {
-                if (project.isEmpty() || connection != runtime.connection(playerId)) return CompletableFuture.completedFuture(false);
-                ProjectSnapshot value = project.get();
-                if (!runtime.isMaterialSnapshotCurrent(value)) {
-                    return CompletableFuture.failedFuture(new StaleMaterialSnapshotException());
-                }
-                if (!value.allowSelfClaim() && !isOwner(value.owner(), identity)
-                        && !value.deputies().contains(identity.name())) return CompletableFuture.completedFuture(false);
-                if (request.inventoryCounts().keySet().stream().anyMatch(id -> value.materials().stream().noneMatch(material -> material.id() == id))) {
-                    return CompletableFuture.failedFuture(new IllegalArgumentException("Inventory material does not belong to this project"));
-                }
-                return runtime.store().join(request.schematicId(), request.materialId(), identity);
-            }).thenCompose(joined -> {
+            runtime.teams().join(request.schematicId(), request.materialId(), identity,
+                    request.inventoryCounts().keySet(), () -> runtime.connection(playerId) == connection).thenCompose(joined -> {
                 if (!joined || connection != runtime.connection(playerId)) return CompletableFuture.completedFuture(null);
                 long count = request.inventoryCounts().getOrDefault(request.materialId(), 0);
                 return runtime.reportInventory(request.schematicId(), request.materialId(), identity, count);
@@ -166,20 +158,7 @@ public final class FoundationNetworkAdapter {
         });
 
         FoundationAreaNetworkAdapter.register();
-        ServerPlayNetworking.registerGlobalReceiver(OwnerActionC2SPacket.ID, (request, context) -> {
-            if (allowed(context.player(), request.schematicId())) {
-                context.player().sendSystemMessage(net.minecraft.network.chat.Component.literal("当前实验后端尚未接入负责人管理"));
-            }
-        });
-        ServerPlayNetworking.registerGlobalReceiver(BatchAssignC2SPacket.ID, (request, context) -> {
-            if (allowed(context.player(), request.schematicId())) send(context.player(), new BatchAssignResponseS2CPacket(false, "当前实验后端尚未接入负责人管理"));
-        });
-        ServerPlayNetworking.registerGlobalReceiver(KickFromMaterialC2SPacket.ID, (request, context) -> {
-            if (allowed(context.player(), request.schematicId())) send(context.player(), new KickFromMaterialResponseS2CPacket(false, "当前实验后端尚未接入负责人管理"));
-        });
-        ServerPlayNetworking.registerGlobalReceiver(PlayerListRequestC2SPacket.ID, (request, context) -> {
-            if (allowed(context.player(), request.schematicId())) send(context.player(), new PlayerListResponseS2CPacket(List.of()));
-        });
+        FoundationTeamNetworkAdapter.register();
     }
 
     static boolean allowed(ServerPlayer player, String projectId) {
@@ -190,20 +169,16 @@ public final class FoundationNetworkAdapter {
         return new PlayerIdentity(player.getUUID(), player.getName().getString());
     }
 
-    private static boolean isOwner(PlayerIdentity owner, ServerPlayer player) {
-        return isOwner(owner, identity(player));
-    }
-
-    private static boolean isOwner(PlayerIdentity owner, PlayerIdentity player) {
-        return owner.uuid() != null ? owner.uuid().equals(player.uuid()) : owner.name().equals(player.name());
-    }
-
     private static CompletableFuture<Optional<ProjectData>> read(ServerRuntime runtime, String projectId) {
-        return runtime.store().snapshot(projectId).thenApply(state -> state.map(value -> {
+        return runtime.store().snapshot(projectId).thenCompose(state -> {
+            if (state.isEmpty()) return CompletableFuture.completedFuture(Optional.empty());
+            var value = state.get();
             ProjectSnapshot project = value.project();
             if (!runtime.isMaterialSnapshotCurrent(project)) throw new StaleMaterialSnapshotException();
-            return new ProjectData(project, value.claims(), value.inventory());
-        }));
+            return runtime.teams().state(projectId).thenApply(team -> team.map(roles ->
+                    new ProjectData(project, value.claims(), value.inventory(), roles,
+                            runtime.teamRequests().nextSequence(projectId))));
+        });
     }
 
     private static List<MaterialEntry> materialEntries(ProjectSnapshot project) {
@@ -387,5 +362,6 @@ public final class FoundationNetworkAdapter {
         }
     }
 
-    private record ProjectData(ProjectSnapshot project, List<ClaimSnapshot> claims, AreaInventoryView inventory) {}
+    private record ProjectData(ProjectSnapshot project, List<ClaimSnapshot> claims, AreaInventoryView inventory,
+                               net.syncmaterial.syncmaterial.core.TeamState team, long teamSequence) {}
 }

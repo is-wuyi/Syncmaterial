@@ -600,6 +600,8 @@ class SqliteProjectStoreTest {
 
             release.countDown();
             await(ingest);
+            assertTrue(old.awaitClosedForTesting(5, TimeUnit.SECONDS),
+                    "finishClose must complete after the admitted writer task finishes");
 
             old.close();
             try (SqliteProjectStore reopened = SqliteProjectStore.open(path)) {
@@ -649,6 +651,8 @@ class SqliteProjectStoreTest {
 
             release.countDown();
             await(ingest);
+            assertTrue(old.awaitClosedForTesting(5, TimeUnit.SECONDS),
+                    "finishClose must complete after the admitted writer task finishes");
 
             old.close();
             try (SqliteProjectStore reopened = SqliteProjectStore.open(path)) {

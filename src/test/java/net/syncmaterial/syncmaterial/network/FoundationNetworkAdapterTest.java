@@ -35,6 +35,9 @@ import net.syncmaterial.syncmaterial.server.area.AreaScanService;
 import net.syncmaterial.syncmaterial.server.runtime.MaterialCatalogTracker;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntime;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry;
+import net.syncmaterial.syncmaterial.server.runtime.TeamManagementService;
+import net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker;
+import net.syncmaterial.syncmaterial.core.TeamState;
 import net.syncmaterial.syncmaterial.server.storage.SqliteProjectStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -57,6 +60,7 @@ class FoundationNetworkAdapterTest {
     private MinecraftServer server;
     private ServerRuntime runtime;
     private SqliteProjectStore store;
+    private TeamManagementService teams;
     private AreaScanService areas;
     private ServerPlayNetworking.Context context;
 
@@ -88,6 +92,12 @@ class FoundationNetworkAdapterTest {
         store = mock(SqliteProjectStore.class);
         runtime = mock(ServerRuntime.class);
         when(runtime.store()).thenReturn(store);
+        teams = mock(TeamManagementService.class);
+        when(runtime.teams()).thenReturn(teams);
+        when(runtime.teamRequests()).thenReturn(new TeamRequestTracker());
+        when(teams.reconcile(any(PlayerIdentity.class))).thenReturn(CompletableFuture.completedFuture(null));
+        when(teams.state(PROJECT)).thenReturn(CompletableFuture.completedFuture(
+                Optional.of(new TeamState(PROJECT, owner(), List.of(), true))));
         when(runtime.isOpen()).thenReturn(true);
         when(runtime.connection(playerId)).thenReturn(1L);
         when(runtime.isMaterialSnapshotCurrent(any(ProjectSnapshot.class))).thenReturn(true);
@@ -220,27 +230,25 @@ class FoundationNetworkAdapterTest {
 
     @Test
     void staleSnapshotCannotBeClaimedOrReportInitialInventory() {
-        var project = new ProjectSnapshot(PROJECT, "Original", "old-hash", owner(), true, List.of(),
-                List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
-        when(store.findProject(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(project)));
-        when(runtime.isMaterialSnapshotCurrent(project)).thenReturn(false);
+        when(teams.join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Set.of(1)), any()))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("材料统计已过期")));
         receive(JoinCollaborationC2SPacket.ID, new JoinCollaborationC2SPacket(PROJECT, 1, Map.of(1, 32)));
         verify(store, never()).join(anyString(), anyInt(), any(PlayerIdentity.class));
         verify(runtime, never()).reportInventory(anyString(), anyInt(), any(PlayerIdentity.class), anyLong());
-        verify(player).sendSystemMessage(argThat(message -> message.getString().contains("统计已过期")));
+        verify(teams).join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Set.of(1)), any());
+        verify(player).sendSystemMessage(any(Component.class));
         assertTrue(packets.isEmpty());
     }
 
     @Test
     void currentSnapshotCanBeClaimedAndReportsInitialInventory() {
-        var project = new ProjectSnapshot(PROJECT, "Original", "hash", owner(), true, List.of(),
-                List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
-        when(store.findProject(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(project)));
-        when(store.join(eq(PROJECT), eq(1), any(PlayerIdentity.class))).thenReturn(CompletableFuture.completedFuture(true));
+        when(teams.join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Set.of(1)), any()))
+                .thenReturn(CompletableFuture.completedFuture(true));
         when(runtime.reportInventory(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(32L)))
                 .thenReturn(CompletableFuture.completedFuture(null));
         receive(JoinCollaborationC2SPacket.ID, new JoinCollaborationC2SPacket(PROJECT, 1, Map.of(1, 32)));
-        verify(store).join(eq(PROJECT), eq(1), any(PlayerIdentity.class));
+        verify(teams).join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Set.of(1)), any());
+        verify(store, never()).join(anyString(), anyInt(), any(PlayerIdentity.class));
         verify(runtime).reportInventory(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(32L));
         verify(runtime).requestBroadcast(PROJECT);
     }

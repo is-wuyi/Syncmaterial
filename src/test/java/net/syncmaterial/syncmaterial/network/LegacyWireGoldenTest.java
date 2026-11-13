@@ -37,6 +37,24 @@ class LegacyWireGoldenTest {
         assertBytes(InventoryUpdateC2SPacket.CODEC, new InventoryUpdateC2SPacket("p", 3, 64), "01700340");
     }
 
+    @Test
+    void phaseFourPacketsKeepThePublishedByteOrder() {
+        assertBytes(OwnerActionC2SPacket.CODEC, new OwnerActionC2SPacket("p", "TRANSFER", "A"),
+                "0170085452414e534645520141");
+        assertBytes(OwnerActionResponseS2CPacket.CODEC,
+                new OwnerActionResponseS2CPacket(true, "m", "A", java.util.List.of("B"), false),
+                "01016d014101014200");
+        assertBytes(BatchAssignC2SPacket.CODEC, new BatchAssignC2SPacket("p", java.util.List.of(3), java.util.List.of("A")),
+                "01700103010141");
+        assertBytes(BatchAssignResponseS2CPacket.CODEC, new BatchAssignResponseS2CPacket(true, "m"), "01016d");
+        assertBytes(KickFromMaterialC2SPacket.CODEC, new KickFromMaterialC2SPacket("p", java.util.List.of(3), "A"),
+                "017001030141");
+        assertBytes(KickFromMaterialResponseS2CPacket.CODEC, new KickFromMaterialResponseS2CPacket(false, "m"), "00016d");
+        assertBytes(PlayerListRequestC2SPacket.CODEC, new PlayerListRequestC2SPacket("p"), "0170");
+        assertBytes(PlayerListResponseS2CPacket.CODEC, new PlayerListResponseS2CPacket(java.util.List.of(
+                new PlayerListResponseS2CPacket.PlayerInfo("A", true))), "01014101");
+    }
+
     private static <T> void assertBytes(StreamCodec<RegistryFriendlyByteBuf, T> codec, T value, String expectedHex) {
         var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(),
                 RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));

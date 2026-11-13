@@ -76,6 +76,11 @@ public class SyncMaterialClient implements ClientModInitializer {
         net.syncmaterial.syncmaterial.network.ModNetworkHandlerClient.register();
         InventoryWatcher.register();
 
+        // disconnect 会取消客户端队列；永久 tick 保证已封闭连接的清理不会丢。
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (TeamManagementClient.finishPendingDisconnect()) clearDisconnectedState();
+        });
+
         // 取货需求量在 tick 中重算，不挂渲染回调：挂渲染会让 HUD 关闭后
         // 需求永不更新，格子高亮与仓库线框停在陈旧数据上
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -151,7 +156,9 @@ public class SyncMaterialClient implements ClientModInitializer {
         // 进服后立刻发版本握手：服务端据此得知本客户端装了本 mod 及其协议版本，
         // 握手通过后才会推送备货区与仓库的初始数据
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
+            // 快速重连可能先于断线清理 tick；新连接在客户端线程先清上一连接的全部状态。
+            clearDisconnectedState();
+            TeamManagementClient.onJoin(handler);
             sender.sendPacket(new net.syncmaterial.syncmaterial.network.HelloC2SPacket(
                     net.syncmaterial.syncmaterial.network.ProtocolVersion.CURRENT,
                     SyncMaterial.getModVersion()));
@@ -160,26 +167,11 @@ public class SyncMaterialClient implements ClientModInitializer {
 
         // 断开连接时清除编辑器状态
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal.clearCurrentEditor();
-            // 仓库数据按服务器隔离：不清理会导致换服后渲染上一个服务器的仓库线框
-            StagingAreaRenderer.getInstance().clearWarehouseAreas();
-            StagingAreaRenderer.getInstance().clearWarehouseContainers();
-            // 备货区线框同样按服务器隔离：schematicId 是各服自增值跨服会撞号，
-            // 不清会把上个服的备货区线框（及陈旧 serverId）带进新服世界
-            StagingAreaRenderer.getInstance().clearAllSelections();
-            // 选区状态也要清：中途断线时 active 会残留，导致下次进服仍处于选区模式，
-            // 且编辑上下文残留会让对应区域被正式渲染永久跳过
-            StagingAreaSelector.getInstance().reset();
-            // 协议状态也要清：不清会把上一个服务器的版本信息带到下一个服务器
-            net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
-            // HUD 与背包监听按服务器隔离：不清会让 HUD 继续挂着上个服的材料清单，
-            // 且 InventoryWatcher 仍持旧 schematicId，换服后朝新服发它不认识的背包更新包
-            activeMaterialList = null;
-            catalogRevision = -1;
-            WAREHOUSE_DIMENSION_TRACKER.reset();
-            InventoryWatcher.clearContext();
-            // 取货模式同理：不清会带着上个服的需求量继续高亮格子与仓库线框
-            PickupModeState.clear();
+            long token = TeamManagementClient.invalidateConnection(handler);
+            if (token < 0) return;
+            client.execute(() -> {
+                if (TeamManagementClient.finishDisconnect(token)) clearDisconnectedState();
+            });
         });
 
         // 准星选区模式下屏蔽方块交互
@@ -196,6 +188,20 @@ public class SyncMaterialClient implements ClientModInitializer {
         });
     }
 
+    private static void clearDisconnectedState() {
+        net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal.clearCurrentEditor();
+        StagingAreaRenderer.getInstance().clearWarehouseAreas();
+        StagingAreaRenderer.getInstance().clearWarehouseContainers();
+        StagingAreaRenderer.getInstance().clearAllSelections();
+        StagingAreaSelector.getInstance().reset();
+        net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
+        activeMaterialList = null;
+        catalogRevision = -1;
+        WAREHOUSE_DIMENSION_TRACKER.reset();
+        InventoryWatcher.clearContext();
+        PickupModeState.clear();
+    }
+
     public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         LOGGER.info("收到材料清单响应，准备打开 UI。共 {} 项。isOwner={}, isMainOwner={}", materials.size(), isOwner, isMainOwner);
         // 分闸状态独立于 HUD_ENABLED 总闸：仅继承上一个界面的分闸，首次打开默认开启。
@@ -208,6 +214,8 @@ public class SyncMaterialClient implements ClientModInitializer {
         }
         GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim);
         activeMaterialList = gui.getMaterialList();
+        // 捕获项目/原始界面；同一项目重新打开时应用已知权威角色，换项目时使旧请求失效
+        TeamManagementClient.onMaterialListOpened(gui);
         catalogRevision = -1;
         activeMaterialList.getHudRenderer().setShouldRender(hudState);
         ClientScreenAccess.showScreen(Minecraft.getInstance(), gui);
@@ -280,6 +288,8 @@ public class SyncMaterialClient implements ClientModInitializer {
      * 由 SchematicUploadListener 调用（已通过 Minecraft.execute() 调度到渲染线程）。
      */
     public static void clearActiveSchematic(String schematicId) {
+        // 项目删除：所有绑定该项目的团队请求与权威角色立即作废
+        TeamManagementClient.onProjectDeleted(schematicId);
         // 关闭当前打开的材料列表 GUI（如果属于被删除的原理图）
         Minecraft mc = Minecraft.getInstance();
         if (ClientScreenAccess.currentScreen(mc) instanceof GuiMaterialList gui) {

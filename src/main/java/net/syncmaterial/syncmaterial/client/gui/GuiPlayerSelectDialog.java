@@ -22,15 +22,15 @@ import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.KeyCodes;
 import fi.dy.masa.malilib.util.StringUtils;
 
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 //? if >=26.2 {
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 //?}
-import net.syncmaterial.syncmaterial.network.BatchAssignC2SPacket;
-import net.syncmaterial.syncmaterial.network.KickFromMaterialC2SPacket;
-import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
-import net.syncmaterial.syncmaterial.network.PlayerListRequestC2SPacket;
+import net.syncmaterial.syncmaterial.client.TeamManagementClient;
+import net.syncmaterial.syncmaterial.core.PlayerDirectoryEntry;
+import net.syncmaterial.syncmaterial.core.PlayerIdentity;
+import net.syncmaterial.syncmaterial.core.TeamAction;
+import net.syncmaterial.syncmaterial.core.TeamLimits;
 import net.syncmaterial.syncmaterial.network.PlayerListResponseS2CPacket.PlayerInfo;
 
 /**
@@ -38,11 +38,14 @@ import net.syncmaterial.syncmaterial.network.PlayerListResponseS2CPacket.PlayerI
  *
  * 四种模式共用一个弹窗：TRANSFER（转让，单选）、ADD_DEPUTY（加副负责人，多选）、
  * ASSIGN（批量分配，多选）、KICK（按材料踢人，多选）。打开时向服务端请求玩家
- * 列表，响应由 ModNetworkHandlerClient 路由到 onPlayerListResponse。
+ * 目录，响应由 TeamManagementClient 按请求关联路由回来。
  *
  * 搜索框用 malilib GuiTextFieldGeneric（含光标/删除/中文输入法支持），
  * 列表滚动/斑马纹/悬停由 WidgetListBase 提供 —— 不再手写任何 UI 组件。
  * 父界面（材料列表或管理弹窗）通过 extractRenderState 透出。
+ *
+ * 界面仍只显示玩家名与在线状态；UUID 身份单独保存在选择行里，同名不同 UUID
+ * 的条目不会在选择集合中坍缩。选中项按行 id 记录，而不是按名字。
  */
 public class GuiPlayerSelectDialog extends GuiDialogBase
 {
@@ -53,8 +56,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
 
     private final GuiMaterialList materialList;
     private final String mode;
-    private final List<PlayerInfo> players = new ArrayList<>();
-    private final Set<String> selected = new LinkedHashSet<>();
+    private final SelectionModel selectionModel = new SelectionModel();
     private boolean loading = true;
 
     private fi.dy.masa.malilib.gui.GuiTextFieldGeneric searchField;
@@ -75,11 +77,18 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         this.setWidthAndHeight(PANEL_W, 22 + 12 + 12 + 20 + LIST_H + 14 + 20 + 24);
         this.centerOnScreen();
 
-        // REMOVE_DEPUTY 不发请求：名单由 forDeputyRemoval 预填，
-        // 且服务端玩家列表的响应会覆盖它（见该工厂方法的注释）
-        if (!"REMOVE_DEPUTY".equals(mode))
+        if ("REMOVE_DEPUTY".equals(mode))
         {
-            ClientPlayNetworking.send(new PlayerListRequestC2SPacket(materialList.getSchematicId()));
+            // 移除副负责人不发玩家目录请求：名单直接用当前副负责人，
+            // 有权威 TeamState 时携带 UUID，旧服务端则回退为名字。
+            this.selectionModel.setPrefilledIdentities(materialList.getDeputyIdentities());
+            this.loading = false;
+        }
+        else
+        {
+            // 请求在构造函数中发出，响应可能早于界面显示；TeamManagementClient
+            // 保存的是本弹窗对象，因此不要求它此刻已经是 currentScreen。
+            TeamManagementClient.requestPlayerList(this);
         }
     }
 
@@ -90,14 +99,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
      */
     public static GuiPlayerSelectDialog forDeputyRemoval(GuiMaterialList materialList, GuiBase parent)
     {
-        GuiPlayerSelectDialog dialog = new GuiPlayerSelectDialog(materialList, "REMOVE_DEPUTY", parent);
-        dialog.players.clear();
-        for (String deputy : materialList.getDeputyOwners())
-        {
-            dialog.players.add(new PlayerInfo(deputy, false));
-        }
-        dialog.loading = false;
-        return dialog;
+        return new GuiPlayerSelectDialog(materialList, "REMOVE_DEPUTY", parent);
     }
 
     private String titleForMode()
@@ -137,66 +139,81 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         };
     }
 
-    /** 网络响应入口（ModNetworkHandlerClient 按 currentScreen 路由） */
+    public GuiMaterialList getMaterialList()
+    {
+        return this.materialList;
+    }
+
+    public String getSchematicId()
+    {
+        return this.materialList.getSchematicId();
+    }
+
+    public String getMode()
+    {
+        return this.mode;
+    }
+
+    /** 网络响应入口：协议 4 玩家目录（UUID 与在线状态分开保存）。 */
+    public void onPlayerDirectoryResponse(List<PlayerDirectoryEntry> players)
+    {
+        if ("REMOVE_DEPUTY".equals(this.mode))
+        {
+            return;
+        }
+        this.selectionModel.setDirectory(players);
+        this.loading = false;
+        this.initGui();
+    }
+
+    /** 网络响应入口：旧服务端玩家列表（只有名字与在线状态）。 */
     public void onPlayerListResponse(List<PlayerInfo> players)
     {
         if ("REMOVE_DEPUTY".equals(this.mode))
         {
             return; // 预设名单模式不接收服务端玩家列表
         }
-        this.players.clear();
-        if (players != null) this.players.addAll(players);
+        this.selectionModel.setLegacyPlayers(players);
         this.loading = false;
-        this.selected.clear();
         this.initGui();
     }
 
-    /** OwnerAction 响应（TRANSFER / ADD_DEPUTY / REMOVE_DEPUTY 模式的确认结果） */
-    public void onOwnerActionResponse(boolean success, String message,
-                                      String newOwnerName, List<String> newDeputyOwners, boolean newAllowSelfClaim)
+    public void onPlayerListFailed(String message)
     {
-        this.materialList.updateOwnerState(newOwnerName, newDeputyOwners, newAllowSelfClaim);
-        if (success)
+        this.selectionModel.clearRows();
+        this.loading = false;
+        if (message != null && !message.isBlank())
         {
-            // 回父界面；setScreen 触发 initGui，右栏按新数据重建
-            GuiBase.openGui(this.getParent());
-        }
-        else
-        {
-            this.submitted = false;
-            this.confirmButton.setEnabled(true);
             this.addMessage(MessageType.ERROR, message);
+        }
+        this.initGui();
+    }
+
+    /** 目录被服务端上限截断等提示：只显示信息，不改变可选列表或按钮状态。 */
+    public void onPlayerDirectoryHint(String message)
+    {
+        if (message != null && !message.isBlank())
+        {
+            this.addMessage(MessageType.INFO, message);
         }
     }
 
-    /** 批量分配响应（ASSIGN 模式） */
-    public void onBatchAssignResponse(boolean success, String message)
+    /** 操作组全部成功：回到原始父界面（内部切换，不触发关闭失效）。 */
+    public void onGroupSucceeded(TeamAction action)
     {
-        this.materialList.applyBatchAssignResult(success);
-        if (success)
-        {
-            GuiBase.openGui(this.getParent());
-        }
-        else
-        {
-            this.submitted = false;
-            this.confirmButton.setEnabled(true);
-            this.addMessage(MessageType.ERROR, message);
-        }
+        GuiBase.openGui(this.getParent());
     }
 
-    /** 踢出响应（KICK 模式） */
-    public void onKickResponse(boolean success, String message)
+    /** 操作组结束但存在失败：保留选中的玩家，重新启用确认按钮。 */
+    public void onGroupFailed(String message)
     {
-        this.materialList.applyKickResult(success);
-        if (success)
+        this.submitted = false;
+        if (this.confirmButton != null)
         {
-            GuiBase.openGui(this.getParent());
+            this.confirmButton.setEnabled(!this.selectionModel.isEmpty());
         }
-        else
+        if (message != null && !message.isBlank())
         {
-            this.submitted = false;
-            this.confirmButton.setEnabled(true);
             this.addMessage(MessageType.ERROR, message);
         }
     }
@@ -240,27 +257,48 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         this.confirmButton.setPosition(this.dialogLeft + (PANEL_W - totalW) / 2, btnY);
         cancelButton.setPosition(this.confirmButton.getX() + this.confirmButton.getWidth() + 4, btnY);
 
-        this.confirmButton.setEnabled(!this.selected.isEmpty());
+        this.confirmButton.setEnabled(!this.selectionModel.isEmpty() && !this.submitted);
         this.addButton(this.confirmButton, (btn, mouseBtn) -> confirm());
-        this.addButton(cancelButton, (btn, mouseBtn) -> GuiBase.openGui(this.getParent()));
+        this.addButton(cancelButton, (btn, mouseBtn) -> dismiss());
     }
 
-    private void toggleSelection(String name)
+    private void toggleSelection(SelectionModel.Row row)
     {
         if ("TRANSFER".equals(this.mode))
         {
             // 转让负责人只允许单选
-            this.selected.clear();
-            this.selected.add(name);
+            this.selectionModel.selectOnly(row.id());
         }
-        else if (!this.selected.remove(name))
+        else
         {
-            this.selected.add(name);
+            this.selectionModel.toggle(row.id());
         }
         if (this.confirmButton != null)
         {
-            this.confirmButton.setEnabled(!this.selected.isEmpty());
+            this.confirmButton.setEnabled(!this.selectionModel.isEmpty());
         }
+    }
+
+    /** 关闭弹窗：用户取消/Esc/关屏都使本弹窗发起的待处理请求失效。 */
+    private void dismiss()
+    {
+        TeamManagementClient.onDialogDismissed(this);
+        GuiBase.openGui(this.getParent());
+    }
+
+    @Override
+    public void closeGui(boolean showParent)
+    {
+        TeamManagementClient.onDialogDismissed(this);
+        super.closeGui(showParent);
+    }
+
+    @Override
+    public void removed()
+    {
+        // 标准 setScreen 替换屏幕时不走 closeGui；弹窗一旦离开屏幕就不再收任何回包。
+        TeamManagementClient.onDialogRemoved(this);
+        super.removed();
     }
 
     // ========== 测试钩子（与条目点击 / 确认按钮走同一方法）==========
@@ -274,18 +312,48 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
     /** 等价于点击一个玩家条目 */
     public void selectPlayer(String name)
     {
-        toggleSelection(name);
+        SelectionModel.Row row = this.selectionModel.firstByName(name);
+        if (row != null)
+        {
+            toggleSelection(row);
+        }
+    }
+
+    /** 等价于点击指定身份对应的行；用于同名不同 UUID 的选择测试。 */
+    public void selectPlayer(PlayerIdentity identity)
+    {
+        SelectionModel.Row row = this.selectionModel.firstByIdentity(identity);
+        if (row != null)
+        {
+            toggleSelection(row);
+        }
     }
 
     /** 测试钩子：读取弹窗当前可选玩家名单 */
     public List<PlayerInfo> getAvailablePlayers()
     {
-        return new ArrayList<>(this.players);
+        return this.selectionModel.rows().stream()
+                .map(row -> new PlayerInfo(row.identity().name(), row.online()))
+                .toList();
+    }
+
+    /** 测试钩子：读取当前可选的完整身份（含 UUID，可能同名多行）。 */
+    public List<PlayerIdentity> getAvailablePlayerIdentities()
+    {
+        return this.selectionModel.rows().stream()
+                .map(SelectionModel.Row::identity)
+                .toList();
     }
 
     public List<String> getSelectedPlayers()
     {
-        return new ArrayList<>(this.selected);
+        return this.selectionModel.selectedNames();
+    }
+
+    /** 测试钩子：当前选中项的身份；同名不同 UUID 会保留为不同条目。 */
+    public List<PlayerIdentity> getSelectedIdentities()
+    {
+        return this.selectionModel.selectedIdentities();
     }
 
     public void confirmSelection()
@@ -293,44 +361,39 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         confirm();
     }
 
-    /** 确认按钮 / Enter：按模式发包（与旧 handleOverlayConfirm 相同的协议语义） */
+    /** 确认按钮 / Enter：整组提交给 TeamManagementClient（协议 4 或旧包 FIFO）。 */
     private void confirm()
     {
-        if (this.selected.isEmpty() || this.submitted)
+        if (this.selectionModel.isEmpty() || this.submitted)
         {
             return;
         }
-        this.submitted = true; // 防重复提交，等响应决定去留
+        this.submitted = true; // 防重复提交，等全部响应决定去留
         this.confirmButton.setEnabled(false);
 
-        String schematicId = this.materialList.getSchematicId();
-        List<String> players = new ArrayList<>(this.selected);
-        List<Integer> materialIds = new ArrayList<>(this.materialList.getSelectedMaterialIds());
-
-        switch (this.mode)
+        TeamAction action = actionForMode();
+        List<PlayerIdentity> targets = this.selectionModel.selectedIdentities();
+        List<Integer> materialIds = action.usesMaterials()
+                ? new ArrayList<>(this.materialList.getSelectedMaterialIds()) : List.of();
+        String error = TeamManagementClient.submitGroup(this.materialList, this, action, targets, materialIds);
+        if (error != null)
         {
-            case "ASSIGN" -> ClientPlayNetworking.send(new BatchAssignC2SPacket(schematicId, materialIds, players));
-            case "KICK" -> {
-                for (String player : players)
-                {
-                    ClientPlayNetworking.send(new KickFromMaterialC2SPacket(schematicId, materialIds, player));
-                }
-            }
-            case "ADD_DEPUTY" -> {
-                for (String player : players)
-                {
-                    ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "ADD_DEPUTY", player));
-                }
-            }
-            case "REMOVE_DEPUTY" -> {
-                for (String player : players)
-                {
-                    ClientPlayNetworking.send(new OwnerActionC2SPacket(schematicId, "REMOVE_DEPUTY", player));
-                }
-            }
-            case "TRANSFER" -> ClientPlayNetworking.send(
-                    new OwnerActionC2SPacket(schematicId, "TRANSFER", players.get(0)));
+            this.submitted = false;
+            this.confirmButton.setEnabled(!this.selectionModel.isEmpty());
+            this.addMessage(MessageType.ERROR, error);
         }
+    }
+
+    private TeamAction actionForMode()
+    {
+        return switch (this.mode)
+        {
+            case "ASSIGN" -> TeamAction.ASSIGN;
+            case "KICK" -> TeamAction.KICK;
+            case "ADD_DEPUTY" -> TeamAction.ADD_DEPUTY;
+            case "REMOVE_DEPUTY" -> TeamAction.REMOVE_DEPUTY;
+            default -> TeamAction.TRANSFER;
+        };
     }
 
     @Override
@@ -371,18 +434,20 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
             String info;
             if ("TRANSFER".equals(this.mode))
             {
-                info = this.selected.isEmpty()
+                List<String> selected = this.selectionModel.selectedNames();
+                info = selected.isEmpty()
                         ? StringUtils.translate("syncmaterial.gui.label.please_select_player")
-                        : StringUtils.translate("syncmaterial.gui.button.transfer_to", this.selected.iterator().next());
+                        : StringUtils.translate("syncmaterial.gui.button.transfer_to", selected.get(0));
             }
             else if ("ADD_DEPUTY".equals(this.mode) || "REMOVE_DEPUTY".equals(this.mode))
             {
-                info = StringUtils.translate("syncmaterial.gui.label.players_selected_count", this.selected.size());
+                info = StringUtils.translate("syncmaterial.gui.label.players_selected_count",
+                        this.selectionModel.selectedCount());
             }
             else
             {
                 info = StringUtils.translate("syncmaterial.gui.label.players_and_materials_count",
-                        this.selected.size(), this.materialList.getSelectedMaterialIds().size());
+                        this.selectionModel.selectedCount(), this.materialList.getSelectedMaterialIds().size());
             }
             this.drawString(drawContext, info, this.dialogLeft + 10, this.dialogTop + 68 + LIST_H + 6, 0xFFAAAAAA);
         }
@@ -480,7 +545,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         *///?}
         if (key == KeyCodes.KEY_ESCAPE)
         {
-            GuiBase.openGui(this.getParent());
+            dismiss();
             return true;
         }
         if (key == KeyCodes.KEY_ENTER && this.confirmButton != null && !this.submitted)
@@ -501,9 +566,213 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         return false;
     }
 
+    // ========== 选择模型（无 Minecraft 依赖，单测可直接验证） ==========
+
+    static final class SelectionModel
+    {
+        static final class Row
+        {
+            private final long id;
+            private final PlayerIdentity identity;
+            private final boolean online;
+
+            Row(long id, PlayerIdentity identity, boolean online)
+            {
+                this.id = id;
+                this.identity = identity;
+                this.online = online;
+            }
+
+            long id() { return this.id; }
+            PlayerIdentity identity() { return this.identity; }
+            boolean online() { return this.online; }
+        }
+
+        private final List<Row> rows = new ArrayList<>();
+        private final Set<Long> selected = new LinkedHashSet<>();
+        private long nextRowId = 1;
+
+        void setDirectory(List<PlayerDirectoryEntry> entries)
+        {
+            clearRows();
+            if (entries == null)
+            {
+                return;
+            }
+            for (PlayerDirectoryEntry entry : entries)
+            {
+                if (entry != null && entry.player() != null)
+                {
+                    if (this.rows.size() >= TeamLimits.DIRECTORY)
+                    {
+                        break;
+                    }
+                    this.rows.add(new Row(this.nextRowId++, entry.player(), entry.online()));
+                }
+            }
+        }
+
+        void setLegacyPlayers(List<PlayerInfo> players)
+        {
+            clearRows();
+            if (players == null)
+            {
+                return;
+            }
+            for (PlayerInfo player : players)
+            {
+                if (player != null && player.name() != null && !player.name().isBlank())
+                {
+                    if (this.rows.size() >= TeamLimits.DIRECTORY)
+                    {
+                        break;
+                    }
+                    this.rows.add(new Row(this.nextRowId++,
+                            new PlayerIdentity(null, player.name()), player.online()));
+                }
+            }
+        }
+
+        void setPrefilledIdentities(List<PlayerIdentity> identities)
+        {
+            clearRows();
+            if (identities == null)
+            {
+                return;
+            }
+            for (PlayerIdentity identity : identities)
+            {
+                if (identity != null)
+                {
+                    this.rows.add(new Row(this.nextRowId++, identity, false));
+                }
+            }
+        }
+
+        void clearRows()
+        {
+            this.rows.clear();
+            this.selected.clear();
+        }
+
+        List<Row> rows()
+        {
+            return List.copyOf(this.rows);
+        }
+
+        List<Row> filtered(String filter)
+        {
+            if (filter == null || filter.isEmpty())
+            {
+                return this.rows;
+            }
+            String lower = filter.toLowerCase();
+            return this.rows.stream()
+                    .filter(row -> row.identity().name().toLowerCase().contains(lower))
+                    .toList();
+        }
+
+        void toggle(long rowId)
+        {
+            if (!this.selected.remove(rowId))
+            {
+                for (Row row : this.rows)
+                {
+                    if (row.id() == rowId)
+                    {
+                        this.selected.add(rowId);
+                        return;
+                    }
+                }
+            }
+        }
+
+        void selectOnly(long rowId)
+        {
+            this.selected.clear();
+            this.selected.add(rowId);
+        }
+
+        boolean isSelected(Row row)
+        {
+            return this.selected.contains(row.id());
+        }
+
+        boolean isEmpty()
+        {
+            return this.selected.isEmpty();
+        }
+
+        int selectedCount()
+        {
+            return this.selected.size();
+        }
+
+        List<PlayerIdentity> selectedIdentities()
+        {
+            List<PlayerIdentity> identities = new ArrayList<>(this.selected.size());
+            for (Row row : this.rows)
+            {
+                if (this.selected.contains(row.id()))
+                {
+                    identities.add(row.identity());
+                }
+            }
+            return identities;
+        }
+
+        List<String> selectedNames()
+        {
+            List<String> names = new ArrayList<>(this.selected.size());
+            for (PlayerIdentity identity : selectedIdentities())
+            {
+                names.add(identity.name());
+            }
+            return names;
+        }
+
+        Row firstByName(String name)
+        {
+            if (name == null)
+            {
+                return null;
+            }
+            Row match = null;
+            for (Row row : this.rows)
+            {
+                if (row.identity().name().equalsIgnoreCase(name))
+                {
+                    if (match != null)
+                    {
+                        // 同名多身份：字符串选择有歧义，测试/旧调用不得任选其一
+                        return null;
+                    }
+                    match = row;
+                }
+            }
+            return match;
+        }
+
+        Row firstByIdentity(PlayerIdentity identity)
+        {
+            if (identity == null)
+            {
+                return null;
+            }
+            for (Row row : this.rows)
+            {
+                if (row.identity().equals(identity))
+                {
+                    return row;
+                }
+            }
+            return null;
+        }
+    }
+
     // ========== 玩家列表 Widget ==========
 
-    private class PlayerListWidget extends WidgetListBase<PlayerInfo, PlayerEntryWidget>
+    private class PlayerListWidget extends WidgetListBase<SelectionModel.Row, PlayerEntryWidget>
     {
         public PlayerListWidget(int x, int y, int width, int height)
         {
@@ -525,31 +794,26 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         }
 
         @Override
-        protected Collection<PlayerInfo> getAllEntries()
+        protected Collection<SelectionModel.Row> getAllEntries()
         {
             String filter = searchField != null ? searchField.getTextWrapper() : "";
-            if (filter == null || filter.isEmpty())
-            {
-                return players;
-            }
-            String lower = filter.toLowerCase();
-            return players.stream().filter(p -> p.name().toLowerCase().contains(lower)).toList();
+            return selectionModel.filtered(filter);
         }
 
         @Override
-        protected Comparator<PlayerInfo> getComparator()
+        protected Comparator<SelectionModel.Row> getComparator()
         {
-            return Comparator.comparing(PlayerInfo::name);
+            return Comparator.comparing(row -> row.identity().name());
         }
 
         @Override
-        protected List<String> getEntryStringsForFilter(PlayerInfo entry)
+        protected List<String> getEntryStringsForFilter(SelectionModel.Row entry)
         {
-            return List.of(entry.name().toLowerCase());
+            return List.of(entry.identity().name().toLowerCase());
         }
 
         @Override
-        protected PlayerEntryWidget createListEntryWidget(int x, int y, int listIndex, boolean isOdd, PlayerInfo entry)
+        protected PlayerEntryWidget createListEntryWidget(int x, int y, int listIndex, boolean isOdd, SelectionModel.Row entry)
         {
             return new PlayerEntryWidget(x, y, this.browserEntryWidth, this.browserEntryHeight, isOdd, entry, listIndex);
         }
@@ -557,12 +821,12 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
 
     // ========== 条目 Widget ==========
 
-    private class PlayerEntryWidget extends WidgetListEntryBase<PlayerInfo>
+    private class PlayerEntryWidget extends WidgetListEntryBase<SelectionModel.Row>
     {
-        private final PlayerInfo entry;
+        private final SelectionModel.Row entry;
         private final boolean isOdd;
 
-        public PlayerEntryWidget(int x, int y, int width, int height, boolean isOdd, PlayerInfo entry, int listIndex)
+        public PlayerEntryWidget(int x, int y, int width, int height, boolean isOdd, SelectionModel.Row entry, int listIndex)
         {
             super(x, y, width, height, entry, listIndex);
             this.entry = entry;
@@ -592,7 +856,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
             }
             if (this.isMouseOver(mouseX, mouseY))
             {
-                toggleSelection(this.entry.name());
+                toggleSelection(this.entry);
                 return true;
             }
             return false;
@@ -605,7 +869,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         /*public void render(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
         *///?}
         {
-            boolean isSelected = GuiPlayerSelectDialog.this.selected.contains(this.entry.name());
+            boolean isSelected = selectionModel.isSelected(this.entry);
 
             if (isSelected)
             {
@@ -627,7 +891,7 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
             // 选中标记
             String prefix = isSelected ? "✓ " : "  ";
             int nameColor = this.entry.online() ? 0xFF55FF55 : 0xFFAAAAAA;
-            this.drawString(drawContext, this.x + 4, this.y + 6, nameColor, prefix + this.entry.name());
+            this.drawString(drawContext, this.x + 4, this.y + 6, nameColor, prefix + this.entry.identity().name());
 
             // 在线状态
             if (this.entry.online())

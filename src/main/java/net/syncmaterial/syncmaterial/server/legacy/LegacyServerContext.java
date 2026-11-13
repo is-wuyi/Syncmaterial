@@ -47,6 +47,8 @@ public final class LegacyServerContext implements AutoCloseable {
     private final CollaborationManager collaboration;
     private final StagingAreaManager staging;
     private final LegacySubscriptions subscriptions = new LegacySubscriptions();
+    private final net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker teamRequests =
+            new net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker();
     private final Map<String, String> placementNames = new ConcurrentHashMap<>();
     private final LegacyTickTasks ticks;
     private SchematicFolderWatcher watcher;
@@ -140,6 +142,7 @@ public final class LegacyServerContext implements AutoCloseable {
     public CollaborationManager collaboration() { return collaboration; }
     public StagingAreaManager staging() { return staging; }
     public LegacySubscriptions subscriptions() { return subscriptions; }
+    public net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker teamRequests() { return teamRequests; }
     public State state() { return state.get(); }
 
     public boolean isOpen() {
@@ -297,6 +300,7 @@ public final class LegacyServerContext implements AutoCloseable {
             cleanup("区域管理器", staging::close);
             cleanup("协作管理器", collaboration::close);
             subscriptions.close();
+            teamRequests.clear();
             placementNames.clear();
             if (LegacyServerRegistry.get(server) == this) ProtocolHandshake.clear(server);
             cleanup("统计引擎", engine::shutdown);

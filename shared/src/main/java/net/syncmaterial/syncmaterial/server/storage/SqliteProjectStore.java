@@ -12,6 +12,10 @@ import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
 import net.syncmaterial.syncmaterial.core.ProjectState;
 import net.syncmaterial.syncmaterial.core.SchematicMetadata;
+import net.syncmaterial.syncmaterial.core.TeamState;
+import net.syncmaterial.syncmaterial.core.TeamOutcome;
+import net.syncmaterial.syncmaterial.core.TeamLimits;
+import net.syncmaterial.syncmaterial.core.TeamCommand;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,6 +29,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Predicate;
+import java.util.function.BooleanSupplier;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -56,13 +63,22 @@ public final class SqliteProjectStore implements AutoCloseable {
     private final FailureInjector failureInjector;
     private final long closeTimeoutMillis;
     private final AreaScanStore scanStore;
-    private final CountDownLatch closedLatch = new CountDownLatch(1);
+    /** Signalled by each completed close attempt; replaced only under {@link #gate}. */
+    private volatile CountDownLatch closeLatch = new CountDownLatch(1);
     private final ReentrantLock gate = new ReentrantLock();
 
     /** Guarded by {@link #gate}; set before the close barrier is queued. */
     private boolean closing;
 
     private volatile Connection connection;
+    /** Writer-thread state: why the native connection was discarded, so later jobs fail clearly. */
+    private volatile Throwable connectionDiscardReason;
+    /** Sealed or closing connection whose native close has not been confirmed yet. */
+    private volatile Connection discardedConnection;
+    /** Last physical close failure; the path lease is retained while this is set. */
+    private volatile Throwable closeFailure;
+    /** True while one finishClose attempt is queued or running; guarded by {@link #gate}. */
+    private volatile boolean closeInProgress;
     private volatile Thread writerThread;
     private volatile boolean closed;
 
@@ -331,6 +347,125 @@ public final class SqliteProjectStore implements AutoCloseable {
         }
     }
 
+    /**
+     * Applies a team intent. Roles and material admission are checked inside the writer
+     * transaction. Fences must be pure: never call the store or Minecraft from them.
+     * Once admitted, this transaction finishes before later serialized writes; a newer
+     * ingest/removal visible at admission rejects it instead of acting on stale materials.
+     */
+    public CompletableFuture<TeamOutcome> applyTeamCommand(TeamCommand command, PlayerIdentity actor,
+                                                          Predicate<ProjectSnapshot> currentMaterial,
+                                                          BooleanSupplier admission) {
+        try {
+            Objects.requireNonNull(command, "command");
+            Objects.requireNonNull(actor, "actor");
+            Objects.requireNonNull(currentMaterial, "currentMaterial");
+            Objects.requireNonNull(admission, "admission");
+            return transactionOnWriter("teamCommand", connection ->
+                    ProjectTeamWrites.apply(connection, command, actor, currentMaterial, admission));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Authoritative UUID-backed roles; empty means the project does not exist. */
+    public CompletableFuture<Optional<TeamState>> teamState(String projectId) {
+        try {
+            requireProjectId(projectId);
+            return readOnWriter("teamState", connection -> ProjectTeamReads.teamState(connection, projectId));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    public CompletableFuture<List<PlayerIdentity>> knownPlayers() {
+        return readOnWriter("knownPlayers", ProjectTeamReads::knownPlayers);
+    }
+
+    /** Bounded directory prioritizing this project's members; truncation is explicit. */
+    public CompletableFuture<net.syncmaterial.syncmaterial.core.KnownPlayers> knownPlayerDirectory(String projectId) {
+        try {
+            requireProjectId(projectId);
+            return readOnWriter("knownPlayerDirectory", connection ->
+                    ProjectTeamReads.knownPlayerDirectory(connection, projectId));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Resolves only requested targets using trusted server facts and complete name matches. */
+    public CompletableFuture<List<PlayerIdentity>> resolveTeamTargets(List<PlayerIdentity> requested,
+                                                                       List<PlayerIdentity> online,
+                                                                       List<PlayerIdentity> cached) {
+        try {
+            List<PlayerIdentity> targets = List.copyOf(Objects.requireNonNull(requested, "requested"));
+            List<PlayerIdentity> live = List.copyOf(Objects.requireNonNull(online, "online"));
+            List<PlayerIdentity> known = List.copyOf(Objects.requireNonNull(cached, "cached"));
+            if (targets.size() > TeamLimits.TARGETS || live.size() > TeamLimits.DIRECTORY || known.size() > 65_536) {
+                throw new IllegalArgumentException("Player resolution exceeds bounds");
+            }
+            return transactionOnWriter("resolveTeamTargets", connection -> {
+                try {
+                    return ProjectTeamReads.resolveTargets(connection, targets, live, known);
+                } catch (PlayersRepository.AmbiguousPlayerNameException | PlayersRepository.UnknownPlayerUuidException invalid) {
+                    throw new net.syncmaterial.syncmaterial.core.PlayerTargetException("Invalid or ambiguous player target", invalid);
+                }
+            });
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    public CompletableFuture<Boolean> joinAuthorized(String projectId, int materialId, PlayerIdentity actor,
+                                                     Predicate<ProjectSnapshot> currentMaterial,
+                                                     BooleanSupplier admission) {
+        return joinAuthorized(projectId, materialId, actor, Set.of(), currentMaterial, admission);
+    }
+
+    /** Self-claim policy and every reported inventory material are checked with the write. */
+    public CompletableFuture<Boolean> joinAuthorized(String projectId, int materialId, PlayerIdentity actor,
+                                                     Set<Integer> reportedMaterialIds,
+                                                     Predicate<ProjectSnapshot> currentMaterial,
+                                                     BooleanSupplier admission) {
+        try {
+            requireProjectId(projectId);
+            requireMaterialId(materialId);
+            Objects.requireNonNull(actor, "actor");
+            Set<Integer> reported = Set.copyOf(Objects.requireNonNull(reportedMaterialIds, "reportedMaterialIds"));
+            Objects.requireNonNull(currentMaterial, "currentMaterial");
+            Objects.requireNonNull(admission, "admission");
+            return transactionOnWriter("joinAuthorized", connection -> ProjectTeamWrites.joinAuthorized(connection,
+                    projectId, materialId, actor, reported, currentMaterial, admission));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Reconciles trusted server/cache identities only, without inventing offline UUIDs. */
+    public CompletableFuture<Void> reconcilePlayers(List<PlayerIdentity> players) {
+        try {
+            List<PlayerIdentity> snapshot = List.copyOf(Objects.requireNonNull(players, "players"));
+            if (snapshot.size() > TeamLimits.DIRECTORY) throw new IllegalArgumentException("Too many known players");
+            return transactionOnWriter("reconcilePlayers", connection -> {
+                PlayersRepository.reconcilePlayers(connection, snapshot);
+                return null;
+            });
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Reconciles identities and reports only role states that really changed. */
+    public CompletableFuture<Set<String>> reconcileTeamPlayers(List<PlayerIdentity> players) {
+        try {
+            List<PlayerIdentity> identities = List.copyOf(Objects.requireNonNull(players, "players"));
+            if (identities.size() > TeamLimits.DIRECTORY) throw new IllegalArgumentException("Too many known players");
+            return transactionOnWriter("reconcileTeamPlayers", connection -> TeamIdentityWrites.reconcile(connection, identities));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
     // ========== Areas (stable Foundation API) ==========
 
     /** All area configuration plus references and project names, read in one transaction. */
@@ -452,6 +587,12 @@ public final class SqliteProjectStore implements AutoCloseable {
 
     // ========== Package-private test support (not a public SQL surface) ==========
 
+    /** Test-only completion fence; does not restart close or change its production deadline. */
+    boolean awaitClosedForTesting(long timeout, TimeUnit unit) throws InterruptedException {
+        CountDownLatch attempt = closeLatch;
+        return attempt.await(timeout, unit) && closed;
+    }
+
     /**
      * Runs a fixture action on the writer thread inside a transaction. Tests use this to
      * seed owner/deputy/area rows; no SQL or connection is exposed publicly.
@@ -469,7 +610,7 @@ public final class SqliteProjectStore implements AutoCloseable {
     <T> CompletableFuture<T> readOnWriter(String operation, WriterWork<T> work) {
         try {
             Objects.requireNonNull(work, "work");
-            return submit(operation, () -> inReadTransaction(requireOpenConnection(), work::run));
+            return submit(operation, () -> inReadTransaction(operation, requireOpenConnection(), work::run));
         } catch (Throwable failure) {
             return failedFuture(failure);
         }
@@ -495,6 +636,7 @@ public final class SqliteProjectStore implements AutoCloseable {
     @Override
     public void close() {
         boolean self = Thread.currentThread() == writerThread;
+        CountDownLatch attempt;
 
         // One gate serializes submission with the close barrier: accepted jobs are queued
         // before finishClose, and every later submission sees closing. finishClose is the
@@ -506,33 +648,66 @@ public final class SqliteProjectStore implements AutoCloseable {
             }
             if (!closing) {
                 closing = true;
+                closeInProgress = true;
+                attempt = closeLatch;
                 if (self) {
-                    finishClose();
-                    writer.shutdown();
+                    finishClose(attempt);
+                    if (closed) {
+                        writer.shutdown();
+                    }
+                    if (!closed) {
+                        throw physicalCloseFailure();
+                    }
                     return;
                 }
-                try {
-                    writer.execute(this::finishClose);
-                } catch (RejectedExecutionException e) {
-                    throw new StorageException(
-                            "Cannot enqueue close because the writer is already shut down; "
-                                    + "path lease retained: " + dbPath, e);
+                enqueueClose(attempt);
+            } else if (self) {
+                // A close from the writer thread must never wait for its own queue. It may
+                // attempt once; on failure the writer stays alive for an external retry.
+                if (closeFailure != null) {
+                    throw physicalCloseFailure();
                 }
+                return;
+            } else if (closeInProgress) {
+                // Exactly one physical attempt may be in flight; every caller waits for it.
+                attempt = closeLatch;
+            } else if (closeFailure != null) {
+                // A previous attempt could not physically close the native handle. Keep the
+                // path lease and allow one explicit retry while the writer is still alive.
+                if (writer.isShutdown()) {
+                    throw physicalCloseFailure();
+                }
+                attempt = new CountDownLatch(1);
+                closeLatch = attempt;
+                closeInProgress = true;
+                enqueueClose(attempt);
+            } else {
+                // Only a completed attempt can leave this state, so wait on the last one.
+                attempt = closeLatch;
             }
         } finally {
             gate.unlock();
         }
 
-        if (self) {
-            // A close from the writer thread must never wait for its own queue.
-            return;
-        }
-
         try {
-            awaitClosed();
+            awaitClosed(attempt);
         } finally {
-            // Queued work is allowed to drain; finishClose still releases the path lease.
-            writer.shutdown();
+            // Keep the writer alive only after a physical close failure so a later close()
+            // can retry. Timeouts, interrupts and success keep the original shutdown behavior.
+            if (closed || closeFailure == null) {
+                writer.shutdown();
+            }
+        }
+    }
+
+    private void enqueueClose(CountDownLatch attempt) {
+        try {
+            writer.execute(() -> finishClose(attempt));
+        } catch (RejectedExecutionException e) {
+            closeInProgress = false;
+            throw new StorageException(
+                    "Cannot enqueue close because the writer is already shut down; "
+                            + "path lease retained: " + dbPath, e);
         }
     }
 
@@ -576,41 +751,100 @@ public final class SqliteProjectStore implements AutoCloseable {
             }
             StoreSchema.createTemporarySchema(opened);
         } catch (IOException | SQLException e) {
-            closeQuietly(opened);
-            connection = null;
+            discardDuringOpen(opened);
             throw new StorageException("Failed to initialize storage at " + dbPath, e);
         } catch (RuntimeException e) {
-            closeQuietly(opened);
-            connection = null;
+            discardDuringOpen(opened);
             throw e;
         }
     }
 
-    private void abortOpen() {
-        closeQuietly(connection);
+    private void discardDuringOpen(Connection opened) {
         connection = null;
-        PATH_LEASES.remove(dbPath, this);
-        closedLatch.countDown();
-        closed = true;
+        Throwable failure = closeConnection(opened);
+        if (failure != null) {
+            discardedConnection = opened;
+            closeFailure = failure;
+        }
+    }
+
+    private void abortOpen() {
+        Connection local = connection;
+        Connection retained = discardedConnection;
+        connection = null;
+        discardedConnection = null;
+
+        Connection unclosed = null;
+        Throwable failure = closeConnection(local);
+        if (failure != null) {
+            unclosed = local;
+        }
+        if (retained != null && retained != local) {
+            Throwable retainedFailure = closeConnection(retained);
+            if (retainedFailure != null && unclosed == null) {
+                unclosed = retained;
+            }
+            failure = mergeCloseFailures(failure, retainedFailure);
+        }
+
+        if (failure == null) {
+            PATH_LEASES.remove(dbPath, this);
+            closed = true;
+            closeFailure = null;
+        } else {
+            // A failed open must not release the path lease while its native connection
+            // may still be open.
+            discardedConnection = unclosed;
+            closeFailure = failure;
+        }
+        closeInProgress = false;
+        closeLatch.countDown();
         writer.shutdownNow();
     }
 
-    private void finishClose() {
+    private void finishClose(CountDownLatch attempt) {
+        Connection local = connection;
+        Connection retained = discardedConnection;
+        connection = null;
+        discardedConnection = null;
+
+        Connection unclosed = null;
+        Throwable failure = closeConnection(local);
+        if (failure != null) {
+            unclosed = local;
+        }
+        if (retained != null && retained != local) {
+            Throwable retainedFailure = closeConnection(retained);
+            if (retainedFailure != null && unclosed == null) {
+                unclosed = retained;
+            }
+            failure = mergeCloseFailures(failure, retainedFailure);
+        }
+
         // Publish closed only after the native connection is gone and the path lease is
         // released, otherwise an early closed check could let a caller reopen too soon.
-        closeQuietly(connection);
-        connection = null;
-        PATH_LEASES.remove(dbPath, this);
-        closedLatch.countDown();
-        closed = true;
+        if (failure == null) {
+            PATH_LEASES.remove(dbPath, this);
+            closed = true;
+            closeFailure = null;
+        } else {
+            // The native connection may still be open: retain both the handle and the path
+            // lease so no second store can ever open the same database over it.
+            discardedConnection = unclosed;
+            closeFailure = failure;
+        }
+        // Clear the in-flight marker before waking waiters so concurrent callers observe a
+        // completed attempt and may join exactly one new retry rather than queue duplicates.
+        closeInProgress = false;
+        attempt.countDown();
     }
 
-    private void awaitClosed() {
+    private void awaitClosed(CountDownLatch attempt) {
         if (closed) {
             return;
         }
         try {
-            if (!closedLatch.await(closeTimeoutMillis, TimeUnit.MILLISECONDS)) {
+            if (!attempt.await(closeTimeoutMillis, TimeUnit.MILLISECONDS)) {
                 throw new StorageException(
                         "Timed out after " + closeTimeoutMillis
                                 + " ms waiting for SqliteProjectStore close; path lease retained: " + dbPath);
@@ -620,18 +854,51 @@ public final class SqliteProjectStore implements AutoCloseable {
             throw new StorageException(
                     "Interrupted while waiting for SqliteProjectStore close; path lease retained: " + dbPath, e);
         }
+        if (!closed) {
+            throw physicalCloseFailure();
+        }
+    }
+
+    private StorageException physicalCloseFailure() {
+        return new StorageException(
+                "Failed to physically close SqliteProjectStore; path lease retained: " + dbPath,
+                closeFailure);
+    }
+
+    /** Closes one handle, returning the failure instead of pretending the native close worked. */
+    private static Throwable closeConnection(Connection connection) {
+        if (connection == null) {
+            return null;
+        }
+        try {
+            connection.close();
+            return null;
+        } catch (Throwable failure) {
+            return failure;
+        }
+    }
+
+    private static Throwable mergeCloseFailures(Throwable first, Throwable second) {
+        if (first == null) {
+            return second;
+        }
+        if (second != null && second != first) {
+            first.addSuppressed(second);
+        }
+        return first;
     }
 
     // ========== Writer-thread writes ==========
 
     private Optional<ProjectSnapshot> findProjectOnWriter(String projectId) throws SQLException {
         Connection current = requireOpenConnection();
-        return inReadTransaction(current, connection -> ProjectReads.findProject(connection, projectId));
+        return inReadTransaction(
+                "findProject", current, connection -> ProjectReads.findProject(connection, projectId));
     }
 
     private Optional<ProjectState> snapshotOnWriter(String projectId) throws SQLException {
         Connection current = requireOpenConnection();
-        return inReadTransaction(current, connection -> {
+        return inReadTransaction("snapshot", current, connection -> {
             Optional<ProjectSnapshot> project = ProjectReads.findProject(connection, projectId);
             if (project.isEmpty()) {
                 return Optional.empty();
@@ -644,39 +911,79 @@ public final class SqliteProjectStore implements AutoCloseable {
 
     private List<ProjectSnapshot> listProjectsOnWriter() throws SQLException {
         Connection current = requireOpenConnection();
-        return inReadTransaction(current, ProjectReads::listProjects);
+        return inReadTransaction("listProjects", current, ProjectReads::listProjects);
     }
 
     private Map<Integer, Long> inventoryOnWriter(String projectId, PlayerIdentity player) throws SQLException {
         Connection current = requireOpenConnection();
         return inReadTransaction(
-                current, connection -> ProjectReads.inventory(connection, projectId, player));
+                "inventory", current, connection -> ProjectReads.inventory(connection, projectId, player));
     }
 
     private List<ClaimSnapshot> claimsOnWriter(String projectId) throws SQLException {
         Connection current = requireOpenConnection();
-        return inReadTransaction(current, connection -> ProjectReads.claims(connection, projectId));
+        return inReadTransaction(
+                "claims", current, connection -> ProjectReads.claims(connection, projectId));
     }
 
     // ========== SQL helpers ==========
 
     private <T> T inTransaction(String operation, SqlWork<T> work) throws SQLException {
-        Connection current = requireOpenConnection();
-        boolean restoreAutoCommit = current.getAutoCommit();
-        if (restoreAutoCommit) {
-            current.setAutoCommit(false);
+        return runTransaction(requireOpenConnection(), operation, work, true);
+    }
+
+    private <T> T inReadTransaction(String operation, Connection current, SqlWork<T> work)
+            throws SQLException {
+        return runTransaction(current, operation, work, false);
+    }
+
+    /**
+     * Runs one write or read transaction on the writer connection.
+     *
+     * <p>The caller's autoCommit mode is restored only after a successful commit or
+     * rollback. Re-enabling autoCommit after a failed rollback would commit the residual
+     * transaction, so in that case the native connection is closed and discarded instead;
+     * later jobs fail without touching it. A failure to restore autoCommit is surfaced as
+     * the operation's failure rather than ignored, and also seals the connection because
+     * its mode is no longer known.</p>
+     */
+    private <T> T runTransaction(Connection current, String operation, SqlWork<T> work, boolean write)
+            throws SQLException {
+        boolean restoreAutoCommit;
+        try {
+            restoreAutoCommit = current.getAutoCommit();
+            if (restoreAutoCommit) {
+                current.setAutoCommit(false);
+            }
+        } catch (Throwable failure) {
+            // The connection's mode or transaction state is unknown before any work ran.
+            // Never let later jobs reuse it; no commit/rollback is attempted here.
+            discardConnection(current, failure);
+            if (failure instanceof SQLException sqlException) {
+                throw sqlException;
+            }
+            if (failure instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (failure instanceof Error error) {
+                throw error;
+            }
+            throw new StorageException("Failed to start " + operation + " transaction", failure);
         }
 
+        T result;
         try {
-            T result = work.run(current);
-            failureInjector.beforeCommit(operation);
+            result = work.run(current);
+            if (write) {
+                failureInjector.beforeCommit(operation);
+            }
             current.commit();
-            return result;
         } catch (Throwable failure) {
-            try {
-                current.rollback();
-            } catch (Throwable rollbackFailure) {
-                failure.addSuppressed(rollbackFailure);
+            boolean rolledBack = rollback(current, failure);
+            if (!rolledBack) {
+                discardConnection(current, failure);
+            } else if (restoreAutoCommit && !tryRestoreAutoCommit(current, failure)) {
+                discardConnection(current, failure);
             }
 
             if (failure instanceof SQLException sqlException) {
@@ -688,53 +995,71 @@ public final class SqliteProjectStore implements AutoCloseable {
             if (failure instanceof Error error) {
                 throw error;
             }
-            throw new StorageException("Fault injection failed during " + operation, failure);
-        } finally {
-            if (restoreAutoCommit) {
-                try {
-                    current.setAutoCommit(true);
-                } catch (SQLException ignored) {
-                    // The connection is no longer usable; later operations fail on their own.
+            throw new StorageException(write
+                    ? "Fault injection failed during " + operation
+                    : "Read transaction failed", failure);
+        }
+
+        if (restoreAutoCommit) {
+            try {
+                current.setAutoCommit(true);
+            } catch (Throwable restoreFailure) {
+                discardConnection(current, restoreFailure);
+                if (restoreFailure instanceof Error error) {
+                    throw error;
                 }
+                // The commit is durable exactly once. This exact exception type escapes
+                // submit unchanged so the runtime can resync instead of re-executing.
+                throw new CommittedStorageException(operation, result, restoreFailure);
             }
+        }
+        return result;
+    }
+
+    /** Rolls back, attaching the rollback failure as suppressed to the primary failure. */
+    private static boolean rollback(Connection current, Throwable primary) {
+        try {
+            current.rollback();
+            return true;
+        } catch (Throwable rollbackFailure) {
+            if (rollbackFailure != primary) {
+                primary.addSuppressed(rollbackFailure);
+            }
+            return false;
         }
     }
 
-    private static <T> T inReadTransaction(Connection current, SqlWork<T> work) throws SQLException {
-        boolean restoreAutoCommit = current.getAutoCommit();
-        if (restoreAutoCommit) {
-            current.setAutoCommit(false);
-        }
-
+    /** Restores autoCommit after a successful rollback; false means the mode is unknown. */
+    private static boolean tryRestoreAutoCommit(Connection current, Throwable primary) {
         try {
-            T result = work.run(current);
-            current.commit();
-            return result;
-        } catch (Throwable failure) {
-            try {
-                current.rollback();
-            } catch (Throwable rollbackFailure) {
-                failure.addSuppressed(rollbackFailure);
+            current.setAutoCommit(true);
+            return true;
+        } catch (Throwable restoreFailure) {
+            if (restoreFailure != primary) {
+                primary.addSuppressed(restoreFailure);
             }
+            return false;
+        }
+    }
 
-            if (failure instanceof SQLException sqlException) {
-                throw sqlException;
-            }
-            if (failure instanceof RuntimeException runtimeException) {
-                throw runtimeException;
-            }
-            if (failure instanceof Error error) {
-                throw error;
-            }
-            throw new StorageException("Read transaction failed", failure);
-        } finally {
-            if (restoreAutoCommit) {
-                try {
-                    current.setAutoCommit(true);
-                } catch (SQLException ignored) {
-                    // The connection is no longer usable; later operations fail on their own.
-                }
-            }
+    /**
+     * Physically closes the native connection and prevents later jobs from reusing it.
+     * The path lease is still released only by the close attempt, after this physical close.
+     */
+    private void discardConnection(Connection failed, Throwable reason) {
+        connectionDiscardReason = reason;
+        if (connection == failed) {
+            connection = null;
+        }
+        Throwable failure = closeConnection(failed);
+        if (failure == null) {
+            return;
+        }
+        // The native handle is still open. Keep it for a later physical close instead of
+        // releasing the path lease over a live connection.
+        discardedConnection = failed;
+        if (failure != reason) {
+            reason.addSuppressed(failure);
         }
     }
 
@@ -745,50 +1070,62 @@ public final class SqliteProjectStore implements AutoCloseable {
                 return failedFuture(closedException());
             }
 
-            // Inline execution avoids self-deadlock when a completion callback running on
-            // the writer thread calls back into the store. The previous transaction has
-            // already committed by the time a future completes.
-            if (Thread.currentThread() == writerThread) {
+            if (Thread.currentThread() != writerThread) {
+                CompletableFuture<T> future = new CompletableFuture<>();
                 try {
-                    return CompletableFuture.completedFuture(action.call());
-                } catch (SQLException sqlException) {
-                    return failedFuture(new StorageException(operation + " failed", sqlException));
-                } catch (Throwable failure) {
-                    return failedFuture(failure);
+                    writer.execute(() -> {
+                        if (closed) {
+                            future.completeExceptionally(closedException());
+                            return;
+                        }
+                        try {
+                            future.complete(action.call());
+                        } catch (SQLException sqlException) {
+                            future.completeExceptionally(
+                                    new StorageException(operation + " failed", sqlException));
+                        } catch (Throwable failure) {
+                            future.completeExceptionally(failure);
+                        }
+                    });
+                } catch (RejectedExecutionException rejected) {
+                    future.completeExceptionally(closedException());
                 }
+                return future;
             }
-
-            CompletableFuture<T> future = new CompletableFuture<>();
-            try {
-                writer.execute(() -> {
-                    if (closed) {
-                        future.completeExceptionally(closedException());
-                        return;
-                    }
-                    try {
-                        future.complete(action.call());
-                    } catch (SQLException sqlException) {
-                        future.completeExceptionally(new StorageException(operation + " failed", sqlException));
-                    } catch (Throwable failure) {
-                        future.completeExceptionally(failure);
-                    }
-                });
-            } catch (RejectedExecutionException rejected) {
-                future.completeExceptionally(closedException());
-            }
-            return future;
         } finally {
             gate.unlock();
+        }
+
+        // Reaching here means this job was admitted from the writer thread, so inline
+        // execution avoids waiting for our own queue. Run it only after the gate is
+        // released: external completion callbacks may take monitors (for example
+        // IngestService) whose holders can submit back into the store. Close still queues
+        // finishClose behind this already-running writer task, so the connection stays open.
+        try {
+            return CompletableFuture.completedFuture(action.call());
+        } catch (SQLException sqlException) {
+            return failedFuture(new StorageException(operation + " failed", sqlException));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
         }
     }
 
     private Connection requireOpenConnection() {
         assertWriterThread();
-        Connection current = connection;
-        if (closed || current == null) {
-            throw new IllegalStateException(CLOSED_MESSAGE);
+        if (closed) {
+            throw closedException();
         }
-        return current;
+        Connection current = connection;
+        if (current != null) {
+            return current;
+        }
+        Throwable discardReason = connectionDiscardReason;
+        if (discardReason != null) {
+            throw new StorageException(
+                    "SQLite connection was discarded after a transaction failure; "
+                            + "queued operations cannot run", discardReason);
+        }
+        throw closedException();
     }
 
     private void assertWriterThread() {
@@ -831,17 +1168,6 @@ public final class SqliteProjectStore implements AutoCloseable {
             throw new IllegalArgumentException(field + " must not be blank");
         }
         return value;
-    }
-
-    private static void closeQuietly(Connection connection) {
-        if (connection == null) {
-            return;
-        }
-        try {
-            connection.close();
-        } catch (SQLException ignored) {
-            // Closing is best-effort; the caller is already handling a failure or shutdown.
-        }
     }
 
     /** Test-only seam: may throw to force rollback at the end of a transaction. */

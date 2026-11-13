@@ -89,6 +89,8 @@ public class DisconnectCleanupClientGameTest implements FabricClientGameTest {
                 if (ClientProtocolState.isUsable()) {
                     sb.append("协议握手状态未重置；");
                 }
+                if (!sb.isEmpty()) sb.append("连接代次=").append(net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken())
+                        .append("，当前界面=").append(net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(client));
                 return sb.toString();
             });
 

@@ -16,7 +16,9 @@ import fi.dy.masa.malilib.gui.button.ButtonOnOff;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetMaterialListEntry;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase.SortCriteria;
-import net.syncmaterial.syncmaterial.network.OwnerActionC2SPacket;
+import net.syncmaterial.syncmaterial.client.TeamManagementClient;
+import net.syncmaterial.syncmaterial.core.PlayerIdentity;
+import net.syncmaterial.syncmaterial.core.TeamState;
 import net.syncmaterial.syncmaterial.network.RescanStagingAreaC2SPacket;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -31,6 +33,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private String ownerName;
     private List<String> deputyOwners;
     private boolean allowSelfClaim;
+    /** 最近一次权威团队状态；旧服务端没有该对象，身份只能回退为名字。 */
+    private TeamState teamState;
     private boolean filterMyMaterials = false;
     // 取货模式状态与需求量统一由 PickupModeState 持有（见该类注释）
     private List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessWarnings = java.util.Collections.emptyList();
@@ -460,11 +464,17 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     public void toggleSelfClaim() {
-        ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "TOGGLE_SELF_CLAIM", ""));
+        String error = TeamManagementClient.toggleSelfClaim(this);
+        if (error != null) {
+            InfoUtils.showGuiOrActionBarMessage(MessageType.ERROR, error);
+        }
     }
 
     public void removeDeputy(String target) {
-        ClientPlayNetworking.send(new OwnerActionC2SPacket(this.materialList.getSchematicId(), "REMOVE_DEPUTY", target));
+        String error = TeamManagementClient.removeDeputy(this, target);
+        if (error != null) {
+            InfoUtils.showGuiOrActionBarMessage(MessageType.ERROR, error);
+        }
     }
 
     private int createButtonClose(int x, int y) {
@@ -500,26 +510,127 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     /**
-     * 负责人体系数据更新（数据真身在本类，右栏每次刷新从这里读）。
-     * 弹窗确认的响应走 receiver → 弹窗 → 本方法，之后 openGui(parent) 触发
-     * setScreen → initGui 重建右栏，此时本界面不是 currentScreen，跳过避免双重重建；
-     * 右栏 × 移除 / 开关的响应（无弹窗）走本类兜底回调，此时需要显式重建。
+     * 协议 4 权威团队状态落地：角色以 UUID 为准，名字只用于显示。
+     * 只更新权限与右栏数据，绝不触碰材料目录、区域库存或当前界面栈。
      */
-    public void updateOwnerState(String newOwnerName, List<String> newDeputyOwners, boolean newAllowSelfClaim) {
-        if (newOwnerName != null) {
-            this.ownerName = newOwnerName;
-            // 转让后身份实时收敛：主负责人专属按钮（转让/×/添加）的显隐依赖
-            // isMainOwner，不更新的话旧主负责人界面上会残留幽灵按钮，
-            // 点击只会收到服务端的权限拒绝
-            if (this.mc != null && this.mc.player != null) {
-                this.isMainOwner = newOwnerName.equals(this.mc.player.getName().getString());
+    public void applyTeamState(TeamState state, PlayerIdentity localPlayer) {
+        if (state == null || !state.projectId().equals(this.materialList.getSchematicId())) {
+            return;
+        }
+        this.teamState = state;
+        String newOwnerName = state.owner().name();
+        List<String> newDeputies = new ArrayList<>(state.deputyNames());
+        boolean newAllowSelfClaim = state.allowSelfClaim();
+        boolean oldOwner = this.isOwner;
+        boolean oldMainOwner = this.isMainOwner;
+        boolean newMainOwner = localPlayer != null ? state.isMainOwner(localPlayer) : oldMainOwner;
+        boolean newOwner = localPlayer != null ? state.isOwner(localPlayer) : oldOwner;
+        // 名字/副名单不变但本地身份升级（或 allowNameAuthority 策略变化）也必须重建右栏
+        boolean roleChanged = oldOwner != newOwner || oldMainOwner != newMainOwner
+                || !this.ownerName.equals(newOwnerName)
+                || !this.deputyOwners.equals(newDeputies)
+                || this.allowSelfClaim != newAllowSelfClaim;
+
+        this.ownerName = newOwnerName;
+        this.deputyOwners = newDeputies;
+        this.allowSelfClaim = newAllowSelfClaim;
+        if (localPlayer != null) {
+            this.isMainOwner = newMainOwner;
+            this.isOwner = newOwner;
+        }
+        this.materialList.setAllowSelfClaim(newAllowSelfClaim);
+        this.materialList.setIsOwner(this.isOwner);
+
+        if (roleChanged) {
+            refreshManagementPanel();
+        }
+    }
+
+    /**
+     * 旧服务端只有名字，没有 UUID。成功响应才会走到这里；空负责人或缺失名单
+     * 不覆盖已有状态，避免失败回包把界面清成"无主"的假状态。
+     */
+    public void applyLegacyOwnerState(String newOwnerName, List<String> newDeputyOwners,
+                                      boolean newAllowSelfClaim) {
+        boolean changed = false;
+        String localName = localPlayerName();
+        if (newOwnerName != null && !newOwnerName.isBlank()) {
+            if (!newOwnerName.equals(this.ownerName)) {
+                this.ownerName = newOwnerName;
+                changed = true;
+            }
+            boolean main = newOwnerName.equals(localName);
+            if (main != this.isMainOwner) {
+                this.isMainOwner = main;
+                changed = true;
             }
         }
-        if (newDeputyOwners != null) this.deputyOwners = new ArrayList<>(newDeputyOwners);
-        this.allowSelfClaim = newAllowSelfClaim;
+        if (newDeputyOwners != null) {
+            List<String> deputies = new ArrayList<>(newDeputyOwners);
+            if (!deputies.equals(this.deputyOwners)) {
+                this.deputyOwners = deputies;
+                changed = true;
+            }
+        }
+        boolean owner = this.isMainOwner || this.deputyOwners.stream()
+                .anyMatch(deputy -> deputy.equalsIgnoreCase(localName));
+        if (owner != this.isOwner) {
+            this.isOwner = owner;
+            changed = true;
+        }
+        if (this.allowSelfClaim != newAllowSelfClaim) {
+            this.allowSelfClaim = newAllowSelfClaim;
+            changed = true;
+        }
         this.materialList.setAllowSelfClaim(newAllowSelfClaim);
-        if (isOwner && net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(this.mc) == this) {
-            this.initGui(); // 副负责人行数/开关状态可能变了，重建右栏
+        this.materialList.setIsOwner(this.isOwner);
+        if (changed) {
+            refreshManagementPanel();
+        }
+    }
+
+    public void updateOwnerState(String newOwnerName, List<String> newDeputyOwners, boolean newAllowSelfClaim) {
+        applyLegacyOwnerState(newOwnerName, newDeputyOwners, newAllowSelfClaim);
+    }
+
+    private void refreshManagementPanel() {
+        if (this.mc != null
+                && net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(this.mc) == this) {
+            this.initGui(); // 副负责人行数/开关状态/右栏显隐可能变了，重建
+        }
+    }
+
+    private String localPlayerName() {
+        return this.mc != null && this.mc.player != null ? this.mc.player.getName().getString() : "";
+    }
+
+    /** 最近一次权威团队状态（协议 4）；旧服务端为 null。 */
+    public TeamState getTeamState() {
+        return this.teamState;
+    }
+
+    /** 移除副负责人时的身份来源：有权威状态用 UUID，没有则回退为未解析名字。 */
+    public List<PlayerIdentity> getDeputyIdentities() {
+        if (this.teamState != null) {
+            return this.teamState.deputies();
+        }
+        List<PlayerIdentity> identities = new ArrayList<>(this.deputyOwners.size());
+        for (String deputy : this.deputyOwners) {
+            identities.add(new PlayerIdentity(null, deputy));
+        }
+        return identities;
+    }
+
+    public PlayerIdentity getOwnerIdentity() {
+        if (this.teamState != null) {
+            return this.teamState.owner();
+        }
+        return this.ownerName.isBlank() ? null : new PlayerIdentity(null, this.ownerName);
+    }
+
+    public void onTeamFeedback(boolean success, String message) {
+        if (message != null && !message.isEmpty()) {
+            InfoUtils.showGuiOrActionBarMessage(success ? MessageType.SUCCESS : MessageType.ERROR, message);
         }
     }
 
@@ -654,7 +765,16 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         // 数据源必须随 HUD 存续（与 1.21.7 实际行为一致——当时的 close() 重写
         // 是 malilib Esc 路径不会调用的死代码，clearContext 从未执行过）。
         // 真正的清理在原理图删除时由 SyncMaterialClient.clearActiveSchematic 统一做。
+        TeamManagementClient.onMaterialListClosed(this);
         super.closeGui(showParent);
+    }
+
+    @Override
+    public void removed() {
+        // 标准 setScreen 路径不调用 closeGui；打开子弹窗时父列表同样会收到 removed，
+        // 因此这里只失效直接绑定父界面的请求，弹窗自己的请求由弹窗 removed 处理。
+        TeamManagementClient.onMaterialListRemoved(this);
+        super.removed();
     }
 
     @Override

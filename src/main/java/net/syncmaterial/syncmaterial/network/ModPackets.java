@@ -64,6 +64,10 @@ public class ModPackets {
     // 区域库存权威快照（协议 3，与材料目录投递序号绑定）
     public static final Identifier AREA_INVENTORY_SNAPSHOT = id("area_inventory_snapshot");
 
+    // 项目／请求关联的团队管理（协议 4）
+    public static final Identifier TEAM_COMMAND = id("team_command");
+    public static final Identifier TEAM_RESPONSE = id("team_response");
+
     private static Identifier id(String path) {
         return Identifier.fromNamespaceAndPath(NAMESPACE, path);
     }
@@ -114,6 +118,10 @@ public class ModPackets {
 
     // 区域库存权威快照（协议 3，与材料目录投递序号绑定）
     public static final ResourceLocation AREA_INVENTORY_SNAPSHOT = id("area_inventory_snapshot");
+
+    // 项目／请求关联的团队管理（协议 4）
+    public static final ResourceLocation TEAM_COMMAND = id("team_command");
+    public static final ResourceLocation TEAM_RESPONSE = id("team_response");
 
     private static ResourceLocation id(String path) {
         return ResourceLocation.fromNamespaceAndPath(NAMESPACE, path);

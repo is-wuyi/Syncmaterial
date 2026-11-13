@@ -40,6 +40,9 @@ public final class ServerRuntime implements AutoCloseable {
     private final String interpretationId;
     private final AreaScanService areas;
     private final OnlineInventoryTracker inventories = new OnlineInventoryTracker();
+    private final TeamManagementService teams;
+    private final TeamRequestTracker teamRequests = new TeamRequestTracker();
+    private final Set<String> pendingTeamChanges = ConcurrentHashMap.newKeySet();
     private final MaterialCatalogTracker catalogs = new MaterialCatalogTracker();
     private final Map<UUID, Set<String>> subscriptions = new ConcurrentHashMap<>();
     private final Consumer<String> onProjectChanged;
@@ -68,6 +71,9 @@ public final class ServerRuntime implements AutoCloseable {
         // Instantiate the scanner before attaching the lifecycle hook: the hook may
         // synchronously observe or drive the runtime during attach.
         this.areas = new AreaScanService(epoch, this::projectChanged, store);
+        this.teams = new TeamManagementService(store, inventories, discoveryExecutor,
+                this::isMaterialSnapshotCurrent, this::isOpen, this::projectChanged,
+                projectId -> { if (isOpen()) pendingTeamChanges.add(projectId); });
         this.lifecycleHook = lifecycleHook == null ? LifecycleHook.NONE : lifecycleHook;
         try {
             this.lifecycleHook.attach(this);
@@ -131,6 +137,24 @@ public final class ServerRuntime implements AutoCloseable {
 
     public SqliteProjectStore store() {
         return store;
+    }
+
+    public TeamManagementService teams() {
+        return teams;
+    }
+
+    public TeamRequestTracker teamRequests() {
+        return teamRequests;
+    }
+
+    /** Platform ticks consume role changes separately from material-catalog changes. */
+    public Set<String> takeTeamChanges() {
+        if (!isOpen()) return Set.of();
+        Set<String> changed = new java.util.HashSet<>();
+        for (String projectId : Set.copyOf(pendingTeamChanges)) {
+            if (pendingTeamChanges.remove(projectId)) changed.add(projectId);
+        }
+        return Set.copyOf(changed);
     }
 
     /** Runtime-owned area scanner; platform sources attach after the runtime opens. */
@@ -200,6 +224,7 @@ public final class ServerRuntime implements AutoCloseable {
         Set<String> projects = subscriptions.remove(playerId);
         inventories.disconnected(playerId);
         catalogs.disconnected(playerId);
+        teamRequests.disconnected(playerId);
         if (projects != null) projects.forEach(this::projectChanged);
     }
 
@@ -298,6 +323,9 @@ public final class ServerRuntime implements AutoCloseable {
             inventories.clear();
             subscriptions.clear();
             pendingChanges.clear();
+            pendingTeamChanges.clear();
+            teamRequests.clear();
+            teams.clear();
             catalogs.clear();
             store.close();
         }

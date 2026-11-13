@@ -60,6 +60,7 @@ public class ModNetworkHandler {
         PayloadRegistrar.c2s(BatchAssignC2SPacket.ID, BatchAssignC2SPacket.CODEC);
         PayloadRegistrar.c2s(KickFromMaterialC2SPacket.ID, KickFromMaterialC2SPacket.CODEC);
         PayloadRegistrar.c2s(PlayerListRequestC2SPacket.ID, PlayerListRequestC2SPacket.CODEC);
+        PayloadRegistrar.c2s(TeamCommandC2SPacket.ID, TeamCommandC2SPacket.CODEC);
         PayloadRegistrar.c2s(MaterialListCloseC2SPacket.ID, MaterialListCloseC2SPacket.CODEC);
         // Phase 5
         PayloadRegistrar.c2s(WarehouseContainerRequestC2SPacket.ID, WarehouseContainerRequestC2SPacket.CODEC);
@@ -77,6 +78,7 @@ public class ModNetworkHandler {
         PayloadRegistrar.s2c(BatchAssignResponseS2CPacket.ID, BatchAssignResponseS2CPacket.CODEC);
         PayloadRegistrar.s2c(KickFromMaterialResponseS2CPacket.ID, KickFromMaterialResponseS2CPacket.CODEC);
         PayloadRegistrar.s2c(PlayerListResponseS2CPacket.ID, PlayerListResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(TeamResponseS2CPacket.ID, TeamResponseS2CPacket.CODEC);
         // Phase 5
         PayloadRegistrar.s2c(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
         PayloadRegistrar.s2c(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
@@ -503,6 +505,7 @@ public class ModNetworkHandler {
 
             ServerPlayNetworking.send(player, new MaterialStatsResponseS2CPacket(
                     schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim));
+            Phase4Handler.sendInitialTeam(owner, player, schematicId);
 
             for (var status : statuses) {
                 ServerPlayNetworking.send(player, status);
@@ -719,6 +722,8 @@ public class ModNetworkHandler {
                 // 排队期间的上下文切换不能再清另一个实例的订阅。
                 if (LegacyServerRegistry.get(server) != owner) return;
                 owner.subscriptions().forgetPlayer(player);
+                var current = server.getPlayerList().getPlayer(player.getUUID());
+                if (current == null || current == player) owner.teamRequests().disconnected(player.getUUID());
                 var manager = owner.staging();
                 if (manager != null) {
                     manager.unsubscribeAll(player);

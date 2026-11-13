@@ -67,49 +67,48 @@ public class ModNetworkHandlerClient {
             });
         });
 
-        // Phase 4: 负责人操作响应（选择弹窗打开中 → 弹窗；否则 → 材料列表右栏兜底）
+        // 协议 4：项目/请求关联的团队状态与操作结果，统一交给客户端关联层。
+        // 连接代次在接收线程先捕获，避免排队到客户端线程前断线重进后错用旧包。
+        ClientPlayNetworking.registerGlobalReceiver(TeamResponseS2CPacket.ID, (payload, context) -> {
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> {
+                net.syncmaterial.syncmaterial.client.TeamManagementClient
+                        .onTeamResponse(token, payload.response());
+            });
+        });
+
+        // 旧服务端（协议 < 4）：冻结包没有 requestId/项目，交给旧模式 FIFO 关联；
+        // 只有匹配到原始请求的回包才会落地，不再按“当前屏幕类型”直接更新界面。
         ClientPlayNetworking.registerGlobalReceiver(OwnerActionResponseS2CPacket.ID, (payload, context) -> {
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
             context.client().execute(() -> {
-                var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
-                    select.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
-                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
-                    materialListScreen.onOwnerActionResponse(payload.success(), payload.message(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
-                }
+                net.syncmaterial.syncmaterial.client.TeamManagementClient
+                        .onLegacyOwnerActionResponse(token, payload);
             });
         });
 
-        // Phase 4: 批量分配响应
         ClientPlayNetworking.registerGlobalReceiver(BatchAssignResponseS2CPacket.ID, (payload, context) -> {
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
             context.client().execute(() -> {
-                var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
-                    select.onBatchAssignResponse(payload.success(), payload.message());
-                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
-                    materialListScreen.onBatchAssignResponse(payload.success(), payload.message());
-                }
+                net.syncmaterial.syncmaterial.client.TeamManagementClient
+                        .onLegacyBatchAssignResponse(token, payload);
             });
         });
 
-        // Phase 4: 踢出响应
         ClientPlayNetworking.registerGlobalReceiver(KickFromMaterialResponseS2CPacket.ID, (payload, context) -> {
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
             context.client().execute(() -> {
-                var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
-                    select.onKickResponse(payload.success(), payload.message());
-                } else if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
-                    materialListScreen.onKickResponse(payload.success(), payload.message());
-                }
+                net.syncmaterial.syncmaterial.client.TeamManagementClient
+                        .onLegacyKickResponse(token, payload);
             });
         });
 
-        // Phase 4: 玩家列表响应（请求必由玩家选择弹窗发起，直接路由给它）
+        // 旧服务端玩家列表：只能回到发起请求的那个弹窗
         ClientPlayNetworking.registerGlobalReceiver(PlayerListResponseS2CPacket.ID, (payload, context) -> {
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
             context.client().execute(() -> {
-                var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog select) {
-                    select.onPlayerListResponse(payload.players());
-                }
+                net.syncmaterial.syncmaterial.client.TeamManagementClient
+                        .onLegacyPlayerListResponse(token, payload.players());
             });
         });
 

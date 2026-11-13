@@ -65,6 +65,10 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
 
             // 假人上线
             MockBot bot = MockBot.spawn(server, BOT_NAME);
+            var botIdentity = server.computeOnServer(instance -> {
+                var current = instance.getPlayerList().getPlayerByName(BOT_NAME);
+                return new net.syncmaterial.syncmaterial.core.PlayerIdentity(current.getUUID(), BOT_NAME);
+            });
             ctx.waitTicks(5);
 
             // Player0 以 owner 身份打开材料列表
@@ -102,10 +106,14 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
             if (!botListed) {
                 throw new AssertionError("在线假人未出现在玩家选择弹窗中");
             }
+            if (!ctx.computeOnClient(client -> ((GuiPlayerSelectDialog) ClientScreenAccess.currentScreen(client))
+                    .getAvailablePlayerIdentities().stream().anyMatch(identity -> botIdentity.uuid().equals(identity.uuid())))) {
+                throw new AssertionError("玩家目录必须包含当前在线假人的准确 UUID");
+            }
 
             ctx.runOnClient(client -> {
                 if (ClientScreenAccess.currentScreen(client) instanceof GuiPlayerSelectDialog d) {
-                    d.selectPlayer(BOT_NAME);
+                    d.selectPlayer(botIdentity);
                     d.confirmSelection();
                 } else {
                     throw new AssertionError("分配弹窗未打开");
@@ -154,7 +162,7 @@ public class BatchAssignKickClientGameTest implements FabricClientGameTest {
 
             ctx.runOnClient(client -> {
                 if (ClientScreenAccess.currentScreen(client) instanceof GuiPlayerSelectDialog d) {
-                    d.selectPlayer(BOT_NAME);
+                    d.selectPlayer(botIdentity);
                     d.confirmSelection();
                 } else {
                     throw new AssertionError("踢出弹窗未打开");

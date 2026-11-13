@@ -186,7 +186,7 @@ afterEvaluate {
         source sourceSets.gametest
         property 'syncmaterial.backend', 'foundation'
         property 'fabric-api.gametest', ''
-        property 'fabric-api.gametest.filter', 'syncmaterial-foundation-test:foundation_server_game_test_*'
+        property 'fabric-api.gametest.filter', 'syncmaterial-foundation-test:foundation_*'
         runDir = new File(runRoot, 'foundation-server').absolutePath
     }
     loom.runs.create('foundationClientGameTest') {

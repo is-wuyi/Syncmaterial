@@ -42,13 +42,16 @@ class Phase4HandlerTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         support = new LegacyNetworkTestSupport("Operator1");
         db = support.db;
         cm = support.collaboration;
         server = support.server;
         player = support.player;
         owner = support.owner;
+        when(owner.teamRequests()).thenReturn(new net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker());
+        when(db.getUploadedBy("s1")).thenReturn("Operator1");
+        when(db.getDeputyOwners("s1")).thenReturn(List.of());
         support.handshake();
 
         networkingMock = mockStatic(ServerPlayNetworking.class);
@@ -227,9 +230,11 @@ class Phase4HandlerTest {
         Phase4Handler.handleOwnerAction(owner,
             new OwnerActionC2SPacket("s1", "ADD_DEPUTY", "Deputy1"), player, server);
 
-        // 订阅者广播 + 操作者兜底发送，都是本上下文连接
+        // 匿名旧响应只发一次，订阅者只能收到项目绑定的协议 4 状态。
         networkingMock.verify(() -> ServerPlayNetworking.send(eq(player),
-            any(OwnerActionResponseS2CPacket.class)), atLeastOnce());
+            any(OwnerActionResponseS2CPacket.class)), times(1));
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player),
+            any(TeamResponseS2CPacket.class)), times(1));
     }
 
     // ========== BatchAssign ==========
@@ -372,7 +377,50 @@ class Phase4HandlerTest {
     }
 
     @Test
+    void teamCommandResponseIsProjectRequestBoundAndDoesNotSendOldReply() throws Exception {
+        allowSelfClaimByDefault();
+        when(db.isMainOwner("s1", "Operator1")).thenReturn(true);
+        var command = new net.syncmaterial.syncmaterial.core.TeamCommand("s1", 14,
+                net.syncmaterial.syncmaterial.core.TeamAction.ADD_DEPUTY, -1, List.of(),
+                List.of(new net.syncmaterial.syncmaterial.core.PlayerIdentity(null, "Deputy")));
+        Phase4Handler.handleTeamCommand(owner, command, player, server);
+        ArgumentCaptor<TeamResponseS2CPacket> response = ArgumentCaptor.forClass(TeamResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), response.capture()));
+        assertTrue(response.getValue().response().success());
+        assertEquals("s1", response.getValue().response().projectId());
+        assertEquals(14, response.getValue().response().requestId());
+        verify(db).addDeputyOwner("s1", "Deputy");
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), any(OwnerActionResponseS2CPacket.class)), never());
+        Phase4Handler.handleTeamCommand(owner, command, player, server);
+        verify(db, times(1)).addDeputyOwner("s1", "Deputy");
+    }
+
+    @Test
+    void protocolThreeCannotInvokeScopedBridge() {
+        ProtocolHandshake.recordHandshake(server, player, 3, "old");
+        clearInvocations(db);
+        Phase4Handler.handleTeamCommand(owner, new net.syncmaterial.syncmaterial.core.TeamCommand("s1", 1,
+                net.syncmaterial.syncmaterial.core.TeamAction.TEAM_STATE, -1, List.of(), List.of()), player, server);
+        verifyNoInteractions(db);
+        networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), never());
+    }
+
+    @Test
+    void ownerFailureContainsKnownStateInsteadOfBlankingManagementUi() throws Exception {
+        allowSelfClaimByDefault();
+        when(db.isMainOwner("s1", "Operator1")).thenReturn(false);
+        when(db.getUploadedBy("s1")).thenReturn("ActualOwner");
+        when(db.getDeputyOwners("s1")).thenReturn(List.of("Deputy"));
+        Phase4Handler.handleOwnerAction(owner, new OwnerActionC2SPacket("s1", "TRANSFER", "Target"), player, server);
+        var response = captureOwnerActionResponse();
+        assertFalse(response.success());
+        assertEquals("ActualOwner", response.ownerName());
+        assertEquals(List.of("Deputy"), response.deputyOwners());
+    }
+
+    @Test
     void phase4Handler_rejectsClosedOwnerWithoutDatabaseAccess() {
+        clearInvocations(db);
         support.open.set(false);
 
         Phase4Handler.handleOwnerAction(owner,

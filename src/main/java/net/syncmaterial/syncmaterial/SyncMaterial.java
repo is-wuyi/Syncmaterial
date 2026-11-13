@@ -106,7 +106,10 @@ public class SyncMaterial implements ModInitializer {
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(server);
-            if (runtime != null) runtime.tick();
+            if (runtime != null) {
+                runtime.tick();
+                net.syncmaterial.syncmaterial.network.FoundationTeamNetworkAdapter.tick(server, runtime);
+            }
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             ModNetworkHandler.onPlayerDisconnect(handler.player);

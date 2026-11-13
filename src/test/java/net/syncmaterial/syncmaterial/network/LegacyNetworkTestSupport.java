@@ -40,6 +40,8 @@ final class LegacyNetworkTestSupport implements AutoCloseable {
     final CollaborationManager collaboration = mock(CollaborationManager.class);
     final StagingAreaManager staging = mock(StagingAreaManager.class);
     final LegacySubscriptions subscriptions = new LegacySubscriptions();
+    final net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker teamRequests =
+            new net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker();
     final Map<String, String> placementNames = new ConcurrentHashMap<>();
     final AtomicBoolean open = new AtomicBoolean(true);
     final AtomicReference<LegacyServerContext> installed = new AtomicReference<>();
@@ -93,6 +95,7 @@ final class LegacyNetworkTestSupport implements AutoCloseable {
         when(owner.collaboration()).thenReturn(collaboration);
         when(owner.staging()).thenReturn(staging);
         when(owner.subscriptions()).thenReturn(subscriptions);
+        when(owner.teamRequests()).thenReturn(teamRequests);
         when(owner.isOpen()).thenAnswer(inv -> open.get());
         when(owner.isCurrent()).thenAnswer(inv -> open.get() && installed.get() == owner);
         when(owner.isConnected(any(ServerPlayer.class))).thenAnswer(inv -> {
