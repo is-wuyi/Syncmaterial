@@ -9,15 +9,15 @@
 | 项目 | 状态 |
 |---|---|
 | 最近核对日期 | 2026-11-14 |
-| 当前阶段 | WP5 已交付；扫描回归收尾 beta.58 已完成同一源码三节点完整本地验收，待提交推送及对应 CI 确认；尚未进入旧实现退场和全仓终态验收 |
+| 当前阶段 | WP5 与扫描回归收尾均已交付；beta.58 同一源码三节点完整本地验收及实现 CI 首次运行通过；尚未进入旧实现退场和全仓终态验收 |
 | 开发分支 | `rewrite/backend-foundation` |
-| 最新实现提交 | [`9bce6dc`](https://github.com/is-wuyi/Syncmaterial/commit/9bce6dcb723ce2f13f9d0451770d640e83518ac1)：WP5 共享团队管理与协议／GUI 闭环，已提交推送，CI attempt 1 全绿 |
-| 实现版本 | 扫描收尾候选 `0.3.0-beta.58` 已通过完整本地验收，待提交；最新已交付 beta.57。协议 4／Foundation schema 3 不变，三者各自独立 |
+| 最新实现提交 | [`4579ad1`](https://github.com/is-wuyi/Syncmaterial/commit/4579ad106b0b49357e04698320800b79ab5a6668)：扫描回归收尾、过期覆盖／请求保留及轮转日志验收，已提交推送，CI attempt 1 全部 8 项通过 |
+| 实现版本 | `0.3.0-beta.58`；协议 4／Foundation schema 3 不变，三者各自独立 |
 | 运行时支持 | Minecraft 1.21.7、1.21.8、26.2；共享业务只维护一份，各节点分别构建和验收 |
 | 默认后端 | **仍为 legacy**；Foundation 需 `-Dsyncmaterial.backend=foundation` 显式启用 |
 | 下一批 | **WP6／WP7 完整收集／搬运与网络订阅整合**：WP5 已交付，下一批进入具体设计，尚未编码 |
-| 当前阻塞 | `fe2eaba` 首次 CI 扫描失败已定位并修复，beta.58 三节点完整本地验收通过；仍待提交推送及修复提交 CI 全绿确认，无待确认产品决策 |
-| 发布状态 | WP5 本地完整验收通过，`9bce6dc` 已推送，[CI attempt 1 全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/43419829230)；未打发布 tag，未切换正式服 |
+| 当前阻塞 | `fe2eaba` 首次 CI 扫描失败已定位并修复；beta.58 完整本地验收及实现 CI 首次 8／8 成功，无待确认产品决策 |
+| 发布状态 | beta.58 完整本地验收通过，`4579ad1` 已推送，[CI attempt 1 全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/43470739388)；未打发布 tag，未切换正式服 |
 
 当前 Foundation 已接通材料导入／查询、基础认领与在线库存、区域配置／仓库引用、被动扫描、去重库存和新鲜度，以及负责人写操作、批量分配、按材料踢人、玩家目录。WP5 的共享业务与现有管理 GUI 闭环通过本地完整验收；完整团队收集／搬运、网络订阅收敛、客户端全量状态和旧结构退场仍有后续批次，不能据此宣称全项目重构完成。
 
@@ -157,7 +157,7 @@
 
 ## 4. 下一批规划：完整收集／搬运与网络订阅整合
 
-**状态：WP5 实现 `9bce6dc` 已提交推送，本地完整验收和 CI attempt 1 全绿；后续文档提交 `fe2eaba` 的扫描回归正在收尾，关闭并重新放行前不进入 WP6／WP7 编码。** WP5 有效边界和证据保留在 [团队管理专题](team-management.md)。
+**状态：WP5 实现 `9bce6dc` 和扫描收尾 `4579ad1` 均已提交推送，本地完整验收及各自 CI attempt 1 全绿；可接续 WP6／WP7 具体设计，下一批尚未编码。** WP5 有效边界和证据保留在 [团队管理专题](team-management.md)，扫描失败、根因与修复见 [扫描专题](area-scanning.md)。
 
 ### 交付目标
 
@@ -217,6 +217,7 @@
 | 2026-11-12 | 真实区域扫描、去重库存、新鲜度与客户端闭环 | [`9d34222`](https://github.com/is-wuyi/Syncmaterial/commit/9d34222d16870e310d07821a783ab1463d57ac60) | 已提交、已推送 | [8 个任务全部通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/43141349858) |
 | 2026-11-13 | 服务器资源／任务／订阅生命周期及真实关服重开 | [`ddbc699`](https://github.com/is-wuyi/Syncmaterial/commit/ddbc6998018a0b46b161f8f591583ac244c4f17f) | 已提交、已推送 | [attempt 1 全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/43291803984) |
 | 2026-11-13 | WP5 共享负责人／批量协作／UUID 目录及管理协议闭环 | [`9bce6dc`](https://github.com/is-wuyi/Syncmaterial/commit/9bce6dcb723ce2f13f9d0451770d640e83518ac1) | 已提交、已推送 | [attempt 1 全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/43419829230) |
+| 2026-11-14 | 扫描回归收尾、过期覆盖／新请求与轮转日志验收 | [`4579ad1`](https://github.com/is-wuyi/Syncmaterial/commit/4579ad106b0b49357e04698320800b79ab5a6668) | 已提交、已推送 | [attempt 1 全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/43470739388) |
 
 仅文档更新通过本文件的 Git 历史跟踪，不改变“最新实现提交”或 mod 版本，避免为了引用本文件自己的提交再制造循环更新。
 
@@ -322,7 +323,7 @@
 - 守卫自身 19 项回归通过；跨午夜日期轮转参与同次证据，旧启动不能补新 START，同次重复／失败、损坏／超大证据仍被拒绝。
 - 三节点 beta.58 jar 精确绑定 Minecraft／Java 范围；shared 与 SQLite 各嵌套一次，无测试类泄漏。协议 4、schema 3、默认 legacy 未改。
 - 原生卸载用例验证事件桥接状态机，不冒充真实区块 eviction 全覆盖；本机 Java21 `SIGILL` 曾出现后单独复查和完整矩阵通过，不保证 JVM 故障已根治。
-- 中文提交、推送与对应 CI 待下一步确认；本地通过不冒充最新提交 CI 全绿，也不表示完整重构完成。
+- 中文实现提交 `4579ad1` 已推送，精确 SHA 对应 [CI 43470739388](https://github.com/is-wuyi/Syncmaterial/actions/runs/43470739388) attempt 1 全部 8 项成功，已单独确认。该放行不表示完整重构或全仓终态审查已完成。
 
 ### 后续批次记录模板
 

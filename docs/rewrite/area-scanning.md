@@ -42,7 +42,7 @@ Foundation 使用独立运行时和 `runtime-v2.sqlite`，默认后端仍为 leg
 
 区域与仓库 CRUD 继续对所有玩家开放；校验参数、项目范围和目标存在性，不新增负责人权限限制。
 
-## WP5 交付后的扫描回归收尾：beta.58（本地完整验收通过）
+## WP5 交付后的扫描回归收尾：beta.58（已交付）
 
 本批不新增扫描产品语义。协议 4、Foundation schema 3、默认 legacy 不变；修复从 WP5 交付文档 `fe2eaba` 的 [CI 43421734267](https://github.com/is-wuyi/Syncmaterial/actions/runs/43421734267) attempt 1 失败开始，不能用此前实现 CI 全绿或后续诊断重跑替代修复证据。
 
@@ -78,7 +78,9 @@ CI 的第二个箱子与并行的 `removalQueueIsBoundedAndInterestFiltered` 测
 
 - 独立副本：存储 20 项、调度 28 项均通过，共享静态分析 0 新告警；整合首轮 shared 348／26.2 平台 642 项 JUnit 无失败／错误／跳过，19 个 Foundation 服务端必需测试全部通过。分项通过不冒充完整三节点放行。
 - 新增原生未引用仓库卸载／重新引用／重新加载场景使用自有隔离结构，服务器入口总数 18 → 19；共享必要最少测试 339 → 349（调度类 29、存储类 20），保留全部旧回归和 accepted findings。
-- 2026-11-14 第四轮同一冻结源码 clean／禁用缓存三节点四项聚合任务全部退出 0：shared 349，平台 645／645／642，均无失败／错误／跳过；每节点 legacy／Foundation 服务端 40／19，客户端 24／4，缺依赖服务端 2／2、客户端 1／1；静态 0／11／11／11 无新增。49 项严格守卫全绿，402 文件清单前后摘要 `fac817fb91e39df8e0e4e0663311bb7a2d24a0ec926169e4d177eec59d9aa405` 不变。提交推送和对应 CI 尚待确认，见 [统一进度入口](progress.md)。
+- 2026-11-14 第四轮同一冻结源码 clean／禁用缓存三节点四项聚合任务全部退出 0：shared 349，平台 645／645／642，均无失败／错误／跳过；每节点 legacy／Foundation 服务端 40／19，客户端 24／4，缺依赖服务端 2／2、客户端 1／1；静态 0／11／11／11 无新增。49 项严格守卫全绿，402 文件清单前后摘要 `fac817fb91e39df8e0e4e0663311bb7a2d24a0ec926169e4d177eec59d9aa405` 不变。提交推送和对应 CI 已单独确认，见下面交付记录及 [统一进度入口](progress.md)。
+
+- 实现 [`4579ad1`](https://github.com/is-wuyi/Syncmaterial/commit/4579ad106b0b49357e04698320800b79ab5a6668) 已中文提交并推送，对应 [CI 43470739388](https://github.com/is-wuyi/Syncmaterial/actions/runs/43470739388) attempt 1 全部 8 项成功。默认后端、协议／schema、正式服和发布边界不变；完整重构剩余批次见 [进度入口](progress.md)。
 
 ## 验收
 
