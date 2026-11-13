@@ -201,8 +201,8 @@ public final class AreaScanStore {
     }
 
     /**
-     * Atomically replaces all sources of the token's area/chunk. Empty observations mean a
-     * fully observed empty chunk, which removes previously known sources there.
+     * Atomically replaces all sources of the token's area/chunk. Empty observations remove
+     * old sources, but cannot discard links backed by newer canonical observations.
      */
     public CompletableFuture<Boolean> applyChunkScan(ChunkToken token, List<ContainerObservation> observations) {
         Objects.requireNonNull(token, "token");
@@ -221,7 +221,7 @@ public final class AreaScanStore {
             requireInsideArea(area, checked);
 
             long now = System.currentTimeMillis();
-            Map<ContainerKey, Long> previous = linkedContainers(connection, token);
+            Map<ContainerKey, LinkedContainer> previous = linkedContainers(connection, token);
             deleteChunkLinks(connection, token);
 
             Set<ContainerKey> observed = new HashSet<>();
@@ -232,9 +232,16 @@ public final class AreaScanStore {
                     insertLink(connection, token, containerId);
                 }
             }
-            for (ContainerKey oldKey : previous.keySet()) {
-                if (!observed.contains(oldKey)) {
-                    applyRemoval(connection, oldKey, token.observationSequence(), now);
+            for (Map.Entry<ContainerKey, LinkedContainer> old : previous.entrySet()) {
+                if (observed.contains(old.getKey())) {
+                    continue;
+                }
+                LinkedContainer linked = old.getValue();
+                if (linked.observationSequence() > token.observationSequence()) {
+                    // The canonical update won the sequence race; its area link must survive too.
+                    insertLink(connection, token, linked.containerId());
+                } else {
+                    applyRemoval(connection, old.getKey(), token.observationSequence(), now);
                 }
             }
 
@@ -492,11 +499,14 @@ public final class AreaScanStore {
         }
     }
 
-    private static Map<ContainerKey, Long> linkedContainers(Connection connection, ChunkToken token)
+    private record LinkedContainer(long containerId, long observationSequence) {
+    }
+
+    private static Map<ContainerKey, LinkedContainer> linkedContainers(Connection connection, ChunkToken token)
             throws SQLException {
-        Map<ContainerKey, Long> previous = new LinkedHashMap<>();
+        Map<ContainerKey, LinkedContainer> previous = new LinkedHashMap<>();
         try (PreparedStatement select = connection.prepareStatement(
-                "SELECT l.container_id, c.world, c.x, c.y, c.z "
+                "SELECT l.container_id, c.world, c.x, c.y, c.z, c.observation_sequence "
                         + "FROM area_chunk_containers l JOIN containers c ON c.id = l.container_id "
                         + "WHERE l.area_id = ? AND l.geometry_revision = ? AND l.world = ? "
                         + "AND l.chunk_x = ? AND l.chunk_z = ?")) {
@@ -509,7 +519,7 @@ public final class AreaScanStore {
                 while (resultSet.next()) {
                     previous.put(new ContainerKey(
                             resultSet.getString(2), resultSet.getInt(3), resultSet.getInt(4), resultSet.getInt(5)),
-                            resultSet.getLong(1));
+                            new LinkedContainer(resultSet.getLong(1), resultSet.getLong(6)));
                 }
             }
         }

@@ -8,15 +8,15 @@
 
 | 项目 | 状态 |
 |---|---|
-| 最近核对日期 | 2026-11-13 |
-| 当前阶段 | WP5 共享团队管理闭环已交付，本地完整验收与 CI 通过；尚未进入旧实现退场和全仓终态验收 |
+| 最近核对日期 | 2026-11-14 |
+| 当前阶段 | WP5 已交付；扫描回归收尾 beta.58 已完成同一源码三节点完整本地验收，待提交推送及对应 CI 确认；尚未进入旧实现退场和全仓终态验收 |
 | 开发分支 | `rewrite/backend-foundation` |
 | 最新实现提交 | [`9bce6dc`](https://github.com/is-wuyi/Syncmaterial/commit/9bce6dcb723ce2f13f9d0451770d640e83518ac1)：WP5 共享团队管理与协议／GUI 闭环，已提交推送，CI attempt 1 全绿 |
-| 实现版本 | `0.3.0-beta.57`；协议 4；Foundation schema 3，三者各自独立 |
+| 实现版本 | 扫描收尾候选 `0.3.0-beta.58` 已通过完整本地验收，待提交；最新已交付 beta.57。协议 4／Foundation schema 3 不变，三者各自独立 |
 | 运行时支持 | Minecraft 1.21.7、1.21.8、26.2；共享业务只维护一份，各节点分别构建和验收 |
 | 默认后端 | **仍为 legacy**；Foundation 需 `-Dsyncmaterial.backend=foundation` 显式启用 |
 | 下一批 | **WP6／WP7 完整收集／搬运与网络订阅整合**：WP5 已交付，下一批进入具体设计，尚未编码 |
-| 当前阻塞 | 无已确认的产品决策或技术阻塞；未完成的后续业务按下面清单推进 |
+| 当前阻塞 | `fe2eaba` 首次 CI 扫描失败已定位并修复，beta.58 三节点完整本地验收通过；仍待提交推送及修复提交 CI 全绿确认，无待确认产品决策 |
 | 发布状态 | WP5 本地完整验收通过，`9bce6dc` 已推送，[CI attempt 1 全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/43419829230)；未打发布 tag，未切换正式服 |
 
 当前 Foundation 已接通材料导入／查询、基础认领与在线库存、区域配置／仓库引用、被动扫描、去重库存和新鲜度，以及负责人写操作、批量分配、按材料踢人、玩家目录。WP5 的共享业务与现有管理 GUI 闭环通过本地完整验收；完整团队收集／搬运、网络订阅收敛、客户端全量状态和旧结构退场仍有后续批次，不能据此宣称全项目重构完成。
@@ -157,7 +157,7 @@
 
 ## 4. 下一批规划：完整收集／搬运与网络订阅整合
 
-**状态：WP5 已提交推送，本地完整验收和 CI attempt 1 全绿；接续 WP6／WP7 具体设计，下一批尚未编码。** WP5 有效边界和证据保留在 [团队管理专题](team-management.md)。
+**状态：WP5 实现 `9bce6dc` 已提交推送，本地完整验收和 CI attempt 1 全绿；后续文档提交 `fe2eaba` 的扫描回归正在收尾，关闭并重新放行前不进入 WP6／WP7 编码。** WP5 有效边界和证据保留在 [团队管理专题](team-management.md)。
 
 ### 交付目标
 
@@ -287,6 +287,42 @@
 - 打包守卫：shared 130 个 Java 21 业务类与 SQLite 各嵌套一次，节点 class major 65／65／69，精确 MC／Java 范围，无测试类泄漏。
 - 本地完整放行已满足；实现 `9bce6dc` 已提交推送，对应 CI attempt 1 全部 8 项通过，已单独确认。默认 legacy，未导入旧业务库、未切正式服、未打 tag。
 - 失败、修复与限制见 [WP5 专题](team-management.md)。全项目终态审查、旧实现退场和最终验收仍未完成。
+
+### WP5 交付文档的首次 CI：`fe2eaba`
+
+[CI 43421734267](https://github.com/is-wuyi/Syncmaterial/actions/runs/43421734267) attempt 1 为 failure，7／8 任务成功。该提交只记录交付事实，WP5 实现、版本与扫描代码均未改变。
+
+- 26.2 Foundation 服务端 `crossChunkLoadedSourcesAndOverlapDeduplicate` 在 tick 902 失败：`known=true staging={minecraft:stone=4} warehouse={} overlap=true freshness=[] pending=false`；预期两区块合计 stone=10。对应节点守卫因缺少成功证据一起失败，不能计为第二个独立根因。
+- 12 次本地 26.2 Foundation 服务端诊断启动，各次 18 个必需测试均通过；只代表诊断未复现，不替代完整验收，不证明问题消失。
+- 固定失败 CI 原生网格起点 `(6804365, -59, 4511556)` 已复现同一失败。world mutation 调用链确认第二箱 `(6804399, -56, 4511569)` 与并行 `removalQueueIsBoundedAndInterestFiltered` 夹具同坐标，被后者 `cleanup` → `setBlockAndUpdate(AIR)` 删除；不是扫描器漏掉一个仍存在的箱子。
+- 跨区块测试改为自有结构并断言两箱在结构内且分属不同区块；保留全部库存／去重断言。同一 CI 布局下原 18 个必需测试通过，固定网格与 mutation trace 只留在独立诊断副本。
+- 独立复现并修复无引用仓库卸载不标 stale、新 catalog 请求被 in-flight scan 成功完成吞掉，以及旧扫描删掉有较新 canonical 观测关联的存储一致性防御。完整已加载观测确认真实拆除时全球扣除是正确语义，新增反证回归；不修改原生枚举、loot／pending BE、预算或新鲜度产品规则。
+- 整合首轮：shared 348 项、26.2 平台 642 项 JUnit 无失败／错误／跳过；19 个 Foundation 服务端必需测试通过，共享静态分析 0 告警。三节点同一源码 clean／禁用缓存完整验收、提交推送及对应 CI 尚待完成；详见 [扫描收尾专题](area-scanning.md)。
+- 未放宽断言、跳过既有测试或抬静态告警基线；没有真实 Fabric 丢事件证据，不纳入全服 loadedChunks 同步枚举兜底。
+- 2026-11-14 首轮完整矩阵 clean／build-check／clients 退出 0，optional 退出 1：1.21.7 Foundation 缺依赖客户端 START 于 23:59:48，被跨午夜轮转到 gzip；PASS 于 00:00:00 留在 latest。守卫仅读 latest 误判缺证据。修复同次轮转读取并隔离旧启动，保留严格 START／PASS／FAIL 条件与损坏／过大证据拒绝；19 项守卫回归及原证据重查 49 项通过，仍重新 clean 完整矩阵，不提交未放行源码。
+
+- 2026-11-14 第二轮 clean／build-check／clients 均退出 0，缺依赖 1.21.7 Foundation 客户端开始前遇到本机 Java21 原生 `SIGILL`（原版模型烘焙 C1 代码，exit134）；报告已持久保存，相同源码／Java 参数单独实际 START／PASS 通过。未改模组或 JIT 配置，不将复查当成 JVM 缺陷已修好。
+- 第三轮新增卸载 GameTest 的断言错误：跨两区块区域要求所有覆盖行 stale，而实际仅卸载区块 stale、邻区块 complete。固定失败网格验证生产行为正确，修正精确区块断言并补真实 SQLite 跨区块保留／reload 回归；同布局 19 个服务端必需测试及 shared349 全通过。继续重新冻结完整矩阵，未提交。
+
+### 扫描收尾的本地完整验收：beta.58
+
+2026-11-14，第四轮同一冻结源码在本地持久独立工程先 clean，再禁用缓存执行 `buildAllVersions checkAllVersions testAllClients testOptionalDependencies`；全部退出 0，49 项严格守卫通过，无 WARN／UNAVAILABLE／FAIL。
+
+| 验收 | shared | 1.21.7 | 1.21.8 | 26.2 |
+|---|---:|---:|---:|---:|
+| JUnit，失败／错误／跳过均为 0 | 349 | 645 | 645 | 642 |
+| legacy／Foundation 服务端 GameTest | — | 40／19 | 40／19 | 40／19 |
+| legacy／Foundation 客户端实际入口 | — | 24／4 | 24／4 | 24／4 |
+| 缺依赖 legacy／Foundation 服务端 | — | 2／2 | 2／2 | 2／2 |
+| 缺依赖 legacy／Foundation 客户端实际入口 | — | 1／1 | 1／1 | 1／1 |
+| SpotBugs，无新增 accepted findings | 0 | 11 | 11 | 11 |
+
+- 402 份受控文件清单前后摘要：`fac817fb91e39df8e0e4e0663311bb7a2d24a0ec926169e4d177eec59d9aa405`，各阶段逐文件一致；本地工作区实现与受测源码一致，验收后只补文档事实。
+- 跨区块夹具同 CI 网格及新卸载夹具的区块边界网格分别有失败／修正后通过证据；真实物理拆除仍全球扣除，未知不等于零、卸载最近观测与原版被动读取边界不变。
+- 守卫自身 19 项回归通过；跨午夜日期轮转参与同次证据，旧启动不能补新 START，同次重复／失败、损坏／超大证据仍被拒绝。
+- 三节点 beta.58 jar 精确绑定 Minecraft／Java 范围；shared 与 SQLite 各嵌套一次，无测试类泄漏。协议 4、schema 3、默认 legacy 未改。
+- 原生卸载用例验证事件桥接状态机，不冒充真实区块 eviction 全覆盖；本机 Java21 `SIGILL` 曾出现后单独复查和完整矩阵通过，不保证 JVM 故障已根治。
+- 中文提交、推送与对应 CI 待下一步确认；本地通过不冒充最新提交 CI 全绿，也不表示完整重构完成。
 
 ### 后续批次记录模板
 

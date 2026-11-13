@@ -401,6 +401,165 @@ class AreaScanStoreTest {
     }
 
     @Test
+    void loadedFullScanRemovalIsGlobalPhysicalFactAcrossAreasAndProjects() throws Exception {
+        AreaDefinition staging = staging("Staging", 0, 0, 15, 15);
+        AreaDefinition warehouse = warehouse("Warehouse", 0, 0, 15, 15);
+        assertTrue(await(store.addWarehouseReference("p2", warehouse.id())));
+        ChunkKey chunk = chunk(0, 0);
+        scan(staging, chunk, container(1, 1, STONE, 5), container(2, 1, DIRT, 7));
+        scan(warehouse, chunk, container(1, 1, STONE, 5), container(2, 1, DIRT, 7));
+
+        assertEquals(Map.of(STONE, 5L, DIRT, 7L), snapshot("p1").inventory().staging());
+        assertEquals(Map.of(STONE, 5L, DIRT, 7L), snapshot("p2").inventory().warehouse());
+
+        // A complete observation of the loaded chunk says the stone source is gone. That is
+        // a global physical fact: every canonical source position belongs to exactly this
+        // chunk, so the foreign warehouse does not need its own rescan to stop counting it.
+        scan(staging, chunk, container(2, 1, DIRT, 7));
+
+        assertEquals(1, containerCount(), "the destroyed canonical source is gone, not orphaned");
+        assertEquals(2, linkCount(), "the foreign stone link cascades; both dirt links remain");
+        ProjectState first = snapshot("p1");
+        assertTrue(first.inventory().known());
+        assertEquals(Map.of(DIRT, 7L), first.inventory().staging());
+        assertTrue(first.inventory().freshness().isEmpty());
+        ProjectState second = snapshot("p2");
+        assertTrue(second.inventory().known(), "a foreign area need not rescan a global removal");
+        assertEquals(Map.of(DIRT, 7L), second.inventory().warehouse());
+        assertTrue(second.inventory().freshness().isEmpty());
+        assertEquals(CoverageState.COMPLETE, coverage(warehouse.id()).get(0).state());
+    }
+
+    @Test
+    void fullScanOmissionKeepsLinkConfirmedByNewerCanonicalObservation() throws Exception {
+        AreaDefinition staging = staging("Staging", 0, 0, 15, 15);
+        AreaDefinition warehouse = warehouse("Warehouse", 0, 0, 15, 15);
+        assertTrue(await(store.addWarehouseReference("p2", warehouse.id())));
+        ChunkKey chunk = chunk(0, 0);
+        scan(staging, chunk, container(1, 1, STONE, 5));
+        scan(warehouse, chunk, container(1, 1, STONE, 5));
+
+        // The full scan begins first, then a newer observation of the same source commits.
+        // The full scan's omission is older evidence and must not discard the link or claim
+        // that its absence is fresh.
+        ChunkToken olderScan = await(store.areaScanStore()
+                .beginChunkScan(staging.id(), staging.geometryRevision(), chunk)).orElseThrow();
+        ChunkToken newerUpdate = await(store.areaScanStore()
+                .beginContainerUpdates(warehouse.id(), warehouse.geometryRevision(), chunk)).orElseThrow();
+        assertTrue(await(store.areaScanStore().applyContainerUpdates(
+                newerUpdate, List.of(container(1, 1, STONE, 9)), List.of())));
+
+        assertTrue(await(store.areaScanStore().applyChunkScan(olderScan, List.of())));
+
+        assertEquals(1, containerCount());
+        assertEquals(2, linkCount(), "newer canonical evidence keeps the older scan link alive");
+        assertEquals(0, tombstoneCount(), "a live newer source must not be tombstoned");
+        assertEquals(CoverageState.COMPLETE, coverage(staging.id()).get(0).state(),
+                "coverage stays complete because the newer source is still represented");
+        ProjectState first = snapshot("p1");
+        assertTrue(first.inventory().known());
+        assertEquals(Map.of(STONE, 9L), first.inventory().staging(),
+                "canonical newer count wins over the older empty scan");
+        assertTrue(first.inventory().freshness().isEmpty());
+        assertEquals(Map.of(STONE, 9L), snapshot("p2").inventory().warehouse());
+    }
+
+    @Test
+    void unloadAndEpochStaleTokensCannotDeleteForeignSharedSource() throws Exception {
+        AreaDefinition staging = staging("Staging", 0, 0, 15, 15);
+        AreaDefinition warehouse = warehouse("Warehouse", 0, 0, 15, 15);
+        assertTrue(await(store.addWarehouseReference("p2", warehouse.id())));
+        ChunkKey chunk = chunk(0, 0);
+        scan(staging, chunk, container(1, 1, STONE, 5));
+        scan(warehouse, chunk, container(1, 1, STONE, 5));
+
+        ChunkToken unloadScan = await(store.areaScanStore()
+                .beginChunkScan(staging.id(), staging.geometryRevision(), chunk)).orElseThrow();
+        assertEquals(2, await(store.areaScanStore().markChunkStale(chunk)));
+        assertFalse(await(store.areaScanStore().applyChunkScan(unloadScan, List.of())));
+        assertEquals(1, containerCount(), "unload is not destruction");
+        assertEquals(2, linkCount());
+        assertEquals(0, tombstoneCount());
+        assertLastKnown(staging, STONE, 5L);
+        assertLastKnownWarehouse(warehouse, STONE, 5L);
+
+        ChunkToken epochScan = await(store.areaScanStore()
+                .beginChunkScan(staging.id(), staging.geometryRevision(), chunk)).orElseThrow();
+        await(store.areaScanStore().beginEpoch());
+        assertFalse(await(store.areaScanStore().applyChunkScan(epochScan, List.of())));
+        assertEquals(1, containerCount(), "a new epoch cannot turn an old scan into a remove");
+        assertEquals(2, linkCount());
+        assertEquals(0, tombstoneCount());
+        assertLastKnown(staging, STONE, 5L);
+        assertLastKnownWarehouse(warehouse, STONE, 5L);
+
+        scan(staging, chunk, container(1, 1, STONE, 5));
+        scan(warehouse, chunk, container(1, 1, STONE, 5));
+        assertTrue(snapshot("p1").inventory().known());
+        assertTrue(snapshot("p2").inventory().known());
+        assertEquals(Map.of(STONE, 5L), snapshot("p1").inventory().staging());
+        assertEquals(Map.of(STONE, 5L), snapshot("p2").inventory().warehouse());
+    }
+
+    @Test
+    void geometryChangeDeletesOnlyItsOwnCoverageAndKeepsForeignSharedSource() throws Exception {
+        AreaDefinition staging = staging("Staging", 0, 0, 15, 15);
+        AreaDefinition warehouse = warehouse("Warehouse", 0, 0, 15, 15);
+        assertTrue(await(store.addWarehouseReference("p2", warehouse.id())));
+        ChunkKey chunk = chunk(0, 0);
+        scan(staging, chunk, container(1, 1, STONE, 5));
+        scan(warehouse, chunk, container(1, 1, STONE, 5));
+        ChunkToken oldScan = await(store.areaScanStore()
+                .beginChunkScan(staging.id(), staging.geometryRevision(), chunk)).orElseThrow();
+
+        AreaDefinition moved = await(store.updateArea("p1", AreaKind.STAGING_AREA, staging.id(),
+                new AreaSpec("Staging", WORLD, new AreaBounds(32, 0, 0, 47, 15, 15))));
+        assertFalse(await(store.areaScanStore().applyChunkScan(oldScan, List.of())));
+        assertTrue(coverage(staging.id()).isEmpty());
+        assertEquals(1, containerCount(), "the foreign link keeps the canonical source");
+        assertEquals(1, linkCount());
+        assertEquals(0, tombstoneCount());
+        assertFalse(snapshot("p1").inventory().known());
+        ProjectState warehouseState = snapshot("p2");
+        assertTrue(warehouseState.inventory().known());
+        assertEquals(Map.of(STONE, 5L), warehouseState.inventory().warehouse());
+
+        scan(moved, chunk(2, 0), container(33, 1, STONE, 7));
+        assertEquals(2, containerCount());
+        assertEquals(2, linkCount());
+        assertEquals(Map.of(STONE, 7L), snapshot("p1").inventory().staging());
+        assertEquals(Map.of(STONE, 5L), snapshot("p2").inventory().warehouse());
+    }
+
+    @Test
+    void newerTombstoneWinsOverOlderFullScanObservationWithoutCoverageLoss() throws Exception {
+        AreaDefinition staging = staging("Staging", 0, 0, 15, 15);
+        AreaDefinition warehouse = warehouse("Warehouse", 0, 0, 15, 15);
+        assertTrue(await(store.addWarehouseReference("p2", warehouse.id())));
+        ChunkKey chunk = chunk(0, 0);
+        scan(staging, chunk, container(1, 1, STONE, 5));
+        scan(warehouse, chunk, container(1, 1, STONE, 5));
+
+        ChunkToken olderScan = await(store.areaScanStore()
+                .beginChunkScan(staging.id(), staging.geometryRevision(), chunk)).orElseThrow();
+        ChunkToken newerRemoval = await(store.areaScanStore()
+                .beginContainerUpdates(warehouse.id(), warehouse.geometryRevision(), chunk)).orElseThrow();
+        assertTrue(await(store.areaScanStore().applyContainerUpdates(
+                newerRemoval, List.of(), List.of(new ContainerKey(WORLD, 1, 1, 1)))));
+
+        assertTrue(await(store.areaScanStore().applyChunkScan(
+                olderScan, List.of(container(1, 1, STONE, 5)))));
+        assertEquals(0, containerCount(), "an older scan cannot resurrect a newer tombstone");
+        assertEquals(0, linkCount());
+        assertEquals(1, tombstoneCount());
+        assertEquals(CoverageState.COMPLETE, coverage(staging.id()).get(0).state());
+        assertTrue(snapshot("p1").inventory().known());
+        assertTrue(snapshot("p1").inventory().staging().isEmpty());
+        assertTrue(snapshot("p2").inventory().known());
+        assertTrue(snapshot("p2").inventory().warehouse().isEmpty());
+    }
+
+    @Test
     void closeRejectsScanStoreOperations() throws Exception {
         SqliteProjectStore closed = store;
         store = null;
@@ -415,6 +574,30 @@ class AreaScanStoreTest {
     private AreaDefinition staging(String name, int x1, int z1, int x2, int z2) throws Exception {
         return await(store.addArea("p1", AreaKind.STAGING_AREA,
                 new AreaSpec(name, WORLD, new AreaBounds(x1, 0, z1, x2, 15, z2))));
+    }
+
+    private AreaDefinition warehouse(String name, int x1, int z1, int x2, int z2) throws Exception {
+        return await(store.addArea(null, AreaKind.WAREHOUSE,
+                new AreaSpec(name, WORLD, new AreaBounds(x1, 0, z1, x2, 15, z2))));
+    }
+
+    private void assertLastKnown(AreaDefinition stagingArea, String itemId, long count) throws Exception {
+        ProjectState state = snapshot("p1");
+        assertFalse(state.inventory().known());
+        assertEquals(Map.of(itemId, count), state.inventory().staging());
+        assertTrue(state.inventory().freshness().stream().anyMatch(warning ->
+                warning.areaId() == stagingArea.id()
+                        && warning.status().equals(AreaInventoryWarning.STATUS_STALE)));
+    }
+
+    private void assertLastKnownWarehouse(AreaDefinition warehouseArea, String itemId, long count)
+            throws Exception {
+        ProjectState state = snapshot("p2");
+        assertFalse(state.inventory().known());
+        assertEquals(Map.of(itemId, count), state.inventory().warehouse());
+        assertTrue(state.inventory().freshness().stream().anyMatch(warning ->
+                warning.areaId() == warehouseArea.id()
+                        && warning.status().equals(AreaInventoryWarning.STATUS_STALE)));
     }
 
     private static ChunkKey chunk(int x, int z) {

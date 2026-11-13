@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import gzip
 import io
 import json
 import os
@@ -51,6 +52,7 @@ RANK = {PASS: 0, WARN: 1, UNAVAILABLE: 2, FAIL: 3}
 VER = r"\d+\.\d+(?:\.\d+)?"
 FORBIDDEN_TEXT = ("net.minecraft", "net.fabricmc", "fi.dy.masa")
 FORBIDDEN_BYTES = (b"net/minecraft", b"net/fabricmc", b"fi/dy/masa")
+MAX_RUN_LOG_BYTES = 64 * 1024 * 1024
 ARGS = None
 
 
@@ -377,11 +379,18 @@ class Guard:
 
     def server_run(self, node, label, mod_id, log, pattern, catalog, scope="server"):
         check = "%s.%s.%s" % (scope, node, label)
-        if not log.is_file() or not read(log).strip():
+        if not log.is_file():
             self.add(check, UNAVAILABLE, "server GameTest log not available/empty: %s"
                      % log.relative_to(self.root))
             return
-        text = read(log)
+        try:
+            text = run_log_text(log)
+        except (OSError, EOFError) as error:
+            self.add(check, FAIL, "cannot read complete server run log: %s" % error)
+            return
+        if not text.strip():
+            self.add(check, UNAVAILABLE, "server GameTest log is empty")
+            return
         problems = []
         if "found no tests" in text.lower():
             problems.append("selection found no tests")
@@ -432,15 +441,23 @@ class Guard:
     def client_run(self, node, label, mod_id, catalog, scope="client"):
         check = "%s.%s.%s" % (scope, node, label)
         log = self.root / ".runs" / node / label / "logs/latest.log"
-        if not log.is_file() or not read(log).strip():
+        if not log.is_file():
             self.add(check, UNAVAILABLE, "client GameTest log not available/empty: %s"
                      % log.relative_to(self.root))
+            return
+        try:
+            text = run_log_text(log)
+        except (OSError, EOFError) as error:
+            self.add(check, FAIL, "cannot read complete client run log: %s" % error)
+            return
+        if not text.strip():
+            self.add(check, UNAVAILABLE, "client GameTest log is empty")
             return
         info = catalog.get(mod_id)
         if info is None:
             self.add(check, UNAVAILABLE, "metadata for %s is not available" % mod_id)
             return
-        tags = client_tags(read(log))
+        tags = client_tags(text)
         problems = []
         if any(t[0] == "FAIL" for t in tags):
             problems.append("FAIL tags: %s" % ["%s/%s" % (t[1], t[2]) for t in tags if t[0] == "FAIL"][:8])
@@ -601,6 +618,32 @@ def read(path):
         return Path(path).read_text(encoding="utf-8", errors="replace")
     except Exception:
         return ""
+
+
+def run_log_text(latest):
+    """Read the current run across midnight rollovers, never borrowing an older launch."""
+    latest = Path(latest)
+    if not latest.is_file():
+        return ""
+    rotations = []
+    for path in latest.parent.iterdir():
+        match = re.fullmatch(r"(\d{4}-\d{2}-\d{2})-(\d+)\.log\.gz", path.name)
+        if match:
+            rotations.append((match.group(1), int(match.group(2)), path))
+    paths = [row[2] for row in sorted(rotations)] + [latest]
+    chunks = []
+    remaining = MAX_RUN_LOG_BYTES
+    for path in paths:
+        opener = gzip.open if path.suffix == ".gz" else open
+        with opener(path, "rb") as stream:
+            data = stream.read(remaining + 1)
+        if len(data) > remaining:
+            raise OSError("run logs exceed the %d-byte evidence limit" % MAX_RUN_LOG_BYTES)
+        remaining -= len(data)
+        chunks.append(data.decode("utf-8", errors="replace"))
+    text = "\n".join(chunks)
+    launches = list(re.finditer(r"(?m)^.*\(FabricLoader/GameProvider\) Loading Minecraft\b.*$", text))
+    return text[launches[-1].start():] if launches else text
 
 
 def parse_props(path):

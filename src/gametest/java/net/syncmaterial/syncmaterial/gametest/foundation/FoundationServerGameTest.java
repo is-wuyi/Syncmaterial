@@ -146,7 +146,7 @@ public class FoundationServerGameTest {
         }
     }
 
-    @GameTest(structure = "empty", maxTicks = 900)
+    @GameTest(structure = "syncmaterial-foundation-test:cross_chunk", maxTicks = 900)
     public void crossChunkLoadedSourcesAndOverlapDeduplicate(GameTestHelper helper) {
         ServerRuntime runtime = runtime(helper);
         String projectId = createProject(runtime, "native-cross-chunk");
@@ -156,12 +156,18 @@ public class FoundationServerGameTest {
             BlockPos first = placeChest(helper, blocks, 1, 1, 1, new ItemStack(Items.STONE, 4));
             ServerLevel level = helper.getLevel();
             BlockPos base = helper.absolutePos(new BlockPos(1, 1, 1));
-            // Move along Z: game-test structures are laid out along X, so an X-adjacent
-            // chunk can collide with another concurrent test's fixture positions.
+            // Both sources belong to this test's structure. The native runner lays tests
+            // out in rows as well as columns, so an external Z-adjacent fixture can collide.
             int otherChunkX = base.getX() >> 4;
             int otherChunkZ = (base.getZ() >> 4) + 1;
-            level.getChunk(otherChunkX, otherChunkZ);
             BlockPos other = new BlockPos(base.getX(), base.getY(), (otherChunkZ << 4) + 1);
+            var structure = helper.getBounds();
+            if (!structure.contains(first.getX(), first.getY(), first.getZ())
+                    || !structure.contains(other.getX(), other.getY(), other.getZ())
+                    || (first.getZ() >> 4) == (other.getZ() >> 4)) {
+                throw helper.assertionException("跨区块的两个箱子必须在本测试结构内且属于不同区块");
+            }
+            level.getChunk(otherChunkX, otherChunkZ);
             level.setBlockAndUpdate(other, Blocks.CHEST.defaultBlockState());
             ChestBlockEntity otherChest = (ChestBlockEntity) level.getBlockEntity(other);
             if (otherChest == null) {
@@ -169,6 +175,8 @@ public class FoundationServerGameTest {
             }
             otherChest.setItem(0, new ItemStack(Items.STONE, 6));
             blocks.add(other);
+            net.syncmaterial.syncmaterial.gametest.GameTestCleanup.register(helper,
+                    () -> cleanup(runtime, projectId, warehouses, blocks, level));
 
             AreaBounds bounds = boundsAround(List.of(first, other));
             addStaging(runtime, projectId, dimension(helper), bounds);
@@ -347,6 +355,93 @@ public class FoundationServerGameTest {
                         throw helper.assertionException("被动 source 调用后远处区块仍不得被加载");
                     }
                     cleanup(runtime, projectId, warehouses, blocks, helper.getLevel());
+                }
+            });
+        } catch (RuntimeException error) {
+            cleanup(runtime, projectId, warehouses, blocks, helper.getLevel());
+            throw error;
+        }
+    }
+
+    @GameTest(structure = "syncmaterial-foundation-test:isolated_chunk", maxTicks = 900)
+    public void unreferencedWarehouseUnloadRetainsStaleCoverageUntilReload(GameTestHelper helper) {
+        ServerRuntime runtime = runtime(helper);
+        String projectId = createProject(runtime, "native-unreferenced-unload");
+        List<BlockPos> blocks = new ArrayList<>();
+        List<Integer> warehouses = new ArrayList<>();
+        int[] phase = {0};
+        try {
+            ChestBlockEntity chest = placeChestEntity(helper, blocks, 24, 1, 24,
+                    new ItemStack(Items.STONE, 5));
+            BlockPos pos = chest.getBlockPos();
+            ServerLevel level = helper.getLevel();
+            LevelChunk chunk = level.getChunk(pos.getX() >> 4, pos.getZ() >> 4);
+            int warehouseId = runtime.store().addArea(null, AreaKind.WAREHOUSE,
+                    new AreaSpec("unreferenced-warehouse", dimension(helper), boundsAround(List.of(pos))))
+                    .join().id();
+            warehouses.add(warehouseId);
+            runtime.store().addWarehouseReference(projectId, warehouseId).join();
+            runtime.areas().refreshConfiguration();
+            net.syncmaterial.syncmaterial.gametest.GameTestCleanup.register(helper, () -> {
+                FoundationAreaEvents.chunkLoaded(level, chunk);
+                cleanup(runtime, projectId, warehouses, blocks, level);
+            });
+            helper.succeedWhen(() -> {
+                if (phase[0] == 0) {
+                    AreaInventoryView initial = view(runtime, projectId);
+                    if (!(initial.known() && initial.warehouse().getOrDefault("minecraft:stone", 0L) == 5)) {
+                        throw helper.assertionException("仓库卸载场景初始扫描未完成");
+                    }
+                    runtime.store().removeWarehouseReference(projectId, warehouseId).join();
+                    runtime.areas().refreshConfiguration();
+                    phase[0] = 1;
+                    throw helper.assertionException("等待仓库引用移除生效");
+                }
+                if (phase[0] == 1) {
+                    if (runtime.areas().configuration().orElseThrow()
+                            .referencedWarehouseIds(projectId).contains(warehouseId)
+                            || runtime.areas().hasPendingWork()) {
+                        throw helper.assertionException("仓库必须先停止被引用并完成此前扫描");
+                    }
+                    FoundationAreaEvents.chunkUnloaded(level, chunk);
+                    phase[0] = 2;
+                    throw helper.assertionException("等待无引用仓库的卸载覆盖标为过期");
+                }
+                if (phase[0] == 2) {
+                    var coverage = runtime.store().areaScanStore().coverage(warehouseId).join();
+                    ChunkKey unloaded = FoundationAreaEvents.chunkKey(level, chunk);
+                    var unloadedCoverage = coverage.stream().filter(row -> row.chunk().equals(unloaded)).toList();
+                    if (unloadedCoverage.size() != 1 || unloadedCoverage.get(0).state()
+                            != net.syncmaterial.syncmaterial.server.storage.AreaScanStore.CoverageState.STALE) {
+                        throw helper.assertionException("无项目引用不能跳过仓库卸载的过期标记");
+                    }
+                    if (coverage.stream().filter(row -> !row.chunk().equals(unloaded)).anyMatch(row -> row.state()
+                            != net.syncmaterial.syncmaterial.server.storage.AreaScanStore.CoverageState.COMPLETE)) {
+                        throw helper.assertionException("卸载一个区块不能使仍加载的邻区块覆盖失效");
+                    }
+                    runtime.store().addWarehouseReference(projectId, warehouseId).join();
+                    runtime.areas().refreshConfiguration();
+                    phase[0] = 3;
+                    throw helper.assertionException("等待重新引用已卸载的仓库");
+                }
+                if (phase[0] == 3) {
+                    if (!runtime.areas().configuration().orElseThrow()
+                            .referencedWarehouseIds(projectId).contains(warehouseId)) {
+                        throw helper.assertionException("重新添加仓库引用未生效");
+                    }
+                    AreaInventoryView stale = view(runtime, projectId);
+                    if (stale.known() || !stale.hasWarnings()
+                            || stale.warehouse().getOrDefault("minecraft:stone", 0L) != 5) {
+                        throw helper.assertionException("重新引用不能把卸载前的数量当作新鲜库存");
+                    }
+                    chest.setItem(0, new ItemStack(Items.STONE, 7));
+                    FoundationAreaEvents.chunkLoaded(level, chunk);
+                    phase[0] = 4;
+                    throw helper.assertionException("等待重新加载后的仓库扫描");
+                }
+                AreaInventoryView fresh = view(runtime, projectId);
+                if (!(fresh.known() && fresh.warehouse().getOrDefault("minecraft:stone", 0L) == 7)) {
+                    throw helper.assertionException("重新加载必须替换最近观测并恢复新鲜状态");
                 }
             });
         } catch (RuntimeException error) {

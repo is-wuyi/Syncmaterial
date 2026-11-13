@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Regression tests for the multiversion acceptance evidence gate."""
 
+import gzip
 import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +60,83 @@ class RegressionClassGateTest(unittest.TestCase):
             summary = GUARD.junit_summary(Path(directory))
         self.assertNotIn("Required", summary["classes"])
         self.assertTrue(GUARD.junit_issues(summary, self.baseline, "platform_min_tests"))
+
+
+class RunLogGateTest(unittest.TestCase):
+    MOD = "syncmaterial-optional-test"
+    CLASS = "RequiredClient"
+    LAUNCH = "[23:59:00] [main/INFO] (FabricLoader/GameProvider) Loading Minecraft 1.21.7 with Fabric Loader\n"
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.logs = Path(self.directory.name)
+        self.latest = self.logs / "latest.log"
+
+    def tag(self, status):
+        return "SYNCMATERIAL_CLIENT_TEST_%s %s %s\n" % (status, self.MOD, self.CLASS)
+
+    def rotate(self, name, text):
+        (self.logs / name).write_bytes(gzip.compress(text.encode("utf-8")))
+
+    def problems(self, text):
+        problems = []
+        GUARD.validate_tags(problems, self.MOD, [self.CLASS], GUARD.client_tags(text))
+        return problems
+
+    def test_midnight_rotation_preserves_start_and_pass(self):
+        self.rotate("2026-11-13-1.log.gz", self.LAUNCH + self.tag("START"))
+        self.latest.write_text(self.tag("PASS"), encoding="utf-8")
+        self.assertEqual([], self.problems(GUARD.run_log_text(self.latest)))
+
+    def test_rotation_indices_are_numeric_not_lexicographic(self):
+        self.rotate("2026-11-13-2.log.gz", self.LAUNCH + self.tag("START"))
+        self.rotate("2026-11-13-10.log.gz", self.LAUNCH + self.tag("START"))
+        self.latest.write_text(self.tag("PASS"), encoding="utf-8")
+        self.assertEqual([], self.problems(GUARD.run_log_text(self.latest)))
+
+    def test_latest_launch_never_borrows_an_old_start(self):
+        self.rotate("2026-11-13-1.log.gz", self.LAUNCH + self.tag("START") + self.tag("PASS"))
+        self.latest.write_text(self.LAUNCH + self.tag("PASS"), encoding="utf-8")
+        self.assertIn(self.CLASS + " START=0", self.problems(GUARD.run_log_text(self.latest)))
+
+    def test_duplicate_start_in_one_launch_still_fails(self):
+        self.rotate("2026-11-13-1.log.gz", self.LAUNCH + self.tag("START"))
+        self.latest.write_text(self.tag("START") + self.tag("PASS"), encoding="utf-8")
+        self.assertIn(self.CLASS + " START=2", self.problems(GUARD.run_log_text(self.latest)))
+
+    def test_rotated_fail_tag_is_not_hidden_by_latest_pass(self):
+        self.rotate("2026-11-13-1.log.gz", self.LAUNCH + self.tag("START") + self.tag("FAIL"))
+        self.latest.write_text(self.tag("PASS"), encoding="utf-8")
+        self.assertTrue(any(tag[0] == "FAIL" for tag in GUARD.client_tags(GUARD.run_log_text(self.latest))))
+
+    def test_debug_log_never_supplies_missing_start(self):
+        (self.logs / "debug.log").write_text(self.LAUNCH + self.tag("START"), encoding="utf-8")
+        self.latest.write_text(self.tag("PASS"), encoding="utf-8")
+        self.assertIn(self.CLASS + " START=0", self.problems(GUARD.run_log_text(self.latest)))
+
+    def test_missing_latest_never_uses_old_archive_as_completed_run(self):
+        self.rotate("2026-11-13-1.log.gz", self.LAUNCH + self.tag("START") + self.tag("PASS"))
+        self.assertEqual("", GUARD.run_log_text(self.latest))
+
+    def test_corrupt_rotation_is_not_silently_skipped(self):
+        (self.logs / "2026-11-13-1.log.gz").write_bytes(b"not a gzip log")
+        self.latest.write_text(self.LAUNCH + self.tag("START") + self.tag("PASS"), encoding="utf-8")
+        with self.assertRaises(OSError):
+            GUARD.run_log_text(self.latest)
+
+    def test_expanded_rotation_limit_fails_instead_of_truncating_evidence(self):
+        self.rotate("2026-11-13-1.log.gz", self.LAUNCH + self.tag("START"))
+        self.latest.write_text(self.tag("PASS"), encoding="utf-8")
+        with patch.object(GUARD, "MAX_RUN_LOG_BYTES", 32):
+            with self.assertRaisesRegex(OSError, "evidence limit"):
+                GUARD.run_log_text(self.latest)
+
+    def test_server_summary_keeps_rotated_failure(self):
+        self.rotate("2026-11-13-1.log.gz", self.LAUNCH + "1 required tests failed :(\n")
+        self.latest.write_text("========= 19 GAME TESTS COMPLETE IN 2s\nAll 19 required tests passed :)\n",
+                               encoding="utf-8")
+        self.assertIn("1 required tests failed :(", GUARD.run_log_text(self.latest))
 
 
 class StaticFindingGateTest(unittest.TestCase):

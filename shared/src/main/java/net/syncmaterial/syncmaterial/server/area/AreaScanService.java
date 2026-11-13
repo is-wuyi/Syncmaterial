@@ -373,30 +373,15 @@ public final class AreaScanService implements AutoCloseable {
             }
         }
 
-        Set<String> projects = projectsForChunk(chunk);
-        if (projects.isEmpty()) {
+        // Stale is physical coverage state, so it cannot depend on a project reference
+        // (an unreferenced warehouse would otherwise look known after a later reference).
+        if (catalog.areasCovering(chunk).isEmpty()) {
             if (state != null) {
                 syncState(state);
             }
             return;
         }
-        ChunkState staleState = state != null ? state : state(chunk);
-        staleState.stalePending++;
-        ensureReason(staleState, projects);
-        backend.markChunkStale(chunk).whenComplete((rows, error) -> enqueue(() -> {
-            if (!open.get()) {
-                return;
-            }
-            staleState.stalePending--;
-            if (error != null) {
-                LOGGER.warn("区块卸载后标记区域库存过期失败: {}", chunk, error);
-            } else {
-                broadcast(projectsForChunk(chunk));
-            }
-            captureWatermark(staleState, projectsForChunk(chunk));
-            syncState(staleState);
-        }));
-        syncState(staleState);
+        queueStale(state != null ? state : state(chunk), projectsForChunk(chunk));
     }
 
     public void containerChanged(ContainerKey key) {
@@ -920,7 +905,7 @@ public final class AreaScanService implements AutoCloseable {
             op.finished = true;
             activeScan = null;
             state.scan = null;
-            state.scanWanted = op.beginFailures > 0;
+            state.scanWanted = op.beginFailures > 0 || state.scanRequestSequence != op.requestSequence;
             captureWatermark(state, projectsForChunk(state.chunk));
             syncState(state);
             return;
@@ -1045,8 +1030,9 @@ public final class AreaScanService implements AutoCloseable {
         op.finished = true;
         activeScan = null;
         state.scan = null;
-        boolean requiresRescan = op.failures > 0 || op.errors || state.sequence != op.sequence
-                || !state.changed.isEmpty() || !state.removed.isEmpty();
+        boolean requestedAgain = state.scanRequestSequence != op.requestSequence;
+        boolean requiresRescan = requestedAgain || op.failures > 0 || op.errors
+                || state.sequence != op.sequence || !state.changed.isEmpty() || !state.removed.isEmpty();
         if (requiresRescan) {
             op.restoreCapturedKeys();
             state.scanWanted = loadedChunks.contains(state.chunk);
@@ -1129,7 +1115,7 @@ public final class AreaScanService implements AutoCloseable {
     }
 
     private void queueStale(ChunkState state, Set<String> projects) {
-        if (projects.isEmpty()) {
+        if (projects.isEmpty() && catalog.areasCovering(state.chunk).isEmpty()) {
             return;
         }
         state.stalePending++;
@@ -1511,11 +1497,13 @@ public final class AreaScanService implements AutoCloseable {
         }
         if (!catalog.areasCovering(state.chunk).isEmpty()) {
             state.scanWanted = true;
+            state.scanRequestSequence++;
             if (state.scan == null && !scanQueued.contains(state.chunk)) {
                 scanQueue.add(state.chunk);
                 scanQueued.add(state.chunk);
             }
-        } else if (force) {            state.scanWanted = false;
+        } else if (force) {
+            state.scanWanted = false;
         }
         syncState(state);
     }
@@ -1642,6 +1630,8 @@ public final class AreaScanService implements AutoCloseable {
         private final Set<ContainerKey> changed = new LinkedHashSet<>();
         private final Set<ContainerKey> removed = new LinkedHashSet<>();
         private boolean scanWanted;
+        /** Bumped per accepted scan request; an op only clears requests it captured. */
+        private long scanRequestSequence;
         private int stalePending;
         private int watermarkPending;
         private boolean invalidationInFlight;
@@ -1669,6 +1659,7 @@ public final class AreaScanService implements AutoCloseable {
         private boolean applied;
         private ScanPhase phase = ScanPhase.BEGINS;
         private long sequence;
+        private final long requestSequence;
         private ChunkScanCursor cursor;
         private final List<ContainerObservation> observations = new ArrayList<>();
 
@@ -1676,6 +1667,7 @@ public final class AreaScanService implements AutoCloseable {
             this.state = state;
             this.areas = List.copyOf(areas);
             this.sequence = state.sequence;
+            this.requestSequence = state.scanRequestSequence;
             this.capturedChanged.addAll(state.changed);
             this.capturedRemoved.addAll(state.removed);
             state.changed.clear();

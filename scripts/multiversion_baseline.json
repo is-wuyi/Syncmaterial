@@ -248,7 +248,7 @@
     }
   },
   "junit": {
-    "shared_min_tests": 339,
+    "shared_min_tests": 349,
     "platform_min_tests": 642,
     "required_classes": {
       "shared": [
@@ -337,11 +337,11 @@
       "shared": {
         "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest": 3,
         "net.syncmaterial.syncmaterial.core.AreaRecordsTest": 9,
-        "net.syncmaterial.syncmaterial.server.area.AreaScanServiceTest": 24,
+        "net.syncmaterial.syncmaterial.server.area.AreaScanServiceTest": 29,
         "net.syncmaterial.syncmaterial.server.runtime.AreaRuntimeIntegrationTest": 3,
         "net.syncmaterial.syncmaterial.server.runtime.MaterialCatalogTrackerTest": 10,
         "net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeTest": 7,
-        "net.syncmaterial.syncmaterial.server.storage.AreaScanStoreTest": 15,
+        "net.syncmaterial.syncmaterial.server.storage.AreaScanStoreTest": 20,
         "net.syncmaterial.syncmaterial.server.storage.AreaStoreTest": 18,
         "net.syncmaterial.syncmaterial.server.storage.SchemaMigrationTest": 6,
         "net.syncmaterial.syncmaterial.core.TeamRecordsTest": 9,
@@ -357,7 +357,7 @@
   },
   "server_run_test_counts": {
     "legacy": 40,
-    "foundation": 18
+    "foundation": 19
   },
   "client_entries_expected": {
     "syncmaterial-test": 24,
@@ -372,7 +372,7 @@
     },
     "syncmaterial-foundation-test": {
       "resources": "src/foundationtest/resources/fabric.mod.json",
-      "server_methods_min": 18,
+      "server_methods_min": 19,
       "client_entries_min": 4
     },
     "syncmaterial-optional-test": {

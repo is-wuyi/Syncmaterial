@@ -1,5 +1,6 @@
 package net.syncmaterial.syncmaterial.server.area;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -11,27 +12,40 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import net.syncmaterial.syncmaterial.core.AreaBounds;
 import net.syncmaterial.syncmaterial.core.AreaCatalog;
 import net.syncmaterial.syncmaterial.core.AreaDefinition;
 import net.syncmaterial.syncmaterial.core.AreaInventoryView;
 import net.syncmaterial.syncmaterial.core.AreaKind;
+import net.syncmaterial.syncmaterial.core.AreaSpec;
 import net.syncmaterial.syncmaterial.core.ChunkKey;
 import net.syncmaterial.syncmaterial.core.ContainerKey;
 import net.syncmaterial.syncmaterial.core.ContainerObservation;
+import net.syncmaterial.syncmaterial.core.MaterialCount;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
+import net.syncmaterial.syncmaterial.core.SchematicMetadata;
+import net.syncmaterial.syncmaterial.server.storage.AreaScanStore;
+import net.syncmaterial.syncmaterial.server.storage.SqliteProjectStore;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class AreaScanServiceTest {
     private static final String WORLD = "minecraft:overworld";
     private static final String PROJECT = "project-a";
     private static final UUID RUNTIME = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void overlappingAreasShareOneChunkReadAndApplyPerArea() {
@@ -524,6 +538,323 @@ class AreaScanServiceTest {
         assertEquals(0, fixture.backend.dirtyApplies.size());
     }
 
+    @Test
+    void catalogAdditionDuringActiveScanIsRescannedAfterTheInFlightScanCompletes() {
+        Fixture fixture = new Fixture();
+        fixture.backend.addArea(area(1, PROJECT, 0, 15, 0, 15));
+        ChunkKey chunk = chunk(0, 0);
+        fixture.source.full.put(chunk, List.of(observation(1, 1, 1, "minecraft:stone", 5)));
+        fixture.loaded(0, 0);
+        fixture.runTicks(12);
+        assertEquals(1, fixture.backend.chunkApplies.size(), "baseline scan must complete first");
+        fixture.resetCounters();
+
+        fixture.source.scripted.put(chunk, new ArrayList<>(List.of(
+                new ChunkScanSlice(List.of(), ChunkScanCursor.of(List.of(key(1, 1, 1)), List.of()),
+                        false, true, 0, 0),
+                ChunkScanSlice.complete(List.of(observation(1, 1, 1, "minecraft:stone", 5)), 1, 1))));
+        CompletableFuture<AreaScanService.RescanResult> rescan = fixture.service.rescan(PROJECT);
+        for (int i = 0; i < 20 && fixture.source.scanCalls == 0; i++) {
+            fixture.service.tick();
+        }
+        assertEquals(1, fixture.source.scanCalls, "the rescan must be mid-read with a cursor");
+        assertEquals(1, fixture.source.scripted.get(chunk).size(), "one slice must remain unread");
+
+        // Adding an overlapping area is a new catalog request while the scan is in flight.
+        // Its only token belongs to area 1, so the in-flight apply can never cover area 2.
+        fixture.backend.addArea(area(2, PROJECT, 0, 15, 0, 15));
+        CompletableFuture<Void> refresh = fixture.service.refreshConfiguration();
+        for (int i = 0; i < 5 && !refresh.isDone(); i++) {
+            fixture.service.tick();
+        }
+        assertTrue(refresh.isDone(), "the new catalog must be applied while the scan is active");
+        fixture.runTicks(20);
+
+        List<AppliedChunk> areaTwoApplies = fixture.backend.chunkApplies.stream()
+                .filter(applied -> applied.token().areaId() == 2)
+                .toList();
+        assertEquals(1, areaTwoApplies.size(),
+                () -> "the area added during the in-flight scan must receive one rescheduled coverage"
+                        + " pass; filters=" + fixture.source.scanFilters);
+        assertEquals(1, areaTwoApplies.get(0).observations().size());
+        assertTrue(rescan.isDone());
+        AreaScanService.RescanResult result = rescan.join();
+        assertTrue(result.success(), result.message());
+    }
+
+    @Test
+    void multipleCatalogRequestsDuringOneScanCoalesceToASingleFollowUpPassAndIdle() {
+        Fixture fixture = new Fixture();
+        fixture.backend.addArea(area(1, PROJECT, 0, 15, 0, 15));
+        ChunkKey chunk = chunk(0, 0);
+        fixture.source.full.put(chunk, List.of(observation(1, 1, 1, "minecraft:stone", 5)));
+        fixture.loaded(0, 0);
+        fixture.runTicks(12);
+        assertEquals(1, fixture.backend.chunkApplies.size(), "baseline scan must complete first");
+        fixture.resetCounters();
+
+        // Two incomplete slices keep the scan mid-read across both catalog apply ticks.
+        fixture.source.scripted.put(chunk, new ArrayList<>(List.of(
+                new ChunkScanSlice(List.of(), ChunkScanCursor.of(List.of(key(1, 1, 1)), List.of()),
+                        false, true, 0, 0),
+                new ChunkScanSlice(List.of(), ChunkScanCursor.of(List.of(key(1, 1, 1)), List.of()),
+                        false, true, 0, 0),
+                ChunkScanSlice.complete(List.of(observation(1, 1, 1, "minecraft:stone", 5)), 1, 1))));
+        CompletableFuture<AreaScanService.RescanResult> rescan = fixture.service.rescan(PROJECT);
+        for (int i = 0; i < 20 && fixture.source.scanCalls == 0; i++) {
+            fixture.service.tick();
+        }
+        assertEquals(1, fixture.source.scanCalls);
+        assertEquals(2, fixture.source.scripted.get(chunk).size());
+
+        fixture.backend.addArea(area(2, PROJECT, 0, 15, 0, 15));
+        applyRefresh(fixture);
+        assertEquals(2, fixture.source.scanCalls, "the scan must still be reading after the first request");
+
+        fixture.backend.addArea(area(3, PROJECT, 0, 15, 0, 15));
+        applyRefresh(fixture);
+
+        tickUntil(fixture.service, () -> "the coalesced follow-up must finish and the scanner must idle",
+                () -> !fixture.service.hasPendingWork());
+        assertEquals(1, appliesFor(fixture, 2), "two requests in one scan must produce one area-2 pass");
+        assertEquals(1, appliesFor(fixture, 3), "the second request must coalesce into the same pass");
+        assertEquals(4, fixture.backend.chunkApplies.size(),
+                "one first-scan area-1 pass plus one follow-up pass for areas 1/2/3");
+        int callsAfterIdle = fixture.source.scanCalls;
+        fixture.runTicks(5);
+        assertEquals(callsAfterIdle, fixture.source.scanCalls, "an idle scanner must not start more scans");
+        assertTrue(rescan.isDone());
+        AreaScanService.RescanResult result = rescan.join();
+        assertTrue(result.success(), result.message());
+    }
+
+    @Test
+    void newRequestWhileEmptyBeginTokensArePendingSurvivesTheEmptyCompletion() {
+        Fixture fixture = new Fixture();
+        fixture.backend.addArea(area(1, PROJECT, 0, 15, 0, 15));
+        ChunkKey chunk = chunk(0, 0);
+        fixture.source.full.put(chunk, List.of(observation(1, 1, 1, "minecraft:stone", 5)));
+        fixture.loaded(0, 0);
+        fixture.runTicks(12);
+        assertEquals(1, fixture.backend.chunkApplies.size(), "baseline scan must complete first");
+        fixture.resetCounters();
+
+        fixture.backend.deferChunkBegins = true;
+        CompletableFuture<AreaScanService.RescanResult> rescan = fixture.service.rescan(PROJECT);
+        for (int i = 0; i < 20 && fixture.backend.pendingBegins.isEmpty(); i++) {
+            fixture.service.tick();
+        }
+        assertEquals(1, fixture.backend.pendingBegins.size(), "the scan must be stuck in async BEGINS");
+        assertEquals(0, fixture.source.scanCalls);
+
+        fixture.backend.addArea(area(2, PROJECT, 0, 15, 0, 15));
+        applyRefresh(fixture);
+        assertEquals(1, fixture.backend.pendingBegins.size(), "the new request must not cancel async begins");
+
+        // Every begin returns empty: no tokens exist, so only the request sequence can
+        // keep the new catalog work alive.
+        fixture.backend.completeChunkBeginsMissing();
+        fixture.runTicks(30);
+
+        assertEquals(1, appliesFor(fixture, 2),
+                "a request that arrived before the empty begin completion must still be scanned");
+        assertEquals(1, appliesFor(fixture, 1));
+        assertTrue(rescan.isDone());
+        AreaScanService.RescanResult result = rescan.join();
+        assertTrue(result.success(), result.message());
+    }
+
+    @Test
+    void unreferencedWarehouseUnloadMarksCoverageStaleAndLaterReferenceStaysUnknown() throws Exception {
+        try (SqliteProjectStore store = SqliteProjectStore.open(tempDir.resolve("area-scan.sqlite"))) {
+            store.ingest(new SchematicMetadata(PROJECT, "Project", Path.of("fixture.litematic"), "hash",
+                            new PlayerIdentity(UUID.randomUUID(), "Owner")),
+                    List.of(new MaterialCount("minecraft:stone", 128))).get(5, TimeUnit.SECONDS);
+            AreaDefinition warehouse = store.addArea(null, AreaKind.WAREHOUSE,
+                            new AreaSpec("Warehouse", WORLD, new AreaBounds(0, 0, 0, 15, 10, 15)))
+                    .get(5, TimeUnit.SECONDS);
+            store.addWarehouseReference(PROJECT, warehouse.id()).get(5, TimeUnit.SECONDS);
+
+            FakeSource source = new FakeSource();
+            ChunkKey chunk = chunk(0, 0);
+            source.loaded.add(chunk);
+            source.full.put(chunk, List.of(observation(1, 1, 1, "minecraft:stone", 5)));
+            List<String> broadcasts = new ArrayList<>();
+            try (AreaScanService service = new AreaScanService(RUNTIME, broadcasts::add, store)) {
+                awaitCatalog(service, warehouse.id());
+                service.attachSource(source);
+                awaitCoverage(service, store, warehouse.id(), AreaScanStore.CoverageState.COMPLETE,
+                        "the initial scan");
+                assertTrue(inventory(store).known(), "the referenced warehouse must start known");
+
+                // The warehouse stops being referenced while its chunk is still loaded.
+                store.removeWarehouseReference(PROJECT, warehouse.id()).get(5, TimeUnit.SECONDS);
+                awaitRefresh(service, store);
+                for (int i = 0; i < 5; i++) {
+                    service.tick();
+                }
+                assertTrue(service.configuration().orElseThrow().warehouseReferences().isEmpty(),
+                        "the service must apply the reference removal before the unload");
+                awaitCoverage(service, store, warehouse.id(), AreaScanStore.CoverageState.COMPLETE,
+                        "the reference removal");
+
+                // The chunk unloads while no project references the warehouse.
+                source.loaded.remove(chunk);
+                service.chunkUnloaded(chunk);
+                assertTrue(service.configuration().orElseThrow().warehouseReferences().isEmpty());
+                awaitCoverage(service, store, warehouse.id(), AreaScanStore.CoverageState.STALE,
+                        "the unreferenced unload");
+
+                // A later reference must not expose the last complete rows as fresh.
+                store.addWarehouseReference(PROJECT, warehouse.id()).get(5, TimeUnit.SECONDS);
+                awaitRefresh(service, store);
+                for (int i = 0; i < 5; i++) {
+                    service.tick();
+                }
+                AreaInventoryView stale = inventory(store);
+                assertFalse(stale.known(), "an unloaded warehouse must stay unknown after being re-referenced");
+                assertTrue(stale.hasWarnings());
+                assertEquals(5L, stale.warehouse().getOrDefault("minecraft:stone", 0L),
+                        "last-known counts stay visible even though they are not known");
+                assertFalse(service.isInventoryCurrent(PROJECT, stale));
+
+                // Reload replaces last-known rows with a fresh observation.
+                source.loaded.add(chunk);
+                source.full.put(chunk, List.of(observation(1, 1, 1, "minecraft:stone", 7)));
+                service.chunkLoaded(chunk);
+                awaitCoverage(service, store, warehouse.id(), AreaScanStore.CoverageState.COMPLETE,
+                        "the reload scan");
+                awaitReady(service, store);
+                AreaInventoryView fresh = inventory(store);
+                assertTrue(fresh.known());
+                assertTrue(service.isInventoryCurrent(PROJECT, fresh));
+                assertEquals(7L, fresh.warehouse().getOrDefault("minecraft:stone", 0L));
+            }
+        }
+    }
+
+    @Test
+    void warehouseUnloadInvalidatesOnlyItsChunkWhenAreaSpansLoadedNeighbors() throws Exception {
+        try (SqliteProjectStore store = SqliteProjectStore.open(tempDir.resolve("cross-chunk-stale.sqlite"))) {
+            store.ingest(new SchematicMetadata(PROJECT, "Project", Path.of("fixture.litematic"), "hash",
+                            new PlayerIdentity(UUID.randomUUID(), "Owner")),
+                    List.of(new MaterialCount("minecraft:stone", 128))).get(5, TimeUnit.SECONDS);
+            AreaDefinition warehouse = store.addArea(null, AreaKind.WAREHOUSE,
+                            new AreaSpec("Warehouse", WORLD, new AreaBounds(0, 0, 0, 31, 10, 15)))
+                    .get(5, TimeUnit.SECONDS);
+            store.addWarehouseReference(PROJECT, warehouse.id()).get(5, TimeUnit.SECONDS);
+            ChunkKey first = chunk(0, 0);
+            ChunkKey neighbor = chunk(1, 0);
+            FakeSource source = new FakeSource();
+            source.loaded.add(first);
+            source.loaded.add(neighbor);
+            source.full.put(first, List.of(observation(1, 1, 1, "minecraft:stone", 5)));
+            source.full.put(neighbor, List.of(observation(17, 1, 1, "minecraft:stone", 7)));
+            try (AreaScanService service = new AreaScanService(RUNTIME, ignored -> {}, store)) {
+                awaitCatalog(service, warehouse.id());
+                service.attachSource(source);
+                awaitReady(service, store);
+                assertEquals(12L, inventory(store).warehouse().get("minecraft:stone"));
+                store.removeWarehouseReference(PROJECT, warehouse.id()).get(5, TimeUnit.SECONDS);
+                awaitRefresh(service, store);
+                tickUntil(service, () -> "both warehouse chunks must finish before unloading one", () -> {
+                    var rows = store.areaScanStore().coverage(warehouse.id()).join();
+                    return rows.size() == 2 && rows.stream().allMatch(row -> row.state()
+                            == AreaScanStore.CoverageState.COMPLETE) && !service.hasPendingWork();
+                });
+                source.loaded.remove(first);
+                service.chunkUnloaded(first);
+                tickUntil(service, () -> "only the unloaded chunk must become stale", () -> {
+                    var rows = store.areaScanStore().coverage(warehouse.id()).join();
+                    return rows.size() == 2 && rows.stream().anyMatch(row -> row.chunk().equals(first)
+                            && row.state() == AreaScanStore.CoverageState.STALE);
+                });
+                var coverage = store.areaScanStore().coverage(warehouse.id()).join();
+                assertTrue(coverage.stream().anyMatch(row -> row.chunk().equals(neighbor)
+                        && row.state() == AreaScanStore.CoverageState.COMPLETE));
+                store.addWarehouseReference(PROJECT, warehouse.id()).get(5, TimeUnit.SECONDS);
+                awaitRefresh(service, store);
+                AreaInventoryView stale = inventory(store);
+                assertFalse(stale.known());
+                assertEquals(12L, stale.warehouse().get("minecraft:stone"));
+                assertTrue(stale.hasWarnings());
+                assertTrue(stale.freshness().stream().allMatch(warning -> warning.areaId() == warehouse.id()));
+                source.full.put(first, List.of(observation(1, 1, 1, "minecraft:stone", 9)));
+                source.loaded.add(first);
+                service.chunkLoaded(first);
+                awaitReady(service, store);
+                assertEquals(16L, inventory(store).warehouse().get("minecraft:stone"));
+            }
+        }
+    }
+
+    private static void applyRefresh(Fixture fixture) {
+        CompletableFuture<Void> refresh = fixture.service.refreshConfiguration();
+        tickUntil(fixture.service, () -> "the catalog refresh must complete", refresh::isDone);
+        refresh.join();
+    }
+
+    private static long appliesFor(Fixture fixture, int areaId) {
+        return fixture.backend.chunkApplies.stream()
+                .filter(applied -> applied.token().areaId() == areaId).count();
+    }
+
+    private static void awaitCatalog(AreaScanService service, int areaId) {
+        tickUntil(service, () -> "the catalog must expose area " + areaId, () -> service.configuration()
+                .flatMap(catalog -> catalog.findArea(areaId)).isPresent());
+    }
+
+    /**
+     * Applies one explicit catalog refresh. The store read is drained first so the refresh
+     * completion is already queued before the next tick; the catalog apply is then drained
+     * before reconcile/processScan in that tick. That removes the window where a periodic
+     * reconcile scan could start and then be cancelled by the reference change itself.
+     */
+    private static void awaitRefresh(AreaScanService service, SqliteProjectStore store) {
+        CompletableFuture<Void> refresh = service.refreshConfiguration();
+        store.areaCatalog().join();
+        tickUntil(service, () -> "the explicit catalog refresh must complete", refresh::isDone);
+        refresh.join();
+    }
+
+    private static void awaitCoverage(AreaScanService service, SqliteProjectStore store, int areaId,
+                                      AreaScanStore.CoverageState expected, String phase) {
+        tickUntil(service,
+                () -> "coverage for area " + areaId + " must reach " + expected + " after " + phase
+                        + " but is " + coverageStates(store, areaId),
+                () -> {
+                    List<AreaScanStore.ChunkCoverage> rows = store.areaScanStore().coverage(areaId).join();
+                    return rows.size() == 1 && rows.get(0).state() == expected;
+                });
+    }
+
+    private static String coverageStates(SqliteProjectStore store, int areaId) {
+        return store.areaScanStore().coverage(areaId).join().stream()
+                .map(row -> row.state().name()).toList().toString();
+    }
+
+    private static void awaitReady(AreaScanService service, SqliteProjectStore store) {
+        tickUntil(service, () -> "the project inventory must become known and current", () -> {
+            AreaInventoryView view = inventory(store);
+            return view.known() && service.isInventoryCurrent(PROJECT, view);
+        });
+    }
+
+    private static AreaInventoryView inventory(SqliteProjectStore store) {
+        return store.snapshot(PROJECT).join().orElseThrow().inventory();
+    }
+
+    private static void tickUntil(AreaScanService service, Supplier<String> description, BooleanSupplier condition) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        do {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            service.tick();
+        } while (System.nanoTime() < deadline);
+        fail(description.get());
+    }
+
     // ==================================================================
 
     private static final class Fixture {
@@ -557,6 +888,7 @@ class AreaScanServiceTest {
             backend.chunkApplies.clear();
             backend.abandoned = 0;
             source.scanCalls = 0;
+            source.scanFilters.clear();
             source.dirtyReads = 0;
             broadcasts.clear();
         }
@@ -574,6 +906,7 @@ class AreaScanServiceTest {
         private final Map<Long, ScanToken> tokens = new HashMap<>();
         private long epoch;
         private long revision;
+        private long catalogRevision;
         private long nextToken;
         private int abandoned;
         private boolean deferCatalog;
@@ -595,9 +928,20 @@ class AreaScanServiceTest {
             return CompletableFuture.completedFuture(++epoch);
         }
 
+        /**
+         * Mirrors the production store's monotonic config revision. Tests that change the
+         * area set mid-flight use this instead of mutating the list, so an old catalog that
+         * completes later cannot roll the index back.
+         */
+        private void addArea(AreaDefinition area) {
+            areas.add(area);
+            catalogRevision++;
+        }
+
         @Override
         public CompletableFuture<AreaCatalog> areaCatalog() {
-            AreaCatalog catalog = new AreaCatalog(List.copyOf(areas), Map.of(), Map.of(PROJECT, "Project"), revision);
+            AreaCatalog catalog = new AreaCatalog(List.copyOf(areas), Map.of(), Map.of(PROJECT, "Project"),
+                    catalogRevision);
             if (deferCatalog) {
                 return deferredCatalog;
             }
@@ -642,6 +986,17 @@ class AreaScanServiceTest {
             pendingBeginTokens.clear();
             for (int i = 0; i < futures.size(); i++) {
                 futures.get(i).complete(Optional.of(completed.get(i)));
+            }
+        }
+
+        /** Simulates every deferred begin resolving to "no token" (area/geometry gone). */
+        private void completeChunkBeginsMissing() {
+            deferChunkBegins = false;
+            List<CompletableFuture<Optional<ScanToken>>> futures = new ArrayList<>(pendingBegins);
+            pendingBegins.clear();
+            pendingBeginTokens.clear();
+            for (CompletableFuture<Optional<ScanToken>> future : futures) {
+                future.complete(Optional.empty());
             }
         }
 
@@ -796,6 +1151,7 @@ class AreaScanServiceTest {
         private final Map<ChunkKey, List<ContainerObservation>> full = new HashMap<>();
         private final Map<ChunkKey, List<ChunkScanSlice>> scripted = new HashMap<>();
         private final Map<ContainerKey, ContainerObservation> selected = new HashMap<>();
+        private final List<List<AreaBounds>> scanFilters = new ArrayList<>();
         private int scanCalls;
         private int dirtyReads;
         private int maxSlotsPerCall;
@@ -819,6 +1175,7 @@ class AreaScanServiceTest {
         public ChunkScanSlice scanChunk(ChunkKey chunk, ChunkScanFilter filter, ChunkScanCursor cursor,
                                         ScanBudget budget) {
             scanCalls++;
+            scanFilters.add(filter.bounds());
             maxSlotsPerCall = Math.max(maxSlotsPerCall, budget.maxSlots());
             List<ChunkScanSlice> slices = scripted.get(chunk);
             if (slices != null && !slices.isEmpty()) {
