@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-2026-11-13，用户批准实施具体计划。共享团队业务、协议 4 管理适配和现有 GUI 请求作用域已整合；**同一源码 clean／禁用缓存三节点完整本地验收通过，待提交、推送及对应 CI 确认**。受测版本 beta.57、协议 4、Foundation schema 3；默认 legacy 不变。
+2026-11-13，用户批准实施具体计划。共享团队业务、协议 4 管理适配和现有 GUI 请求作用域已整合；**同一源码 clean／禁用缓存三节点完整本地验收通过，实现 [`9bce6dc`](https://github.com/is-wuyi/Syncmaterial/commit/9bce6dcb723ce2f13f9d0451770d640e83518ac1) 已提交推送，[CI attempt 1 全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/43419829230)**。版本 beta.57、协议 4、Foundation schema 3；默认 legacy 不变。
 
 最终整合验收：shared 339，三节点平台 645／645／642，均无失败／错误／跳过；每节点 legacy／Foundation 服务端 40／18，客户端 24／4，缺依赖服务端 2／2、客户端 1／1；shared SpotBugs 0，平台各 11 无新增，49 项统一守卫全绿。400 份受控文件清单各阶段前后不变，摘要 `9bc42c18bb8884baf6a95ff1ffc395d151caed48ab39b17eeacfb2a9fe02f338`。本地结果不是提交后的 CI，完整证据见 [进度入口](progress.md)。
 
