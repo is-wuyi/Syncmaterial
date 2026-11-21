@@ -65,9 +65,9 @@ public class HudToggleDataFlowClientGameTest implements FabricClientGameTest {
                     active == null ? null : active.getMaterialsAll());
             });
 
-            Map<String, Integer> initial = ctx.computeOnClient(client ->
+            Map<String, Long> initial = ctx.computeOnClient(client ->
                 Map.copyOf(PickupModeState.getNeeds()));
-            if (!Integer.valueOf(64).equals(initial.get("minecraft:dirt")))
+            if (!Long.valueOf(64).equals(initial.get("minecraft:dirt")))
                 throw new AssertionError("HUD 关闭时初始需求量应为 64，实际为 " + initial);
 
             // 关键断言：HUD 全关的情况下改变数据，需求量仍须被 tick 重算。
@@ -82,9 +82,9 @@ public class HudToggleDataFlowClientGameTest implements FabricClientGameTest {
             });
             ctx.waitTicks(RECOMPUTE_WAIT_TICKS);
 
-            Map<String, Integer> updated = ctx.computeOnClient(client ->
+            Map<String, Long> updated = ctx.computeOnClient(client ->
                 Map.copyOf(PickupModeState.getNeeds()));
-            if (!Integer.valueOf(10).equals(updated.get("minecraft:dirt"))) {
+            if (!Long.valueOf(10).equals(updated.get("minecraft:dirt"))) {
                 throw new AssertionError(
                     "HUD 关闭期间数据变化后需求量应更新为 10，实际为 " + updated
                         + "（数据更新被错误地挂在了 HUD 渲染上）");

@@ -15,6 +15,7 @@ import net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket;
 import org.slf4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 
 public class SyncMaterialClient implements ClientModInitializer {
     private static final Logger LOGGER = SyncMaterial.LOGGER;
@@ -40,7 +41,7 @@ public class SyncMaterialClient implements ClientModInitializer {
      * 若需求还是旧的 128，贪心会选中第 1、2 格 —— 第 2 格本不该亮，
      * 等下一次 tick 把需求修正为 64 才恢复，表现为"后面的物品闪一下"。
      */
-    public static java.util.Map<String, Integer> livePickupNeeds() {
+    public static java.util.Map<String, Long> livePickupNeeds() {
         if (!PickupModeState.isActive() || activeMaterialList == null) {
             return java.util.Map.of();
         }
@@ -79,6 +80,8 @@ public class SyncMaterialClient implements ClientModInitializer {
         // disconnect 会取消客户端队列；永久 tick 保证已封闭连接的清理不会丢。
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (TeamManagementClient.finishPendingDisconnect()) clearDisconnectedState();
+            ProjectViewClient.current().ifPresent(ProjectViewClient::tick);
+            net.syncmaterial.syncmaterial.client.gui.EditorResponseRouter.tick();
         });
 
         // 取货需求量在 tick 中重算，不挂渲染回调：挂渲染会让 HUD 关闭后
@@ -159,6 +162,8 @@ public class SyncMaterialClient implements ClientModInitializer {
             // 快速重连可能先于断线清理 tick；新连接在客户端线程先清上一连接的全部状态。
             clearDisconnectedState();
             TeamManagementClient.onJoin(handler);
+            ProjectViewClient.join(handler);
+            ProjectViewClient.current().ifPresent(SyncMaterialClient::configureProjectView);
             sender.sendPacket(new net.syncmaterial.syncmaterial.network.HelloC2SPacket(
                     net.syncmaterial.syncmaterial.network.ProtocolVersion.CURRENT,
                     SyncMaterial.getModVersion()));
@@ -189,6 +194,8 @@ public class SyncMaterialClient implements ClientModInitializer {
     }
 
     private static void clearDisconnectedState() {
+        ProjectViewClient.discard();
+        net.syncmaterial.syncmaterial.client.gui.EditorResponseRouter.clear();
         net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal.clearCurrentEditor();
         StagingAreaRenderer.getInstance().clearWarehouseAreas();
         StagingAreaRenderer.getInstance().clearWarehouseContainers();
@@ -202,6 +209,145 @@ public class SyncMaterialClient implements ClientModInitializer {
         PickupModeState.clear();
     }
 
+    private static void configureProjectView(ProjectViewClient session) {
+        session.setOpenedListener(SyncMaterialClient::onProjectViewOpened);
+        session.setStateListener(SyncMaterialClient::onProjectViewState);
+        session.setOperationListener(SyncMaterialClient::onProjectViewOperation);
+        session.setOperationTimeoutListener(SyncMaterialClient::onProjectViewOperationTimeout);
+        session.setDeletionListener(scope -> {
+            if (scope.isProject()) SyncMaterialClient.clearActiveSchematic(scope.projectId());
+        });
+    }
+
+    private static void onProjectViewOpened(net.syncmaterial.syncmaterial.network.ProjectViewS2CPacket packet) {
+        if (!packet.scope().isProject() || packet.requestId() <= 0) return;
+        String projectId = packet.scope().projectId();
+        var current = ClientScreenAccess.currentScreen(Minecraft.getInstance());
+        if (!(current instanceof GuiMaterialList visible) || !visible.getSchematicId().equals(projectId)) {
+            List<MaterialEntry> entries = activeMaterialList != null
+                    && activeMaterialList.getSchematicId().equals(projectId)
+                    ? activeMaterialList.getMaterialsAll().stream().map(entry -> new MaterialEntry(
+                            entry.getDatabaseId(), entry.getStack(), entry.getCountTotal(),
+                            entry.getCountMissing(), entry.getCountMismatched(), entry.getCountAvailable()))
+                    .toList() : List.of();
+            GuiMaterialList gui = new GuiMaterialList(projectId, projectId, entries,
+                    false, false, "", List.of(), true);
+            activeMaterialList = gui.getMaterialList();
+            TeamManagementClient.onMaterialListOpened(gui);
+            ClientScreenAccess.showScreen(Minecraft.getInstance(), gui);
+        }
+        ProjectViewClient.current().ifPresent(session -> session.openGui(projectId));
+    }
+
+    private static void onProjectViewState(ClientProjectViewStore store) {
+        if (!store.valid() && store.scope() != null && store.scope().isProject()
+                && activeMaterialList != null
+                && activeMaterialList.getSchematicId().equals(store.scope().projectId())) {
+            activeMaterialList.invalidateProjectProgress();
+        }
+        store.progress().ifPresent(progress -> {
+            if (activeMaterialList != null && activeMaterialList.getSchematicId().equals(progress.projectId())
+                    && activeMaterialList.applyProjectProgress(progress)) {
+                var mc = Minecraft.getInstance();
+                MaterialListUtils.updateAvailableCounts(activeMaterialList.getMaterialsAll(), mc.player);
+                PickupModeState.recompute(activeMaterialList.getMaterialsAll(),
+                        InventoryScanner.liveCountsByItemId(mc.player));
+                if (ClientScreenAccess.currentScreen(mc) instanceof GuiMaterialList gui
+                        && gui.getSchematicId().equals(progress.projectId())) {
+                    gui.onMaterialCatalogUpdated();
+                    gui.updateFreshnessWarnings(gui.getMaterialList().getAreaFreshness());
+                    gui.updateOverlapWarning(progress.areaOverlap()
+                            ? net.syncmaterial.syncmaterial.network.AreaOverlapStatus.MESSAGE_KEY : null);
+                }
+            }
+        });
+        if (store.scope() != null && store.scope().global()
+                && ClientScreenAccess.currentScreen(Minecraft.getInstance())
+                instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager manager) {
+            store.configuration("LIST_WAREHOUSES").ifPresent(manager::applyProjectViewConfiguration);
+        } else if (store.scope() != null && store.scope().global()
+                && ClientScreenAccess.currentScreen(Minecraft.getInstance())
+                instanceof net.syncmaterial.syncmaterial.client.gui.GuiWarehouseRefPopup popup) {
+            store.configuration("LIST_WAREHOUSES").ifPresent(popup::applyProjectViewConfiguration);
+        }
+        if (store.scope() != null && store.scope().isProject()
+                && ClientScreenAccess.currentScreen(Minecraft.getInstance())
+                instanceof net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorNormal editor
+                && editor.getSchematicId().equals(store.scope().projectId())) {
+            for (String action : List.of("LIST", "LIST_WAREHOUSE_REFS")) {
+                store.configuration(action).ifPresent(areas -> {
+                    if (editor.getSchematicId() != null) editor.applyProjectViewConfiguration(action, areas);
+                });
+            }
+        }
+        if (store.valid() && store.hasWarehouseSnapshot() && store.pendingWarehouseParts() == 0) {
+            var entries = store.warehouse().stream().map(observation ->
+                    new net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket.ContainerEntry(
+                            observation.key().x(), observation.key().y(), observation.key().z(),
+                            observation.presentItemIds().stream().sorted().toList()))
+                    .toList();
+            StagingAreaRenderer.getInstance().updateWarehouseContainers(entries, store.warehouseWorld());
+        }
+    }
+
+    /** 超时或视图退场只解除原请求的等待状态；不推断提交结果，不重放操作。 */
+    private static void onProjectViewOperationTimeout(ProjectViewClient.OperationTimeout timeout) {
+        boolean cleared = false;
+        if (timeout.action() == net.syncmaterial.syncmaterial.core.ProjectViewAction.AREA_CONFIG) {
+            cleared = net.syncmaterial.syncmaterial.client.gui.EditorResponseRouter.timeout(timeout.requestId());
+        } else if ((timeout.action() == net.syncmaterial.syncmaterial.core.ProjectViewAction.JOIN
+                || timeout.action() == net.syncmaterial.syncmaterial.core.ProjectViewAction.LEAVE)
+                && timeout.scope().isProject() && activeMaterialList != null
+                && activeMaterialList.getSchematicId().equals(timeout.scope().projectId())) {
+            cleared = activeMaterialList.claimTimeout(timeout.requestId());
+        } else if (timeout.action() == net.syncmaterial.syncmaterial.core.ProjectViewAction.RESCAN
+                && timeout.scope().isProject()
+                && ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiMaterialList gui
+                && gui.getSchematicId().equals(timeout.scope().projectId())) {
+            gui.onRescanUnconfirmed();
+            cleared = true;
+        }
+        if (cleared) fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                fi.dy.masa.malilib.gui.Message.MessageType.WARNING,
+                fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.result.unconfirmed"));
+    }
+
+    private static void onProjectViewOperation(net.syncmaterial.syncmaterial.network.ProjectViewS2CPacket packet) {
+        net.syncmaterial.syncmaterial.client.gui.EditorResponseRouter.complete(packet);
+        if (activeMaterialList != null) activeMaterialList.completeClaim(packet);
+        if (packet.action() == net.syncmaterial.syncmaterial.core.ProjectViewAction.RESCAN
+                && ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiMaterialList gui
+                && packet.scope().isProject() && gui.getSchematicId().equals(packet.scope().projectId())) {
+            gui.onRescanResponse(packet.success(), packet.message());
+        }
+        String message;
+        if (packet.result() == net.syncmaterial.syncmaterial.network.ProjectViewS2CPacket.Result.OPERATION
+                && (packet.action() == net.syncmaterial.syncmaterial.core.ProjectViewAction.JOIN
+                || packet.action() == net.syncmaterial.syncmaterial.core.ProjectViewAction.LEAVE)) {
+            message = net.syncmaterial.syncmaterial.client.gui.CollaborationResultLabels.message(packet.message());
+        } else {
+            message = packet.message() == null || packet.message().isBlank()
+                    ? fi.dy.masa.malilib.util.StringUtils.translate(
+                    packet.success() ? "syncmaterial.gui.result.applied" : "syncmaterial.gui.result.failed")
+                    : packet.message();
+        }
+        fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                packet.success() ? fi.dy.masa.malilib.gui.Message.MessageType.SUCCESS
+                        : fi.dy.masa.malilib.gui.Message.MessageType.ERROR, message);
+    }
+
+    /** Shared entry for the Syncmatica material button and other project-open actions. */
+    public static boolean requestMaterialList(String schematicId) {
+        if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+            return ProjectViewClient.current().map(session -> session.openProject(schematicId,
+                    net.syncmaterial.syncmaterial.client.ProjectInterestLeases.BASE_MASK) > 0).orElse(false);
+        }
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
+                new net.syncmaterial.syncmaterial.network.MaterialStatsRequestC2SPacket(schematicId));
+        return true;
+    }
+
     public static void openMaterialListScreen(String schematicId, String schematicName, List<MaterialEntry> materials, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         LOGGER.info("收到材料清单响应，准备打开 UI。共 {} 项。isOwner={}, isMainOwner={}", materials.size(), isOwner, isMainOwner);
         // 分闸状态独立于 HUD_ENABLED 总闸：仅继承上一个界面的分闸，首次打开默认开启。
@@ -209,8 +355,14 @@ public class SyncMaterialClient implements ClientModInitializer {
         boolean hudState = activeMaterialList == null
                 || activeMaterialList.getHudRenderer().getShouldRender();
         if (activeMaterialList != null && !activeMaterialList.getSchematicId().equals(schematicId)) {
-            net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
-                    new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(activeMaterialList.getSchematicId()));
+            if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                    net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+                ProjectViewClient.current().ifPresent(session -> session.closeProject(true));
+            } else {
+                net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
+                        new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(
+                                activeMaterialList.getSchematicId()));
+            }
         }
         GuiMaterialList gui = new GuiMaterialList(schematicId, schematicName, materials, isOwner, isMainOwner, ownerName, deputyOwners, allowSelfClaim);
         activeMaterialList = gui.getMaterialList();
@@ -219,6 +371,14 @@ public class SyncMaterialClient implements ClientModInitializer {
         catalogRevision = -1;
         activeMaterialList.getHudRenderer().setShouldRender(hudState);
         ClientScreenAccess.showScreen(Minecraft.getInstance(), gui);
+        if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+            ProjectViewClient.current().ifPresent(session -> {
+                session.openProject(schematicId, net.syncmaterial.syncmaterial.client.ProjectInterestLeases.BASE_MASK);
+                session.openGui(schematicId);
+                if (PickupModeState.isActive()) session.setPickup(schematicId, true);
+            });
+        }
     }
 
     public static void onMaterialCatalogUpdate(net.syncmaterial.syncmaterial.network.MaterialCatalogUpdateS2CPacket update) {
@@ -227,6 +387,8 @@ public class SyncMaterialClient implements ClientModInitializer {
                 || activeMaterialList == null || !activeMaterialList.getSchematicId().equals(update.schematicId())
                 || update.revision() <= catalogRevision) return;
         catalogRevision = update.revision();
+        activeMaterialList.applyManagementCatalog(update);
+        if (activeMaterialList.hasProjectProgress()) return;
         // 目录更新同时失效旧区域快照：旧序号/计数不能继续冒充当前目录的权威值。
         activeMaterialList.setMaterialEntries(update.materials(), update.revision());
         activeMaterialList.setTitle(update.schematicName());
@@ -242,6 +404,12 @@ public class SyncMaterialClient implements ClientModInitializer {
     }
 
     public static void onCollaborationStatus(CollaborationStatusS2CPacket status) {
+        onCollaborationStatus(TeamManagementClient.connectionToken(), status);
+    }
+
+    /** 接收线程捕获连接代次；旧连接排队的广播不能落入新连接的同项目列表。 */
+    public static void onCollaborationStatus(long connectionToken, CollaborationStatusS2CPacket status) {
+        if (connectionToken != TeamManagementClient.connectionToken()) return;
         LOGGER.info("收到协作状态更新: 材料 {} (总量: {}, 备货区: {}, 仓库: {})", status.materialId(), status.totalCount(), status.stagingCount(), status.warehouseCount());
         if (activeMaterialList != null && activeMaterialList.getSchematicId().equals(status.schematicId())) {
             activeMaterialList.onCollaborationStatus(status);
@@ -274,9 +442,15 @@ public class SyncMaterialClient implements ClientModInitializer {
         if (activeMaterialList == null) {
             return;
         }
+        boolean scoped = net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS);
+        if (scoped) {
+            ProjectViewClient.current().ifPresent(session ->
+                    session.dimensionChanged(activeMaterialList.getSchematicId()));
+        }
         PickupModeState.recompute(activeMaterialList.getMaterialsAll(),
                 InventoryScanner.liveCountsByItemId(Minecraft.getInstance().player));
-        if (PickupModeState.isActive()) {
+        if (!scoped && PickupModeState.isActive()) {
             net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
                     new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(
                             activeMaterialList.getSchematicId(), true));
@@ -308,8 +482,13 @@ public class SyncMaterialClient implements ClientModInitializer {
             catalogRevision = -1;
             InventoryWatcher.clearContext();
             PickupModeState.clear();
-            net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
-                new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(schematicId));
+            if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                    net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+                ProjectViewClient.current().ifPresent(session -> session.closeProject(true));
+            } else {
+                net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
+                        new net.syncmaterial.syncmaterial.network.MaterialListCloseC2SPacket(schematicId));
+            }
         }
     }
 }

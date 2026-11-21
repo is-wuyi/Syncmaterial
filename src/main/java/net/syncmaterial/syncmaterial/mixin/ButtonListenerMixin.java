@@ -2,7 +2,6 @@ package net.syncmaterial.syncmaterial.mixin;
 
 import net.minecraft.client.Minecraft;
 import net.syncmaterial.syncmaterial.SyncMaterial;
-import net.syncmaterial.syncmaterial.network.MaterialStatsRequestC2SPacket;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -41,9 +40,8 @@ public class ButtonListenerMixin {
                         Object serverPlacement = widget.getClass().getMethod("getEntry").invoke(widget);
                         String schematicId = serverPlacement.getClass().getMethod("getId").invoke(serverPlacement).toString();
 
-                        net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
-                            new MaterialStatsRequestC2SPacket(schematicId)
-                        );
+                        net.syncmaterial.syncmaterial.client.SyncMaterialClient
+                                .requestMaterialList(schematicId);
 
                         SyncMaterial.LOGGER.info("Sent material request for schematic: {}", schematicId);
                     } catch (Exception e) {

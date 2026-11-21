@@ -67,6 +67,16 @@ public class FormatCountTest
         assertTrue(result.contains("2 x 64"));
     }
 
+    @Test
+    void detailed_beyondLong_preservesExactStackArithmetic()
+    {
+        java.math.BigInteger count = java.math.BigInteger.valueOf(Long.MAX_VALUE).multiply(java.math.BigInteger.TWO);
+        java.math.BigInteger[] parts = count.divideAndRemainder(java.math.BigInteger.valueOf(64));
+        String result = MaterialListBase.getFormattedCountString(count, 64, SHULKER);
+        assertTrue(result.startsWith(count + " = " + parts[0] + " x 64 + " + parts[1] + " = "));
+        assertTrue(result.endsWith(SHULKER));
+    }
+
     // ========== getFormattedCountStringHud（HUD 简洁格式）==========
 
     @Test

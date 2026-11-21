@@ -107,9 +107,14 @@ final class ProjectWrites {
 
     static boolean leave(Connection connection, String projectId, int materialId, PlayerIdentity player)
             throws SQLException {
+        return leaveWithResult(connection, projectId, materialId, player).claimRemoved();
+    }
+
+    static LeaveResult leaveWithResult(Connection connection, String projectId, int materialId,
+                                       PlayerIdentity player) throws SQLException {
         Long playerId = PlayersRepository.findPlayerId(connection, player);
         if (playerId == null) {
-            return false;
+            return new LeaveResult(false, false);
         }
 
         int removedClaims;
@@ -121,31 +126,24 @@ final class ProjectWrites {
             removedClaims = deleteClaim.executeUpdate();
         }
 
+        int removedInventory;
         try (PreparedStatement deleteInventory = connection.prepareStatement(
                 "DELETE FROM player_inventories WHERE project_id = ? AND material_id = ? AND player_id = ?")) {
             deleteInventory.setString(1, projectId);
             deleteInventory.setInt(2, materialId);
             deleteInventory.setLong(3, playerId);
-            deleteInventory.executeUpdate();
+            removedInventory = deleteInventory.executeUpdate();
         }
 
-        return removedClaims > 0;
+        return new LeaveResult(removedClaims > 0, removedInventory > 0);
     }
 
     static void recordInventory(Connection connection, String projectId, int materialId, PlayerIdentity player,
                                 long count) throws SQLException {
         long playerId = PlayersRepository.resolvePlayer(connection, player);
-        try (PreparedStatement checkClaim = connection.prepareStatement(
-                "SELECT 1 FROM material_claims WHERE project_id = ? AND material_id = ? AND player_id = ?")) {
-            checkClaim.setString(1, projectId);
-            checkClaim.setInt(2, materialId);
-            checkClaim.setLong(3, playerId);
-            try (ResultSet resultSet = checkClaim.executeQuery()) {
-                if (!resultSet.next()) {
-                    throw new IllegalStateException(
-                            "player is not a claimant for project " + projectId + " material " + materialId);
-                }
-            }
+        if (!isClaimed(connection, projectId, materialId, playerId)) {
+            throw new IllegalStateException(
+                    "player is not a claimant for project " + projectId + " material " + materialId);
         }
 
         try (PreparedStatement upsert = connection.prepareStatement(
@@ -159,6 +157,19 @@ final class ProjectWrites {
             upsert.setLong(4, count);
             upsert.setLong(5, System.currentTimeMillis());
             upsert.executeUpdate();
+        }
+    }
+
+    static boolean isClaimed(Connection connection, String projectId, int materialId, long playerId)
+            throws SQLException {
+        try (PreparedStatement checkClaim = connection.prepareStatement(
+                "SELECT 1 FROM material_claims WHERE project_id = ? AND material_id = ? AND player_id = ?")) {
+            checkClaim.setString(1, projectId);
+            checkClaim.setInt(2, materialId);
+            checkClaim.setLong(3, playerId);
+            try (ResultSet resultSet = checkClaim.executeQuery()) {
+                return resultSet.next();
+            }
         }
     }
 
@@ -235,6 +246,12 @@ final class ProjectWrites {
         }
         Path fileName = metadata.file().getFileName();
         return fileName != null ? fileName.toString() : metadata.id();
+    }
+
+    record LeaveResult(boolean claimRemoved, boolean inventoryRemoved) {
+        boolean changed() {
+            return claimRemoved || inventoryRemoved;
+        }
     }
 
     private record ExistingProject(String hash, String interpretationId, String name) {

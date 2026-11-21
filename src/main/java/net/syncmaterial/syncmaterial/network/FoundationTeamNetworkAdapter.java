@@ -280,5 +280,6 @@ public final class FoundationTeamNetworkAdapter {
                 player.sendSystemMessage(net.minecraft.network.chat.Component.literal("负责人配置已更新，请重新打开材料清单"));
             }
         }
+        FoundationProjectViewNetworkAdapter.broadcastTeam(server, runtime, state.projectId(), state, sequence);
     }
 }

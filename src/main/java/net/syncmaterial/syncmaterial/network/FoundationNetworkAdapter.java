@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -22,11 +22,12 @@ import net.syncmaterial.syncmaterial.core.ClaimSnapshot;
 import net.syncmaterial.syncmaterial.core.MaterialSnapshot;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
+import net.syncmaterial.syncmaterial.server.runtime.ProjectProgressRead;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntime;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry;
 
 public final class FoundationNetworkAdapter {
-    private static final Map<ServerRuntime, FoundationDeliveryTracker> DELIVERIES = new WeakHashMap<>();
+    private static final Map<ServerRuntime, FoundationDeliveryTracker> DELIVERIES = new ConcurrentHashMap<>();
 
     private FoundationNetworkAdapter() {}
 
@@ -37,7 +38,7 @@ public final class FoundationNetworkAdapter {
             if (!allowed(player, request.schematicId())) return;
             ServerRuntime runtime = ServerRuntimeRegistry.get(server);
             if (runtime == null) return;
-            runtime.connected(player.getUUID());
+            runtime.connected(player.getUUID(), player.connection);
             long connection = runtime.connection(player.getUUID());
             if (connection == 0) return;
             var token = delivery(runtime).beginProject(player.getUUID(), connection, request.schematicId(), true);
@@ -115,16 +116,15 @@ public final class FoundationNetworkAdapter {
             UUID playerId = player.getUUID();
             long connection = runtime.connection(playerId);
             if (connection == 0) return;
-            runtime.teams().join(request.schematicId(), request.materialId(), identity,
-                    request.inventoryCounts().keySet(), () -> runtime.connection(playerId) == connection).thenCompose(joined -> {
-                if (!joined || connection != runtime.connection(playerId)) return CompletableFuture.completedFuture(null);
-                long count = request.inventoryCounts().getOrDefault(request.materialId(), 0);
-                return runtime.reportInventory(request.schematicId(), request.materialId(), identity, count);
-            }).whenComplete((ignored, error) -> execute(server, runtime, () -> {
+            Map<Integer, Long> initial = new HashMap<>();
+            request.inventoryCounts().forEach((material, count) -> initial.put(material, count.longValue()));
+            runtime.collaboration().join(request.schematicId(), request.materialId(), identity, initial)
+                    .whenComplete((outcome, error) -> execute(server, runtime, () -> {
                 ServerPlayer current = currentPlayer(server, runtime, playerId, connection);
                 if (current == null) return;
                 if (error != null) failed(current, error);
-                else runtime.requestBroadcast(request.schematicId());
+                else if (!outcome.success()) current.sendSystemMessage(
+                        net.minecraft.network.chat.Component.literal("认领未生效：" + outcome.status()));
             }));
         });
 
@@ -135,11 +135,12 @@ public final class FoundationNetworkAdapter {
             UUID playerId = context.player().getUUID();
             long connection = runtime.connection(playerId);
             runtime.leave(request.schematicId(), request.materialId(), identity(context.player()))
-                    .whenComplete((changed, error) -> execute(context.server(), runtime, () -> {
+                    .whenComplete((outcome, error) -> execute(context.server(), runtime, () -> {
                         ServerPlayer current = currentPlayer(context.server(), runtime, playerId, connection);
                         if (current == null) return;
                         if (error != null) failed(current, error);
-                        else runtime.requestBroadcast(request.schematicId());
+                        else if (!outcome.success()) current.sendSystemMessage(
+                                net.minecraft.network.chat.Component.literal("退出未生效：" + outcome.status()));
                     }));
         });
 
@@ -150,15 +151,17 @@ public final class FoundationNetworkAdapter {
             UUID playerId = context.player().getUUID();
             long connection = runtime.connection(playerId);
             runtime.reportInventory(request.schematicId(), request.materialId(), identity(context.player()), request.count())
-                    .whenComplete((ignored, error) -> execute(context.server(), runtime, () -> {
+                    .whenComplete((outcome, error) -> execute(context.server(), runtime, () -> {
                         if (currentPlayer(context.server(), runtime, playerId, connection) == null) return;
-                        if (error != null) SyncMaterial.LOGGER.debug("忽略未认领或失效材料的背包更新", error);
-                        else runtime.requestBroadcast(request.schematicId());
+                        if (error != null) SyncMaterial.LOGGER.debug("背包更新失败", error);
+                        else if (!outcome.success()) SyncMaterial.LOGGER.debug(
+                                "忽略未认领或失效材料的背包更新：{}", outcome.status());
                     }));
         });
 
         FoundationAreaNetworkAdapter.register();
         FoundationTeamNetworkAdapter.register();
+        FoundationProjectViewNetworkAdapter.register();
     }
 
     static boolean allowed(ServerPlayer player, String projectId) {
@@ -170,21 +173,19 @@ public final class FoundationNetworkAdapter {
     }
 
     private static CompletableFuture<Optional<ProjectData>> read(ServerRuntime runtime, String projectId) {
-        return runtime.store().snapshot(projectId).thenCompose(state -> {
-            if (state.isEmpty()) return CompletableFuture.completedFuture(Optional.empty());
-            var value = state.get();
-            ProjectSnapshot project = value.project();
+        return runtime.readProgress(projectId).thenCompose(read -> {
+            if (read.isEmpty()) return CompletableFuture.completedFuture(Optional.empty());
+            ProjectProgressRead value = read.get();
+            ProjectSnapshot project = value.state().project();
             if (!runtime.isMaterialSnapshotCurrent(project)) throw new StaleMaterialSnapshotException();
             return runtime.teams().state(projectId).thenApply(team -> team.map(roles ->
-                    new ProjectData(project, value.claims(), value.inventory(), roles,
-                            runtime.teamRequests().nextSequence(projectId))));
+                    new ProjectData(value, roles, runtime.teamRequests().nextSequence(projectId))));
         });
     }
 
     private static List<MaterialEntry> materialEntries(ProjectSnapshot project) {
         List<MaterialEntry> result = new ArrayList<>();
         for (MaterialSnapshot material : project.materials()) {
-            checkedCount(material.required());
             var key = McCompat.tryParseId(material.itemId());
             if (key == null || !BuiltInRegistries.ITEM.containsKey(key)) {
                 throw new IllegalArgumentException("Unknown material: " + material.itemId());
@@ -211,7 +212,8 @@ public final class FoundationNetworkAdapter {
             List<CollaborationStatusS2CPacket.ParticipantInfo> participants = data.claims().stream()
                     .filter(claim -> claim.materialId() == material.id())
                     .map(claim -> new CollaborationStatusS2CPacket.ParticipantInfo(claim.player().name(),
-                            checkedCount(runtime.inventoryCount(claim.player().uuid(), data.project().id(), material.id()))))
+                            checkedCount(data.progress().observations().count(
+                                    material.id(), claim.player().uuid()))))
                     .toList();
             checkedCount(participants.stream().mapToLong(CollaborationStatusS2CPacket.ParticipantInfo::count).sum());
             result.add(new CollaborationStatusS2CPacket(data.project().id(), material.id(), checkedCount(material.required()),
@@ -313,6 +315,19 @@ public final class FoundationNetworkAdapter {
         if (runtime != null) FoundationAreaNetworkAdapter.sendInitialData(server, runtime, player);
     }
 
+    /** Tick-owned publication for protocol-5 views, separate from the legacy subscriber projection. */
+    public static void broadcastProjectViews(MinecraftServer server, String projectId) {
+        ServerRuntime runtime = ServerRuntimeRegistry.get(server);
+        if (runtime != null && runtime.isOpen()) {
+            FoundationProjectViewNetworkAdapter.broadcast(server, runtime, projectId);
+        }
+    }
+
+    /** Explicit runtime close hook; delivery state must not depend on garbage collection. */
+    public static void close(ServerRuntime runtime) {
+        if (runtime != null) DELIVERIES.remove(runtime);
+    }
+
     public static void onPlayerDisconnect(ServerRuntime runtime, UUID playerId) {
         delivery(runtime).disconnected(playerId);
     }
@@ -362,6 +377,10 @@ public final class FoundationNetworkAdapter {
         }
     }
 
-    private record ProjectData(ProjectSnapshot project, List<ClaimSnapshot> claims, AreaInventoryView inventory,
-                               net.syncmaterial.syncmaterial.core.TeamState team, long teamSequence) {}
+    private record ProjectData(ProjectProgressRead progress,
+                               net.syncmaterial.syncmaterial.core.TeamState team, long teamSequence) {
+        ProjectSnapshot project() { return progress.state().project(); }
+        List<ClaimSnapshot> claims() { return progress.state().claims(); }
+        AreaInventoryView inventory() { return progress.state().inventory(); }
+    }
 }

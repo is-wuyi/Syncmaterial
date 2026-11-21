@@ -17,8 +17,9 @@ import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-
+import net.syncmaterial.syncmaterial.client.ProjectViewClient;
+import net.syncmaterial.syncmaterial.core.InterestKind;
+import net.syncmaterial.syncmaterial.core.ProjectViewScope;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
 
@@ -52,6 +53,13 @@ public class GuiWarehouseEditor extends GuiBase
      * 按钮类操作（改名、移到玩家、准星重选）仍走 sendUpdate 立即发出。
      */
     private final UpdateDebouncer coordinateDebouncer = new UpdateDebouncer(QUIET_TICKS);
+    private final EditorSaveTracker saveTracker = new EditorSaveTracker();
+    /** This editor is a global-view consumer independently of the manager that opened it. */
+    private ProjectViewClient.GlobalLease globalLease;
+
+    public EditorSaveTracker.State getSaveState() {
+        return saveTracker.state();
+    }
 
     /** 10 tick ≈ 0.5 秒：停手半秒即生效，手感上仍是"改完就生效" */
     private static final int QUIET_TICKS = 10;
@@ -72,6 +80,7 @@ public class GuiWarehouseEditor extends GuiBase
     public void initGui()
     {
         super.initGui();
+        ensureGlobalLease();
 
         int x = 12;
         int y = 24;
@@ -220,7 +229,20 @@ public class GuiWarehouseEditor extends GuiBase
         {
             this.pos2 = withCoordinate(this.pos2, type, value);
         }
-        this.coordinateDebouncer.schedule(this::sendUpdate);
+        scheduleSendUpdate();
+    }
+
+    /**
+     * A delayed write is valid only while the same global view that accepted this editor
+     * remains current. A reconnect, view replacement or deletion discards it instead of
+     * writing into the next view generation.
+     */
+    private void scheduleSendUpdate()
+    {
+        ProjectViewEditorSupport.EditFence fence =
+                ProjectViewEditorSupport.captureFence(ProjectViewScope.globalWarehouse());
+        this.coordinateDebouncer.schedule(this::sendUpdate,
+                () -> ProjectViewEditorSupport.isFenceCurrent(fence));
     }
 
     private void nudgeCoordinate(Corner corner, CoordinateType type, int amount)
@@ -292,7 +314,7 @@ public class GuiWarehouseEditor extends GuiBase
         {
             this.pos2 = withCoordinate(this.pos2, type, value);
         }
-        this.coordinateDebouncer.schedule(this::sendUpdate);
+        scheduleSendUpdate();
     }
 
     /** 驱动去抖计时。GuiBase 继承自 Screen，每客户端 tick 调用一次 */
@@ -301,6 +323,33 @@ public class GuiWarehouseEditor extends GuiBase
     {
         super.tick();
         this.coordinateDebouncer.tick();
+    }
+
+    void ensureGlobalLease()
+    {
+        if (this.globalLease == null) {
+            this.globalLease = ProjectViewClient.current()
+                    .map(session -> session.acquireGlobalWarehouse(InterestKind.AREA_CONFIG.bit()))
+                    .orElse(null);
+        } else {
+            this.globalLease.retry();
+        }
+    }
+
+    void releaseGlobalLease()
+    {
+        if (this.globalLease != null) {
+            this.globalLease.close();
+            this.globalLease = null;
+        }
+    }
+
+    @Override
+    public void closeGui(boolean showParent)
+    {
+        // removed() flushes a pending coordinate update; keep the global view alive for it.
+        super.closeGui(showParent);
+        releaseGlobalLease();
     }
 
     /**
@@ -315,6 +364,21 @@ public class GuiWarehouseEditor extends GuiBase
         super.removed();
     }
 
+    @Override
+    //? if >=26.2 {
+    protected void drawContents(fi.dy.masa.malilib.render.GuiContext drawContext, int mouseX, int mouseY, float partialTicks) {
+    //?} else {
+    /*protected void drawContents(net.minecraft.client.gui.GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks) {
+    *///?}
+        super.drawContents(drawContext, mouseX, mouseY, partialTicks);
+        String status = ProjectViewEditorSupport.saveStatus(saveTracker.state());
+        if (!status.isEmpty()) {
+            this.drawString(drawContext, status, this.getScreenWidth() - 12
+                    - fi.dy.masa.malilib.util.StringUtils.getStringWidth(status),
+                    this.getScreenHeight() - 14, 0xFFB0B0B0);
+        }
+    }
+
     /**
      * 立即发包。坐标类改动请走 coordinateDebouncer，不要直接调这里 ——
      * 服务端 UPDATE_WAREHOUSE 会触发全量重扫 + 全服广播，逐字符发包会打爆服务端。
@@ -325,8 +389,10 @@ public class GuiWarehouseEditor extends GuiBase
                 this.pos1.getX(), this.pos1.getY(), this.pos1.getZ(),
                 this.pos2.getX(), this.pos2.getY(), this.pos2.getZ(),
                 Optional.ofNullable(this.world));
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                "", "UPDATE_WAREHOUSE", this.warehouseId, Optional.of(data)));
+        ProjectViewEditorSupport.write(net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
+                this.warehouseId, "UPDATE_WAREHOUSE", Optional.of(data),
+                new StagingAreaConfigC2SPacket("", "UPDATE_WAREHOUSE", this.warehouseId, Optional.of(data)),
+                saveTracker);
         this.manager.requestRefresh();
     }
 

@@ -358,6 +358,33 @@ class TransactionLifecycleTest {
     }
 
     @Test
+    void postCommitProjectionFailureCarriesDurableOutcomeWithoutRollbackOrReplay() throws Exception {
+        seedProject("p1");
+        FaultHandler faults = installFaultConnection();
+        AtomicInteger projections = new AtomicInteger();
+        IllegalStateException expected = new IllegalStateException("projection failed");
+        var command = new net.syncmaterial.syncmaterial.core.TeamCommand("p1", 1,
+                net.syncmaterial.syncmaterial.core.TeamAction.TOGGLE_SELF_CLAIM, -1, List.of(), List.of());
+
+        Throwable failure = failureOf(store.applyTeamCommand(command, named("Alice"), project -> true,
+                () -> true, outcome -> {
+                    projections.incrementAndGet();
+                    throw expected;
+                }));
+
+        CommittedStorageException committed = assertInstanceOf(CommittedStorageException.class, failure);
+        assertEquals("teamCommand", committed.operation());
+        assertTrue(committed.committedResult(TeamOutcome.class).success());
+        assertSame(expected, committed.getCause());
+        assertTrue(committed.getMessage().contains("post-commit"));
+        assertEquals(1, projections.get());
+        assertEquals(0, faults.rollbackCalls.get());
+        assertFalse(faults.delegate.isClosed(), "the JDBC transaction completed before the projection");
+        assertFalse(await(store.findProject("p1")).orElseThrow().allowSelfClaim(),
+                "the durable team change must neither be rolled back nor replayed");
+    }
+
+    @Test
     void rollbackSuccessThenAutoCommitRestoreFailureKeepsPrimaryAndSuppressedFailures() throws Exception {
         seedProject("p1");
         FaultHandler faults = installFaultConnection();
@@ -685,6 +712,41 @@ class TransactionLifecycleTest {
         try (SqliteProjectStore reopened = SqliteProjectStore.open(tempDir.resolve("world/syncmaterial/runtime-v2.sqlite"))) {
             assertTrue(await(reopened.claims("team")).isEmpty());
             assertTrue(await(reopened.inventory("team", target)).isEmpty());
+        }
+    }
+
+    @Test
+    void committedReportStillPublishesRuntimeObservationWhenRestoreFails() throws Exception {
+        Path game = tempDir.resolve("game-report");
+        var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntime.open(
+                tempDir.resolve("world-report"), game,
+                path -> List.of(new MaterialCount(STONE, 64)), ignored -> {});
+        SqliteProjectStore previous = store;
+        store = runtime.store();
+        var owner = new PlayerIdentity(java.util.UUID.randomUUID(), "Owner");
+        var target = new PlayerIdentity(java.util.UUID.randomUUID(), "Target");
+        try {
+            await(store.ingest(metadata("team", "hash", owner), List.of(new MaterialCount(STONE, 64)),
+                    runtime.interpretationId()));
+            int material = await(store.findProject("team")).orElseThrow().materials().getFirst().id();
+            await(store.join("team", material, target));
+            runtime.connected(target.uuid());
+            FaultHandler faults = installFaultConnection();
+            faults.failAutoCommitRestore.set(true);
+
+            Throwable failure = failureOf(runtime.collaboration().report("team", material, target, 24));
+
+            CommittedStorageException committed = assertInstanceOf(CommittedStorageException.class, failure);
+            assertTrue(committed.committedResult(net.syncmaterial.syncmaterial.core.CollaborationOutcome.class).success());
+            assertEquals(24, runtime.inventoryCount(target.uuid(), "team", material));
+            assertTrue(faults.delegate.isClosed());
+        } finally {
+            runtime.close();
+            store = previous;
+        }
+        try (SqliteProjectStore reopened = SqliteProjectStore.open(
+                tempDir.resolve("world-report/syncmaterial/runtime-v2.sqlite"))) {
+            assertEquals(24, await(reopened.inventory("team", target)).values().iterator().next());
         }
     }
 

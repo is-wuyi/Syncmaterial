@@ -155,19 +155,18 @@ public class MaterialListSortClientGameTest implements FabricClientGameTest {
     private void waitForStableState(ClientGameTestContext ctx) {
         long deadline = System.currentTimeMillis() + 10_000;
         while (System.currentTimeMillis() < deadline) {
-            int dirtAvail = ctx.computeOnClient(client -> {
+            boolean current = ctx.computeOnClient(client -> {
                 if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) {
                     throw new AssertionError("材料列表未打开");
                 }
-                for (MaterialListEntry e : gui.getMaterialList().getMaterialsAll()) {
-                    if (e.getDatabaseId() == dirtId) return e.getCountAvailable();
-                }
-                return -1;
+                return gui.getMaterialList().getMaterialsAll().stream().anyMatch(entry ->
+                        entry.getDatabaseId() == dirtId && entry.getCountAvailable() == 25
+                                && entry.getCountMissing() == 5 && entry.isCurrentPlayerClaimed());
             });
-            if (dirtAvail == 25) return;
+            if (current) return;
             ctx.waitTicks(10);
         }
-        throw new AssertionError("等待 dirt available=25 超时（背包上报→聚合→广播链路未完成）");
+        throw new AssertionError("等待真实认领/背包上报/团队缺口25/5超时");
     }
 
     private void assertOrder(ClientGameTestContext ctx, String phase, List<Integer> expectedIds) {

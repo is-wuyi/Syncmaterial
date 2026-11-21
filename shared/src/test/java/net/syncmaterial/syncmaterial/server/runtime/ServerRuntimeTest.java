@@ -3,6 +3,7 @@ package net.syncmaterial.syncmaterial.server.runtime;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -60,6 +61,88 @@ class ServerRuntimeTest {
             assertFalse(epoch.equals(runtime.epoch()));
             assertTrue(runtime.subscribers("project").isEmpty());
             assertEquals(0, runtime.inventoryCount(player, "project", 1));
+        }
+    }
+
+    @Test
+    void disconnectPublishesObservedProjectsWithoutSubscriptionsAndFencesOldHandlers() throws Exception {
+        CopyOnWriteArrayList<String> changed = new CopyOnWriteArrayList<>();
+        UUID player = UUID.randomUUID();
+        PlayerIdentity identity = new PlayerIdentity(player, "Alice");
+        Object firstHandler = new String("equal-but-distinct");
+        Object secondHandler = new String("equal-but-distinct");
+        try (ServerRuntime runtime = ServerRuntime.open(directory.resolve("world-disconnect"),
+                directory.resolve("game-disconnect"),
+                path -> List.of(new MaterialCount("minecraft:stone", 64)), changed::add)) {
+            runtime.ingest(metadata("project", "hash")).get(5, TimeUnit.SECONDS);
+            int materialId = runtime.store().findProject("project").get(5, TimeUnit.SECONDS)
+                    .orElseThrow().materials().getFirst().id();
+            assertTrue(runtime.store().join("project", materialId, identity).get(5, TimeUnit.SECONDS));
+            runtime.tick();
+            changed.clear();
+            assertTrue(runtime.subscribers("project").isEmpty());
+
+            runtime.connected(player, firstHandler);
+            runtime.reportInventory("project", materialId, identity, 32).get(5, TimeUnit.SECONDS);
+            runtime.tick();
+            changed.clear();
+            runtime.disconnected(player, secondHandler);
+            assertEquals(32, runtime.inventoryCount(player, "project", materialId),
+                    "an equal object is not the current handler identity");
+
+            runtime.disconnected(player, firstHandler);
+            assertEquals(0, runtime.inventoryCount(player, "project", materialId));
+            runtime.tick();
+            assertTrue(changed.remove("project"),
+                    "a claimant without a material subscription must still publish removal");
+
+            runtime.connected(player, secondHandler);
+            runtime.reportInventory("project", materialId, identity, 48).get(5, TimeUnit.SECONDS);
+            runtime.tick();
+            changed.clear();
+            runtime.disconnected(player, firstHandler);
+            assertEquals(48, runtime.inventoryCount(player, "project", materialId));
+            runtime.tick();
+            assertFalse(changed.contains("project"), "old disconnect must not affect the new session");
+
+            runtime.disconnected(player, secondHandler);
+            runtime.tick();
+            assertTrue(changed.remove("project"));
+            assertTrue(runtime.subscribers("project").isEmpty());
+        }
+    }
+
+    @Test
+    void progressReadUsesOneWriterSampleAndRejectsDisconnectedDelivery() throws Exception {
+        UUID player = UUID.randomUUID();
+        PlayerIdentity identity = new PlayerIdentity(player, "Alice");
+        try (ServerRuntime runtime = ServerRuntime.open(directory.resolve("world-progress"),
+                directory.resolve("game-progress"),
+                path -> List.of(new MaterialCount("minecraft:stone", 64)), ignored -> {})) {
+            runtime.ingest(metadata("project", "hash")).get(5, TimeUnit.SECONDS);
+            int materialId = runtime.store().findProject("project").get(5, TimeUnit.SECONDS)
+                    .orElseThrow().materials().getFirst().id();
+            runtime.connected(player);
+            runtime.collaboration().join("project", materialId, identity, Map.of(materialId, 12L))
+                    .get(5, TimeUnit.SECONDS);
+
+            ProjectProgressRead first = runtime.readProgress("project").get(5, TimeUnit.SECONDS).orElseThrow();
+            var snapshot = runtime.progressOnServer(first).orElseThrow();
+            assertEquals(first.publicationSequence(), snapshot.publicationSequence());
+            assertEquals(12, snapshot.material(materialId).orElseThrow().participants().getFirst().effectiveHeld());
+            assertFalse(snapshot.areaCurrent());
+            assertFalse(snapshot.preparationKnown());
+
+            ProjectProgressRead second = runtime.readProgress("project").get(5, TimeUnit.SECONDS).orElseThrow();
+            assertTrue(second.publicationSequence() > first.publicationSequence());
+            runtime.disconnected(player);
+            assertTrue(runtime.progressOnServer(second).isEmpty(),
+                    "a disconnected sample must not be published as current");
+
+            ProjectProgressRead offline = runtime.readProgress("project").get(5, TimeUnit.SECONDS).orElseThrow();
+            var offlineSnapshot = runtime.progressOnServer(offline).orElseThrow();
+            assertEquals(0, offlineSnapshot.material(materialId).orElseThrow()
+                    .participants().getFirst().effectiveHeld());
         }
     }
 

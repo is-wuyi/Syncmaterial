@@ -4,8 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-
 import net.minecraft.client.Minecraft;
 
 import fi.dy.masa.malilib.gui.GuiBase;
@@ -16,8 +14,12 @@ import fi.dy.masa.malilib.gui.interfaces.ISelectionListener;
 import fi.dy.masa.malilib.interfaces.IStringConsumerFeedback;
 import fi.dy.masa.malilib.util.StringUtils;
 
+import net.syncmaterial.syncmaterial.client.ProjectViewClient;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetListWarehouses;
 import net.syncmaterial.syncmaterial.client.gui.widgets.WidgetWarehouseEntry;
+import net.syncmaterial.syncmaterial.core.InterestKind;
+import net.syncmaterial.syncmaterial.network.ClientProtocolState;
+import net.syncmaterial.syncmaterial.network.ProtocolVersion;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 
@@ -33,6 +35,17 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     private String pendingWarehouseName = null;
     /** 全局 LIST_WAREHOUSES 快照携带的重叠提示；null 表示无提示。 */
     private String overlapWarning;
+    /** 本界面对全局视图的消费者令牌；子界面另有自己的令牌。 */
+    private ProjectViewClient.GlobalLease globalLease;
+    /** 本次界面是否已读取列表；resize 重入 initGui 不得重复发 LIST。 */
+    private boolean warehouseListRequested;
+    /** 已读取的全局视图代次；只有视图真正重开时才允许再读。 */
+    private ProjectViewClient.ViewToken warehouseListView;
+    private final EditorSaveTracker saveTracker = new EditorSaveTracker();
+
+    public EditorSaveTracker.State getSaveState() {
+        return saveTracker.state();
+    }
 
     public GuiWarehouseManager()
     {
@@ -73,8 +86,59 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     public void initGui()
     {
         super.initGui();
-        requestWarehouseList();
+        ensureWarehouseListRead(false);
         addTopButtons();
+    }
+
+    /**
+     * Reads the global warehouse list only for the first open, an explicit refresh, or a
+     * genuinely new global view. Resize/role re-layout calls initGui again and must not
+     * send another LIST; the global lease and its OPEN ordering are unchanged.
+     */
+    void ensureWarehouseListRead(boolean force)
+    {
+        ensureGlobalLease();
+        ProjectViewClient.ViewToken view = ProjectViewEditorSupport.captureView(
+                net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse());
+        if (!force && warehouseListRequested && java.util.Objects.equals(warehouseListView, view)) {
+            return;
+        }
+        if (ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS)
+                && globalLease == null) {
+            return;
+        }
+        warehouseListRequested = true;
+        warehouseListView = view;
+        ProjectViewEditorSupport.read(net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
+                "LIST_WAREHOUSES", new StagingAreaConfigC2SPacket("", "LIST_WAREHOUSES", 0, Optional.empty()));
+    }
+
+    /** Acquires this screen's global-view token, or retries an OPEN that previously failed. */
+    void ensureGlobalLease()
+    {
+        if (this.globalLease == null) {
+            this.globalLease = ProjectViewClient.current()
+                    .map(session -> session.acquireGlobalWarehouse(InterestKind.AREA_CONFIG.bit()))
+                    .orElse(null);
+        } else {
+            this.globalLease.retry();
+        }
+    }
+
+    /** Releases only this screen's token; a warehouse editor child holds its own. */
+    void releaseGlobalLease()
+    {
+        if (this.globalLease != null) {
+            this.globalLease.close();
+            this.globalLease = null;
+        }
+    }
+
+    @Override
+    public void closeGui(boolean showParent)
+    {
+        releaseGlobalLease();
+        super.closeGui(showParent);
     }
 
     /**
@@ -98,7 +162,7 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
 
     public void requestRefresh()
     {
-        requestWarehouseList();
+        ensureWarehouseListRead(true);
     }
 
     /**
@@ -144,11 +208,6 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
         }
     }
 
-    private void requestWarehouseList()
-    {
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "LIST_WAREHOUSES", 0, Optional.empty()));
-    }
-
     /**
      * 收到仓库列表响应
      */
@@ -168,6 +227,13 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
         {
             this.getListWidget().refreshEntries();
         }
+    }
+
+    public void applyProjectViewConfiguration(
+            java.util.List<net.syncmaterial.syncmaterial.core.AreaDefinition> definitions) {
+        onWarehouseListResponse(definitions.stream().map(area -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                area.id(), area.name(), area.bounds().x1(), area.bounds().y1(), area.bounds().z1(),
+                area.bounds().x2(), area.bounds().y2(), area.bounds().z2(), area.world())).toList());
     }
 
     /** 成功 LIST_WAREHOUSES 的重叠提示；空串/null 清除。 */
@@ -224,10 +290,12 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
             ? net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(clientPlayer.level())
             : "minecraft:overworld";
 
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0,
-            Optional.of(new StagingAreaConfigC2SPacket.AreaData(name,
+        var data = new StagingAreaConfigC2SPacket.AreaData(name,
                 pos1.getX(), pos1.getY(), pos1.getZ(),
-                pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world)))));
-        requestWarehouseList();
+                pos2.getX(), pos2.getY(), pos2.getZ(), Optional.of(world));
+        ProjectViewEditorSupport.write(net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
+                0, "ADD_WAREHOUSE", Optional.of(data),
+                new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0, Optional.of(data)), saveTracker);
+        requestRefresh();
     }
 }

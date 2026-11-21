@@ -1,6 +1,7 @@
 package net.syncmaterial.syncmaterial.server.storage;
 
 import net.syncmaterial.syncmaterial.core.ClaimSnapshot;
+import net.syncmaterial.syncmaterial.core.CollaborationOutcome;
 import net.syncmaterial.syncmaterial.core.MaterialSnapshot;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
@@ -194,30 +195,47 @@ final class ProjectTeamWrites {
                 changedMaterials, removedObservations);
     }
 
-    /**
-     * Admission-checked self-service join. Every reported inventory material id
-     * must belong to the same project snapshot before the claim is written.
-     *
-     * @return true when the claim exists after the operation, false when the join
-     *         was rejected by admission, permissions, material staleness or scope.
-     */
+    /** Compatibility join without an initial observation; the new collaboration path is atomic. */
     static boolean joinAuthorized(Connection connection, String projectId, int materialId,
                                   PlayerIdentity actor, Set<Integer> reportedMaterialIds,
                                   Predicate<ProjectSnapshot> currentMaterial, BooleanSupplier admission)
             throws SQLException {
+        return joinInternal(connection, projectId, materialId, actor, reportedMaterialIds, null,
+                currentMaterial, admission, () -> true).success();
+    }
+
+    /** Writes the claim and its initial target-material observation in the caller's transaction. */
+    static CollaborationOutcome joinCollaboration(Connection connection, String projectId, int materialId,
+                                  PlayerIdentity actor, Set<Integer> reportedMaterialIds, long initialCount,
+                                  Predicate<ProjectSnapshot> currentMaterial, BooleanSupplier admission,
+                                  BooleanSupplier currentOperation) throws SQLException {
+        return joinInternal(connection, projectId, materialId, actor, reportedMaterialIds, initialCount,
+                currentMaterial, admission, currentOperation);
+    }
+
+    private static CollaborationOutcome joinInternal(Connection connection, String projectId, int materialId,
+                                  PlayerIdentity actor, Set<Integer> reportedMaterialIds, Long initialCount,
+                                  Predicate<ProjectSnapshot> currentMaterial, BooleanSupplier admission,
+                                  BooleanSupplier currentOperation) throws SQLException {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(reportedMaterialIds, "reportedMaterialIds");
         Objects.requireNonNull(currentMaterial, "currentMaterial");
         Objects.requireNonNull(admission, "admission");
-
+        Objects.requireNonNull(currentOperation, "currentOperation");
+        if (!currentOperation.getAsBoolean()) {
+            return outcome(CollaborationOutcome.Status.SUPERSEDED, projectId, materialId);
+        }
         Optional<ProjectSnapshot> existing = ProjectReads.findProject(connection, projectId);
-        if (existing.isEmpty() || !admission.getAsBoolean()) {
-            return false;
+        if (existing.isEmpty()) {
+            return outcome(CollaborationOutcome.Status.PROJECT_MISSING, projectId, materialId);
+        }
+        if (!admission.getAsBoolean()) {
+            return outcome(CollaborationOutcome.Status.DENIED, projectId, materialId);
         }
         ProjectSnapshot project = existing.get();
         if (!currentMaterial.test(project)) {
-            return false;
+            return outcome(CollaborationOutcome.Status.STALE_MATERIALS, projectId, materialId);
         }
 
         Set<Integer> projectMaterialIds = new HashSet<>();
@@ -225,45 +243,52 @@ final class ProjectTeamWrites {
             projectMaterialIds.add(material.id());
         }
         if (!projectMaterialIds.contains(materialId)) {
-            return false;
+            return outcome(CollaborationOutcome.Status.INVALID_REQUEST, projectId, materialId);
         }
         for (int reportedMaterialId : reportedMaterialIds) {
             if (reportedMaterialId <= 0 || !projectMaterialIds.contains(reportedMaterialId)) {
-                return false;
+                return outcome(CollaborationOutcome.Status.INVALID_REQUEST, projectId, materialId);
             }
         }
 
+        PlayersRepository.PlayerRow actorRow;
         if (project.allowSelfClaim()) {
-            PlayersRepository.PlayerRow actorRow;
             try {
                 actorRow = PlayersRepository.ensureTrustedActor(connection, actor);
             } catch (PlayersRepository.AmbiguousPlayerNameException ambiguous) {
-                return false;
+                return outcome(CollaborationOutcome.Status.DENIED, projectId, materialId);
             }
-            insertClaim(connection, projectId, materialId, actorRow.id());
-            return true;
+        } else {
+            PlayersRepository.ActorCandidate candidate;
+            try {
+                candidate = PlayersRepository.resolveActorForWrite(connection, actor).orElse(null);
+            } catch (PlayersRepository.AmbiguousPlayerNameException ambiguous) {
+                return outcome(CollaborationOutcome.Status.DENIED, projectId, materialId);
+            }
+            if (candidate == null) {
+                return outcome(CollaborationOutcome.Status.DENIED, projectId, materialId);
+            }
+            Optional<ProjectTeamReads.TeamRoles> storedRoles = ProjectTeamReads.roles(connection, projectId);
+            if (storedRoles.isEmpty() || !storedRoles.get().isOwner(candidate.row().id())) {
+                return outcome(CollaborationOutcome.Status.DENIED, projectId, materialId);
+            }
+            actorRow = candidate.row();
+            if (candidate.needsUpgrade()) {
+                actorRow = PlayersRepository.upgradeActor(connection, actorRow, actor);
+            }
         }
 
-        PlayersRepository.ActorCandidate candidate;
-        try {
-            candidate = PlayersRepository.resolveActorForWrite(connection, actor).orElse(null);
-        } catch (PlayersRepository.AmbiguousPlayerNameException ambiguous) {
-            return false;
+        boolean changed = insertClaim(connection, projectId, materialId, actorRow.id());
+        if (initialCount != null) {
+            ProjectWrites.recordInventory(connection, projectId, materialId, actor, initialCount);
         }
-        if (candidate == null) {
-            return false;
-        }
-        Optional<ProjectTeamReads.TeamRoles> storedRoles = ProjectTeamReads.roles(connection, projectId);
-        if (storedRoles.isEmpty() || !storedRoles.get().isOwner(candidate.row().id())) {
-            return false;
-        }
+        return outcome(changed ? CollaborationOutcome.Status.APPLIED : CollaborationOutcome.Status.UNCHANGED,
+                projectId, materialId);
+    }
 
-        PlayersRepository.PlayerRow actorRow = candidate.row();
-        if (candidate.needsUpgrade()) {
-            actorRow = PlayersRepository.upgradeActor(connection, actorRow, actor);
-        }
-        insertClaim(connection, projectId, materialId, actorRow.id());
-        return true;
+    private static CollaborationOutcome outcome(CollaborationOutcome.Status status,
+                                                String projectId, int materialId) {
+        return CollaborationOutcome.of(CollaborationOutcome.Action.JOIN, status, projectId, materialId);
     }
 
     // ========== Targets ==========

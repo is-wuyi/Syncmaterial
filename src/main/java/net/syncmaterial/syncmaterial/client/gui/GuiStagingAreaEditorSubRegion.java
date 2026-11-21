@@ -52,6 +52,11 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
      */
     protected final UpdateDebouncer coordinateDebouncer =
             new UpdateDebouncer(GuiStagingAreaEditorNormal.COORD_QUIET_TICKS);
+    private final EditorSaveTracker saveTracker = new EditorSaveTracker();
+
+    public EditorSaveTracker.State getSaveState() {
+        return saveTracker.state();
+    }
 
     public GuiStagingAreaEditorSubRegion(AreaSelection selection, Box box, @Nullable String selectionId)
     {
@@ -71,6 +76,10 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
     public void initGui()
     {
         super.initGui();
+        if (this.schematicId != null && !this.schematicId.isEmpty()) {
+            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
+                    session.openEditor(this.schematicId));
+        }
 
         int x = 12;
         int y = 24;
@@ -231,8 +240,13 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         BlockPos pos1 = this.box.getPos1();
         BlockPos pos2 = this.box.getPos2();
         AreaData areaData = GuiStagingAreaEditorNormal.toAreaData(this.box.getName(), pos1, pos2);
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+        writeAreaConfig("UPDATE", serverId, areaData);
+    }
+
+    private long writeAreaConfig(String action, int areaId, AreaData data) {
+        return ProjectViewEditorSupport.write(net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId),
+                areaId, action, Optional.of(data),
+                new StagingAreaConfigC2SPacket(schematicId, action, areaId, Optional.of(data)), saveTracker);
     }
 
     /**
@@ -241,7 +255,14 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
      */
     protected void scheduleCoordinateUpdate(Corner corner)
     {
-        this.coordinateDebouncer.schedule(() -> this.sendCoordinateUpdate(corner));
+        if (this.schematicId == null || this.schematicId.isEmpty())
+        {
+            return;
+        }
+        ProjectViewEditorSupport.EditFence fence = ProjectViewEditorSupport.captureFence(
+                net.syncmaterial.syncmaterial.core.ProjectViewScope.project(this.schematicId));
+        this.coordinateDebouncer.schedule(() -> this.sendCoordinateUpdate(corner),
+                () -> ProjectViewEditorSupport.isFenceCurrent(fence));
     }
 
     /** 驱动去抖计时。GuiBase 继承自 Screen，每客户端 tick 调用一次 */
@@ -250,6 +271,30 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
     {
         super.tick();
         this.coordinateDebouncer.tick();
+    }
+
+    @Override
+    //? if >=26.2 {
+    protected void drawContents(fi.dy.masa.malilib.render.GuiContext drawContext, int mouseX, int mouseY, float partialTicks) {
+    //?} else {
+    /*protected void drawContents(net.minecraft.client.gui.GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks) {
+    *///?}
+        super.drawContents(drawContext, mouseX, mouseY, partialTicks);
+        String status = ProjectViewEditorSupport.saveStatus(saveTracker.state());
+        if (!status.isEmpty()) {
+            this.drawString(drawContext, status, this.getScreenWidth() - 12
+                    - fi.dy.masa.malilib.util.StringUtils.getStringWidth(status),
+                    this.getScreenHeight() - 14, 0xFFB0B0B0);
+        }
+    }
+
+    @Override
+    public void closeGui(boolean showParent) {
+        if (this.schematicId != null && !this.schematicId.isEmpty()) {
+            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
+                    session.setEditor(this.schematicId, false));
+        }
+        super.closeGui(showParent);
     }
 
     /** 关界面前补发未发出的坐标改动，否则刚敲的值会被丢掉 */
@@ -274,8 +319,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
                 BlockPos pos1 = this.box.getPos1();
                 BlockPos pos2 = this.box.getPos2();
                 AreaData areaData = GuiStagingAreaEditorNormal.toAreaData(newName, pos1, pos2);
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                        this.schematicId, "RENAME", serverId, Optional.of(areaData)));
+                writeAreaConfig("RENAME", serverId, areaData);
 
                 this.selection.removeServerId(oldName);
                 this.selection.setServerId(newName, serverId);
@@ -318,8 +362,7 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
                 // 带当前维度：准星只能在玩家所在维度选点，跨维度重选必须一起迁移 world
                 AreaData areaData = GuiStagingAreaEditorNormal.toAreaData(
                         this.box.getName(), pos1, pos2, GuiStagingAreaEditorNormal.currentWorldId());
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                        this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+                writeAreaConfig("UPDATE", serverId, areaData);
             }
 
             // updateSelection 要求 schematicId 非空，必须留在这个分支内

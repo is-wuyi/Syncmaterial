@@ -88,6 +88,34 @@ public class MaterialListUtilsTest {
     }
 
     @Test
+    void localBackpackDoesNotReduceAuthoritativeTeamMissingAfterLeave() {
+        var dirt = new MaterialListEntry(1, new ItemStack(Items.DIRT), 128, 80, 0, 0);
+        dirt.setProgressView(new net.syncmaterial.syncmaterial.core.ProjectProgressMaterialView(
+                1, "minecraft:dirt", 128, 32, 16, false, 0, 0, 80, 16,
+                false, false, true));
+        dirt.setStagingCount(32);
+        dirt.setWarehouseCount(16);
+
+        MaterialListUtils.updateAvailableCounts(List.of(dirt), playerWith(new ItemStack(Items.DIRT, 4)));
+
+        assertEquals(4, dirt.getCountAvailable(), "本人即时持有可以展示");
+        assertEquals(80, dirt.getCountMissing(), "未认领的本机库存不得覆盖服务端团队缺口为76");
+        assertFalse(dirt.isCurrentPlayerClaimed());
+    }
+
+    @Test
+    void localBackpackCannotOverwriteLegacyAuthoritativeTeamCount() {
+        var stone = new MaterialListEntry(1, new ItemStack(Items.STONE), 100, 60, 0, 0);
+        stone.setOtherPlayersCount(40);
+        stone.markAuthoritativeTeamCounts();
+
+        MaterialListUtils.updateAvailableCounts(List.of(stone), playerWith(new ItemStack(Items.STONE, 30)));
+
+        assertEquals(30, stone.getCountAvailable());
+        assertEquals(60, stone.getCountMissing());
+    }
+
+    @Test
     void convertFromMaterialEntries_mapsAllFields() {
         var source = new MaterialEntry(7, new ItemStack(Items.STONE), 500, 120, 3, 377);
 

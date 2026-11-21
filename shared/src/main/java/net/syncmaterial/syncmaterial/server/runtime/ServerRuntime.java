@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -15,6 +17,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import net.syncmaterial.syncmaterial.adapter.litematica.MaterialDecoder;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
@@ -40,10 +43,16 @@ public final class ServerRuntime implements AutoCloseable {
     private final String interpretationId;
     private final AreaScanService areas;
     private final OnlineInventoryTracker inventories = new OnlineInventoryTracker();
+    private final Object connectionLock = new Object();
+    private final CollaborationService collaboration;
+    private final ProjectProgressService progress;
+    private final AtomicLong publicationSequences = new AtomicLong();
     private final TeamManagementService teams;
     private final TeamRequestTracker teamRequests = new TeamRequestTracker();
     private final Set<String> pendingTeamChanges = ConcurrentHashMap.newKeySet();
     private final MaterialCatalogTracker catalogs = new MaterialCatalogTracker();
+    private final ProjectInterestRegistry interests = new ProjectInterestRegistry();
+    private final ProjectViewTracker views = new ProjectViewTracker(interests);
     private final Map<UUID, Set<String>> subscriptions = new ConcurrentHashMap<>();
     private final Consumer<String> onProjectChanged;
     private final Set<String> pendingChanges = ConcurrentHashMap.newKeySet();
@@ -71,7 +80,10 @@ public final class ServerRuntime implements AutoCloseable {
         // Instantiate the scanner before attaching the lifecycle hook: the hook may
         // synchronously observe or drive the runtime during attach.
         this.areas = new AreaScanService(epoch, this::projectChanged, store);
-        this.teams = new TeamManagementService(store, inventories, discoveryExecutor,
+        this.collaboration = new CollaborationService(store, inventories,
+                this::isMaterialSnapshotCurrent, this::isOpen, this::projectChanged);
+        this.progress = new ProjectProgressService(inventories);
+        this.teams = new TeamManagementService(store, collaboration, discoveryExecutor,
                 this::isMaterialSnapshotCurrent, this::isOpen, this::projectChanged,
                 projectId -> { if (isOpen()) pendingTeamChanges.add(projectId); });
         this.lifecycleHook = lifecycleHook == null ? LifecycleHook.NONE : lifecycleHook;
@@ -139,6 +151,10 @@ public final class ServerRuntime implements AutoCloseable {
         return store;
     }
 
+    public CollaborationService collaboration() {
+        return collaboration;
+    }
+
     public TeamManagementService teams() {
         return teams;
     }
@@ -168,6 +184,14 @@ public final class ServerRuntime implements AutoCloseable {
 
     public MaterialCatalogTracker catalogs() {
         return catalogs;
+    }
+
+    public ProjectInterestRegistry interests() {
+        return interests;
+    }
+
+    public ProjectViewTracker views() {
+        return views;
     }
 
     public boolean isOpen() {
@@ -213,7 +237,28 @@ public final class ServerRuntime implements AutoCloseable {
     }
 
     public void connected(UUID playerId) {
-        if (open.get()) inventories.connected(playerId);
+        synchronized (connectionLock) {
+            if (open.get()) {
+                long previous = inventories.connection(playerId);
+                if (previous > 0) {
+                    views.disconnected(playerId, previous);
+                    interests.disconnect(playerId, previous);
+                }
+                inventories.connected(playerId);
+            }
+        }
+    }
+
+    public void connected(UUID playerId, Object identity) {
+        synchronized (connectionLock) {
+            if (!open.get() || inventories.matchesConnection(playerId, identity)) return;
+            disconnected(playerId, inventories.connection(playerId));
+            inventories.connected(playerId, identity).forEach(this::projectChanged);
+        }
+    }
+
+    public boolean matchesConnection(UUID playerId, Object identity) {
+        return inventories.matchesConnection(playerId, identity);
     }
 
     public long connection(UUID playerId) {
@@ -221,11 +266,33 @@ public final class ServerRuntime implements AutoCloseable {
     }
 
     public void disconnected(UUID playerId) {
-        Set<String> projects = subscriptions.remove(playerId);
-        inventories.disconnected(playerId);
-        catalogs.disconnected(playerId);
-        teamRequests.disconnected(playerId);
-        if (projects != null) projects.forEach(this::projectChanged);
+        synchronized (connectionLock) {
+            disconnected(playerId, inventories.connection(playerId));
+        }
+    }
+
+    public void disconnected(UUID playerId, Object identity) {
+        synchronized (connectionLock) {
+            if (!inventories.matchesConnection(playerId, identity)) return;
+            disconnected(playerId, inventories.connection(playerId));
+        }
+    }
+
+    public void disconnected(UUID playerId, long expectedConnection) {
+        synchronized (connectionLock) {
+            if (expectedConnection <= 0 || inventories.connection(playerId) != expectedConnection) return;
+            Set<String> affected = inventories.disconnected(playerId, expectedConnection);
+            Set<String> subscribed = subscriptions.remove(playerId);
+            catalogs.disconnected(playerId);
+            teamRequests.disconnected(playerId);
+            collaboration.disconnected(playerId);
+            views.disconnected(playerId, expectedConnection);
+            interests.disconnect(playerId, expectedConnection);
+            // A claimant need not be a subscriber. Their removed observations still
+            // change the project even when they never opened the material screen.
+            affected.forEach(this::projectChanged);
+            if (subscribed != null) subscribed.forEach(this::projectChanged);
+        }
     }
 
     public void subscribe(UUID playerId, String projectId) {
@@ -269,25 +336,50 @@ public final class ServerRuntime implements AutoCloseable {
         }
     }
 
-    public CompletableFuture<Void> reportInventory(String projectId, int materialId, PlayerIdentity player, long count) {
-        long connection = inventories.connection(player.uuid());
-        if (!open.get() || connection == 0) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Player session is not active"));
-        }
-        return store.recordInventory(projectId, materialId, player, count).thenRun(() -> {
-            if (open.get()) inventories.update(player.uuid(), connection, projectId, materialId, count);
-        });
+    public CompletableFuture<net.syncmaterial.syncmaterial.core.CollaborationOutcome> reportInventory(
+            String projectId, int materialId, PlayerIdentity player, long count) {
+        return collaboration.report(projectId, materialId, player, count);
     }
 
     public long inventoryCount(UUID playerId, String projectId, int materialId) {
         return inventories.count(playerId, projectId, materialId);
     }
 
-    public CompletableFuture<Boolean> leave(String projectId, int materialId, PlayerIdentity player) {
-        return store.leave(projectId, materialId, player).thenApply(changed -> {
-            inventories.forget(player.uuid(), projectId, materialId);
-            return changed;
-        });
+    /** Reads all progress facts and one online sample inside the writer transaction. */
+    public CompletableFuture<Optional<ProjectProgressRead>> readProgress(String projectId) {
+        if (!open.get()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Runtime is closed"));
+        }
+        return store.snapshot(projectId, state -> new ProjectProgressRead(state,
+                inventories.snapshot(projectId, state.claims()),
+                nextPublicationSequence()));
+    }
+
+    /** Runtime-wide monotonic id for ordered project-view content, independent of catalog revisions. */
+    public long nextPublicationSequence() {
+        return publicationSequences.updateAndGet(Math::incrementExact);
+    }
+
+    /**
+     * Finalizes a writer read on the owning server thread. Area scans and material-intent
+     * state are deliberately checked here, never from the storage thread. Empty means the
+     * delayed online sample is no longer deliverable, not that the project was deleted.
+     */
+    public Optional<net.syncmaterial.syncmaterial.core.ProjectProgressSnapshot> progressOnServer(
+            ProjectProgressRead read) {
+        Objects.requireNonNull(read, "read");
+        if (!open.get() || !inventories.isCurrent(read.observations())) return Optional.empty();
+        if (!isMaterialSnapshotCurrent(read.state().project())) {
+            throw new IllegalStateException("stale material snapshot");
+        }
+        boolean areaCurrent = areas.isInventoryCurrent(read.state().project().id(), read.state().inventory());
+        return Optional.of(progress.build(read.state(), read.observations(),
+                read.publicationSequence(), areaCurrent));
+    }
+
+    public CompletableFuture<net.syncmaterial.syncmaterial.core.CollaborationOutcome> leave(
+            String projectId, int materialId, PlayerIdentity player) {
+        return collaboration.leave(projectId, materialId, player);
     }
 
     @Override
@@ -325,8 +417,11 @@ public final class ServerRuntime implements AutoCloseable {
             pendingChanges.clear();
             pendingTeamChanges.clear();
             teamRequests.clear();
+            collaboration.clear();
             teams.clear();
             catalogs.clear();
+            views.close();
+            interests.close();
             store.close();
         }
     }

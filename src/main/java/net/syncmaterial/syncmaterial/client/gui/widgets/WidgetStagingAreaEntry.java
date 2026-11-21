@@ -46,6 +46,8 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
     private final StagingAreaEntry entryData;
     private final boolean isOdd;
     private final int buttonsStartX;
+    private final net.syncmaterial.syncmaterial.client.gui.EditorSaveTracker saveTracker =
+            new net.syncmaterial.syncmaterial.client.gui.EditorSaveTracker();
 
     public WidgetStagingAreaEntry(int x, int y, int width, int height, boolean isOdd,
             StagingAreaEntry entry, int listIndex, AreaSelection selection, WidgetListStagingAreas parent)
@@ -290,12 +292,16 @@ public class WidgetStagingAreaEntry extends WidgetListEntryBase<StagingAreaEntry
                 return false;
             }
 
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                    this.gui.getSchematicId(), "RENAME", serverId,
-                    Optional.of(new AreaData(newName.trim(),
-                            this.entry.x1(), this.entry.y1(), this.entry.z1(),
-                            this.entry.x2(), this.entry.y2(), this.entry.z2(),
-                            Optional.ofNullable(this.entry.world())))));
+            var data = new AreaData(newName.trim(),
+                    this.entry.x1(), this.entry.y1(), this.entry.z1(),
+                    this.entry.x2(), this.entry.y2(), this.entry.z2(),
+                    Optional.ofNullable(this.entry.world()));
+            var tracker = new net.syncmaterial.syncmaterial.client.gui.EditorSaveTracker();
+            net.syncmaterial.syncmaterial.client.gui.ProjectViewEditorSupport.write(
+                    net.syncmaterial.syncmaterial.core.ProjectViewScope.project(this.gui.getSchematicId()),
+                    serverId, "RENAME", Optional.of(data),
+                    new StagingAreaConfigC2SPacket(this.gui.getSchematicId(), "RENAME", serverId,
+                            Optional.of(data)), tracker);
             return true;
         }
     }

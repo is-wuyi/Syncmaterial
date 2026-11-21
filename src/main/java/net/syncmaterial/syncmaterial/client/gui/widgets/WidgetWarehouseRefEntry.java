@@ -32,6 +32,8 @@ public class WidgetWarehouseRefEntry extends WidgetListEntryBase<StagingAreaConf
     private final StagingAreaConfigResponseS2CPacket.AreaInfo entryData;
     private final boolean isOdd;
     private final int buttonsStartX;
+    private final net.syncmaterial.syncmaterial.client.gui.EditorSaveTracker saveTracker =
+            new net.syncmaterial.syncmaterial.client.gui.EditorSaveTracker();
 
     public WidgetWarehouseRefEntry(int x, int y, int width, int height, boolean isOdd,
             StagingAreaConfigResponseS2CPacket.AreaInfo entry, int listIndex, WidgetListWarehouseRefs parent)
@@ -163,8 +165,11 @@ public class WidgetWarehouseRefEntry extends WidgetListEntryBase<StagingAreaConf
             {
                 String schematicId = this.widget.parent.getSchematicId();
                 int warehouseId = this.widget.entryData.areaId();
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                        schematicId, "REMOVE_WAREHOUSE_REF", warehouseId, Optional.empty()));
+                net.syncmaterial.syncmaterial.client.gui.ProjectViewEditorSupport.write(
+                        net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId), warehouseId,
+                        "REMOVE_WAREHOUSE_REF", Optional.empty(),
+                        new StagingAreaConfigC2SPacket(schematicId, "REMOVE_WAREHOUSE_REF", warehouseId, Optional.empty()),
+                        this.widget.saveTracker);
             }
         }
     }

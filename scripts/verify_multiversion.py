@@ -9,6 +9,9 @@ It never runs Gradle/Minecraft and never writes to the repository.  It checks:
   * every GameTest/client class is registered, entries are non-empty and server
     filters cannot silently select zero tests;
   * platform/shared JUnit XML and SpotBugs XML;
+  * language resources: the baseline locale/key/placeholder contract, no BOM or
+    duplicate JSON keys, no missing/extra locale keys, and format placeholders
+    keep their argument count and conversion type;
   * prod jars: Minecraft/Java declaration, class major, shared nested once,
     SQLite nested once, recursive closure without duplicate classes (multi-release
     entries compared by logical class path), no test/fixture classes;
@@ -50,6 +53,11 @@ SCOPES = ("static", "shared", "unit", "server", "client", "optional",
 PASS, WARN, UNAVAILABLE, FAIL = "PASS", "WARN", "UNAVAILABLE", "FAIL"
 RANK = {PASS: 0, WARN: 1, UNAVAILABLE: 2, FAIL: 3}
 VER = r"\d+\.\d+(?:\.\d+)?"
+LANG_BOMS = (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff", b"\x00\x00\xfe\xff")
+# Locale files use String.format; only s/d/f count as argument placeholders.
+# Accepting every Java conversion would turn prose such as "50%off" into a token.
+LANG_FLAGS = "-+0"
+LANG_CONVERSIONS = frozenset("sdf")
 FORBIDDEN_TEXT = ("net.minecraft", "net.fabricmc", "fi.dy.masa")
 FORBIDDEN_BYTES = (b"net/minecraft", b"net/fabricmc", b"fi/dy/masa")
 MAX_RUN_LOG_BYTES = 64 * 1024 * 1024
@@ -184,6 +192,17 @@ class Guard:
         self.load_catalog("static")
         self.check_registration_and_filters()
         self.check_optional_config()
+        self.check_language_resources()
+
+    def check_language_resources(self):
+        contract = self.baseline.get("language_resources")
+        problems = language_resource_problems(self.root, contract)
+        if problems:
+            self.add("lang.contract", FAIL, "; ".join(problems[:12]))
+        else:
+            self.add("lang.contract", PASS,
+                     "%d locales, %d keys and placeholder contract match"
+                     % (len(contract["locales"]), len(contract["expected_keys"])))
 
     # ------------------------------------------------------------- shared scope
     def check_shared(self):
@@ -658,6 +677,157 @@ def parse_props(path):
 
 def prop(path, key):
     return parse_props(path).get(key)
+
+
+def language_placeholder_counts(text):
+    """Count Java-format argument placeholders without treating prose % as one."""
+    counts = Counter()
+    index = 0
+    while index < len(text):
+        if text[index] != "%":
+            index += 1
+            continue
+        cursor = index + 1
+        if cursor < len(text) and text[cursor] in "%n":
+            index = cursor + 1
+            continue
+        match = re.match(r"\d+\$", text[cursor:])
+        if match:
+            cursor += match.end()
+        while cursor < len(text) and text[cursor] in LANG_FLAGS:
+            cursor += 1
+        while cursor < len(text) and text[cursor].isdigit():
+            cursor += 1
+        if cursor < len(text) and text[cursor] == ".":
+            precision = cursor + 1
+            while precision < len(text) and text[precision].isdigit():
+                precision += 1
+            if precision > cursor + 1:
+                cursor = precision
+        if cursor < len(text) and text[cursor] in LANG_CONVERSIONS:
+            counts[text[cursor]] += 1
+            index = cursor + 1
+        else:
+            index += 1
+    return counts
+
+
+def read_language_json(path):
+    """Read one locale file, reporting BOM, duplicate keys and invalid values."""
+    path = Path(path)
+    problems = []
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        return {}, [f"{path.name}: cannot read: {exc}"]
+    if raw.startswith(LANG_BOMS):
+        problems.append(f"{path.name}: byte-order mark is not allowed")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        return {}, problems + [f"{path.name}: not valid UTF-8: {exc}"]
+    duplicates = []
+
+    def object_pairs(pairs):
+        seen = set()
+        for key, _value in pairs:
+            if key in seen:
+                duplicates.append(key)
+            seen.add(key)
+        return dict(pairs)
+
+    try:
+        data = json.loads(text, object_pairs_hook=object_pairs)
+    except json.JSONDecodeError as exc:
+        return {}, problems + [f"{path.name}: invalid JSON: {exc}"]
+    if not isinstance(data, dict):
+        return {}, problems + [f"{path.name}: root must be a JSON object"]
+    if duplicates:
+        problems.append(f"{path.name}: duplicate keys: {sorted(set(duplicates))}")
+    bad_values = sorted(key for key, value in data.items() if not isinstance(value, str))
+    if bad_values:
+        problems.append(f"{path.name}: non-string values: {bad_values[:8]}")
+    return data, problems
+
+
+def language_resource_problems(root, contract):
+    """Validate locale files against the baseline key set and placeholder contract."""
+    root = Path(root)
+    if not isinstance(contract, dict):
+        return ["baseline language_resources is missing or not an object"]
+    directory_name = contract.get("directory")
+    reference = contract.get("reference")
+    locales = contract.get("locales")
+    expected_keys = contract.get("expected_keys")
+    placeholders = contract.get("placeholders", {})
+    problems = []
+    if not isinstance(directory_name, str) or not directory_name:
+        problems.append("language_resources.directory must be a non-empty string")
+    if not isinstance(reference, str) or not reference:
+        problems.append("language_resources.reference must be a non-empty string")
+    if not isinstance(locales, list) or not locales or not all(
+            isinstance(value, str) and value for value in locales):
+        problems.append("language_resources.locales must be a non-empty string list")
+    elif len(set(locales)) != len(locales):
+        problems.append("language_resources.locales has duplicates")
+    elif reference not in locales:
+        problems.append("language_resources.reference is not in locales")
+    if not isinstance(expected_keys, list) or not expected_keys or not all(
+            isinstance(value, str) and value for value in expected_keys):
+        problems.append("language_resources.expected_keys must be a non-empty string list")
+    elif len(set(expected_keys)) != len(expected_keys):
+        problems.append("language_resources.expected_keys has duplicates")
+    if not isinstance(placeholders, dict):
+        problems.append("language_resources.placeholders must be an object")
+        placeholders = {}
+    else:
+        for key, counts in placeholders.items():
+            if not isinstance(counts, dict) or not counts or not all(
+                    isinstance(kind, str) and kind in LANG_CONVERSIONS
+                    and isinstance(amount, int) and amount > 0
+                    for kind, amount in counts.items()):
+                problems.append(f"language_resources.placeholders[{key!r}] is invalid")
+                break
+        unknown = sorted(set(placeholders) - set(expected_keys)) \
+            if isinstance(expected_keys, list) and all(
+                isinstance(value, str) for value in expected_keys) else []
+        if unknown:
+            problems.append(f"language_resources.placeholders has unknown keys: {unknown[:8]}")
+    if problems:
+        return problems
+    directory = root / directory_name
+    if not directory.is_dir():
+        return [f"language directory missing: {directory_name}"]
+    expected = set(expected_keys)
+    expected_names = {locale + ".json" for locale in locales}
+    actual_names = {path.name for path in directory.glob("*.json") if path.is_file()}
+    missing_names = sorted(expected_names - actual_names)
+    unexpected_names = sorted(actual_names - expected_names)
+    if missing_names:
+        problems.append(f"missing language files: {missing_names}")
+    if unexpected_names:
+        problems.append(f"unexpected language files: {unexpected_names}")
+    for locale in locales:
+        path = directory / (locale + ".json")
+        if not path.is_file():
+            continue
+        data, read_problems = read_language_json(path)
+        problems.extend(read_problems)
+        missing = sorted(expected - set(data))
+        unexpected = sorted(set(data) - expected)
+        if missing:
+            problems.append(f"{path.name}: missing keys ({len(missing)}): {missing[:8]}")
+        if unexpected:
+            problems.append(f"{path.name}: unexpected keys ({len(unexpected)}): {unexpected[:8]}")
+        for key in sorted(expected & set(data)):
+            if not isinstance(data[key], str):
+                continue
+            actual = dict(language_placeholder_counts(data[key]))
+            wanted = placeholders.get(key, {})
+            if actual != wanted:
+                problems.append(f"{path.name}: placeholder mismatch for {key!r}: "
+                                f"expected {wanted} got {actual}")
+    return problems
 
 
 def registration_problems(text, keyword, versions):

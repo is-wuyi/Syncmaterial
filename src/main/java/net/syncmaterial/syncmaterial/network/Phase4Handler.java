@@ -220,12 +220,22 @@ public class Phase4Handler {
                 boolean accepted = command.action() == TeamAction.ASSIGN
                         ? owner.collaboration().joinCollaboration(command.projectId(), materialId, name)
                         : owner.collaboration().leaveCollaboration(command.projectId(), materialId, name);
-                if (accepted) processed++;
+                if (accepted) {
+                    processed++;
+                    if (command.action() != TeamAction.ASSIGN) {
+                        owner.clearClaimEpoch(name, command.projectId(), materialId);
+                        ServerPlayer online = owner.findOnlinePlayer(name);
+                        if (online != null) {
+                            owner.forgetInventory(online.getUUID(), command.projectId(), materialId);
+                        }
+                    }
+                }
             }
         }
         for (int materialId : new java.util.LinkedHashSet<>(command.materialIds())) {
             ModNetworkHandler.broadcastStatus(owner, command.projectId(), materialId);
         }
+        if (owner.projectViews() != null) owner.projectViews().markDirty(command.projectId());
         String message = command.action() == TeamAction.ASSIGN ? "已分配 " + processed + " 个任务"
                 : "已从 " + processed + " 个材料中踢出 " + command.targets().getFirst().name();
         return new LegacyResult(true, message, readTeamOrNull(owner, command.projectId()), processed);
@@ -340,6 +350,7 @@ public class Phase4Handler {
     /** 广播某原理图所有材料的最新状态给参与者 + 订阅者（备货区/背包变动后调用）。 */
     public static void broadcastAllMaterialStatus(LegacyServerContext owner, String schematicId) {
         if (owner == null || !owner.isCurrent()) return;
+        if (owner.projectViews() != null) owner.projectViews().markDirty(schematicId);
         var collaboration = owner.collaboration();
         if (collaboration == null) return;
         List<Integer> materialIds = collaboration.getAllMaterialIds(schematicId);

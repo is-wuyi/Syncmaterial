@@ -67,14 +67,18 @@ public class MaterialListOpenClientGameTest implements FabricClientGameTest {
                 }
             });
 
-            // 另一玩家的认领与持有量：走真实 CollaborationManager 实例
-            // （内存缓存 + DB 双写，getCollaborationStatus 从内存缓存读 count）
+            // 另一玩家的认领与持有量：真实在线连接 + 新鲜观测，离线持久记录不再冒充在线库存。
+            MockBot bot = MockBot.spawn(server, CLAIMER);
             server.computeOnServer(s -> {
                 var cm = SyncMaterial.getSharedCollaborationManager();
                 if (cm == null || !cm.joinCollaboration(schematicId, dirtId, CLAIMER)) {
                     throw new AssertionError("预置认领失败");
                 }
                 cm.updatePlayerInventory(CLAIMER, schematicId, dirtId, 10);
+                var owner = net.syncmaterial.syncmaterial.server.legacy.LegacyServerRegistry.get(s);
+                var player = s.getPlayerList().getPlayerByName(CLAIMER);
+                if (owner == null || player == null) throw new AssertionError("在线观测连接未建立");
+                owner.trackInventory(player, schematicId, dirtId, 10);
                 return null;
             });
 
@@ -112,6 +116,7 @@ public class MaterialListOpenClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("材料清单数据与预期不符: " + actual);
             }
 
+            bot.despawn(server);
             onDatabase(server, db -> {
                 db.executeUpdate("DELETE FROM claims WHERE schematic_id = ?", schematicId);
                 db.executeUpdate("DELETE FROM player_inventories WHERE schematic_id = ?", schematicId);

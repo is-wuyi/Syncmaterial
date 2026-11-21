@@ -1,49 +1,39 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class MaterialListUtils {
+    /** Local samples include cursor-carried items and never replace team progress with solo progress. */
     public static void updateAvailableCounts(List<MaterialListEntry> list, Player player) {
         if (player == null) return;
-
-        java.util.Map<String, Integer> playerCounts = new java.util.HashMap<>();
-        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
-            ItemStack stack = player.getInventory().getItem(i);
-            if (stack.isEmpty()) continue;
-
-            String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-            playerCounts.merge(itemId, stack.getCount(), Integer::sum);
-
-            for (var stored : net.syncmaterial.syncmaterial.client.InventoryWatcher.getShulkerContents(stack)) {
-                String storedId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stored.getItem()).toString();
-                playerCounts.merge(storedId, stored.getCount(), Integer::sum);
-            }
-        }
-
+        Map<String, Long> playerCounts = net.syncmaterial.syncmaterial.client.InventoryScanner
+                .liveCountsByItemId(player);
         for (MaterialListEntry entry : list) {
-            String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.getStack().getItem()).toString();
-            int playerCount = playerCounts.getOrDefault(itemId, 0);
+            String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM
+                    .getKey(entry.getStack().getItem()).toString();
+            long playerCount = playerCounts.getOrDefault(itemId, 0L);
             entry.setCountAvailable(playerCount);
-            entry.setCountMissing((int) net.syncmaterial.syncmaterial.api.ProgressFormulas.inventoryOnlyMissing(
-                entry.getCountTotal(), playerCount));
+            if (entry.hasAuthoritativeTeamCounts()) continue;
+            long teamCount = net.syncmaterial.syncmaterial.api.ProgressFormulas.saturatingAdd(
+                    playerCount, entry.getOtherPlayersCount());
+            entry.setCountMissing(net.syncmaterial.syncmaterial.api.ProgressFormulas.collectedMissing(
+                    entry.getCountTotal(), entry.getStagingCount(), entry.getWarehouseCount(), teamCount));
         }
     }
 
-    public static List<MaterialListEntry> convertFromMaterialEntries(List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries) {
+    public static List<MaterialListEntry> convertFromMaterialEntries(
+            List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries) {
         List<MaterialListEntry> result = new ArrayList<>();
         for (net.syncmaterial.syncmaterial.api.MaterialEntry entry : entries) {
-            result.add(new MaterialListEntry(
-                    entry.getDatabaseId(),
-                    entry.getStack(),
-                    (int) entry.getCountTotal(),
-                    (int) entry.getCountMissing(),
-                    (int) entry.getCountMismatched(),
-                    (int) entry.getCountAvailable()
-            ));
+            MaterialListEntry converted = new MaterialListEntry(
+                    entry.getDatabaseId(), entry.getStack(), entry.getCountTotal(),
+                    entry.getCountMissing(), entry.getCountMismatched(), entry.getCountAvailable());
+            converted.markAuthoritativeTeamCounts();
+            result.add(converted);
         }
         return result;
     }

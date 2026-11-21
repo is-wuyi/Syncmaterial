@@ -453,15 +453,17 @@ public final class LegacySchematicIngest implements AutoCloseable {
             if (entry == null || entry.getStack().isEmpty()) continue;
             String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM
                     .getKey(entry.getStack().getItem()).toString();
-            aggregated.merge(itemId, entry.getCountTotal(), Long::sum);
+            aggregated.merge(itemId, entry.getCountTotal(), Math::addExact);
         }
         for (Map.Entry<String, Long> entry : aggregated.entrySet()) {
             long count = entry.getValue();
-            int countInt = (int) Math.min(count, Integer.MAX_VALUE);
+            if (count < 0) {
+                throw new IllegalStateException("negative aggregate count for " + entry.getKey());
+            }
             owner.database().executeUpdate(
                     "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?) " +
                             "ON CONFLICT(schematic_id, item_id) DO UPDATE SET count = excluded.count",
-                    schematicId, entry.getKey(), countInt);
+                    schematicId, entry.getKey(), count);
         }
     }
 
@@ -473,8 +475,10 @@ public final class LegacySchematicIngest implements AutoCloseable {
         for (MaterialEntry entry : materials) {
             String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM
                     .getKey(entry.getStack().getItem()).toString();
-            long countLong = entry.getCountTotal();
-            int count = (int) Math.min(countLong, Integer.MAX_VALUE);
+            long count = entry.getCountTotal();
+            if (count < 0) {
+                throw new IllegalStateException("negative material count for " + itemId);
+            }
             owner.database().executeUpdate(
                     "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?) " +
                             "ON CONFLICT(schematic_id, item_id) DO UPDATE SET count = excluded.count",

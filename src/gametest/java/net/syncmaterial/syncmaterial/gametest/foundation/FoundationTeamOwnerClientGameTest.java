@@ -52,6 +52,17 @@ public class FoundationTeamOwnerClientGameTest implements FabricClientGameTest {
              var connection = server.connect()) {
             try {
                 context.waitTicks(20);
+                context.getInput().resizeWindow(1920, 1080);
+                context.runOnClient(client -> {
+                    client.options.guiScale().set(2);
+                    //? if >=26.2 {
+                    client.resizeGui();
+                    //?} else {
+                    /*client.resizeDisplay();
+                    *///?}
+                });
+                context.waitFor(client -> client.getWindow().getGuiScaledWidth() == 960
+                        && client.getWindow().getGuiScaledHeight() == 540);
                 Fixture fixture = server.computeOnServer(instance -> createFixture(
                         instance, projectId, List.of(deputyA, deputyB, transferTarget)));
                 context.runOnClient(client ->

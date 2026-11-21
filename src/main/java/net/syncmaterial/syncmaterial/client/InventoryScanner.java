@@ -35,10 +35,10 @@ public final class InventoryScanner {
      *
      * @return itemId → 数量；player 为 null 时返回空 Map
      */
-    public static Map<String, Integer> liveCountsByItemId(Player player) {
+    public static Map<String, Long> liveCountsByItemId(Player player) {
         if (player == null) return Map.of();
 
-        Map<String, Integer> counts = new HashMap<>();
+        Map<String, Long> counts = new HashMap<>();
         Inventory inventory = player.getInventory();
         for (int i = 0; i < inventory.getContainerSize(); i++) {
             accumulate(counts, inventory.getItem(i));
@@ -49,13 +49,13 @@ public final class InventoryScanner {
         return Collections.unmodifiableMap(counts);
     }
 
-    private static void accumulate(Map<String, Integer> counts, ItemStack stack) {
+    private static void accumulate(Map<String, Long> counts, ItemStack stack) {
         if (stack == null || stack.isEmpty()) return;
 
-        counts.merge(stack.getItem().toString(), stack.getCount(), Integer::sum);
+        counts.merge(stack.getItem().toString(), (long) stack.getCount(), Math::addExact);
         for (ItemStack stored : InventoryWatcher.getShulkerContents(stack)) {
             if (stored.isEmpty()) continue;
-            counts.merge(stored.getItem().toString(), stored.getCount(), Integer::sum);
+            counts.merge(stored.getItem().toString(), (long) stored.getCount(), Math::addExact);
         }
     }
 }

@@ -94,4 +94,80 @@ public class ProgressFormulasTest {
     void inventoryOnlyMissing_exactMatch() {
         assertEquals(0, ProgressFormulas.inventoryOnlyMissing(64, 64));
     }
+
+    // ========== 边界、溢出与非法输入 ==========
+
+    @Test
+    void collectedMissing_saturatesAtLongMaxValue() {
+        assertEquals(Long.MAX_VALUE, ProgressFormulas.collectedMissing(Long.MAX_VALUE, 0, 0, 0));
+        assertEquals(Long.MAX_VALUE - 1, ProgressFormulas.collectedMissing(Long.MAX_VALUE, 1, 0, 0));
+        assertEquals(Long.MAX_VALUE - 3, ProgressFormulas.collectedMissing(Long.MAX_VALUE, 1, 1, 1));
+        assertEquals(0, ProgressFormulas.collectedMissing(Long.MAX_VALUE, Long.MAX_VALUE, 0, 0));
+        assertEquals(0, ProgressFormulas.collectedMissing(5, Long.MAX_VALUE, Long.MAX_VALUE - 1, Long.MAX_VALUE));
+    }
+
+    @Test
+    void pickupMissing_saturatesAndNeverExceedsWarehouse() {
+        assertEquals(Long.MAX_VALUE, ProgressFormulas.pickupMissing(Long.MAX_VALUE, 0, 0, Long.MAX_VALUE));
+        assertEquals(Long.MAX_VALUE - 1, ProgressFormulas.pickupMissing(Long.MAX_VALUE, 1, 0, Long.MAX_VALUE));
+        assertEquals(0, ProgressFormulas.pickupMissing(Long.MAX_VALUE, 0, Long.MAX_VALUE, Long.MAX_VALUE));
+        assertEquals(1, ProgressFormulas.pickupMissing(Long.MAX_VALUE, 0, Long.MAX_VALUE - 1, Long.MAX_VALUE));
+        assertEquals(0, ProgressFormulas.pickupMissing(0, 0, 0, Long.MAX_VALUE));
+    }
+
+    @Test
+    void inventoryOnlyMissing_saturatesAtZero() {
+        assertEquals(Long.MAX_VALUE, ProgressFormulas.inventoryOnlyMissing(Long.MAX_VALUE, 0));
+        assertEquals(0, ProgressFormulas.inventoryOnlyMissing(Long.MAX_VALUE, Long.MAX_VALUE));
+        assertEquals(0, ProgressFormulas.inventoryOnlyMissing(0, Long.MAX_VALUE));
+    }
+
+    @Test
+    void saturatingAddDoesNotWrap() {
+        assertEquals(0, ProgressFormulas.saturatingAdd(0, 0));
+        assertEquals(10, ProgressFormulas.saturatingAdd(4, 6));
+        assertEquals(Long.MAX_VALUE - 1, ProgressFormulas.saturatingAdd(Long.MAX_VALUE - 2, 1));
+        assertEquals(Long.MAX_VALUE, ProgressFormulas.saturatingAdd(Long.MAX_VALUE - 1, 2));
+        assertEquals(Long.MAX_VALUE, ProgressFormulas.saturatingAdd(Long.MAX_VALUE, Long.MAX_VALUE));
+    }
+
+    @Test
+    void saturatingSubtractClampsAtZero() {
+        assertEquals(Long.MAX_VALUE, ProgressFormulas.saturatingSubtract(Long.MAX_VALUE, 0));
+        assertEquals(Long.MAX_VALUE - 1, ProgressFormulas.saturatingSubtract(Long.MAX_VALUE, 1));
+        assertEquals(0, ProgressFormulas.saturatingSubtract(0, Long.MAX_VALUE));
+        assertEquals(0, ProgressFormulas.saturatingSubtract(Long.MAX_VALUE, Long.MAX_VALUE));
+    }
+
+    @Test
+    void negativeInputsAreRejectedInsteadOfBeingClamped() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.collectedMissing(-1, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.collectedMissing(0, -1, 0, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.collectedMissing(0, 0, -1, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.collectedMissing(0, 0, 0, -1));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.pickupMissing(-1, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.pickupMissing(0, -1, 0, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.pickupMissing(0, 0, -1, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.pickupMissing(0, 0, 0, -1));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.inventoryOnlyMissing(-1, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.inventoryOnlyMissing(0, -1));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.saturatingAdd(-1, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.saturatingAdd(0, -1));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.saturatingSubtract(-1, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProgressFormulas.saturatingSubtract(0, -1));
+    }
 }

@@ -27,6 +27,8 @@ import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListBase.SortCriteria;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
+import net.syncmaterial.syncmaterial.client.gui.MaterialListLayout;
+import net.syncmaterial.syncmaterial.client.gui.MaterialRowStatus;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
 
 public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialListEntry>
@@ -40,14 +42,6 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             "syncmaterial.gui.label.material_list.title.staging",   // 备货区
             "syncmaterial.gui.label.material_list.title.warehouse", // 仓库
             "syncmaterial.gui.label.material_list.title.claim" };   // 认领
-    private static int maxNameLength;
-    private static int maxCountLength1;  // 总数
-    private static int maxCountLength2;  // 缺失/还需收集/取货
-    private static int maxCountLength3;  // 我的背包
-    private static int maxCountLength4;  // 其他背包
-    private static int maxCountLength5;  // 备货区
-    private static int maxCountLength6;  // 仓库
-    private static int maxClaimLength;
 
     private final MaterialListBase materialList;
     private final WidgetListMaterialList listWidget;
@@ -64,6 +58,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     private final boolean isOdd;
     private final boolean isOwner;
     private final boolean claimDisabled;
+    private final MaterialListLayout layout;
 
     public WidgetMaterialListEntry(int x, int y, int width, int height, boolean isOdd,
             MaterialListBase materialList, MaterialListEntry entry, int listIndex, WidgetListMaterialList listWidget)
@@ -78,7 +73,10 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         this.isOwner = listWidget.getGui().isOwner();
         boolean allowSelfClaim = materialList instanceof SyncMaterialList syncList && syncList.isAllowSelfClaim();
         boolean isCollaborating = materialList instanceof SyncMaterialList sl && this.entry != null && sl.isCollaborating(this.entry);
-        this.claimDisabled = !isCollaborating && !allowSelfClaim && !this.isOwner;
+        this.claimDisabled = !isCollaborating && !allowSelfClaim && !this.isOwner
+                || materialList instanceof SyncMaterialList pending && this.entry != null
+                && pending.isClaimPending(this.entry.getDatabaseId());
+        this.layout = this.listWidget.rowLayout(width);
         this.shulkerBoxAbbr = StringUtils.translate("litematica.gui.label.material_list.abbr.shulker_box");
 
         if (this.entry != null)
@@ -104,10 +102,12 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             this.header8 = GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[7]) + GuiBase.TXT_RST;
         }
 
-        this.createButtonGeneric(x + width, y + 1, ButtonListener.ButtonType.CLAIM);
+        if (this.entry != null) {
+            this.createButtonGeneric(y + 1, ButtonListener.ButtonType.CLAIM);
+        }
     }
 
-    private int createButtonGeneric(int xRight, int y, ButtonListener.ButtonType type)
+    private void createButtonGeneric(int y, ButtonListener.ButtonType type)
     {
         String label = type.getDisplayName();
         boolean disabled = false;
@@ -121,39 +121,59 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                 label = StringUtils.translate("syncmaterial.gui.button.join_collaboration");
             }
         }
+        if (type == ButtonListener.ButtonType.CLAIM && this.entry != null
+                && this.materialList instanceof SyncMaterialList pending
+                && pending.isClaimPending(this.entry.getDatabaseId())) {
+            label = StringUtils.translate("syncmaterial.gui.button.pending");
+            disabled = true;
+        }
         ButtonListener listener = new ButtonListener(type, this.materialList, this.entry, this.listWidget);
-        ButtonGeneric btn = this.addButton(new ButtonGeneric(xRight, y, -1, true, label), listener);
+        ButtonGeneric btn = this.addButton(new ButtonGeneric(
+                this.x + this.layout.action().x(), y, this.layout.action().width(), 20, label), listener);
         if (disabled) {
             btn.setEnabled(false);
         }
-        return btn.getX();
     }
 
-    public static void setMaxNameLength(List<MaterialListEntry> materials, int multiplier)
-    {
-        maxNameLength   = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[0]) + GuiBase.TXT_RST);
-        maxCountLength1 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[1]) + GuiBase.TXT_RST);
-        maxCountLength2 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[2]) + GuiBase.TXT_RST);
-        maxCountLength3 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[3]) + GuiBase.TXT_RST);
-        maxCountLength4 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[4]) + GuiBase.TXT_RST);
-        maxCountLength5 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[5]) + GuiBase.TXT_RST);
-        maxCountLength6 = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[6]) + GuiBase.TXT_RST);
-        maxClaimLength  = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[7]) + GuiBase.TXT_RST);
-
-        for (MaterialListEntry entry : materials)
-        {
-            int countTotal = entry.getCountTotal() * multiplier;
-            int countMissing = multiplier == 1 ? entry.getCountMissing() : countTotal;
-
-            maxNameLength   = Math.max(maxNameLength,   StringUtils.getStringWidth(entry.getStack().getHoverName().getString()));
-            maxCountLength1 = Math.max(maxCountLength1, StringUtils.getStringWidth(String.valueOf(countTotal)));
-            maxCountLength2 = Math.max(maxCountLength2, StringUtils.getStringWidth(String.valueOf(countMissing)));
-            maxCountLength3 = Math.max(maxCountLength3, StringUtils.getStringWidth(String.valueOf(entry.getCountAvailable())));
-            maxCountLength4 = Math.max(maxCountLength4, StringUtils.getStringWidth(String.valueOf(entry.getOtherPlayersCount())));
-            maxCountLength5 = Math.max(maxCountLength5, StringUtils.getStringWidth(String.valueOf(entry.getStagingCount())));
-            maxCountLength6 = Math.max(maxCountLength6, StringUtils.getStringWidth(String.valueOf(entry.getWarehouseCount())));
-            maxClaimLength  = Math.max(maxClaimLength, StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.label.unclaimed")));
+    static MaterialListLayout measureLayout(int width, MaterialListBase list, boolean owner) {
+        java.util.Map<MaterialListLayout.ColumnKey, String> samples =
+                new java.util.EnumMap<>(MaterialListLayout.ColumnKey.class);
+        for (var key : MaterialListLayout.ColumnKey.values()) {
+            samples.put(key, GuiBase.TXT_BOLD + StringUtils.translate(HEADERS[key.ordinal()])
+                    + GuiBase.TXT_RST + " ▼");
         }
+        if (list != null) {
+            for (MaterialListEntry entry : list.getMaterialsAll()) {
+                for (var key : MaterialListLayout.ColumnKey.values()) {
+                    String candidate = sample(key, entry, list);
+                    if (StringUtils.getStringWidth(candidate) > StringUtils.getStringWidth(samples.get(key))) {
+                        samples.put(key, candidate);
+                    }
+                }
+            }
+        }
+        String action = java.util.stream.Stream.of(
+                        "syncmaterial.gui.button.join_collaboration",
+                        "syncmaterial.gui.button.leave_collaboration",
+                        "syncmaterial.gui.button.pending")
+                .map(StringUtils::translate)
+                .max(java.util.Comparator.comparingInt(StringUtils::getStringWidth)).orElse("");
+        return MaterialListLayout.compute(width, StringUtils::getStringWidth, samples, action, owner ? 16 : 0);
+    }
+
+    private static String sample(MaterialListLayout.ColumnKey key, MaterialListEntry entry, MaterialListBase list) {
+        return switch (key) {
+            case ITEM -> entry.getStack().getHoverName().getString();
+            case TOTAL -> list.displayedTotal(entry).toString();
+            case MISSING -> list.displayedMissing(entry).toString();
+            case MINE -> entry.observedCountText(entry.getCountAvailable());
+            case OTHERS -> entry.observedCountText(entry.getOtherPlayersCount());
+            case STAGING -> String.valueOf(entry.getStagingCount());
+            case WAREHOUSE -> String.valueOf(entry.getWarehouseCount());
+            case CLAIM -> entry.getParticipants().stream().map(MaterialListEntry.ParticipantData::playerName)
+                    .reduce((left, right) -> left + ", " + right)
+                    .orElseGet(() -> StringUtils.translate("syncmaterial.gui.label.unclaimed"));
+        };
     }
 
     @Override
@@ -178,61 +198,27 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         return this.materialList.getSortInReverse();
     }
 
-    /** 认领按钮预留宽度：列不得侵入这块区域，否则名字会被按钮压住 */
-    private static final int CLAIM_BUTTON_RESERVE = 84;
-    /** 单个列间隙的额外拉伸上限：防止超宽屏把列拉得过散 */
-    private static final int MAX_EXTRA_SPACING = 24;
-
-    /**
-     * 列内容天然只占左侧一段，行宽有富余时右边会空出一大片（实机截图里很明显）。
-     * 把富余量均摊到 7 个列间隙上，让整行铺满可用宽度。
-     *
-     * 渲染与表头点击命中都走 getColumnPosX，因此两边一定同步，不存在
-     * 「看到的列头位置和点中的列不一致」的问题。
-     */
-    private int getExtraColumnSpacing()
-    {
-        int checkboxOffset = this.isOwner ? 16 : 0;
-        int natural = 4 + checkboxOffset + maxNameLength + 40
-                + maxCountLength1 + 20 + maxCountLength2 + 20 + maxCountLength3 + 20
-                + maxCountLength4 + 20 + maxCountLength5 + 20 + maxCountLength6 + 20
-                + maxClaimLength;
-        int slack = this.width - CLAIM_BUTTON_RESERVE - natural;
-        if (slack <= 0)
-        {
-            return 0;
-        }
-        return Math.min(slack / 7, MAX_EXTRA_SPACING);
-    }
-
     @Override
     protected int getColumnPosX(int column)
     {
-        // Phase 4: 负责人视角复选框占 16px
-        int checkboxOffset = this.isOwner ? 16 : 0;
-        int gap = 20 + this.getExtraColumnSpacing();
-        int x1 = this.x + 4 + checkboxOffset;
-        int x2 = x1 + maxNameLength + 40; // item icon plus offset
-        int x3 = x2 + maxCountLength1 + gap;
-        int x4 = x3 + maxCountLength2 + gap;
-        int x5 = x4 + maxCountLength3 + gap;
-        int x6 = x5 + maxCountLength4 + gap;
-        int x7 = x6 + maxCountLength5 + gap;
-        int x8 = x7 + maxCountLength6 + gap;
+        int offset = this.listWidget.horizontalOffset();
+        if (column == 8) return this.x + this.layout.dataViewportRight();
+        var key = MaterialListLayout.ColumnKey.values()[column];
+        return this.x + this.layout.column(key).x() - offset;
+    }
 
-        return switch (column)
-        {
-            case 0 -> x1;
-            case 1 -> x2;
-            case 2 -> x3;
-            case 3 -> x4;
-            case 4 -> x5;
-            case 5 -> x6;
-            case 6 -> x7;
-            case 7 -> x8;
-            case 8 -> x8 + maxClaimLength + gap;
-            default -> x1;
-        };
+    @Override
+    protected int getMouseOverColumn(int mouseX, int mouseY) {
+        int localX = mouseX - this.x;
+        if (mouseY < this.y || mouseY >= this.y + this.height
+                || localX < 0 || localX >= this.layout.dataViewportRight()) return -1;
+        return this.layout.columnAt(localX + this.listWidget.horizontalOffset())
+                .map(column -> column.key().ordinal()).orElse(-1);
+    }
+
+    private int textX(MaterialListLayout.ColumnKey key, String text) {
+        return this.x + this.layout.column(key).textX(text, StringUtils::getStringWidth)
+                - this.listWidget.horizontalOffset();
     }
 
     @Override
@@ -248,6 +234,15 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         //?} else {
         /*boolean isDoubleClick = false;
         *///?}
+        if (mouseX < this.x || mouseX >= this.x + this.width
+                || mouseY < this.y || mouseY >= this.y + this.height) return false;
+        if (this.entry != null && mouseX >= this.x + this.layout.dataViewportRight()) {
+            //? if >=26.2 {
+            return super.onMouseClickedImpl(event, isDoubleClick);
+            //?} else {
+            /*return super.onMouseClickedImpl(mouseX, mouseY, mouseButton);
+            *///?}
+        }
         // Phase 4: 负责人复选框点击
         if (this.isOwner && this.entry != null) {
             int cbX = this.x + 2;
@@ -260,6 +255,7 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                 } else {
                     selected.add(id);
                 }
+                this.listWidget.getGui().initGui();
                 return true;
             }
         }
@@ -287,8 +283,8 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         }
         this.materialList.setSortCriteria(criteria);
 
-        // Re-create the widgets
-        this.listWidget.refreshEntries();
+        // A new sorting intention starts at the top; data refreshes retain the material-ID anchor.
+        this.listWidget.refreshFromBeginning();
 
         return true;
     }
@@ -298,6 +294,31 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
     public void render(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
     //?} else {
     /*public void render(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
+    *///?}
+    {
+        drawContext.enableScissor(this.x, this.y, this.x + this.layout.dataViewportRight(), this.y + this.height);
+        try {
+            this.renderRow(drawContext, mouseX, mouseY, selected);
+        } finally {
+            drawContext.disableScissor();
+        }
+        if (this.entry != null) {
+            RenderUtils.drawRect(drawContext, this.x + this.layout.dataViewportRight(), this.y,
+                    this.width - this.layout.dataViewportRight(), this.height,
+                    this.isOdd ? 0xFF181818 : 0xFF282828);
+            drawContext.enableScissor(this.x, this.y, this.x + this.width, this.y + this.height);
+            try {
+                super.render(drawContext, mouseX, mouseY, selected);
+            } finally {
+                drawContext.disableScissor();
+            }
+        }
+    }
+
+    //? if >=26.2 {
+    private void renderRow(GuiContext drawContext, int mouseX, int mouseY, boolean selected)
+    //?} else {
+    /*private void renderRow(GuiGraphics drawContext, int mouseX, int mouseY, boolean selected)
     *///?}
     {
         // Draw a lighter background for the hovered and the selected entry
@@ -400,44 +421,46 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
         }
         else if (this.entry != null)
         {
-            int multiplier = this.materialList.getMultiplier();
-            int countTotal = this.entry.getCountTotal() * multiplier;
-            int countMissing = multiplier == 1 ? this.entry.getCountMissing() : countTotal;
-            int countAvailable = this.entry.getCountAvailable();
-            int otherPlayersCount = this.entry.getOtherPlayersCount();
-            int stagingCount = this.entry.getStagingCount();
+            var countTotal = this.materialList.displayedTotal(this.entry);
+            var countMissing = this.materialList.displayedMissing(this.entry);
+            long countAvailable = this.entry.getCountAvailable();
+            long otherPlayersCount = this.entry.getOtherPlayersCount();
+            long stagingCount = this.entry.getStagingCount();
             String green = GuiBase.TXT_GREEN;
             String gold = GuiBase.TXT_GOLD;
             String red = GuiBase.TXT_RED;
             String pre;
-            this.drawString(drawContext, x1 + 20, y, color, this.entry.getStack().getHoverName().getString());
+            String itemName = this.layout.column(MaterialListLayout.ColumnKey.ITEM)
+                    .clip(this.entry.getStack().getHoverName().getString(), StringUtils::getStringWidth).text();
+            this.drawString(drawContext, x1 + 20, y, color, itemName);
 
-            // 总数
-            this.drawString(drawContext, x2, y, color, String.valueOf(countTotal));
+            this.drawString(drawContext, textX(MaterialListLayout.ColumnKey.TOTAL, String.valueOf(countTotal)),
+                    y, color, String.valueOf(countTotal));
 
             // 缺失（新公式：总计 - 备货区 - 所有背包）
-            // 收集模式：背包能覆盖剩余需求时显示金色
-            if (countMissing == 0) {
+            if (countMissing.signum() == 0) {
                 pre = this.materialList.isPreparationKnown() ? green : gold;
             } else {
-                pre = countAvailable >= countMissing ? gold : red;
+                pre = java.math.BigInteger.valueOf(countAvailable).compareTo(countMissing) >= 0 ? gold : red;
             }
-            this.drawString(drawContext, x3, y, color, pre + String.valueOf(countMissing));
+            this.drawString(drawContext, textX(MaterialListLayout.ColumnKey.MISSING, String.valueOf(countMissing)),
+                    y, color, pre + String.valueOf(countMissing));
 
-            // 我的背包
+            String mineText = this.entry.observedCountText(countAvailable);
+            String othersText = this.entry.observedCountText(otherPlayersCount);
             pre = countAvailable > 0 ? green : red;
-            this.drawString(drawContext, x4, y, color, pre + String.valueOf(countAvailable));
+            this.drawString(drawContext, textX(MaterialListLayout.ColumnKey.MINE, mineText),
+                    y, color, pre + mineText);
 
-            // 其他背包
-            this.drawString(drawContext, x5, y, otherPlayersCount > 0 ? 0xFF55FF55 : 0xFFAAAAAA, String.valueOf(otherPlayersCount));
+            this.drawString(drawContext, textX(MaterialListLayout.ColumnKey.OTHERS, othersText),
+                    y, otherPlayersCount > 0 ? 0xFF55FF55 : 0xFFAAAAAA, othersText);
 
-            // 备货区
-            this.drawString(drawContext, x6, y, stagingCount > 0 ? 0xFFFFAA00 : 0xFFAAAAAA, String.valueOf(stagingCount));
+            this.drawString(drawContext, textX(MaterialListLayout.ColumnKey.STAGING, String.valueOf(stagingCount)),
+                    y, stagingCount > 0 ? 0xFFFFAA00 : 0xFFAAAAAA, String.valueOf(stagingCount));
 
-            // 仓库
-            int warehouseCount = this.entry.getWarehouseCount();
-            int x7 = this.getColumnPosX(6);
-            this.drawString(drawContext, x7, y, warehouseCount > 0 ? 0xFF55AAFF : 0xFFAAAAAA, String.valueOf(warehouseCount));
+            long warehouseCount = this.entry.getWarehouseCount();
+            this.drawString(drawContext, textX(MaterialListLayout.ColumnKey.WAREHOUSE, String.valueOf(warehouseCount)),
+                    y, warehouseCount > 0 ? 0xFF55AAFF : 0xFFAAAAAA, String.valueOf(warehouseCount));
 
             // 认领状态 — 统一显示参与者名称
             int x8 = this.getColumnPosX(7);
@@ -447,7 +470,9 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                     .map(p -> p.playerName())
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("");
-                this.drawString(drawContext, x8, y, 0xFF55FF55, names);
+                this.drawString(drawContext, x8, y, 0xFF55FF55,
+                        this.layout.column(MaterialListLayout.ColumnKey.CLAIM)
+                                .clip(names, StringUtils::getStringWidth).text());
             } else {
                 this.drawString(drawContext, x8, y, 0xFF888888, StringUtils.translate("syncmaterial.gui.label.unclaimed"));
             }
@@ -456,128 +481,43 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
             RenderUtils.drawRect(drawContext, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
             drawContext.renderItem(this.entry.getStack(), x1, y);
 
-            // 进度条止于行高亮框右边缘（this.x + this.width），起点 x1 已含复选框偏移
-            int progressWidth = this.x + this.width - x1;
-            this.renderProgressBar(drawContext, x1, this.y + 22, progressWidth);
-
-            super.render(drawContext, mouseX, mouseY, selected);
+            this.renderSourceBar(drawContext);
         }
     }
 
     //? if >=26.2 {
-    private void renderProgressBar(GuiContext drawContext, int x, int y, int totalWidth) {
+    private void renderSourceBar(GuiContext drawContext) {
     //?} else {
-    /*private void renderProgressBar(GuiGraphics drawContext, int x, int y, int totalWidth) {
+    /*private void renderSourceBar(GuiGraphics drawContext) {
     *///?}
-        int countTotal = this.entry.getCountTotal();
-        int stagingCount = this.entry.getStagingCount();
-        int warehouseCount = this.entry.getWarehouseCount();
-        var participants = this.entry.getParticipants();
+        var view = this.entry.progressView(this.materialList);
+        var status = MaterialRowStatus.of(view);
+        var bar = this.layout.sourceBar();
+        int textY = this.y + 18;
+        String summary = MaterialListLayout.clipText(StringUtils.translate(status.translationKey()),
+                bar.width(), StringUtils::getStringWidth).text();
+        this.drawString(drawContext, this.x + bar.x() - this.listWidget.horizontalOffset(), textY,
+                view.preparationKnown() ? 0xFFB0B0B0 : 0xFF888888, summary);
 
-        if (countTotal <= 0) return;
-
-        long collected = (long) stagingCount + warehouseCount;
-        for (var p : participants) collected += p.count();
-        int remaining = (int) Math.max(0, countTotal - collected);
-        boolean isComplete = collected >= countTotal;
-        boolean isUnclaimed = collected == 0 && participants.isEmpty();
-
-        int barHeight = 4;
-        int barY = y;
-
-        if (isComplete && !this.materialList.isPreparationKnown() && this.materialList instanceof net.syncmaterial.syncmaterial.client.gui.SyncMaterialList syncList) {
-            RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF333333);
-            this.drawString(drawContext, x, barY + barHeight + 1, 0xFFAAAAAA, syncList.preparationWarning());
-            return;
-        }
-        if (isComplete) {
-            RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF006600);
-            this.drawString(drawContext, x, barY + barHeight + 1, 0xFF00CC00, StringUtils.translate("syncmaterial.gui.label.progress_done"));
-            return;
-        }
-
-        RenderUtils.drawRect(drawContext, x, barY, totalWidth, barHeight, 0xFF333333);
-
-        if (isUnclaimed) {
-            this.drawString(drawContext, x, barY + barHeight + 1, 0xFF888888, StringUtils.translate("syncmaterial.gui.label.unclaimed"));
-            return;
-        }
-
-        int barX = x;
-        if (stagingCount > 0) {
-            int w = Math.max(1, (int)((double)stagingCount / countTotal * totalWidth));
-            RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFFFFAA00);
-            barX += w;
-        }
-        if (warehouseCount > 0) {
-            int w = Math.max(1, (int)((double)warehouseCount / countTotal * totalWidth));
-            RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFF55AAFF);
-            barX += w;
-        }
-
-        int[] playerColors = {0xFF00AA00, 0xFF0000AA, 0xFFAA00AA, 0xFF00AAAA, 0xFFAA5500};
-        int otherCount = 0;
-        for (int i = 0; i < participants.size(); i++) {
-            var p = participants.get(i);
-            if (i < 5) {
-                int w = Math.max(1, (int)((double)p.count() / countTotal * totalWidth));
-                RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, playerColors[i]);
-                barX += w;
-            } else {
-                otherCount += p.count();
-            }
-        }
-        if (otherCount > 0) {
-            int w = Math.max(1, (int)((double)otherCount / countTotal * totalWidth));
-            RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFF666666);
-            barX += w;
-        }
-
-        if (remaining > 0 && barX < x + totalWidth) {
-            int w = x + totalWidth - barX;
-            RenderUtils.drawRect(drawContext, barX, barY, w, barHeight, 0xFF444444);
-        }
-
-        // 文字描述 — 分段着色，裁剪到进度条宽度内
-        int textX = x;
-        int textY = barY + barHeight + 1;
-        int textMaxX = x + totalWidth;
-
-        if (stagingCount > 0) {
-            String s = StringUtils.translate("syncmaterial.gui.label.progress_staging", stagingCount);
-            if (textX + this.getStringWidth(s) < textMaxX) {
-                this.drawString(drawContext, textX, textY, 0xFFFFAA00, s);
-                textX += this.getStringWidth(s) + 6;
-            }
-        }
-        if (warehouseCount > 0) {
-            String s = StringUtils.translate("syncmaterial.gui.label.progress_warehouse", warehouseCount);
-            if (textX + this.getStringWidth(s) < textMaxX) {
-                this.drawString(drawContext, textX, textY, 0xFF55AAFF, s);
-                textX += this.getStringWidth(s) + 6;
-            }
-        }
-        for (int i = 0; i < Math.min(participants.size(), 5); i++) {
-            var p = participants.get(i);
-            int c = i < playerColors.length ? playerColors[i] : 0xFF666666;
-            String s = p.playerName() + ":" + p.count();
-            if (textX + this.getStringWidth(s) < textMaxX) {
-                this.drawString(drawContext, textX, textY, c, s);
-                textX += this.getStringWidth(s) + 6;
-            }
-        }
-        if (participants.size() > 5) {
-            String s = StringUtils.translate("syncmaterial.gui.label.progress_other", otherCount);
-            if (textX + this.getStringWidth(s) < textMaxX) {
-                this.drawString(drawContext, textX, textY, 0xFF666666, s);
-                textX += this.getStringWidth(s) + 6;
-            }
-        }
-        if (remaining > 0) {
-            String s = StringUtils.translate("syncmaterial.gui.label.progress_remaining", remaining);
-            if (textX + this.getStringWidth(s) < textMaxX) {
-                this.drawString(drawContext, textX, textY, 0xFF444444, s);
-            }
+        java.util.List<Long> participants = this.entry.getParticipants().stream()
+                .map(MaterialListEntry.ParticipantData::count).toList();
+        var segments = this.layout.sourceSegments(view.required(), view.staging(), view.warehouse(),
+                participants, view.teamMissing());
+        int y = MaterialListLayout.sourceBarY(this.y);
+        RenderUtils.drawRect(drawContext, this.x + bar.x() - this.listWidget.horizontalOffset(), y, bar.width(),
+                MaterialListLayout.SOURCE_BAR_HEIGHT, 0xFF222222);
+        int[] participantColors = {0xFF00AA00, 0xFF0000AA, 0xFFAA00AA, 0xFF00AAAA, 0xFFAA5500, 0xFF666666};
+        for (var segment : segments) {
+            int color = !view.preparationKnown()
+                    ? (segment.kind() == MaterialListLayout.SourceKind.MISSING ? 0xFF333333 : 0xFF666666)
+                    : switch (segment.kind()) {
+                        case STAGING -> 0xFFFFAA00;
+                        case WAREHOUSE -> 0xFF55AAFF;
+                        case PARTICIPANT -> participantColors[segment.participantIndex() % participantColors.length];
+                        case MISSING -> 0xFF444444;
+                    };
+            RenderUtils.drawRect(drawContext, this.x + segment.x() - this.listWidget.horizontalOffset(), y, segment.width(),
+                    MaterialListLayout.SOURCE_BAR_HEIGHT, color);
         }
     }
 
@@ -600,15 +540,14 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
 
             ItemStack stack = this.entry.getStack();
             String stackName = stack.getHoverName().getString();
-            int multiplier = this.materialList.getMultiplier();
-            int total = this.entry.getCountTotal() * multiplier;
-            int missing = multiplier == 1 ? this.entry.getCountMissing() : total;
+            var total = this.materialList.displayedTotal(this.entry);
+            var missing = this.materialList.displayedMissing(this.entry);
             String strCountTotal = MaterialListBase.getFormattedCountString(total, stack.getMaxStackSize(), this.shulkerBoxAbbr);
             String strCountMissing = MaterialListBase.getFormattedCountString(missing, stack.getMaxStackSize(), this.shulkerBoxAbbr);
 
             var participants = this.entry.getParticipants();
-            int stagingCount = this.entry.getStagingCount();
-            int warehouseCount = this.entry.getWarehouseCount();
+            long stagingCount = this.entry.getStagingCount();
+            long warehouseCount = this.entry.getWarehouseCount();
             int extraLines = 0;
             if (stagingCount > 0 || warehouseCount > 0 || !participants.isEmpty()) {
                 extraLines = 1 + (warehouseCount > 0 ? 1 : 0) + Math.min(participants.size(), 6);
@@ -666,15 +605,16 @@ public class WidgetMaterialListEntry extends WidgetListEntrySortable<MaterialLis
                     y += 14;
                 }
                 if (participants.size() > 5) {
-                    int otherCount = 0;
-                    for (int i = 5; i < participants.size(); i++) otherCount += participants.get(i).count();
+                    java.math.BigInteger otherCount = participants.subList(5, participants.size()).stream()
+                            .map(participant -> java.math.BigInteger.valueOf(participant.count()))
+                            .reduce(java.math.BigInteger.ZERO, java.math.BigInteger::add);
                     this.drawString(drawContext, x1, y, 0xFFAAAAAA, StringUtils.translate("syncmaterial.gui.label.progress_other_hover", otherCount));
                     y += 14;
                 }
             }
         }
         // 禁用按钮悬停提示
-        if (this.claimDisabled && mouseX >= this.x + this.width - 80) {
+        if (this.claimDisabled && this.layout.action().contains(mouseX - this.x)) {
             java.util.List<String> lines = java.util.List.of(StringUtils.translate("syncmaterial.gui.tooltip.self_claim_disabled"));
             fi.dy.masa.malilib.render.RenderUtils.drawHoverText(drawContext, mouseX, mouseY, lines);
         }

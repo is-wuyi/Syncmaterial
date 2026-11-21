@@ -173,13 +173,32 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                 ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(projectId, "LIST", -1, java.util.Optional.empty()));
                 ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(projectId));
             });
-            waitFor(context, () -> context.computeOnClient(client -> {
-                var entry = screen.getMaterialList().getMaterialsAll().stream()
-                        .filter(value -> value.getDatabaseId() == materialId).findFirst().orElseThrow();
-                return screen.getMaterialList().isPreparationKnown() && entry.getStagingCount() == 32
-                        && entry.getWarehouseCount() == 16 && entry.getCountMissing() == 80
-                        && screen.getOverlapWarning() != null && screen.getFreshnessWarnings().isEmpty();
-            }));
+            try {
+                waitFor(context, () -> context.computeOnClient(client -> {
+                    var entry = screen.getMaterialList().getMaterialsAll().stream()
+                            .filter(value -> value.getDatabaseId() == materialId).findFirst().orElseThrow();
+                    return screen.getMaterialList().isPreparationKnown() && entry.getStagingCount() == 32
+                            && entry.getWarehouseCount() == 16 && entry.getCountMissing() == 80
+                            && screen.getOverlapWarning() != null && screen.getFreshnessWarnings().isEmpty();
+                }));
+            } catch (AssertionError failure) {
+                String actual = context.computeOnClient(client -> {
+                    var list = screen.getMaterialList();
+                    var entry = list.getMaterialsAll().stream()
+                            .filter(value -> value.getDatabaseId() == materialId).findFirst().orElseThrow();
+                    return "sameScreen=" + (ClientScreenAccess.currentScreen(client) == screen)
+                            + ", known=" + list.isPreparationKnown() + ", staging=" + entry.getStagingCount()
+                            + ", warehouse=" + entry.getWarehouseCount() + ", missing=" + entry.getCountMissing()
+                            + ", overlap=" + screen.getOverlapWarning() + ", warnings=" + screen.getFreshnessWarnings();
+                });
+                String stored = server.computeOnServer(instance -> {
+                    var runtime = ServerRuntimeRegistry.get(instance);
+                    var inventory = runtime.store().snapshot(projectId).join().orElseThrow().inventory();
+                    return "inventory=" + inventory + ", current=" + runtime.areas().isInventoryCurrent(projectId, inventory);
+                });
+                throw new AssertionError("Initial area projection did not settle; client " + actual
+                        + "; server " + stored, failure);
+            }
             if (!server.computeOnServer(instance -> {
                 var view = ServerRuntimeRegistry.get(instance).store().snapshot(projectId).join().orElseThrow().inventory();
                 return view.known() && view.overlap() && view.staging().getOrDefault("minecraft:dirt", 0L) == 32
@@ -189,7 +208,7 @@ public class FoundationClientGameTest implements FabricClientGameTest {
             context.runOnClient(client -> {
                 var entry = screen.getMaterialList().getMaterialsAll().stream()
                         .filter(value -> value.getDatabaseId() == materialId).findFirst().orElseThrow();
-                int missing = entry.getCountMissing();
+                long missing = entry.getCountMissing();
                 screen.onRescanResponse(true, "Rescan complete");
                 if (entry.getCountMissing() != missing) {
                     throw new AssertionError("Rescan response must not replace authoritative area progress with inventory-only counts");
@@ -264,9 +283,36 @@ public class FoundationClientGameTest implements FabricClientGameTest {
 
     private record AreaFixture(String world, int stagingId, int warehouseId, BlockPos staging, BlockPos warehouse) {}
 
-    /** 客户端拒旧状态机单独校验，不代替上面的真实扫描与网络闭环。 */
-    private static void runAuthorityScenarios(ClientGameTestContext context, GuiMaterialList screen,
+    /** Simulated protocol-4 receiver projection, isolated from the live protocol-5 project view. */
+    private static void runAuthorityScenarios(ClientGameTestContext context, GuiMaterialList source,
                                               String projectId, int materialId, long catalogRevision) {
+        int originalProtocol = context.computeOnClient(client -> ClientProtocolState.getServerProtocolVersion());
+        String originalModVersion = context.computeOnClient(client -> ClientProtocolState.getServerModVersion());
+        String fixtureId = projectId + "-v3-projection";
+        GuiMaterialList screen = context.computeOnClient(client -> {
+            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session -> session.closeProject(true));
+            ClientProtocolState.onHandshakeResponse(4, "simulated-v3-authority", true);
+            List<net.syncmaterial.syncmaterial.api.MaterialEntry> materials = source.getMaterialList()
+                    .getMaterialsAll().stream().map(entry -> new net.syncmaterial.syncmaterial.api.MaterialEntry(
+                            entry.getDatabaseId(), entry.getStack(), entry.getCountTotal())).toList();
+            SyncMaterialClient.openMaterialListScreen(fixtureId, "V3 authority projection", materials,
+                    true, true, client.player.getName().getString(), List.of(), true);
+            GuiMaterialList fixture = (GuiMaterialList) ClientScreenAccess.currentScreen(client);
+            fixture.getMaterialList().setMaterialEntries(materials, catalogRevision);
+            fixture.getMaterialList().useFoundationBackend();
+            return fixture;
+        });
+        try {
+            runLegacyAuthorityScenarios(context, screen, fixtureId, materialId, catalogRevision);
+        } finally {
+            context.runOnClient(client -> ClientProtocolState.onHandshakeResponse(
+                    originalProtocol, originalModVersion, true));
+        }
+    }
+
+    /** 客户端拒旧状态机单独校验，不代替上面的真实扫描与网络闭环。 */
+    private static void runLegacyAuthorityScenarios(ClientGameTestContext context, GuiMaterialList screen,
+                                                    String projectId, int materialId, long catalogRevision) {
         long sequence = context.computeOnClient(client -> Math.addExact(screen.getMaterialList().getLastAreaInventorySequence(), 1000));
         context.runOnClient(client -> SyncMaterialClient.onAreaInventorySnapshot(
                 new AreaInventorySnapshotS2CPacket(projectId, catalogRevision, sequence, false,

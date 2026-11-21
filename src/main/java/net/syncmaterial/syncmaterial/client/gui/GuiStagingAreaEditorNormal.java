@@ -87,6 +87,11 @@ public class GuiStagingAreaEditorNormal extends GuiBase
      * flushNow 立即发出，它们是单次动作，等静默会让人以为没生效。
      */
     protected final UpdateDebouncer coordinateDebouncer = new UpdateDebouncer(COORD_QUIET_TICKS);
+    private final EditorSaveTracker saveTracker = new EditorSaveTracker();
+
+    public EditorSaveTracker.State getSaveState() {
+        return saveTracker.state();
+    }
 
     /** 10 tick ≈ 0.5 秒：停手半秒即生效，手感上仍是"改完就生效" */
     protected static final int COORD_QUIET_TICKS = 10;
@@ -169,6 +174,8 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     @Override
     public void deleteArea(int areaId)
     {
+        // A pending coordinate UPDATE for the area being deleted must not race the DELETE.
+        this.coordinateDebouncer.discard();
         List<String> names = new ArrayList<>(this.selection.getAllSubRegionNames());
         if (areaId >= 0 && areaId < names.size())
         {
@@ -180,8 +187,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
 
             if (serverId != null && this.schematicId != null)
             {
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                        this.schematicId, "DELETE", serverId, Optional.empty()));
+                writeAreaConfig("DELETE", serverId, Optional.empty());
             }
         }
         this.refreshStagingList();
@@ -308,6 +314,10 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     {
         super.initGui();
         currentEditor = this;
+        if (this.schematicId != null && !this.schematicId.isEmpty()) {
+            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
+                    session.openEditor(this.schematicId));
+        }
 
         if (this.selection != null)
         {
@@ -326,16 +336,14 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         {
             this.needsServerLoad = false;
             this.loadingFromServer = true;
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                    this.schematicId, "LIST", -1, Optional.empty()));
+            readAreaConfig("LIST");
         }
 
         // 请求仓库引用列表（仅首次）
         if (this.needsWarehouseRefLoad && this.schematicId != null && !this.schematicId.isEmpty())
         {
             this.needsWarehouseRefLoad = false;
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                    this.schematicId, "LIST_WAREHOUSE_REFS", 0, Optional.empty()));
+            readAreaConfig("LIST_WAREHOUSE_REFS");
         }
     }
 
@@ -345,6 +353,15 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     {
         super.tick();
         this.coordinateDebouncer.tick();
+    }
+
+    @Override
+    public void closeGui(boolean showParent) {
+        if (this.schematicId != null && !this.schematicId.isEmpty()) {
+            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
+                    session.setEditor(this.schematicId, false));
+        }
+        super.closeGui(showParent);
     }
 
     @Override
@@ -467,6 +484,11 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             this.warehouseListWidget.drawContents(drawContext, mouseX, mouseY, partialTicks);
         }
 
+        String saveStatus = ProjectViewEditorSupport.saveStatus(saveTracker.state());
+        if (!saveStatus.isEmpty()) {
+            this.drawString(drawContext, saveStatus, this.getScreenWidth() - 12
+                    - StringUtils.getStringWidth(saveStatus), this.getScreenHeight() - 14, 0xFFB0B0B0);
+        }
         if (this.overlapWarning != null)
         {
             String text = "⚠ " + StringUtils.translate(AreaOverlapStatus.MESSAGE_KEY);
@@ -573,15 +595,22 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     /*public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount)
     *///?}
     {
+        //? if >=26.2 {
+        int regionX = (int) mouseX;
+        int regionY = (int) mouseY;
+        //?} else {
+        /*int regionX = mouseX;
+        int regionY = mouseY;
+        *///?}
         if (super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount))
         {
             return true;
         }
-        if (isMouseInRegion((int) mouseX, (int) mouseY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
+        if (isMouseInRegion(regionX, regionY, this.stagingListY, this.stagingListHeight) && this.stagingListWidget != null)
         {
             return this.stagingListWidget.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
-        if (isMouseInRegion((int) mouseX, (int) mouseY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
+        if (isMouseInRegion(regionX, regionY, this.warehouseListY, this.warehouseListHeight) && this.warehouseListWidget != null)
         {
             return this.warehouseListWidget.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
@@ -730,8 +759,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             if (this.schematicId != null && !this.schematicId.isEmpty())
             {
                 AreaData areaData = toAreaData(newAreaName, pos1, pos2, currentWorldId());
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                        this.schematicId, "ADD", -1, Optional.of(areaData)));
+                writeAreaConfig("ADD", 0, Optional.of(areaData));
             }
         }
         else if (boxName != null)
@@ -748,8 +776,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                     // 带上当前维度：准星选区只能在玩家所在维度进行，
                     // 若跨维度重选范围，world 必须一起迁移，否则坐标与维度不一致
                     AreaData areaData = toAreaData(boxName, pos1, pos2, currentWorldId());
-                    ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                            this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+                    writeAreaConfig("UPDATE", serverId, Optional.of(areaData));
                 }
             }
         }
@@ -950,8 +977,28 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         BlockPos pos1 = box.getPos1();
         BlockPos pos2 = box.getPos2();
         AreaData areaData = toAreaData(box.getName(), pos1, pos2);
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                this.schematicId, "UPDATE", serverId, Optional.of(areaData)));
+        writeAreaConfig("UPDATE", serverId, Optional.of(areaData));
+    }
+
+    private long writeAreaConfig(String action, int areaId, Optional<AreaData> data) {
+        int legacyId = areaId == 0 ? -1 : areaId;
+        return ProjectViewEditorSupport.write(net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId),
+                areaId, action, data, new StagingAreaConfigC2SPacket(schematicId, action, legacyId, data), saveTracker);
+    }
+
+    private long readAreaConfig(String action) {
+        int legacyId = action.equals("LIST_WAREHOUSE_REFS") ? 0 : -1;
+        return ProjectViewEditorSupport.read(net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId),
+                action, new StagingAreaConfigC2SPacket(schematicId, action, legacyId, Optional.empty()));
+    }
+
+    /** Applies a matched protocol-5 configuration without reopening this editor. */
+    public void applyProjectViewConfiguration(String action,
+            java.util.List<net.syncmaterial.syncmaterial.core.AreaDefinition> definitions) {
+        var areas = definitions.stream().map(area -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                area.id(), area.name(), area.bounds().x1(), area.bounds().y1(), area.bounds().z1(),
+                area.bounds().x2(), area.bounds().y2(), area.bounds().z2(), area.world())).toList();
+        onServerResponse(new StagingAreaConfigResponseS2CPacket(action, schematicId, "", true, "", areas));
     }
 
     /**
@@ -960,7 +1007,14 @@ public class GuiStagingAreaEditorNormal extends GuiBase
      */
     protected void scheduleCoordinateUpdate(Corner corner)
     {
-        this.coordinateDebouncer.schedule(() -> this.sendCoordinateUpdate(corner));
+        if (this.schematicId == null || this.schematicId.isEmpty())
+        {
+            return;
+        }
+        ProjectViewEditorSupport.EditFence fence = ProjectViewEditorSupport.captureFence(
+                net.syncmaterial.syncmaterial.core.ProjectViewScope.project(this.schematicId));
+        this.coordinateDebouncer.schedule(() -> this.sendCoordinateUpdate(corner),
+                () -> ProjectViewEditorSupport.isFenceCurrent(fence));
     }
 
     // ========== 内部类 ==========
@@ -1036,7 +1090,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                     break;
 
                 case CLOSE:
-                    GuiBase.openGui(this.parent.getParent());
+                    this.parent.closeGui(true);
                     return;
             }
 

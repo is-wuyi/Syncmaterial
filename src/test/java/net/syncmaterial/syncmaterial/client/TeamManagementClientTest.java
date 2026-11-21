@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -23,6 +24,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog;
+import net.syncmaterial.syncmaterial.client.gui.MaterialSelection;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
 import net.syncmaterial.syncmaterial.core.PlayerDirectoryEntry;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
@@ -123,6 +125,17 @@ class TeamManagementClientTest {
     }
 
     @Test
+    void protocolFiveManagementKeepsDeliveryTokenInsteadOfPersistedProgressRevision() {
+        ClientProtocolState.onHandshakeResponse(5, "test", true);
+        when(syncList.getCatalogRevision()).thenReturn(1L);
+        when(syncList.getManagementCatalogRevision()).thenReturn(42L);
+        TeamManagementClient.onMaterialListOpened(gui);
+        assertNull(TeamManagementClient.submitGroup(gui, null, TeamAction.ASSIGN,
+                List.of(ALICE), List.of(11)));
+        assertEquals(42L, lastCommand().command().catalogRevision());
+    }
+
+    @Test
     void scopedAssignSendsOneCorrelatedCommandAndUpdatesRoles() {
         scopedProtocol();
         TeamManagementClient.onMaterialListOpened(gui);
@@ -145,7 +158,7 @@ class TeamManagementClientTest {
                 5, true, "已分配", team));
 
         verify(gui).applyTeamState(team, ACTOR);
-        verify(gui).applyBatchAssignResult(true);
+        verify(gui).applyBatchAssignResult(eq(true), any(MaterialSelection.Snapshot.class));
         verify(syncList).setIsOwner(true);
         verify(syncList).setAllowSelfClaim(true);
         verify(syncList, never()).setMaterialEntries(any(), anyLong());
@@ -591,6 +604,26 @@ class TeamManagementClientTest {
         assertEquals(token, TeamManagementClient.connectionToken());
         assertTrue(TeamManagementClient.finishPendingDisconnect());
         assertEquals(-1, TeamManagementClient.invalidateConnection(connection));
+    }
+
+    @Test
+    void collaborationBroadcastFromAnOldConnectionIsDiscarded() throws Exception {
+        var status = new net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket(
+                PROJECT, 11, 64, 0, 0, List.of(), List.of());
+        var field = SyncMaterialClient.class.getDeclaredField("activeMaterialList");
+        field.setAccessible(true);
+        Object previous = field.get(null);
+        field.set(null, syncList);
+        try {
+            long current = TeamManagementClient.connectionToken();
+            SyncMaterialClient.onCollaborationStatus(current - 1, status);
+            verify(syncList, never()).onCollaborationStatus(status);
+
+            SyncMaterialClient.onCollaborationStatus(current, status);
+            verify(syncList).onCollaborationStatus(status);
+        } finally {
+            field.set(null, previous);
+        }
     }
 
     @Test

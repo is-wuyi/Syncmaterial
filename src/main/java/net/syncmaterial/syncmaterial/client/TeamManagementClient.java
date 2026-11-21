@@ -18,6 +18,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog;
+import net.syncmaterial.syncmaterial.client.gui.MaterialSelection;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.TeamAction;
@@ -91,6 +92,7 @@ public final class TeamManagementClient {
         final GuiPlayerSelectDialog dialog;
         final TeamAction action;
         final List<Integer> materialIds;
+        final MaterialSelection.Snapshot selectionSnapshot;
         final List<PlayerIdentity> allTargets;
         final Deque<PlayerIdentity> remaining = new ArrayDeque<>();
         final boolean singleRequest;
@@ -104,13 +106,15 @@ public final class TeamManagementClient {
 
         OperationGroup(String projectId, long generation, GuiMaterialList list,
                        GuiPlayerSelectDialog dialog, TeamAction action, List<Integer> materialIds,
-                       List<PlayerIdentity> targets, boolean singleRequest, boolean scoped) {
+                       List<PlayerIdentity> targets, boolean singleRequest, boolean scoped,
+                       MaterialSelection.Snapshot selectionSnapshot) {
             this.projectId = projectId;
             this.generation = generation;
             this.list = list;
             this.dialog = dialog;
             this.action = action;
             this.materialIds = List.copyOf(materialIds);
+            this.selectionSnapshot = selectionSnapshot == null ? MaterialSelection.Snapshot.empty() : selectionSnapshot;
             this.allTargets = List.copyOf(targets);
             this.singleRequest = singleRequest;
             this.scoped = scoped;
@@ -465,8 +469,10 @@ public final class TeamManagementClient {
         boolean singleRequest = action == TeamAction.ASSIGN
                 || action == TeamAction.TOGGLE_SELF_CLAIM;
         boolean scoped = isScopedManagementSupported();
+        MaterialSelection.Snapshot selectionSnapshot = action == TeamAction.ASSIGN
+                ? owner.captureBatchSelection(safeMaterials) : MaterialSelection.Snapshot.empty();
         OperationGroup group = new OperationGroup(projectId, CONNECTION_GENERATION.get(), owner, dialog,
-                action, safeMaterials, safeTargets, singleRequest, scoped);
+                action, safeMaterials, safeTargets, singleRequest, scoped, selectionSnapshot);
 
         if (scoped) {
             if (PENDING.size() + 1 > TeamLimits.IN_FLIGHT) {
@@ -655,7 +661,9 @@ public final class TeamManagementClient {
         if (list == null || list.getMaterialList() == null) {
             return -1;
         }
-        long revision = list.getMaterialList().getCatalogRevision();
+        long revision = ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS)
+                ? list.getMaterialList().getManagementCatalogRevision()
+                : list.getMaterialList().getCatalogRevision();
         return revision < -1 ? -1 : revision;
     }
 
@@ -667,6 +675,11 @@ public final class TeamManagementClient {
         }
         NEXT_REQUEST_ID.incrementAndGet();
         return requestId;
+    }
+
+    /** Protocol-5 uses the same monotonic request owner without creating a second counter. */
+    public static long allocateProjectViewRequestId() {
+        return allocateRequestId();
     }
 
     // ========== 协议 4 回包 ==========
@@ -1020,11 +1033,11 @@ public final class TeamManagementClient {
         boolean allSucceeded = group.failures == 0 && group.anySuccess;
         if (group.dialog != null) {
             if (allSucceeded) {
-                applyListSuccess(group.list, group.action);
+                applyListSuccess(group);
                 group.dialog.onGroupSucceeded(group.action);
             } else {
                 if (group.anySuccess) {
-                    applyListSuccess(group.list, group.action);
+                    applyListSuccess(group);
                 }
                 group.dialog.onGroupFailed(group.failureMessage.isEmpty()
                         ? "操作未完成" : group.failureMessage);
@@ -1032,7 +1045,7 @@ public final class TeamManagementClient {
             return;
         }
         if (group.anySuccess) {
-            applyListSuccess(group.list, group.action);
+            applyListSuccess(group);
         }
         if (group.list != null) {
             group.list.onTeamFeedback(allSucceeded,
@@ -1041,13 +1054,14 @@ public final class TeamManagementClient {
         }
     }
 
-    private static void applyListSuccess(GuiMaterialList list, TeamAction action) {
+    private static void applyListSuccess(OperationGroup group) {
+        GuiMaterialList list = group.list;
         if (list == null) {
             return;
         }
-        if (action == TeamAction.ASSIGN) {
-            list.applyBatchAssignResult(true);
-        } else if (action == TeamAction.KICK) {
+        if (group.action == TeamAction.ASSIGN) {
+            list.applyBatchAssignResult(true, group.selectionSnapshot);
+        } else if (group.action == TeamAction.KICK) {
             list.applyKickResult(true);
         }
     }
@@ -1108,6 +1122,13 @@ public final class TeamManagementClient {
 
     private static Screen minecraftScreen() {
         return ClientScreenAccess.currentScreen(Minecraft.getInstance());
+    }
+
+    /** Actual connection identity used by protocol-5 assemblers; never an equals/hash token. */
+    public static Object connectionIdentity() {
+        synchronized (CONNECTION_LOCK) {
+            return connected ? activeConnection : null;
+        }
     }
 
     /** 接收器在 mc.execute 排队前捕获，避免旧连接的回包落到重连后的同项目界面。 */

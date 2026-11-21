@@ -1141,7 +1141,16 @@ public final class AreaScanService implements AutoCloseable {
     // ==================================================================
 
     public CompletableFuture<RescanResult> rescan(String projectId) {
+        return rescan(projectId, 0);
+    }
+
+    /** Rescans one configured area, or every project area when areaId is zero. */
+    public CompletableFuture<RescanResult> rescan(String projectId, int areaId) {
         CompletableFuture<RescanResult> future = new CompletableFuture<>();
+        if (areaId < 0) {
+            future.complete(new RescanResult(false, "区域 ID 无效"));
+            return future;
+        }
         if (!open.get()) {
             future.complete(new RescanResult(false, "区域扫描器已关闭"));
             return future;
@@ -1175,7 +1184,7 @@ public final class AreaScanService implements AutoCloseable {
                     completeRescan(future, new RescanResult(false, "项目不存在"));
                     return;
                 }
-                scheduleRescan(projectId, future);
+                scheduleRescan(projectId, areaId, future);
             }));
         });
         return future;
@@ -1186,11 +1195,14 @@ public final class AreaScanService implements AutoCloseable {
         future.complete(result);
     }
 
-    private void scheduleRescan(String projectId, CompletableFuture<RescanResult> future) {
+    private void scheduleRescan(String projectId, int areaId, CompletableFuture<RescanResult> future) {
         List<AreaDefinition> areas = new ArrayList<>(catalog.stagingAreas(projectId));
         areas.addAll(catalog.referencedWarehouses(projectId));
+        if (areaId != 0) areas.removeIf(area -> area.id() != areaId);
         if (areas.isEmpty()) {
-            completeRescan(future, new RescanResult(true, "项目没有配置区域"));
+            completeRescan(future, areaId == 0
+                    ? new RescanResult(true, "项目没有配置区域")
+                    : new RescanResult(false, "区域不存在或不属于该项目"));
             return;
         }
         if (!source.isAvailable()) {

@@ -132,9 +132,9 @@ public class WarehousePickupIndicatorClientGameTest implements FabricClientGameT
             }
 
             // ===== 需求量：min(128 - 0 - 0, 64) = 64 =====
-            Map<String, Integer> needs = ctx.computeOnClient(client ->
+            Map<String, Long> needs = ctx.computeOnClient(client ->
                 Map.copyOf(PickupModeState.getNeeds()));
-            if (!Integer.valueOf(64).equals(needs.get(STONE))) {
+            if (!Long.valueOf(64).equals(needs.get(STONE))) {
                 throw new AssertionError("取货需求量应为 64（受仓库现有量封顶），实际为 " + needs);
             }
 

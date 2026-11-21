@@ -3,12 +3,15 @@ package net.syncmaterial.syncmaterial.core;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * One observation of a physical inventory source read by the scanner. A non-blank
- * {@code warning} means the contents are opaque/unknown and must not be treated as a real
- * count; an empty count map with a blank warning is a fully observed empty source.
+ * {@code warning} means the contents are opaque/unknown and its values must not be treated
+ * as real counts. Opaque observations may still retain known item IDs as zero-valued
+ * presence entries. An empty count map with a blank warning is a fully observed empty source.
  */
 public record ContainerObservation(ContainerKey key, Map<String, Long> counts, String warning) {
     public ContainerObservation {
@@ -30,6 +33,16 @@ public record ContainerObservation(ContainerKey key, Map<String, Long> counts, S
 
     public boolean isOpaque() {
         return !warning.isBlank();
+    }
+
+    /** Item presence for pickup highlighting, never a substitute for authoritative quantities. */
+    public Set<String> presentItemIds() {
+        if (isOpaque()) return Collections.unmodifiableSet(new TreeSet<>(counts.keySet()));
+        Set<String> present = new TreeSet<>();
+        for (Map.Entry<String, Long> entry : counts.entrySet()) {
+            if (entry.getValue() > 0) present.add(entry.getKey());
+        }
+        return Collections.unmodifiableSet(present);
     }
 
     /** Workstation-friendly constructor for an observed empty, fully readable source. */

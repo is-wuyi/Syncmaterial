@@ -50,7 +50,7 @@ class PickupHighlightTest {
     void selectsSlotsUntilDemandCovered() {
         // 需要 128：前两格各 64 正好覆盖，第三格不该亮
         Set<Integer> selected = PickupHighlight.select(
-            Map.of("minecraft:stone", 128),
+            counts("minecraft:stone", 128),
             List.of(slot("minecraft:stone", 64),
                     slot("minecraft:stone", 64),
                     slot("minecraft:stone", 64)));
@@ -61,7 +61,7 @@ class PickupHighlightTest {
     void partialDemand_stillHighlightsWholeSlot() {
         // 只需 10 个，但玩家拿的是整格，故整格点亮
         assertEquals(Set.of(0), PickupHighlight.select(
-            Map.of("minecraft:stone", 10),
+            counts("minecraft:stone", 10),
             List.of(slot("minecraft:stone", 64), slot("minecraft:stone", 64))));
     }
 
@@ -72,14 +72,14 @@ class PickupHighlightTest {
         // 选出的格子数必须不同
         List<PickupHighlight.SlotView> slots = List.of(
             slot("minecraft:stone", 64), slot("minecraft:stone", 64), slot("minecraft:stone", 64));
-        assertEquals(Set.of(0, 1), PickupHighlight.select(Map.of("minecraft:stone", 128), slots));
-        assertEquals(Set.of(0), PickupHighlight.select(Map.of("minecraft:stone", 64), slots));
+        assertEquals(Set.of(0, 1), PickupHighlight.select(counts("minecraft:stone", 128), slots));
+        assertEquals(Set.of(0), PickupHighlight.select(counts("minecraft:stone", 64), slots));
     }
 
     @Test
     void emptySlots_skippedWithoutConsumingDemand() {
         Set<Integer> selected = PickupHighlight.select(
-            Map.of("minecraft:stone", 64),
+            counts("minecraft:stone", 64),
             List.of(empty(), slot("minecraft:stone", 64), slot("minecraft:stone", 64)));
         assertEquals(Set.of(1), selected, "空格不该占用需求额度，也不该被点亮");
     }
@@ -87,7 +87,7 @@ class PickupHighlightTest {
     @Test
     void unrelatedItems_notHighlighted() {
         Set<Integer> selected = PickupHighlight.select(
-            Map.of("minecraft:stone", 64),
+            counts("minecraft:stone", 64),
             List.of(slot("minecraft:dirt", 64), slot("minecraft:stone", 64)));
         assertEquals(Set.of(1), selected);
     }
@@ -95,7 +95,7 @@ class PickupHighlightTest {
     @Test
     void shulkerContents_triggerHighlight() {
         Set<Integer> selected = PickupHighlight.select(
-            Map.of("minecraft:stone", 64),
+            counts("minecraft:stone", 64),
             List.of(shulker("minecraft:stone", 64)));
         assertEquals(Set.of(0), selected, "潜影盒内含所需物品时其所在格应点亮");
     }
@@ -103,7 +103,7 @@ class PickupHighlightTest {
     @Test
     void multipleItemTypes_trackedIndependently() {
         Set<Integer> selected = PickupHighlight.select(
-            Map.of("minecraft:stone", 64, "minecraft:dirt", 32),
+            Map.of("minecraft:stone", 64L, "minecraft:dirt", 32L),
             List.of(slot("minecraft:stone", 64),
                     slot("minecraft:stone", 64),
                     slot("minecraft:dirt", 32),
@@ -119,14 +119,14 @@ class PickupHighlightTest {
     @Test
     void nullInputs_tolerated() {
         assertTrue(PickupHighlight.select(null, List.of(slot("minecraft:stone", 1))).isEmpty());
-        assertTrue(PickupHighlight.select(Map.of("minecraft:stone", 1), null).isEmpty());
+        assertTrue(PickupHighlight.select(counts("minecraft:stone", 1), null).isEmpty());
     }
 
     // ===== 缓存键：三个维度缺一不可 =====
 
     @Test
     void contentChange_invalidatesCache() {
-        Map<String, Integer> needs = Map.of("minecraft:stone", 128);
+        Map<String, Long> needs = counts("minecraft:stone", 128);
         List<PickupHighlight.SlotView> before = List.of(
             slot("minecraft:stone", 64), slot("minecraft:stone", 64), slot("minecraft:stone", 64));
         // 第 0 格被取空后，需求量还没更新（服务端往返有延迟），容器也没换。
@@ -144,7 +144,7 @@ class PickupHighlightTest {
 
     @Test
     void shulkerContentChange_invalidatesCache() {
-        Map<String, Integer> needs = Map.of("minecraft:stone", 64);
+        Map<String, Long> needs = counts("minecraft:stone", 64);
         // 潜影盒被取走内容后，槽位数量仍是 1，只有内容变了。
         // 签名不递归展开就抓不到这种变化
         assertNotEquals(
@@ -155,7 +155,7 @@ class PickupHighlightTest {
 
     @Test
     void containerChange_invalidatesCache() {
-        Map<String, Integer> needs = Map.of("minecraft:stone", 64);
+        Map<String, Long> needs = counts("minecraft:stone", 64);
         List<PickupHighlight.SlotView> slots = List.of(slot("minecraft:stone", 64));
         assertNotEquals(PickupHighlight.cacheKey(needs, 1, slots),
             PickupHighlight.cacheKey(needs, 2, slots),
@@ -166,14 +166,14 @@ class PickupHighlightTest {
     void needsChange_invalidatesCache() {
         List<PickupHighlight.SlotView> slots = List.of(slot("minecraft:stone", 64));
         assertNotEquals(
-            PickupHighlight.cacheKey(Map.of("minecraft:stone", 64), 1, slots),
-            PickupHighlight.cacheKey(Map.of("minecraft:stone", 128), 1, slots),
+            PickupHighlight.cacheKey(counts("minecraft:stone", 64), 1, slots),
+            PickupHighlight.cacheKey(counts("minecraft:stone", 128), 1, slots),
             "需求量变化必须让缓存失效");
     }
 
     @Test
     void sameInputs_hitCache() {
-        Map<String, Integer> needs = Map.of("minecraft:stone", 64);
+        Map<String, Long> needs = counts("minecraft:stone", 64);
         List<PickupHighlight.SlotView> slots = List.of(slot("minecraft:stone", 64));
         Set<Integer> first = PickupHighlight.highlightedSlots(needs, 1, slots);
         Set<Integer> second = PickupHighlight.highlightedSlots(needs, 1, slots);
@@ -182,7 +182,7 @@ class PickupHighlightTest {
 
     @Test
     void invalidate_forcesRecompute() {
-        Map<String, Integer> needs = Map.of("minecraft:stone", 64);
+        Map<String, Long> needs = counts("minecraft:stone", 64);
         assertEquals(Set.of(0),
             PickupHighlight.highlightedSlots(needs, 1, List.of(slot("minecraft:stone", 64))));
         PickupHighlight.invalidate();
@@ -193,8 +193,12 @@ class PickupHighlightTest {
 
     // ===== 同瞬间采样：需求量与容器内容必须同源 =====
 
-    private record Snapshot(String itemId, int countTotal, int stagingCount,
-                            int myCount, int warehouseCount, boolean claimedByCurrentPlayer)
+    private static Map<String, Long> counts(String itemId, long count) {
+        return Map.of(itemId, count);
+    }
+
+    private record Snapshot(String itemId, long countTotal, long stagingCount,
+                            long myCount, long warehouseCount, boolean claimedByCurrentPlayer)
         implements PickupModeState.MaterialSnapshot {}
 
     /**
@@ -217,9 +221,9 @@ class PickupHighlightTest {
 
         for (int taken = 0; taken <= total; taken++) {
             // 需求与容器同一瞬间采样：背包里已有 taken 个，箱子前 taken 格已空
-            Map<String, Integer> needs = PickupModeState.computeNeeds(
+            Map<String, Long> needs = PickupModeState.computeNeeds(
                 List.of(new Snapshot("minecraft:stone", total, 0, 0, total, true)),
-                Map.of("minecraft:stone", taken));
+                counts("minecraft:stone", taken));
 
             List<PickupHighlight.SlotView> current = new java.util.ArrayList<>(chest);
             for (int i = 0; i < taken; i++) {
@@ -242,9 +246,9 @@ class PickupHighlightTest {
     @Test
     void carriedStackCounted_noExtraHighlight() {
         // 需要 2 个，第 0 格已被拿到光标上（容器少 1、背包多 1）
-        Map<String, Integer> needs = PickupModeState.computeNeeds(
+        Map<String, Long> needs = PickupModeState.computeNeeds(
             List.of(new Snapshot("minecraft:stone", 2, 0, 0, 2, true)),
-            Map.of("minecraft:stone", 1));
+            counts("minecraft:stone", 1));
         Set<Integer> selected = PickupHighlight.select(needs,
             List.of(empty(), slot("minecraft:stone", 1), slot("minecraft:stone", 1)));
         assertEquals(Set.of(1), selected, "光标持物已计入，只该再点亮 1 格");
@@ -255,15 +259,15 @@ class PickupHighlightTest {
     void staleNeedsDemonstrablyOverHighlights() {
         // 容器已少一格（拿走了 1 个），但需求仍是取货前的 3
         Set<Integer> withStaleNeeds = PickupHighlight.select(
-            Map.of("minecraft:stone", 3),
+            counts("minecraft:stone", 3),
             List.of(empty(), slot("minecraft:stone", 1), slot("minecraft:stone", 1),
                     slot("minecraft:stone", 1), slot("minecraft:stone", 1)));
         assertEquals(3, withStaleNeeds.size(), "陈旧需求会多点亮一格（此为被修复的错误行为）");
 
         // 同一容器配上就地现算的需求，只点亮 2 格
-        Map<String, Integer> fresh = PickupModeState.computeNeeds(
+        Map<String, Long> fresh = PickupModeState.computeNeeds(
             List.of(new Snapshot("minecraft:stone", 3, 0, 0, 3, true)),
-            Map.of("minecraft:stone", 1));
+            counts("minecraft:stone", 1));
         Set<Integer> withFreshNeeds = PickupHighlight.select(fresh,
             List.of(empty(), slot("minecraft:stone", 1), slot("minecraft:stone", 1),
                     slot("minecraft:stone", 1), slot("minecraft:stone", 1)));
@@ -277,11 +281,11 @@ class PickupHighlightTest {
         PickupModeState.setActive(true);
         PickupModeState.recompute(
             List.of(new Snapshot("minecraft:stone", 64, 0, 0, 64, true)));
-        Map<String, Integer> before = Map.copyOf(PickupModeState.getNeeds());
+        Map<String, Long> before = Map.copyOf(PickupModeState.getNeeds());
 
         PickupModeState.computeNeeds(
             List.of(new Snapshot("minecraft:dirt", 32, 0, 0, 32, true)),
-            Map.of("minecraft:dirt", 0));
+            counts("minecraft:dirt", 0));
 
         assertEquals(before, PickupModeState.getNeeds(),
             "就地现算不得污染 HUD 与线框读取的缓存值");

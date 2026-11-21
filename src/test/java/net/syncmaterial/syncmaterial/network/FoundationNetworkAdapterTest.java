@@ -25,16 +25,21 @@ import net.syncmaterial.syncmaterial.core.AreaInventoryView;
 import net.syncmaterial.syncmaterial.core.AreaInventoryWarning;
 import net.syncmaterial.syncmaterial.core.AreaKind;
 import net.syncmaterial.syncmaterial.core.AreaSpec;
+import net.syncmaterial.syncmaterial.core.ClaimSnapshot;
 import net.syncmaterial.syncmaterial.core.ContainerKey;
 import net.syncmaterial.syncmaterial.core.ContainerObservation;
+import net.syncmaterial.syncmaterial.core.CollaborationOutcome;
 import net.syncmaterial.syncmaterial.core.MaterialSnapshot;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
 import net.syncmaterial.syncmaterial.core.ProjectState;
 import net.syncmaterial.syncmaterial.server.area.AreaScanService;
 import net.syncmaterial.syncmaterial.server.runtime.MaterialCatalogTracker;
+import net.syncmaterial.syncmaterial.server.runtime.ProjectProgressRead;
+import net.syncmaterial.syncmaterial.server.runtime.OnlineInventorySnapshot;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntime;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry;
+import net.syncmaterial.syncmaterial.server.runtime.CollaborationService;
 import net.syncmaterial.syncmaterial.server.runtime.TeamManagementService;
 import net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker;
 import net.syncmaterial.syncmaterial.core.TeamState;
@@ -61,6 +66,7 @@ class FoundationNetworkAdapterTest {
     private ServerRuntime runtime;
     private SqliteProjectStore store;
     private TeamManagementService teams;
+    private CollaborationService collaboration;
     private AreaScanService areas;
     private ServerPlayNetworking.Context context;
 
@@ -94,6 +100,8 @@ class FoundationNetworkAdapterTest {
         when(runtime.store()).thenReturn(store);
         teams = mock(TeamManagementService.class);
         when(runtime.teams()).thenReturn(teams);
+        collaboration = mock(CollaborationService.class);
+        when(runtime.collaboration()).thenReturn(collaboration);
         when(runtime.teamRequests()).thenReturn(new TeamRequestTracker());
         when(teams.reconcile(any(PlayerIdentity.class))).thenReturn(CompletableFuture.completedFuture(null));
         when(teams.state(PROJECT)).thenReturn(CompletableFuture.completedFuture(
@@ -174,7 +182,8 @@ class FoundationNetworkAdapterTest {
     void unknownMaterialFailsWholeRequestRatherThanDroppingRequirements() {
         var project = new ProjectSnapshot(PROJECT, "Unknown", "hash", owner(), true, List.of(),
                 List.of(new MaterialSnapshot(1, "missing:item", 64)), 1);
-        when(store.snapshot(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(new ProjectState(project, List.of()))));
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(
+                Optional.of(progressRead(new ProjectState(project, List.of())))));
         requestMaterials();
         assertTrue(packets.isEmpty());
         verify(runtime, never()).subscribe(any(), any());
@@ -183,13 +192,13 @@ class FoundationNetworkAdapterTest {
 
     @Test
     void oldConnectionQueryCannotMarkReconnectedPlayersCatalogAsSent() {
-        var pending = new CompletableFuture<Optional<ProjectState>>();
-        when(store.snapshot(PROJECT)).thenReturn(pending);
+        var pending = new CompletableFuture<Optional<ProjectProgressRead>>();
+        when(runtime.readProgress(PROJECT)).thenReturn(pending);
         requestMaterials();
         when(runtime.connection(playerId)).thenReturn(2L);
         var project = new ProjectSnapshot(PROJECT, "Original", "hash", owner(), true, List.of(),
                 List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
-        pending.complete(Optional.of(new ProjectState(project, List.of())));
+        pending.complete(Optional.of(progressRead(new ProjectState(project, List.of()))));
         assertTrue(packets.isEmpty());
         assertTrue(runtime.catalogs().changed(playerId, 2L, project).isPresent());
         verify(runtime, never()).subscribe(any(), any());
@@ -229,28 +238,63 @@ class FoundationNetworkAdapterTest {
     }
 
     @Test
-    void staleSnapshotCannotBeClaimedOrReportInitialInventory() {
-        when(teams.join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Set.of(1)), any()))
+    void rejectedAtomicJoinDoesNotReportInitialInventorySeparately() {
+        when(collaboration.join(eq(PROJECT), eq(1), any(PlayerIdentity.class), anyMap()))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("材料统计已过期")));
         receive(JoinCollaborationC2SPacket.ID, new JoinCollaborationC2SPacket(PROJECT, 1, Map.of(1, 32)));
         verify(store, never()).join(anyString(), anyInt(), any(PlayerIdentity.class));
         verify(runtime, never()).reportInventory(anyString(), anyInt(), any(PlayerIdentity.class), anyLong());
-        verify(teams).join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Set.of(1)), any());
+        verify(collaboration).join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Map.of(1, 32L)));
         verify(player).sendSystemMessage(any(Component.class));
         assertTrue(packets.isEmpty());
     }
 
     @Test
-    void currentSnapshotCanBeClaimedAndReportsInitialInventory() {
-        when(teams.join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Set.of(1)), any()))
-                .thenReturn(CompletableFuture.completedFuture(true));
-        when(runtime.reportInventory(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(32L)))
-                .thenReturn(CompletableFuture.completedFuture(null));
+    void currentSnapshotJoinsAndReportsInitialInventoryInOneOperation() {
+        when(collaboration.join(eq(PROJECT), eq(1), any(PlayerIdentity.class), anyMap()))
+                .thenReturn(CompletableFuture.completedFuture(new CollaborationOutcome(
+                        CollaborationOutcome.Action.JOIN, CollaborationOutcome.Status.APPLIED, PROJECT, 1)));
         receive(JoinCollaborationC2SPacket.ID, new JoinCollaborationC2SPacket(PROJECT, 1, Map.of(1, 32)));
-        verify(teams).join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Set.of(1)), any());
+        verify(collaboration).join(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(Map.of(1, 32L)));
         verify(store, never()).join(anyString(), anyInt(), any(PlayerIdentity.class));
-        verify(runtime).reportInventory(eq(PROJECT), eq(1), any(PlayerIdentity.class), eq(32L));
-        verify(runtime).requestBroadcast(PROJECT);
+        verify(runtime, never()).reportInventory(anyString(), anyInt(), any(PlayerIdentity.class), anyLong());
+        verify(runtime, never()).requestBroadcast(PROJECT);
+    }
+
+    @Test
+    void nameOnlyClaimAndObservedUuidClaimOnSameMaterialDoNotCrashStatus() {
+        UUID online = UUID.randomUUID();
+        var project = new ProjectSnapshot(PROJECT, "Original", "hash", owner(), true, List.of(),
+                List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
+        var state = new ProjectState(project,
+                List.of(new ClaimSnapshot(1, new PlayerIdentity(null, "Offline")),
+                        new ClaimSnapshot(1, new PlayerIdentity(online, "Online"))),
+                new AreaInventoryView(Map.of(), Map.of(), List.of(), true, false, 1));
+        var observations = new OnlineInventorySnapshot(PROJECT, 0,
+                Map.of(online, 1L), Map.of(1, Map.of(online, 4L)));
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(
+                Optional.of(new ProjectProgressRead(state, observations, 1))));
+
+        requestMaterials();
+
+        var status = packets.stream().filter(CollaborationStatusS2CPacket.class::isInstance)
+                .map(CollaborationStatusS2CPacket.class::cast).findFirst().orElseThrow();
+        assertEquals(2, status.participants().size());
+        assertEquals(0, status.participants().stream()
+                .filter(participant -> participant.playerName().equals("Offline"))
+                .findFirst().orElseThrow().count());
+        assertEquals(4, status.participants().stream()
+                .filter(participant -> participant.playerName().equals("Online"))
+                .findFirst().orElseThrow().count());
+        assertTrue(packets.stream().anyMatch(MaterialStatsResponseS2CPacket.class::isInstance));
+        verify(player, never()).sendSystemMessage(any(Component.class));
+    }
+
+    @Test
+    void closeDropsDeliveryStateExplicitlyRatherThanRelyingOnGarbageCollection() {
+        var before = FoundationNetworkAdapter.delivery(runtime);
+        FoundationNetworkAdapter.close(runtime);
+        assertNotSame(before, FoundationNetworkAdapter.delivery(runtime));
     }
 
     @Test
@@ -494,16 +538,16 @@ class FoundationNetworkAdapterTest {
     void asynchronousOlderStatusCannotReplaceNewerInventoryDelivery() {
         requestMaterials();
         packets.clear();
-        var older = new CompletableFuture<Optional<ProjectState>>();
-        when(store.snapshot(PROJECT)).thenReturn(older);
+        var older = new CompletableFuture<Optional<ProjectProgressRead>>();
+        when(runtime.readProgress(PROJECT)).thenReturn(older);
         receive(QueryMaterialStatusC2SPacket.ID, new QueryMaterialStatusC2SPacket(PROJECT));
         inventory(new AreaInventoryView(Map.of("minecraft:stone", 48L), Map.of(), List.of(), true, false, 2));
         receive(QueryMaterialStatusC2SPacket.ID, new QueryMaterialStatusC2SPacket(PROJECT));
         var project = new ProjectSnapshot(PROJECT, "Original", "hash", owner(), true, List.of(),
                 List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
         int delivered = packets.size();
-        older.complete(Optional.of(new ProjectState(project, List.of(),
-                new AreaInventoryView(Map.of("minecraft:stone", 16L), Map.of(), List.of(), true, false, 1))));
+        older.complete(Optional.of(progressRead(new ProjectState(project, List.of(),
+                new AreaInventoryView(Map.of("minecraft:stone", 16L), Map.of(), List.of(), true, false, 1)))));
         assertEquals(delivered, packets.size());
         var latest = packets.stream().filter(AreaInventorySnapshotS2CPacket.class::isInstance)
                 .map(AreaInventorySnapshotS2CPacket.class::cast).findFirst().orElseThrow();
@@ -514,15 +558,15 @@ class FoundationNetworkAdapterTest {
     void closingProjectFencesInFlightStatusDelivery() {
         requestMaterials();
         packets.clear();
-        var pending = new CompletableFuture<Optional<ProjectState>>();
-        when(store.snapshot(PROJECT)).thenReturn(pending);
+        var pending = new CompletableFuture<Optional<ProjectProgressRead>>();
+        when(runtime.readProgress(PROJECT)).thenReturn(pending);
         receive(QueryMaterialStatusC2SPacket.ID, new QueryMaterialStatusC2SPacket(PROJECT));
         receive(MaterialListCloseC2SPacket.ID, new MaterialListCloseC2SPacket(PROJECT));
         packets.clear();
         var project = new ProjectSnapshot(PROJECT, "Original", "hash", owner(), true, List.of(),
                 List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
-        pending.complete(Optional.of(new ProjectState(project, List.of(),
-                new AreaInventoryView(Map.of("minecraft:stone", 64L), Map.of(), List.of(), true, false, 1))));
+        pending.complete(Optional.of(progressRead(new ProjectState(project, List.of(),
+                new AreaInventoryView(Map.of("minecraft:stone", 64L), Map.of(), List.of(), true, false, 1)))));
         assertTrue(packets.isEmpty());
         verify(runtime).unsubscribe(playerId, PROJECT);
     }
@@ -530,7 +574,7 @@ class FoundationNetworkAdapterTest {
     @Test
     void deletingProjectClearsSubscriptionAndCatalogBaseline() {
         requestMaterials();
-        when(store.snapshot(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
         FoundationNetworkAdapter.broadcast(server, PROJECT);
         assertTrue(packets.stream().anyMatch(packet -> packet instanceof StagingAreaConfigResponseS2CPacket response
                 && response.action().equals("SCHEMATIC_DELETED")));
@@ -546,16 +590,23 @@ class FoundationNetworkAdapterTest {
         ((ServerPlayNetworking.PlayPayloadHandler<T>) handlers.get(type)).receive(packet, context);
     }
 
+    private static ProjectProgressRead progressRead(ProjectState state) {
+        return new ProjectProgressRead(state,
+                new OnlineInventorySnapshot(state.project().id(), 0, Map.of(), Map.of()), 1);
+    }
+
     private void snapshot(String name, String hash, long revision, long count) {
         var project = new ProjectSnapshot(PROJECT, name, hash, owner(), true, List.of(),
                 List.of(new MaterialSnapshot(1, "minecraft:stone", count)), revision);
-        when(store.snapshot(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(new ProjectState(project, List.of()))));
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(
+                Optional.of(progressRead(new ProjectState(project, List.of())))));
     }
 
     private void inventory(AreaInventoryView inventory) {
         var project = new ProjectSnapshot(PROJECT, "Original", "hash", owner(), true, List.of(),
                 List.of(new MaterialSnapshot(1, "minecraft:stone", 64)), 1);
-        when(store.snapshot(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(new ProjectState(project, List.of(), inventory))));
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(
+                Optional.of(progressRead(new ProjectState(project, List.of(), inventory)))));
     }
 
     private void catalog(List<AreaDefinition> definitions) {

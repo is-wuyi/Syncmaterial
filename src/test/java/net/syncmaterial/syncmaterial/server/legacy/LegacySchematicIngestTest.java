@@ -118,6 +118,37 @@ public class LegacySchematicIngestTest {
     }
 
     @Test
+    void longMaterialCountsAreStoredWithoutIntClamping() throws Exception {
+        Path file = writeLitematic("hash1");
+        long expected = (long) Integer.MAX_VALUE + 12_345L;
+        when(parser.parseAsync(anyString())).thenReturn(CompletableFuture.completedFuture(List.of(
+                new MaterialEntry(0, new ItemStack(Items.STONE), expected))));
+
+        LegacySchematicIngest.Job job = ingest.submit(metadata("s1", "hash1", file,
+                LegacySchematicIngest.Source.WATCHER, true));
+
+        assertTrue(job.completion().isDone());
+        assertEquals(expected, materialCountLong("s1", "minecraft:stone"),
+                "生产导入路径不得把 long 数量截断为 int");
+    }
+
+    @Test
+    void overflowingAggregateFailsTheImportInsteadOfWrapping() throws Exception {
+        Path file = writeLitematic("hash1");
+        when(parser.parseAsync(anyString())).thenReturn(CompletableFuture.completedFuture(List.of(
+                new MaterialEntry(0, new ItemStack(Items.STONE), Long.MAX_VALUE),
+                new MaterialEntry(0, new ItemStack(Items.STONE), 1))));
+
+        LegacySchematicIngest.Job job = ingest.submit(metadata("s1", "hash1", file,
+                LegacySchematicIngest.Source.WATCHER, true));
+
+        assertTrue(job.completion().isCompletedExceptionally(),
+                "溢出必须显式失败而不是回绕");
+        assertEquals(0, rowCount("SELECT COUNT(*) FROM material_entries"));
+        assertFalse(queryService.schematicExists("s1"));
+    }
+
+    @Test
     void sameProjectSameHash_reusesInflightJobAndParsesOnce() throws Exception {
         Path file = writeLitematic("hash1");
         CompletableFuture<List<MaterialEntry>> pending = new CompletableFuture<>();
@@ -662,6 +693,14 @@ public class LegacySchematicIngestTest {
             assertEquals(hash, rows.getString("file_hash"));
         } catch (Exception error) {
             fail(error);
+        }
+    }
+
+    private long materialCountLong(String schematicId, String itemId) throws Exception {
+        try (var rs = db.executeQuery(
+                "SELECT count FROM material_entries WHERE schematic_id = ? AND item_id = ?",
+                schematicId, itemId)) {
+            return rs.next() ? rs.getLong("count") : 0L;
         }
     }
 

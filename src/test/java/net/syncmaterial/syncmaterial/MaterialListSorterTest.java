@@ -34,10 +34,14 @@ public class MaterialListSorterTest {
         e.setStagingCount(staging);
         e.setWarehouseCount(warehouse);
         e.setOtherPlayersCount(otherPlayers);
-        e.setParticipants(java.util.List.of());
-        if (participants > 0) {
-            e.setParticipants(java.util.List.copyOf(
-                java.util.Collections.nCopies(participants, new MaterialListEntry.ParticipantData("p", 1))));
+        net.minecraft.client.Minecraft minecraft = org.mockito.Mockito.mock(net.minecraft.client.Minecraft.class);
+        try (var client = org.mockito.Mockito.mockStatic(net.minecraft.client.Minecraft.class)) {
+            client.when(net.minecraft.client.Minecraft::getInstance).thenReturn(minecraft);
+            e.setParticipants(java.util.List.of());
+            if (participants > 0) {
+                e.setParticipants(java.util.List.copyOf(
+                    java.util.Collections.nCopies(participants, new MaterialListEntry.ParticipantData("p", 1))));
+            }
         }
         return e;
     }

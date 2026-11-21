@@ -22,9 +22,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PickupModeStateTest {
 
     /** 脱离 MC 客户端的材料快照 */
-    private record Snapshot(String itemId, int countTotal, int stagingCount,
-                            int myCount, int warehouseCount, boolean claimedByCurrentPlayer)
+    private record Snapshot(String itemId, long countTotal, long stagingCount,
+                            long myCount, long warehouseCount, boolean claimedByCurrentPlayer)
         implements PickupModeState.MaterialSnapshot {}
+
+    private static Map<String, Long> counts(String itemId, long count) {
+        return Map.of(itemId, count);
+    }
 
     @AfterEach
     void tearDown() {
@@ -43,7 +47,7 @@ class PickupModeStateTest {
         PickupModeState.setActive(true);
         // 需求 = min(总数 - 备货区 - 我的, 仓库存量) = min(64-10-4, 20) = 20
         PickupModeState.recompute(List.of(new Snapshot("minecraft:stone", 64, 10, 4, 20, true)));
-        assertEquals(Map.of("minecraft:stone", 20), PickupModeState.getNeeds());
+        assertEquals(counts("minecraft:stone", 20), PickupModeState.getNeeds());
     }
 
     @Test
@@ -52,7 +56,7 @@ class PickupModeStateTest {
         PickupModeState.recompute(List.of(
             new Snapshot("minecraft:stone", 64, 0, 0, 64, true),
             new Snapshot("minecraft:dirt", 64, 0, 0, 64, false)));
-        assertEquals(Map.of("minecraft:stone", 64), PickupModeState.getNeeds(),
+        assertEquals(counts("minecraft:stone", 64), PickupModeState.getNeeds(),
             "未认领的材料不该进入需求：格子高亮与仓库线框须同口径");
     }
 
@@ -62,7 +66,7 @@ class PickupModeStateTest {
         PickupModeState.recompute(List.of(
             new Snapshot("minecraft:stone", 10, 0, 0, 10, true),
             new Snapshot("minecraft:stone", 5, 0, 0, 5, true)));
-        assertEquals(Map.of("minecraft:stone", 15), PickupModeState.getNeeds());
+        assertEquals(counts("minecraft:stone", 15), PickupModeState.getNeeds());
     }
 
     @Test
@@ -129,8 +133,8 @@ class PickupModeStateTest {
         // 看到的"取快了高亮飘到后面去"
         PickupModeState.recompute(
             List.of(new Snapshot("minecraft:stone", 128, 0, 0, 128, true)),
-            Map.of("minecraft:stone", 64));
-        assertEquals(Map.of("minecraft:stone", 64), PickupModeState.getNeeds(),
+            counts("minecraft:stone", 64));
+        assertEquals(counts("minecraft:stone", 64), PickupModeState.getNeeds(),
             "需求必须按本地实测数算，不能等服务端往返");
     }
 
@@ -139,20 +143,19 @@ class PickupModeStateTest {
         PickupModeState.setActive(true);
         PickupModeState.recompute(
             List.of(new Snapshot("minecraft:stone", 64, 0, 0, 64, true)),
-            Map.of("minecraft:stone", 64));
+            counts("minecraft:stone", 64));
         assertTrue(PickupModeState.getNeeds().isEmpty(), "实测已够时需求应立刻归零");
     }
 
     @Test
-    void liveCounts_missingItemFallsBackToSnapshot() {
+    void liveCounts_confirmedMissingItemIsZero() {
         PickupModeState.setActive(true);
-        // 实测里没有这个物品（背包里一个都没有）时，不该误当作"未知"而跳过覆盖：
-        // 空额度意味着 myCount=0，需求为全额
+        // 非空即时样本没有该物品，表示本机确认其数量为 0，而不是没有样本。
         PickupModeState.recompute(
             List.of(new Snapshot("minecraft:stone", 64, 0, 30, 64, true)),
-            Map.of("minecraft:dirt", 10));
-        assertEquals(Map.of("minecraft:stone", 34), PickupModeState.getNeeds(),
-            "实测中缺失的物品回退到快照值，避免把别的材料算错");
+            counts("minecraft:dirt", 10));
+        assertEquals(counts("minecraft:stone", 64), PickupModeState.getNeeds(),
+            "即时样本确认缺失时必须取 0，不能回退到陈旧的服务端观测");
     }
 
     @Test
@@ -164,8 +167,8 @@ class PickupModeStateTest {
         PickupModeState.recompute(
             List.of(new Snapshot("minecraft:stone", 64, 0, 0, 64, true),
                     new Snapshot("minecraft:stone", 64, 0, 0, 64, true)),
-            Map.of("minecraft:stone", 64));
-        assertEquals(Map.of("minecraft:stone", 64), PickupModeState.getNeeds(),
+            counts("minecraft:stone", 64));
+        assertEquals(counts("minecraft:stone", 64), PickupModeState.getNeeds(),
             "同物品多条目须分配实测额度，不能每条都减全额");
     }
 
@@ -174,7 +177,7 @@ class PickupModeStateTest {
         PickupModeState.setActive(true);
         PickupModeState.recompute(
             List.of(new Snapshot("minecraft:stone", 64, 0, 10, 64, true)), null);
-        assertEquals(Map.of("minecraft:stone", 54), PickupModeState.getNeeds(),
+        assertEquals(counts("minecraft:stone", 54), PickupModeState.getNeeds(),
             "实测数为 null 时退回快照，不应抛异常");
     }
 
@@ -184,7 +187,83 @@ class PickupModeStateTest {
         // 需求 = min(总数 - 备货区 - 实测, 仓库) = min(128 - 32 - 64, 128) = 32
         PickupModeState.recompute(
             List.of(new Snapshot("minecraft:stone", 128, 32, 0, 128, true)),
-            Map.of("minecraft:stone", 64));
-        assertEquals(Map.of("minecraft:stone", 32), PickupModeState.getNeeds());
+            counts("minecraft:stone", 64));
+        assertEquals(counts("minecraft:stone", 32), PickupModeState.getNeeds());
+    }
+
+    // ===== 逐条目结果：HUD 复用同一套同物品额度分配 =====
+
+    @Test
+    void perMaterialNeed_allocatesSameItemQuotaInInputOrder() {
+        // 两个条目各需 64，背包共 64。额度按顺序给：第一条吃完，第二条仍需 64。
+        PickupModeState.MaterialPickupNeed[] needs = PickupModeState.computePerMaterialPickupNeeds(
+            List.of(new Snapshot("minecraft:stone", 64, 0, 0, 64, true),
+                    new Snapshot("minecraft:stone", 64, 0, 0, 64, true)),
+            counts("minecraft:stone", 64));
+        assertEquals(0L, needs[0].remaining());
+        assertEquals(0L, needs[0].pickupMissing());
+        assertEquals(64L, needs[1].remaining());
+        assertEquals(64L, needs[1].pickupMissing());
+    }
+
+    @Test
+    void perMaterialNeed_nullLiveCountsFallsBackToSnapshot() {
+        PickupModeState.MaterialPickupNeed need = PickupModeState.computePerMaterialPickupNeeds(
+            List.of(new Snapshot("minecraft:stone", 64, 0, 10, 64, true)), null)[0];
+        assertEquals(54L, need.remaining());
+        assertEquals(54L, need.pickupMissing(), "没有即时样本时退回快照的背包数");
+    }
+
+    @Test
+    void perMaterialNeed_nonNullSampleMissingItemIsConfirmedZero() {
+        PickupModeState.MaterialPickupNeed need = PickupModeState.computePerMaterialPickupNeeds(
+            List.of(new Snapshot("minecraft:stone", 64, 0, 30, 64, true)),
+            counts("minecraft:dirt", 10))[0];
+        assertEquals(64L, need.remaining(), "非空样本缺少该物品 = 本机确认 0，不能回退陈旧观测");
+        assertEquals(64L, need.pickupMissing());
+    }
+
+    @Test
+    void perMaterialNeed_unclaimedEntryIsNone() {
+        PickupModeState.MaterialPickupNeed need = PickupModeState.computePerMaterialPickupNeeds(
+            List.of(new Snapshot("minecraft:stone", 64, 0, 0, 64, false)),
+            counts("minecraft:stone", 0))[0];
+        assertEquals(PickupModeState.MaterialPickupNeed.NONE, need);
+    }
+
+    @Test
+    void perMaterialNeed_warehouseCapsPickupButNotRemaining() {
+        // 还差 64，但仓库只有 10：逐条结果同时保留"差 64"和"可取 10"。
+        PickupModeState.MaterialPickupNeed need = PickupModeState.computePerMaterialPickupNeeds(
+            List.of(new Snapshot("minecraft:stone", 64, 0, 0, 10, true)),
+            counts("minecraft:stone", 0))[0];
+        assertEquals(64L, need.remaining());
+        assertEquals(10L, need.pickupMissing());
+    }
+
+    @Test
+    void perMaterialNeed_longMaxDoesNotOverflow() {
+        PickupModeState.MaterialPickupNeed[] needs = PickupModeState.computePerMaterialPickupNeeds(
+            List.of(new Snapshot("minecraft:stone", Long.MAX_VALUE, 0, 0, Long.MAX_VALUE, true),
+                    new Snapshot("minecraft:stone", Long.MAX_VALUE, 0, 0, Long.MAX_VALUE, true)),
+            counts("minecraft:stone", Long.MAX_VALUE));
+        assertEquals(0L, needs[0].pickupMissing());
+        assertEquals(Long.MAX_VALUE, needs[1].remaining());
+        assertEquals(Long.MAX_VALUE, needs[1].pickupMissing(), "第二条目不应因求和回绕");
+    }
+
+    @Test
+    void perMaterialNeed_nullMaterialsReturnsEmptyArray() {
+        assertEquals(0, PickupModeState.computePerMaterialPickupNeeds(null, null).length);
+    }
+
+    @Test
+    void sameItemAggregateSaturatesAtLongMaxInsteadOfThrowing() {
+        PickupModeState.setActive(true);
+        // 无即时样本时两条目各自需要 Long.MAX_VALUE；聚合值必须饱和而非 addExact 抛异常。
+        PickupModeState.recompute(List.of(
+            new Snapshot("minecraft:stone", Long.MAX_VALUE, 0, 0, Long.MAX_VALUE, true),
+            new Snapshot("minecraft:stone", Long.MAX_VALUE, 0, 0, Long.MAX_VALUE, true)));
+        assertEquals(counts("minecraft:stone", Long.MAX_VALUE), PickupModeState.getNeeds());
     }
 }

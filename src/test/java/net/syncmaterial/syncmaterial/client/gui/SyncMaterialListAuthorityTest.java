@@ -146,6 +146,36 @@ class SyncMaterialListAuthorityTest {
     }
 
     @Test
+    void catalogChangeNotifiesSelectionOwnerWithoutNeedingTheMaterialScreen() {
+        SyncMaterialList list = new SyncMaterialList(PROJECT, "Project");
+        java.util.concurrent.atomic.AtomicInteger notifications = new java.util.concurrent.atomic.AtomicInteger();
+        list.setOnMaterialCatalogChanged(notifications::incrementAndGet);
+
+        list.setMaterialEntries(List.of(material(1, Items.STONE, 64)), 1);
+        list.setMaterialEntries(List.of(material(2, Items.DIRT, 32)), 2);
+
+        assertEquals(2, notifications.get());
+    }
+
+    @Test
+    void protocolFiveClaimWaitsForAuthoritativeProgressInsteadOfLegacyFallback() {
+        SyncMaterialList list = new SyncMaterialList(PROJECT, "Project");
+        MaterialListEntry entry = new MaterialListEntry(1, new ItemStack(Items.STONE), 64, 0, 0, 0);
+        try (MockedStatic<net.syncmaterial.syncmaterial.network.ClientProtocolState> protocol =
+                     mockStatic(net.syncmaterial.syncmaterial.network.ClientProtocolState.class);
+             MockedStatic<net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking> network =
+                     mockStatic(net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.class);
+             MockedStatic<fi.dy.masa.malilib.util.InfoUtils> info =
+                     mockStatic(fi.dy.masa.malilib.util.InfoUtils.class)) {
+            protocol.when(() -> net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(5))
+                    .thenReturn(true);
+            list.claimEntry(entry);
+            network.verifyNoInteractions();
+        }
+        assertFalse(list.isClaimPending(1));
+    }
+
+    @Test
     void emptyFreshnessClearsPreviousWarningsAndUnknownNeverImpliesPrepared() {
         SyncMaterialList list = list(4, material(1, Items.STONE, 64));
         list.useFoundationBackend();

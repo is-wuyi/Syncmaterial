@@ -459,7 +459,7 @@ public class StagingAreaScanGameTest {
             chest.setItem(0, new ItemStack(Items.STONE, 32));
 
             ctx.runAfterDelay(20L, () -> {
-                int count = sam.getStagingCountForMaterial(testId, "minecraft:stone");
+                long count = sam.getStagingCountForMaterial(testId, "minecraft:stone");
                 cleanup.run();
                 if (count != 32) {
                     throw ctx.assertionException("自动管线未在 20 tick 内更新统计（期望石头 32，实际 " + count + "）");
@@ -948,5 +948,48 @@ public class StagingAreaScanGameTest {
             cleanup.run();
             throw ctx.assertionException("双箱聚合测试失败: " + e.getMessage());
         }
+    }
+
+    // ==================== 断言辅助器整数比较回归 ====================
+
+    /**
+     * 回归：统计接口返回 primitive long，测试期望常用 int 字面量。
+     * assertEquals 必须把 Integer(48) 与 Long(48) 判为相等，同时保持 48/49
+     * 不相等，并且不能因 double 舍入让 Long.MAX_VALUE 与 MAX-1 误判相等。
+     */
+    @GameTest(structure = "empty")
+    public void assertionHelper_integralValuesCompareExactly(GameTestHelper ctx) {
+        // 48(int) 与 48(long) 相等，方向无关
+        GameTestAssertions.assertEquals(ctx, 48, 48L,
+            Component.literal("Integer(48) 应等于 Long(48)"));
+        GameTestAssertions.assertEquals(ctx, 48L, 48,
+            Component.literal("Long(48) 应等于 Integer(48)"));
+        GameTestAssertions.assertEquals(ctx, 0, 0L,
+            Component.literal("Integer(0) 应等于 Long(0)"));
+
+        // 数值不同必须判为不等，不能因为按类型或按浮点近似而放行
+        ctx.assertTrue(!GameTestAssertions.equal(48, 49L),
+            Component.literal("48 与 49 不应相等"));
+        ctx.assertTrue(!GameTestAssertions.equal(49L, 48),
+            Component.literal("49 与 48 不应相等"));
+        ctx.assertTrue(!GameTestAssertions.equal(-48, 48L),
+            Component.literal("-48 与 48 不应相等"));
+
+        // Long.MAX_VALUE 转成 double 会舍入到 2^63，与 MAX-1 无法区分；
+        // 精确整数比较必须保持这两个不同值不相等。
+        ctx.assertTrue(GameTestAssertions.equal(Long.MAX_VALUE, Long.MAX_VALUE),
+            Component.literal("Long.MAX_VALUE 应与自身相等"));
+        ctx.assertTrue(!GameTestAssertions.equal(Long.MAX_VALUE, Long.MAX_VALUE - 1),
+            Component.literal("Long.MAX_VALUE 与 MAX-1 不应因浮点舍入而相等"));
+        ctx.assertTrue(!GameTestAssertions.equal(Long.MIN_VALUE, Long.MIN_VALUE + 1),
+            Component.literal("Long.MIN_VALUE 与 MIN+1 不应相等"));
+
+        // 非整数类型保持类型严格的 equals，避免 48.0 与 48 被误判相等
+        ctx.assertTrue(!GameTestAssertions.equal(48.0, 48L),
+            Component.literal("Double(48.0) 不应等于 Long(48)"));
+        ctx.assertTrue(!GameTestAssertions.equal(48L, 48.0),
+            Component.literal("Long(48) 不应等于 Double(48.0)"));
+
+        ctx.succeed();
     }
 }

@@ -17,6 +17,9 @@ public abstract class MaterialListBase
     protected long countTotal;
     protected long countMissing;
     protected long countMismatched;
+    private java.math.BigInteger exactCountTotal = java.math.BigInteger.ZERO;
+    private java.math.BigInteger exactCountMissing = java.math.BigInteger.ZERO;
+    private java.math.BigInteger exactCountMismatched = java.math.BigInteger.ZERO;
 
     public abstract String getTitle();
 
@@ -136,18 +139,60 @@ public abstract class MaterialListBase
         this.multiplier = net.minecraft.util.Mth.clamp(multiplier, 1, Integer.MAX_VALUE);
     }
 
+    public java.math.BigInteger displayedTotal(MaterialListEntry entry)
+    {
+        return java.math.BigInteger.valueOf(entry.getCountTotal())
+                .multiply(java.math.BigInteger.valueOf(this.multiplier));
+    }
+
+    public java.math.BigInteger displayedMissing(MaterialListEntry entry)
+    {
+        return this.multiplier == 1 ? java.math.BigInteger.valueOf(entry.getCountMissing())
+                : this.displayedTotal(entry);
+    }
+
     public void updateCounts()
     {
-        this.countTotal = 0;
-        this.countMissing = 0;
-        this.countMismatched = 0;
-
+        java.math.BigInteger total = java.math.BigInteger.ZERO;
+        java.math.BigInteger missing = java.math.BigInteger.ZERO;
+        java.math.BigInteger mismatched = java.math.BigInteger.ZERO;
         for (MaterialListEntry entry : this.materialListAll)
         {
-            this.countTotal += entry.getCountTotal();
-            this.countMissing += entry.getCountMissing();
-            this.countMismatched += entry.getCountMismatched();
+            total = total.add(java.math.BigInteger.valueOf(entry.getCountTotal()));
+            missing = missing.add(java.math.BigInteger.valueOf(entry.getCountMissing()));
+            mismatched = mismatched.add(java.math.BigInteger.valueOf(entry.getCountMismatched()));
         }
+        this.exactCountTotal = total;
+        this.exactCountMissing = missing;
+        this.exactCountMismatched = mismatched;
+        java.math.BigInteger maximum = java.math.BigInteger.valueOf(Long.MAX_VALUE);
+        this.countTotal = total.min(maximum).longValueExact();
+        this.countMissing = missing.min(maximum).longValueExact();
+        this.countMismatched = mismatched.min(maximum).longValueExact();
+    }
+
+    public java.math.BigInteger getExactCountTotal() {
+        return this.exactCountTotal;
+    }
+
+    public java.math.BigInteger getExactCountMissing() {
+        return this.exactCountMissing;
+    }
+
+    public java.math.BigInteger getExactCountMismatched() {
+        return this.exactCountMismatched;
+    }
+
+    public boolean isCountTotalSaturated() {
+        return this.exactCountTotal.compareTo(java.math.BigInteger.valueOf(Long.MAX_VALUE)) > 0;
+    }
+
+    public boolean isCountMissingSaturated() {
+        return this.exactCountMissing.compareTo(java.math.BigInteger.valueOf(Long.MAX_VALUE)) > 0;
+    }
+
+    public boolean isCountMismatchedSaturated() {
+        return this.exactCountMismatched.compareTo(java.math.BigInteger.valueOf(Long.MAX_VALUE)) > 0;
     }
 
     public long getCountTotal()
@@ -177,20 +222,28 @@ public abstract class MaterialListBase
      * @param maxStackSize  最大堆叠数（若 <= 0 则按 64 处理）
      * @param shulkerBoxAbbr 潜影盒缩写（由 StringUtils.translate 获取）
      */
-    public static String getFormattedCountString(int count, int maxStackSize, String shulkerBoxAbbr)
+    public static String getFormattedCountString(long count, int maxStackSize, String shulkerBoxAbbr)
+    {
+        return getFormattedCountString(java.math.BigInteger.valueOf(count), maxStackSize, shulkerBoxAbbr);
+    }
+
+    public static String getFormattedCountString(java.math.BigInteger count, int maxStackSize, String shulkerBoxAbbr)
     {
         if (maxStackSize <= 0) maxStackSize = 64;
 
-        int stacks = count / maxStackSize;
-        int remainder = count % maxStackSize;
-        double boxCount = (double) count / (27D * maxStackSize);
+        java.math.BigInteger stackSize = java.math.BigInteger.valueOf(maxStackSize);
+        java.math.BigInteger[] parts = count.divideAndRemainder(stackSize);
+        java.math.BigInteger stacks = parts[0];
+        java.math.BigInteger remainder = parts[1];
+        java.math.BigDecimal boxCount = new java.math.BigDecimal(count).divide(
+                java.math.BigDecimal.valueOf(27L * maxStackSize), 2, java.math.RoundingMode.HALF_UP);
         String strCount;
 
-        if (count > maxStackSize)
+        if (count.compareTo(stackSize) > 0)
         {
             if (maxStackSize > 1)
             {
-                if (remainder > 0)
+                if (remainder.signum() > 0)
                 {
                     strCount = String.format("%d = %d x %d + %d = %.2f %s", count, stacks, maxStackSize, remainder, boxCount, shulkerBoxAbbr);
                 }
@@ -216,12 +269,12 @@ public abstract class MaterialListBase
      * HUD 专用格式：简洁的 Litematica 风格
      * 261 (4 x 64 + 5) 或 256 (4 x 64) 或 261 (0.16 潜影盒)
      */
-    public static String getFormattedCountStringHud(int count, int maxStackSize, String shulkerBoxAbbr)
+    public static String getFormattedCountStringHud(long count, int maxStackSize, String shulkerBoxAbbr)
     {
         if (maxStackSize <= 0) maxStackSize = 64;
 
-        int stacks = count / maxStackSize;
-        int remainder = count % maxStackSize;
+        long stacks = count / maxStackSize;
+        long remainder = count % maxStackSize;
         double boxCount = (double) count / (27D * maxStackSize);
 
         if (count > maxStackSize)

@@ -6,6 +6,7 @@ import net.syncmaterial.syncmaterial.core.AreaInventoryView;
 import net.syncmaterial.syncmaterial.core.AreaKind;
 import net.syncmaterial.syncmaterial.core.AreaSpec;
 import net.syncmaterial.syncmaterial.core.ClaimSnapshot;
+import net.syncmaterial.syncmaterial.core.CollaborationOutcome;
 import net.syncmaterial.syncmaterial.core.ContainerObservation;
 import net.syncmaterial.syncmaterial.core.MaterialCount;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
@@ -30,7 +31,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Predicate;
+import java.util.function.Function;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -46,9 +49,11 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * SQLite-backed project store for the Foundation backend.
  *
- * <p>One writer thread owns the only connection. All public futures complete on that
- * thread (callbacks run inline there, so callers must hop to their own executor before
- * touching the game world). Only the given path is opened; no legacy database is read.
+ * <p>One writer thread owns the only connection. Admitted actions execute on that
+ * thread. A future callback attached after completion can run on its caller's thread;
+ * use the explicit read projection for sampling inside a transaction and hop to the
+ * owning game executor before touching the world. Only the given path is opened;
+ * no legacy database is read.
  */
 public final class SqliteProjectStore implements AutoCloseable {
     private static final String WRITER_THREAD_NAME = "syncmaterial-storage-writer";
@@ -249,9 +254,19 @@ public final class SqliteProjectStore implements AutoCloseable {
      * instead of sequencing findProject then claims when both must share a revision.
      */
     public CompletableFuture<Optional<ProjectState>> snapshot(String projectId) {
+        return snapshot(projectId, Function.identity());
+    }
+
+    /**
+     * Projects the immutable state inside the same writer read transaction. The
+     * projection may take one pure-value runtime sample; it must not access Minecraft,
+     * send packets, re-enter the store, or retain JDBC objects. It is not a future callback.
+     */
+    public <T> CompletableFuture<Optional<T>> snapshot(String projectId, Function<ProjectState, T> projection) {
         try {
             requireProjectId(projectId);
-            return submit("snapshot", () -> snapshotOnWriter(projectId));
+            Objects.requireNonNull(projection, "projection");
+            return submit("snapshot", () -> snapshotOnWriter(projectId, projection));
         } catch (Throwable failure) {
             return failedFuture(failure);
         }
@@ -356,13 +371,23 @@ public final class SqliteProjectStore implements AutoCloseable {
     public CompletableFuture<TeamOutcome> applyTeamCommand(TeamCommand command, PlayerIdentity actor,
                                                           Predicate<ProjectSnapshot> currentMaterial,
                                                           BooleanSupplier admission) {
+        return applyTeamCommand(command, actor, currentMaterial, admission, ignored -> {});
+    }
+
+    /** Applies the pure runtime projection after the real commit, before the next writer job. */
+    public CompletableFuture<TeamOutcome> applyTeamCommand(TeamCommand command, PlayerIdentity actor,
+                                                          Predicate<ProjectSnapshot> currentMaterial,
+                                                          BooleanSupplier admission,
+                                                          Consumer<TeamOutcome> afterCommit) {
         try {
             Objects.requireNonNull(command, "command");
             Objects.requireNonNull(actor, "actor");
             Objects.requireNonNull(currentMaterial, "currentMaterial");
             Objects.requireNonNull(admission, "admission");
-            return transactionOnWriter("teamCommand", connection ->
-                    ProjectTeamWrites.apply(connection, command, actor, currentMaterial, admission));
+            Objects.requireNonNull(afterCommit, "afterCommit");
+            return committedOnWriter("teamCommand", connection ->
+                    ProjectTeamWrites.apply(connection, command, actor, currentMaterial, admission),
+                    TeamOutcome.class, afterCommit);
         } catch (Throwable failure) {
             return failedFuture(failure);
         }
@@ -436,6 +461,77 @@ public final class SqliteProjectStore implements AutoCloseable {
             Objects.requireNonNull(admission, "admission");
             return transactionOnWriter("joinAuthorized", connection -> ProjectTeamWrites.joinAuthorized(connection,
                     projectId, materialId, actor, reported, currentMaterial, admission));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    /** Atomic self-claim and initial target-material observation with a writer-local commit projection. */
+    public CompletableFuture<CollaborationOutcome> joinCollaboration(
+            String projectId, int materialId, PlayerIdentity actor, Map<Integer, Long> observations,
+            Predicate<ProjectSnapshot> currentMaterial, BooleanSupplier admission,
+            BooleanSupplier currentOperation, Consumer<CollaborationOutcome> afterCommit) {
+        try {
+            requireProjectId(projectId);
+            requireMaterialId(materialId);
+            Objects.requireNonNull(actor, "actor");
+            Map<Integer, Long> counts = Map.copyOf(Objects.requireNonNull(observations, "observations"));
+            if (counts.size() > 64 || !counts.containsKey(materialId)) {
+                throw new IllegalArgumentException("JOIN requires a bounded target-material observation");
+            }
+            for (var entry : counts.entrySet()) {
+                requireMaterialId(entry.getKey());
+                if (entry.getValue() < 0) throw new IllegalArgumentException("count must be >= 0");
+            }
+            Objects.requireNonNull(currentMaterial, "currentMaterial");
+            Objects.requireNonNull(admission, "admission");
+            Objects.requireNonNull(currentOperation, "currentOperation");
+            Objects.requireNonNull(afterCommit, "afterCommit");
+            return committedOnWriter("joinCollaboration", connection ->
+                    ProjectTeamWrites.joinCollaboration(connection, projectId, materialId, actor,
+                            counts.keySet(), counts.get(materialId), currentMaterial, admission, currentOperation),
+                    CollaborationOutcome.class, afterCommit);
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    public CompletableFuture<CollaborationOutcome> leaveCollaboration(
+            String projectId, int materialId, PlayerIdentity actor,
+            Predicate<ProjectSnapshot> currentMaterial, BooleanSupplier admission,
+            BooleanSupplier currentOperation, Consumer<CollaborationOutcome> afterCommit) {
+        try {
+            requireProjectId(projectId);
+            requireMaterialId(materialId);
+            Objects.requireNonNull(actor, "actor");
+            Objects.requireNonNull(currentMaterial, "currentMaterial");
+            Objects.requireNonNull(admission, "admission");
+            Objects.requireNonNull(currentOperation, "currentOperation");
+            Objects.requireNonNull(afterCommit, "afterCommit");
+            return committedOnWriter("leaveCollaboration", connection ->
+                    ProjectCollaborationWrites.leave(connection, projectId, materialId, actor,
+                            currentMaterial, admission, currentOperation), CollaborationOutcome.class, afterCommit);
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
+    public CompletableFuture<CollaborationOutcome> reportCollaboration(
+            String projectId, int materialId, PlayerIdentity actor, long count,
+            Predicate<ProjectSnapshot> currentMaterial, BooleanSupplier admission,
+            BooleanSupplier currentOperation, Consumer<CollaborationOutcome> afterCommit) {
+        try {
+            requireProjectId(projectId);
+            requireMaterialId(materialId);
+            Objects.requireNonNull(actor, "actor");
+            if (count < 0) throw new IllegalArgumentException("count must be >= 0");
+            Objects.requireNonNull(currentMaterial, "currentMaterial");
+            Objects.requireNonNull(admission, "admission");
+            Objects.requireNonNull(currentOperation, "currentOperation");
+            Objects.requireNonNull(afterCommit, "afterCommit");
+            return committedOnWriter("reportCollaboration", connection ->
+                    ProjectCollaborationWrites.report(connection, projectId, materialId, actor, count,
+                            currentMaterial, admission, currentOperation), CollaborationOutcome.class, afterCommit);
         } catch (Throwable failure) {
             return failedFuture(failure);
         }
@@ -896,7 +992,8 @@ public final class SqliteProjectStore implements AutoCloseable {
                 "findProject", current, connection -> ProjectReads.findProject(connection, projectId));
     }
 
-    private Optional<ProjectState> snapshotOnWriter(String projectId) throws SQLException {
+    private <T> Optional<T> snapshotOnWriter(String projectId, Function<ProjectState, T> projection)
+            throws SQLException {
         Connection current = requireOpenConnection();
         return inReadTransaction("snapshot", current, connection -> {
             Optional<ProjectSnapshot> project = ProjectReads.findProject(connection, projectId);
@@ -905,7 +1002,8 @@ public final class SqliteProjectStore implements AutoCloseable {
             }
             List<ClaimSnapshot> claims = ProjectReads.claims(connection, projectId);
             AreaInventoryView inventory = AreaReads.projectInventory(connection, projectId);
-            return Optional.of(new ProjectState(project.get(), claims, inventory));
+            ProjectState state = new ProjectState(project.get(), claims, inventory);
+            return Optional.of(Objects.requireNonNull(projection.apply(state), "snapshot projection"));
         });
     }
 
@@ -1061,6 +1159,37 @@ public final class SqliteProjectStore implements AutoCloseable {
         if (failure != reason) {
             reason.addSuppressed(failure);
         }
+    }
+
+    /**
+     * Runs a durable result's pure projection on the writer, not in an arbitrarily threaded
+     * future callback. A post-commit failure still carries the exact result and must not be replayed.
+     */
+    private <T> CompletableFuture<T> committedOnWriter(String operation, WriterWork<T> work,
+                                                       Class<T> resultType, Consumer<T> afterCommit) {
+        Objects.requireNonNull(work, "work");
+        Objects.requireNonNull(resultType, "resultType");
+        Objects.requireNonNull(afterCommit, "afterCommit");
+        return submit(operation, () -> {
+            T result;
+            try {
+                result = inTransaction(operation, work::run);
+            } catch (CommittedStorageException committed) {
+                T durable = committed.committedResult(resultType);
+                try {
+                    afterCommit.accept(durable);
+                } catch (RuntimeException projectionFailure) {
+                    committed.addSuppressed(projectionFailure);
+                }
+                throw committed;
+            }
+            try {
+                afterCommit.accept(result);
+            } catch (RuntimeException projectionFailure) {
+                throw CommittedStorageException.afterCommit(operation, result, projectionFailure);
+            }
+            return result;
+        });
     }
 
     private <T> CompletableFuture<T> submit(String operation, Callable<T> action) {

@@ -2,6 +2,7 @@ package net.syncmaterial.syncmaterial.server.legacy;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -17,10 +18,14 @@ import net.syncmaterial.syncmaterial.engine.DefaultMaterialStatisticsEngine;
 import net.syncmaterial.syncmaterial.engine.LitematicaParser;
 import net.syncmaterial.syncmaterial.engine.impl.DefaultLitematicaParser;
 import net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool;
+import net.syncmaterial.syncmaterial.network.LegacyProjectViewNetworkAdapter;
 import net.syncmaterial.syncmaterial.network.ModNetworkHandler;
 import net.syncmaterial.syncmaterial.network.Phase4Handler;
 import net.syncmaterial.syncmaterial.network.ProtocolHandshake;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
+import net.syncmaterial.syncmaterial.server.runtime.OnlineInventoryTracker;
+import net.syncmaterial.syncmaterial.server.runtime.ProjectInterestRegistry;
+import net.syncmaterial.syncmaterial.server.runtime.ProjectViewTracker;
 import net.syncmaterial.syncmaterial.server.CollaborationManager;
 import net.syncmaterial.syncmaterial.server.DatabaseQueryService;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
@@ -32,6 +37,7 @@ public final class LegacyServerContext implements AutoCloseable {
 
     private static final long CLOSE_TIMEOUT = Duration.ofSeconds(5).toNanos();
     private final Object lifecycleLock = new Object();
+    private final Object claimEpochLock = new Object();
     private final UUID epoch = UUID.randomUUID();
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
     private final java.util.concurrent.atomic.AtomicBoolean closeStarted = new java.util.concurrent.atomic.AtomicBoolean();
@@ -47,9 +53,19 @@ public final class LegacyServerContext implements AutoCloseable {
     private final CollaborationManager collaboration;
     private final StagingAreaManager staging;
     private final LegacySubscriptions subscriptions = new LegacySubscriptions();
+    private final ProjectInterestRegistry interests = new ProjectInterestRegistry();
+    private final ProjectViewTracker views = new ProjectViewTracker(interests);
+    private final OnlineInventoryTracker onlineInventories = new OnlineInventoryTracker();
+    private final LegacyProjectViewNetworkAdapter projectViews = new LegacyProjectViewNetworkAdapter(this);
     private final net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker teamRequests =
             new net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker();
     private final Map<String, String> placementNames = new ConcurrentHashMap<>();
+    private final Map<String, Long> claimEpochs = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+            return size() > 8192;
+        }
+    };
     private final LegacyTickTasks ticks;
     private SchematicFolderWatcher watcher;
     private LegacySyncmaticaDiscovery discovery;
@@ -142,6 +158,10 @@ public final class LegacyServerContext implements AutoCloseable {
     public CollaborationManager collaboration() { return collaboration; }
     public StagingAreaManager staging() { return staging; }
     public LegacySubscriptions subscriptions() { return subscriptions; }
+    public ProjectInterestRegistry interests() { return interests; }
+    public ProjectViewTracker views() { return views; }
+    public OnlineInventoryTracker onlineInventories() { return onlineInventories; }
+    public LegacyProjectViewNetworkAdapter projectViews() { return projectViews; }
     public net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker teamRequests() { return teamRequests; }
     public State state() { return state.get(); }
 
@@ -183,6 +203,101 @@ public final class LegacyServerContext implements AutoCloseable {
         });
     }
 
+    /**
+     * Records one connection-fresh legacy inventory observation. The tracker is keyed by
+     * the actual connection identity and refuses stale generations; unresolved or offline
+     * names never reach it.
+     */
+    public long trackInventory(ServerPlayer player, String projectId, int materialId, long count) {
+        if (!isConnected(player) || projectId == null || projectId.isBlank()
+                || materialId <= 0 || count < 0) {
+            return 0L;
+        }
+        UUID playerId = player.getUUID();
+        if (!onlineInventories.matchesConnection(playerId, player.connection)) {
+            for (String affected : onlineInventories.connected(playerId, player.connection)) {
+                projectViews.markDirty(affected);
+            }
+        }
+        onlineInventories.update(playerId, projectId, materialId, count);
+        projectViews.markDirty(projectId);
+        return onlineInventories.connection(playerId);
+    }
+
+    public void forgetInventory(UUID playerId, String projectId, int materialId) {
+        if (playerId == null || projectId == null || projectId.isBlank() || materialId <= 0) {
+            return;
+        }
+        onlineInventories.forget(playerId, projectId, materialId);
+        projectViews.markDirty(projectId);
+    }
+
+    /** Drops only the captured connection's observations; a newer connection is untouched. */
+    public void disconnectInventory(UUID playerId, Object connection) {
+        if (playerId == null || connection != null
+                && !onlineInventories.matchesConnection(playerId, connection)) {
+            return;
+        }
+        if (connection == null && server.getPlayerList() != null) {
+            ServerPlayer current = server.getPlayerList().getPlayer(playerId);
+            if (current != null && current.connection != null) return;
+        }
+        long generation = onlineInventories.connection(playerId);
+        for (String affected : onlineInventories.disconnected(playerId, generation)) {
+            projectViews.markDirty(affected);
+        }
+    }
+
+    /** Records the claim admission time used to fence observations queued before a rejoin. */
+    public void markClaimEpoch(String playerName, String projectId, int materialId) {
+        if (playerName == null || projectId == null || projectId.isBlank() || materialId <= 0) {
+            return;
+        }
+        synchronized (claimEpochLock) {
+            claimEpochs.put(claimEpochKey(playerName, projectId, materialId), System.nanoTime());
+        }
+    }
+
+    /** True only when a heartbeat received before the latest join/rejoin must be ignored. */
+    public boolean acceptsObservation(String playerName, String projectId,
+                                      int materialId, long receivedAtNanos) {
+        synchronized (claimEpochLock) {
+            Long admittedAt = claimEpochs.get(claimEpochKey(playerName, projectId, materialId));
+            return admittedAt == null || receivedAtNanos >= admittedAt;
+        }
+    }
+
+    public void clearClaimEpoch(String playerName, String projectId, int materialId) {
+        synchronized (claimEpochLock) {
+            claimEpochs.remove(claimEpochKey(playerName, projectId, materialId));
+        }
+    }
+
+    public void clearPlayerClaimEpochs(String playerName) {
+        if (playerName == null) return;
+        String prefix = playerName + "\u0000";
+        synchronized (claimEpochLock) {
+            claimEpochs.keySet().removeIf(key -> key.startsWith(prefix));
+        }
+    }
+
+    private static String claimEpochKey(String playerName, String projectId, int materialId) {
+        return playerName + "\u0000" + projectId + "\u0000" + materialId;
+    }
+
+    public ServerPlayer findOnlinePlayer(String playerName) {
+        if (playerName == null || playerName.isBlank() || server.getPlayerList() == null) {
+            return null;
+        }
+        for (ServerPlayer candidate : server.getPlayerList().getPlayers()) {
+            if (candidate != null && candidate.getName().getString().equals(playerName)
+                    && candidate.connection != null) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
     public Map<String, String> placementNames() {
         return Map.copyOf(placementNames);
     }
@@ -220,6 +335,14 @@ public final class LegacyServerContext implements AutoCloseable {
             if (!isCurrent()) return;
             if (discovery != null) discovery.tick();
             ticks.tick();
+            try {
+                for (String projectId : onlineInventories.expire()) {
+                    projectViews.markDirty(projectId);
+                }
+                projectViews.flush();
+            } catch (RuntimeException | Error failure) {
+                SyncMaterial.LOGGER.warn("刷新项目视图推送失败", failure);
+            }
         }
     }
 
@@ -237,8 +360,10 @@ public final class LegacyServerContext implements AutoCloseable {
             staging.rescanWarehouseAndMarkChunks(warehouse.id());
         }
         for (String schematicId : projects) {
+            projectViews.markWarehouseDirty(schematicId);
             Phase4Handler.broadcastAllMaterialStatus(this, schematicId);
         }
+        projectViews.markAllWarehouseViewsDirty();
         ModNetworkHandler.pushWarehouseContainerUpdate(this);
         ModNetworkHandler.broadcastWarehouseAreas(this);
         SyncMaterial.LOGGER.info("启动时区域扫描完成: {} 个备货区、{} 个仓库", areas, staging.getAllWarehouses().size());
@@ -270,6 +395,8 @@ public final class LegacyServerContext implements AutoCloseable {
                 staging.broadcastUpdate(schematicId);
                 ModNetworkHandler.pushWarehouseContainerUpdate(this);
                 ModNetworkHandler.broadcastWarehouseAreas(this);
+                projectViews.markDirty(schematicId);
+                projectViews.markWarehouseDirty(schematicId);
             });
         });
     }
@@ -283,6 +410,7 @@ public final class LegacyServerContext implements AutoCloseable {
             forgetPlacementName(schematicId);
             subscriptions.forgetProject(schematicId);
             staging.forgetProject(schematicId);
+            projectViews.projectDeleted(schematicId);
             ModNetworkHandler.sendToPlayers(this, java.util.Set.copyOf(server.getPlayerList().getPlayers()),
                     new StagingAreaConfigResponseS2CPacket("SCHEMATIC_DELETED", schematicId, "", true, "", java.util.List.of()));
         }));
@@ -299,7 +427,14 @@ public final class LegacyServerContext implements AutoCloseable {
             cleanup("原理图摄取", ingest::close);
             cleanup("区域管理器", staging::close);
             cleanup("协作管理器", collaboration::close);
+            projectViews.close();
+            views.close();
             subscriptions.close();
+            interests.close();
+            onlineInventories.clear();
+            synchronized (claimEpochLock) {
+                claimEpochs.clear();
+            }
             teamRequests.clear();
             placementNames.clear();
             if (LegacyServerRegistry.get(server) == this) ProtocolHandshake.clear(server);

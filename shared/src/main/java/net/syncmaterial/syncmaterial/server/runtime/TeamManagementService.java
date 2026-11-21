@@ -21,7 +21,7 @@ import net.syncmaterial.syncmaterial.server.storage.SqliteProjectStore;
 /** Runtime-owned team application. Storage completions never access Minecraft objects. */
 public final class TeamManagementService {
     private final SqliteProjectStore store;
-    private final OnlineInventoryTracker inventories;
+    private final CollaborationService collaboration;
     private final Executor directoryExecutor;
     private final Predicate<ProjectSnapshot> currentMaterials;
     private final BooleanSupplier open;
@@ -29,11 +29,11 @@ public final class TeamManagementService {
     private final Consumer<String> teamChanged;
     private final java.util.concurrent.ConcurrentHashMap<String, TeamState> committedStates = new java.util.concurrent.ConcurrentHashMap<>();
 
-    TeamManagementService(SqliteProjectStore store, OnlineInventoryTracker inventories, Executor directoryExecutor,
+    TeamManagementService(SqliteProjectStore store, CollaborationService collaboration, Executor directoryExecutor,
                           Predicate<ProjectSnapshot> currentMaterials, BooleanSupplier open,
                           Consumer<String> materialsChanged, Consumer<String> teamChanged) {
         this.store = Objects.requireNonNull(store);
-        this.inventories = Objects.requireNonNull(inventories);
+        this.collaboration = Objects.requireNonNull(collaboration, "collaboration");
         this.directoryExecutor = Objects.requireNonNull(directoryExecutor);
         this.currentMaterials = Objects.requireNonNull(currentMaterials);
         this.open = Objects.requireNonNull(open);
@@ -45,19 +45,8 @@ public final class TeamManagementService {
                                                   BooleanSupplier connected) {
         Objects.requireNonNull(connected);
         return store.applyTeamCommand(command, actor, currentMaterials,
-                () -> open.getAsBoolean() && connected.getAsBoolean()).handle((outcome, error) -> {
-            if (error != null) {
-                Throwable cause = error instanceof java.util.concurrent.CompletionException && error.getCause() != null
-                        ? error.getCause() : error;
-                if (cause instanceof net.syncmaterial.syncmaterial.server.storage.CommittedStorageException committed) {
-                    TeamOutcome durable = committed.committedResult(TeamOutcome.class);
-                    if (durable != null) afterCommit(command, durable);
-                }
-                throw new java.util.concurrent.CompletionException(cause);
-            }
-            afterCommit(command, outcome);
-            return outcome;
-        });
+                () -> open.getAsBoolean() && connected.getAsBoolean(),
+                outcome -> afterCommit(command, outcome));
     }
 
     private void afterCommit(TeamCommand command, TeamOutcome outcome) {
@@ -65,11 +54,7 @@ public final class TeamManagementService {
         if (outcome.state() != null && command.action().changesTeam() && outcome.changedCount() > 0) {
             committedStates.put(command.projectId(), outcome.state());
         }
-        for (var observation : outcome.removedObservations()) {
-            if (observation.player().hasUuid()) {
-                inventories.forget(observation.player().uuid(), command.projectId(), observation.materialId());
-            }
-        }
+        collaboration.afterTeamCommit(command, outcome);
         // A commit belongs to the project even when the initiating connection left.
         if (!outcome.changedMaterials().isEmpty() || !outcome.removedObservations().isEmpty()) {
             materialsChanged.accept(command.projectId());

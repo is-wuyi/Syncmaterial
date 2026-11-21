@@ -82,7 +82,11 @@ public class SyncMaterial implements ModInitializer {
             try {
                 var runtime = net.syncmaterial.syncmaterial.server.runtime.ServerRuntime.open(worldRoot, gameRoot,
                         new net.syncmaterial.syncmaterial.adapter.litematica.LitematicMaterialDecoder(),
-                        projectId -> net.syncmaterial.syncmaterial.network.FoundationNetworkAdapter.broadcast(server, projectId),
+                        projectId -> {
+                            net.syncmaterial.syncmaterial.network.FoundationNetworkAdapter.broadcast(server, projectId);
+                            net.syncmaterial.syncmaterial.network.FoundationNetworkAdapter
+                                    .broadcastProjectViews(server, projectId);
+                        },
                         new net.syncmaterial.syncmaterial.server.ingest.SyncmaticaDiscoveryAdapter());
                 net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.install(server, runtime);
                 net.syncmaterial.syncmaterial.network.ProtocolHandshake.registerServer(server);
@@ -117,6 +121,8 @@ public class SyncMaterial implements ModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             net.syncmaterial.syncmaterial.network.ProtocolHandshake.clear(server);
             FoundationAreaEvents.clear(server);
+            net.syncmaterial.syncmaterial.network.FoundationNetworkAdapter.close(
+                    net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.get(server));
             net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry.close(server);
         });
     }

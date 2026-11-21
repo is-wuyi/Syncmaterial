@@ -23,11 +23,62 @@ public class SyncMaterialList extends MaterialListBase {
     private boolean foundationBackend;
     private final Map<Integer, CollaborationStatusS2CPacket> collaborationStatusMap = new HashMap<>();
     private Runnable onStatusUpdate;
+    /** 目录已原子替换时通知选择层，即使材料 GUI 当前被弹窗遮住。 */
+    private Runnable onMaterialCatalogChanged;
     private boolean allowSelfClaim = true;
     private boolean isOwner = false;
+    private net.syncmaterial.syncmaterial.core.ProjectProgressSnapshot projectProgress;
+    private boolean projectProgressCurrent;
+    private final Map<Integer, Long> pendingClaims = new HashMap<>();
+
+    public boolean isClaimPending(int materialId) {
+        return pendingClaims.containsKey(materialId);
+    }
+
+    public void completeClaim(net.syncmaterial.syncmaterial.network.ProjectViewS2CPacket packet) {
+        if (!schematicId.equals(packet.scope().isProject() ? packet.scope().projectId() : "")) return;
+        boolean completed = pendingClaims.entrySet().removeIf(entry ->
+                entry.getValue() == packet.requestId()
+                        && (packet.materialId() == 0 || entry.getKey() == packet.materialId()));
+        if (completed && onStatusUpdate != null) onStatusUpdate.run();
+    }
+
+    /** 未收到结果时只清待处理标记，不预写认领，不自动重试。 */
+    public boolean claimTimeout(long requestId) {
+        boolean cleared = pendingClaims.values().removeIf(value -> value == requestId);
+        if (cleared && onStatusUpdate != null) onStatusUpdate.run();
+        return cleared;
+    }
 
     /** 当前屏幕绑定的材料目录投递序号；未收到目录更新时为 -1。 */
     private long catalogRevision = -1;
+    private long managementCatalogRevision = -1;
+    private String managementCatalogName = "";
+    private List<ManagementMaterial> managementCatalogMaterials = List.of();
+
+    private record ManagementMaterial(int id, String itemId, long required) {}
+
+    public void applyManagementCatalog(net.syncmaterial.syncmaterial.network.MaterialCatalogUpdateS2CPacket update) {
+        if (!this.schematicId.equals(update.schematicId()) || update.revision() <= this.managementCatalogRevision) return;
+        this.managementCatalogRevision = update.revision();
+        this.managementCatalogName = update.schematicName();
+        this.managementCatalogMaterials = update.materials().stream()
+                .map(material -> new ManagementMaterial(material.getDatabaseId(),
+                        net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(material.getStack().getItem()).toString(),
+                        material.getCountTotal()))
+                .sorted(java.util.Comparator.comparingInt(ManagementMaterial::id)).toList();
+    }
+
+    /** Protocol-4 management retains its delivery token, separate from protocol-5 persisted revision. */
+    public long getManagementCatalogRevision() {
+        if (this.projectProgress == null) return this.catalogRevision;
+        List<ManagementMaterial> current = this.projectProgress.materials().stream()
+                .map(material -> new ManagementMaterial(material.materialId(), material.itemId(), material.required()))
+                .toList();
+        return this.managementCatalogName.equals(this.projectProgress.projectName())
+                && this.managementCatalogMaterials.equals(current) ? this.managementCatalogRevision : -1;
+    }
+
     /** 已应用的最新区域库存快照序号；目录变化时重置。 */
     private long lastInventorySequence = -1;
     /** 是否收到过与当前目录匹配的 v3 权威库存快照。 */
@@ -57,6 +108,14 @@ public class SyncMaterialList extends MaterialListBase {
         this.onStatusUpdate = callback;
     }
 
+    public void setOnMaterialCatalogChanged(Runnable callback) {
+        this.onMaterialCatalogChanged = callback;
+    }
+
+    private void notifyMaterialCatalogChanged() {
+        if (this.onMaterialCatalogChanged != null) this.onMaterialCatalogChanged.run();
+    }
+
     @Override
     public String getTitle() {
         return this.title;
@@ -78,6 +137,7 @@ public class SyncMaterialList extends MaterialListBase {
     public boolean isPreparationKnown() {
         // 旧服务端没有区域权威数据，保持既有行为；实验后端必须先收到 v3 快照，
         // 且快照的 known 为真（freshness 为空），才允许显示"已备齐"。
+        if (projectProgress != null) return projectProgressCurrent && projectProgress.preparationKnown();
         return !this.foundationBackend || (this.authoritativeInventory && this.authoritativeKnown);
     }
 
@@ -87,10 +147,7 @@ public class SyncMaterialList extends MaterialListBase {
                 : this.collaborationStatusMap.values().stream()
                         .flatMap(status -> status.freshnessInfo().stream())
                         .toList();
-        return source.stream()
-                .map(CollaborationStatusS2CPacket.AreaFreshnessInfo::status)
-                .filter(status -> status != null && !status.isBlank())
-                .findFirst().orElse(fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.label.freshness_warning"));
+        return AreaWarningLabels.summary(source);
     }
 
     public void setMaterialEntries(List<MaterialEntry> entries) {
@@ -102,6 +159,7 @@ public class SyncMaterialList extends MaterialListBase {
      * 不能继续参与"是否备齐"的判断，也不能被随后到达的旧协作状态短暂洗白。
      */
     public void setMaterialEntries(List<MaterialEntry> entries, long catalogRevision) {
+        this.projectProgress = null;
         this.setMaterialListEntries(MaterialListUtils.convertFromMaterialEntries(entries));
         this.collaborationStatusMap.clear();
         this.catalogRevision = catalogRevision;
@@ -113,6 +171,94 @@ public class SyncMaterialList extends MaterialListBase {
             itemIdToMaterialId.put(itemId, entry.getDatabaseId());
         }
         net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(schematicId, itemIdToMaterialId);
+        notifyMaterialCatalogChanged();
+    }
+
+    /** Atomically applies the shared team progress and this viewer's pickup/claim projection. */
+    public boolean applyProjectProgress(net.syncmaterial.syncmaterial.core.ProjectProgressSnapshot snapshot) {
+        if (snapshot == null || !schematicId.equals(snapshot.projectId()) || Minecraft.getInstance().player == null) {
+            return false;
+        }
+        if (projectProgress != null && snapshot.publicationSequence() <= projectProgress.publicationSequence()) {
+            return false;
+        }
+        var viewer = new net.syncmaterial.syncmaterial.core.PlayerIdentity(
+                Minecraft.getInstance().player.getUUID(), Minecraft.getInstance().player.getName().getString());
+        var view = snapshot.viewFor(viewer);
+        Map<Integer, MaterialListEntry> existing = new HashMap<>();
+        for (MaterialListEntry entry : getMaterialsAll()) existing.put(entry.getDatabaseId(), entry);
+        Map<Integer, net.syncmaterial.syncmaterial.core.ProjectProgressMaterialView> rows = new HashMap<>();
+        for (var row : view.materials()) rows.put(row.materialId(), row);
+        List<MaterialListEntry> next = new java.util.ArrayList<>();
+        List<PreparedProgressRow> prepared = new java.util.ArrayList<>();
+        Map<String, Integer> context = new HashMap<>();
+        for (var material : snapshot.materials()) {
+            var row = rows.get(material.materialId());
+            var itemId = net.syncmaterial.syncmaterial.compat.McCompat.tryParseId(material.itemId());
+            if (row == null || itemId == null || !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(itemId)) {
+                return false;
+            }
+            var stack = new net.minecraft.world.item.ItemStack(
+                    net.minecraft.core.registries.BuiltInRegistries.ITEM.getValue(itemId));
+            MaterialListEntry entry = existing.get(material.materialId());
+            if (entry == null || entry.getCountTotal() != material.required()
+                    || !entry.getStack().getItem().equals(stack.getItem())) {
+                entry = new MaterialListEntry(material.materialId(), stack, material.required(), 0, 0, 0);
+            }
+            var participants = material.participants().stream()
+                    .map(participant -> new MaterialListEntry.ParticipantData(
+                            participant.player().name(), participant.effectiveHeld()))
+                    .toList();
+            prepared.add(new PreparedProgressRow(entry, row, participants));
+            next.add(entry);
+            context.put(material.itemId(), material.materialId());
+        }
+
+        // 完整验证并准备全部行后才修改旧条目，非法尾项不能留下半份新快照。
+        for (var preparedRow : prepared) {
+            MaterialListEntry entry = preparedRow.entry();
+            var row = preparedRow.view();
+            entry.setCountMissing(row.teamMissing());
+            entry.setCountAvailable(row.myObserved());
+            entry.setOtherPlayersCount(row.otherObserved());
+            entry.setStagingCount(row.staging());
+            entry.setWarehouseCount(row.warehouse());
+            entry.setParticipants(preparedRow.participants());
+            entry.setCurrentPlayerClaimed(row.claimed());
+            entry.setProgressView(row);
+        }
+
+        setMaterialListEntries(next);
+        this.projectProgress = snapshot;
+        this.projectProgressCurrent = true;
+        this.title = snapshot.projectName();
+        this.catalogRevision = snapshot.catalogRevision();
+        this.lastInventorySequence = snapshot.publicationSequence();
+        this.foundationBackend = true;
+        this.authoritativeInventory = true;
+        this.authoritativeKnown = snapshot.preparationKnown();
+        this.authoritativeFreshness = snapshot.areaWarnings().stream()
+                .map(warning -> new CollaborationStatusS2CPacket.AreaFreshnessInfo(
+                        warning.kind().wireName(), warning.areaId(), warning.areaName(), warning.status()))
+                .toList();
+        net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(schematicId, context);
+        net.syncmaterial.syncmaterial.client.InventoryWatcher.enablePeriodicReports();
+        notifyMaterialCatalogChanged();
+        if (onStatusUpdate != null) onStatusUpdate.run();
+        return true;
+    }
+
+    private record PreparedProgressRow(MaterialListEntry entry,
+            net.syncmaterial.syncmaterial.core.ProjectProgressMaterialView view,
+            List<MaterialListEntry.ParticipantData> participants) {}
+
+    public boolean hasProjectProgress() {
+        return this.projectProgress != null;
+    }
+
+    public void invalidateProjectProgress() {
+        this.projectProgressCurrent = false;
+        if (onStatusUpdate != null) onStatusUpdate.run();
     }
 
     public long getCatalogRevision() {
@@ -143,6 +289,7 @@ public class SyncMaterialList extends MaterialListBase {
      * @return 是否接受并应用
      */
     public boolean applyAreaInventorySnapshot(AreaInventorySnapshotS2CPacket snapshot) {
+        if (projectProgress != null) return false;
         if (snapshot == null || !this.schematicId.equals(snapshot.schematicId())
                 || this.catalogRevision < 0 || snapshot.catalogRevision() != this.catalogRevision
                 || snapshot.sequence() <= this.lastInventorySequence) {
@@ -197,10 +344,16 @@ public class SyncMaterialList extends MaterialListBase {
         return packetKnown && !AreaInventorySnapshotS2CPacket.hasFreshnessWarning(freshnessInfo);
     }
 
-    private record AreaCounts(int staging, int warehouse) {
+    private record AreaCounts(long staging, long warehouse) {
     }
 
     public void requestCollaborationStatus() {
+        if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
+                    session.refreshProject(schematicId));
+            return;
+        }
         ClientPlayNetworking.send(new QueryMaterialStatusC2SPacket(schematicId));
     }
 
@@ -211,6 +364,7 @@ public class SyncMaterialList extends MaterialListBase {
 
     public void onCollaborationStatus(CollaborationStatusS2CPacket status) {
         collaborationStatusMap.put(status.materialId(), status);
+        if (projectProgress != null) return;
         SyncMaterial.LOGGER.info("收到协作状态包: 材料 {} 协作组有 {} 人参与", status.materialId(), status.participants().size());
         for (var p : status.participants()) {
             SyncMaterial.LOGGER.info("  参与者 {} 持有 {} 个", p.playerName(), p.count());
@@ -228,16 +382,17 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     private void updateEntriesWithCollaborationStatus() {
+        if (projectProgress != null) return;
         var player = Minecraft.getInstance().player;
         String myName = player != null ? player.getName().getString() : "";
         List<MaterialListEntry> entries = this.getMaterialsAll();
         for (MaterialListEntry entry : entries) {
             CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
-            int allPlayersCount = 0;
-            int myCount = 0;
+            long allPlayersCount = 0;
+            long myCount = 0;
             if (status != null) {
                 for (var p : status.participants()) {
-                    allPlayersCount += p.count();
+                    allPlayersCount = Math.addExact(allPlayersCount, p.count());
                     if (p.playerName().equals(myName)) {
                         myCount = p.count();
                     }
@@ -248,20 +403,24 @@ public class SyncMaterialList extends MaterialListBase {
             AreaCounts authority = this.authoritativeInventory
                     ? this.authoritativeCounts.get(entry.getDatabaseId())
                     : null;
-            int stagingCount = authority != null
+            long stagingCount = authority != null
                     ? authority.staging()
                     : (status != null ? status.stagingCount() : 0);
-            int warehouseCount = authority != null
+            long warehouseCount = authority != null
                     ? authority.warehouse()
                     : (status != null ? status.warehouseCount() : 0);
-            int realMissing = (int) net.syncmaterial.syncmaterial.api.ProgressFormulas.collectedMissing(
+            long realMissing = net.syncmaterial.syncmaterial.api.ProgressFormulas.collectedMissing(
                 entry.getCountTotal(), stagingCount, warehouseCount, allPlayersCount);
 
             entry.setCountMissing(realMissing);
+            entry.markAuthoritativeTeamCounts();
             entry.setCountAvailable(myCount);
             entry.setStagingCount(stagingCount);
             entry.setWarehouseCount(warehouseCount);
-            entry.setOtherPlayersCount(allPlayersCount - myCount);
+            entry.setOtherPlayersCount(net.syncmaterial.syncmaterial.api.ProgressFormulas
+                    .saturatingSubtract(allPlayersCount, myCount));
+            entry.setCurrentPlayerClaimed(myCount > 0 || status != null && status.participants().stream()
+                    .anyMatch(p -> p.playerName().equals(myName)));
             entry.setParticipants(status != null
                     ? status.participants().stream()
                             .map(p -> new MaterialListEntry.ParticipantData(p.playerName(), p.count()))
@@ -274,6 +433,37 @@ public class SyncMaterialList extends MaterialListBase {
     @Override
     public void claimEntry(MaterialListEntry entry) {
         if (entry == null) return;
+        if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+            if (projectProgress == null) {
+                // 能力已协商但首份权威目录尚未到达，不能退回无关联的旧 JOIN/LEAVE 包。
+                fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                        fi.dy.masa.malilib.gui.Message.MessageType.WARNING,
+                        fi.dy.masa.malilib.util.StringUtils.translate(
+                                "syncmaterial.gui.hint.project_view_not_ready"));
+                return;
+            }
+            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session -> {
+                long request;
+                if (entry.isCurrentPlayerClaimed()) {
+                    request = session.leave(schematicId, entry.getDatabaseId());
+                } else if (allowSelfClaim || isOwner) {
+                    long count = net.syncmaterial.syncmaterial.client.InventoryScanner
+                            .liveCountsByItemId(Minecraft.getInstance().player)
+                            .getOrDefault(entry.itemId(), 0L);
+                    request = session.join(schematicId, entry.getDatabaseId(), List.of(
+                            new net.syncmaterial.syncmaterial.network.ProjectViewCommandC2SPacket.InventoryCount(
+                                    entry.getDatabaseId(), count)));
+                } else {
+                    request = -1;
+                }
+                if (request > 0) {
+                    pendingClaims.put(entry.getDatabaseId(), request);
+                    if (onStatusUpdate != null) onStatusUpdate.run();
+                }
+            });
+            return;
+        }
 
         CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
         if (status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(Minecraft.getInstance().player.getName().getString()))) {
@@ -295,6 +485,7 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     public boolean isCollaborating(MaterialListEntry entry) {
+        if (projectProgress != null) return entry.isCurrentPlayerClaimed();
         CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
         return status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(Minecraft.getInstance().player.getName().getString()));
     }

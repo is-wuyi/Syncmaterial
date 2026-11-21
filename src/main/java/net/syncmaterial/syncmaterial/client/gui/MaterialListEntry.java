@@ -15,18 +15,22 @@ public class MaterialListEntry implements net.syncmaterial.syncmaterial.client.P
 {
     private final int databaseId;
     private final ItemType item;
-    private final int countTotal;
-    private int countMissing;
-    private final int countMismatched;
-    private int countAvailable;
-    private int stagingCount;
-    private int warehouseCount;
-    private int otherPlayersCount;
+    private final long countTotal;
+    private long countMissing;
+    private final long countMismatched;
+    private long countAvailable;
+    private long stagingCount;
+    private long warehouseCount;
+    private long otherPlayersCount;
+    private boolean currentPlayerClaimed;
+    private boolean authoritativeTeamCounts;
+    private net.syncmaterial.syncmaterial.core.ProjectProgressMaterialView progressView;
     private List<ParticipantData> participants = new ArrayList<>();
 
-    public record ParticipantData(String playerName, int count) {}
+    public record ParticipantData(String playerName, long count) {}
 
-    public MaterialListEntry(int databaseId, ItemStack stack, int countTotal, int countMissing, int countMismatched, int countAvailable)
+    public MaterialListEntry(int databaseId, ItemStack stack, long countTotal, long countMissing,
+                             long countMismatched, long countAvailable)
     {
         this.databaseId = databaseId;
         this.item = new ItemType(stack, true, false);
@@ -43,56 +47,59 @@ public class MaterialListEntry implements net.syncmaterial.syncmaterial.client.P
         return this.item.getStack();
     }
 
-    public int getCountTotal()
+    public long getCountTotal()
     {
         return this.countTotal;
     }
 
-    public int getCountMissing()
+    public long getCountMissing()
     {
         return this.countMissing;
     }
 
-    public void setCountMissing(int countMissing) {
+    public void setCountMissing(long countMissing) {
         this.countMissing = countMissing;
     }
 
-    public int getCountMismatched()
+    public long getCountMismatched()
     {
         return this.countMismatched;
     }
 
-    public int getCountAvailable()
+    public long getCountAvailable()
     {
         return this.countAvailable;
     }
 
-    public void setCountAvailable(int countAvailable)
+    public void setCountAvailable(long countAvailable)
     {
         this.countAvailable = countAvailable;
     }
 
-    public int getStagingCount() { return stagingCount; }
-    public void setStagingCount(int stagingCount) { this.stagingCount = stagingCount; }
+    public long getStagingCount() { return stagingCount; }
+    public void setStagingCount(long stagingCount) { this.stagingCount = stagingCount; }
 
-    public int getWarehouseCount() { return warehouseCount; }
-    public void setWarehouseCount(int warehouseCount) { this.warehouseCount = warehouseCount; }
+    public long getWarehouseCount() { return warehouseCount; }
+    public void setWarehouseCount(long warehouseCount) { this.warehouseCount = warehouseCount; }
 
-    public int getOtherPlayersCount() { return otherPlayersCount; }
-    public void setOtherPlayersCount(int otherPlayersCount) { this.otherPlayersCount = otherPlayersCount; }
+    public long getOtherPlayersCount() { return otherPlayersCount; }
+    public void setOtherPlayersCount(long otherPlayersCount) { this.otherPlayersCount = otherPlayersCount; }
 
     public boolean isCurrentPlayerClaimed() {
-        var player = net.minecraft.client.Minecraft.getInstance().player;
-        if (player == null) return false;
-        String playerName = player.getName().getString();
-        for (ParticipantData p : participants) {
-            if (p.playerName().equals(playerName)) return true;
-        }
-        return false;
+        return currentPlayerClaimed;
+    }
+
+    public void setCurrentPlayerClaimed(boolean claimed) {
+        this.currentPlayerClaimed = claimed;
     }
 
     public List<ParticipantData> getParticipants() { return Collections.unmodifiableList(participants); }
-    public void setParticipants(List<ParticipantData> participants) { this.participants = new ArrayList<>(participants); }
+    public void setParticipants(List<ParticipantData> participants) {
+        this.participants = new ArrayList<>(participants);
+        var player = net.minecraft.client.Minecraft.getInstance().player;
+        String name = player == null ? "" : player.getName().getString();
+        this.currentPlayerClaimed = this.participants.stream().anyMatch(p -> p.playerName().equals(name));
+    }
 
     // ===== PickupModeState.MaterialSnapshot：为取货需求计算提供统一读取口径 =====
 
@@ -100,20 +107,58 @@ public class MaterialListEntry implements net.syncmaterial.syncmaterial.client.P
     public String itemId() { return this.getStack().getItem().toString(); }
 
     @Override
-    public int countTotal() { return this.countTotal; }
+    public long countTotal() { return this.countTotal; }
 
     @Override
-    public int stagingCount() { return this.stagingCount; }
+    public long stagingCount() { return this.stagingCount; }
 
     /** 快照语义下的"我的数量"即背包可用数 */
     @Override
-    public int myCount() { return this.countAvailable; }
+    public long myCount() { return this.countAvailable; }
 
     @Override
-    public int warehouseCount() { return this.warehouseCount; }
+    public long warehouseCount() { return this.warehouseCount; }
 
     @Override
     public boolean claimedByCurrentPlayer() { return this.isCurrentPlayerClaimed(); }
+
+    /** 饱和的观测是下界；不能把 Long.MAX_VALUE 绘制成精确总数。 */
+    public String observedCountText(long count) {
+        return progressView != null && progressView.teamObservedSaturated() && count == Long.MAX_VALUE
+                ? "≥" + count : Long.toString(count);
+    }
+
+    public boolean hasAuthoritativeTeamCounts() {
+        return this.authoritativeTeamCounts;
+    }
+
+    public void markAuthoritativeTeamCounts() {
+        this.authoritativeTeamCounts = true;
+    }
+
+    public void setProgressView(net.syncmaterial.syncmaterial.core.ProjectProgressMaterialView view) {
+        this.progressView = view;
+        if (view != null) this.authoritativeTeamCounts = true;
+    }
+
+    public net.syncmaterial.syncmaterial.core.ProjectProgressMaterialView progressView(MaterialListBase list) {
+        if (progressView != null) {
+            if (list.isPreparationKnown() || !progressView.preparationKnown()) return progressView;
+            return new net.syncmaterial.syncmaterial.core.ProjectProgressMaterialView(
+                    progressView.materialId(), progressView.itemId(), progressView.required(),
+                    progressView.staging(), progressView.warehouse(), progressView.claimed(),
+                    progressView.myObserved(), progressView.otherObserved(), progressView.teamMissing(),
+                    progressView.pickupMissing(), false, false, false, progressView.teamObservedSaturated());
+        }
+        boolean known = list.isPreparationKnown();
+        return new net.syncmaterial.syncmaterial.core.ProjectProgressMaterialView(
+                databaseId, itemId(), countTotal, stagingCount, warehouseCount,
+                currentPlayerClaimed, countAvailable, otherPlayersCount, countMissing,
+                net.syncmaterial.syncmaterial.api.ProgressFormulas.pickupMissing(
+                        countTotal, stagingCount, countAvailable, warehouseCount),
+                known && countTotal > 0 && stagingCount >= countTotal,
+                known && countMissing == 0, known);
+    }
 
     @Override
     public int hashCode()

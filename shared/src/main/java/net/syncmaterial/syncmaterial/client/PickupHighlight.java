@@ -51,11 +51,11 @@ public final class PickupHighlight {
      * 语义是"从前往后拿，够了就停"，因此一格可能被整格点亮即使只需要其中几个
      * —— 玩家拿的是整格，这是预期行为。
      */
-    public static Set<Integer> select(Map<String, Integer> needs, List<? extends SlotView> slots) {
+    public static Set<Integer> select(Map<String, Long> needs, List<? extends SlotView> slots) {
         if (needs == null || needs.isEmpty() || slots == null || slots.isEmpty()) {
             return Set.of();
         }
-        Map<String, Integer> remaining = new HashMap<>(needs);
+        Map<String, Long> remaining = new HashMap<>(needs);
         Set<Integer> selected = new HashSet<>();
 
         for (int i = 0; i < slots.size(); i++) {
@@ -78,8 +78,8 @@ public final class PickupHighlight {
     }
 
     /** 命中需求则扣减并返回 true。扣减按整格计，与"整格拿走"的实际操作一致 */
-    private static boolean consume(String itemId, int count, Map<String, Integer> remaining) {
-        int rem = remaining.getOrDefault(itemId, 0);
+    private static boolean consume(String itemId, int count, Map<String, Long> remaining) {
+        long rem = remaining.getOrDefault(itemId, 0L);
         if (rem <= 0) return false;
         remaining.put(itemId, rem - count);
         return true;
@@ -111,7 +111,7 @@ public final class PickupHighlight {
     }
 
     /** 缓存键：需求量 + 容器身份 + 容器内容三者任一变化都要重算 */
-    public static int cacheKey(Map<String, Integer> needs, int containerId, List<? extends SlotView> slots) {
+    public static int cacheKey(Map<String, Long> needs, int containerId, List<? extends SlotView> slots) {
         int hash = needs == null ? 0 : needs.hashCode();
         hash = 31 * hash + containerId;
         hash = 31 * hash + contentSignature(slots);
@@ -122,7 +122,7 @@ public final class PickupHighlight {
      * 取得应高亮的槽位序号集合，命中缓存时不重算。
      * 每帧都会被渲染调用，因此缓存的意义是避免逐帧展开潜影盒内容物。
      */
-    public static Set<Integer> highlightedSlots(Map<String, Integer> needs, int containerId,
+    public static Set<Integer> highlightedSlots(Map<String, Long> needs, int containerId,
             List<? extends SlotView> slots) {
         int key = cacheKey(needs, containerId, slots);
         if (!hasCache || key != cachedKey) {

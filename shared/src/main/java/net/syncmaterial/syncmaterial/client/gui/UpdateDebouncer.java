@@ -1,5 +1,7 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
+import java.util.function.BooleanSupplier;
+
 /**
  * 按 tick 计数的发包去抖器。
  *
@@ -21,6 +23,7 @@ public final class UpdateDebouncer {
     private final int quietTicks;
 
     private Runnable pending;
+    private BooleanSupplier stillValid;
     private int idleTicks;
 
     /**
@@ -39,13 +42,28 @@ public final class UpdateDebouncer {
      * 覆盖而非排队是关键：连续输入产生的中间态无需逐个上报，只有最终值有意义。
      */
     public void schedule(Runnable action) {
+        schedule(action, null);
+    }
+
+    /**
+     * 登记一次带有效性检查的待发送动作。
+     *
+     * 检查在 tick 与 flushNow 真正执行前求值：旧连接、切项目或视图删除后，
+     * 延迟意图必须丢弃而不是发到新会话／新代次。检查为空表示不设门槛。
+     */
+    public void schedule(Runnable action, BooleanSupplier stillValid) {
         this.pending = action;
+        this.stillValid = stillValid;
         this.idleTicks = 0;
     }
 
-    /** 每客户端 tick 调用一次。静默期满则发出待发送动作 */
+    /** 每客户端 tick 调用一次。静默期满且意图仍有效时发出待发送动作 */
     public void tick() {
         if (this.pending == null) {
+            return;
+        }
+        if (!isPendingValid()) {
+            discard();
             return;
         }
         if (++this.idleTicks >= this.quietTicks) {
@@ -62,9 +80,11 @@ public final class UpdateDebouncer {
      */
     public void flushNow() {
         Runnable action = this.pending;
+        BooleanSupplier check = this.stillValid;
         this.pending = null;
+        this.stillValid = null;
         this.idleTicks = 0;
-        if (action != null) {
+        if (action != null && (check == null || check.getAsBoolean())) {
             action.run();
         }
     }
@@ -72,7 +92,13 @@ public final class UpdateDebouncer {
     /** 丢弃待发送动作，不执行。用于取消类路径 */
     public void discard() {
         this.pending = null;
+        this.stillValid = null;
         this.idleTicks = 0;
+    }
+
+    private boolean isPendingValid() {
+        BooleanSupplier check = this.stillValid;
+        return check == null || check.getAsBoolean();
     }
 
     public boolean hasPending() {

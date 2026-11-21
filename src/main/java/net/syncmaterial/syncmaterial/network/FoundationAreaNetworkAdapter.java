@@ -79,15 +79,7 @@ final class FoundationAreaNetworkAdapter {
         UUID playerId = player.getUUID();
         boolean listing = request.action().equals("LIST") || request.action().equals("LIST_WAREHOUSES")
                 || request.action().equals("LIST_WAREHOUSE_REFS");
-        String defaultWorld = request.action().equals("ADD") ? McCompat.dimensionId(player.level()) : "minecraft:overworld";
-        runtime.store().areaCatalog().thenCompose(before -> {
-            if (!ModNetworkHandler.isGlobalWarehouseAction(request.action())) requireProject(before, request.schematicId());
-            if (listing) return CompletableFuture.completedFuture(new ConfigurationResult(before, before));
-            return mutate(runtime, before, request, defaultWorld)
-                    .thenCompose(ignored -> refreshConfiguration(server, runtime))
-                    .thenCompose(ignored -> runtime.store().areaCatalog())
-                    .thenApply(after -> new ConfigurationResult(before, after));
-        }).whenComplete((result, error) -> FoundationNetworkAdapter.execute(server, runtime, () -> {
+        configuration(server, runtime, player, request).whenComplete((result, error) -> FoundationNetworkAdapter.execute(server, runtime, () -> {
             ServerPlayer current = FoundationNetworkAdapter.currentPlayer(server, runtime, playerId, connection);
             if (error != null) {
                 logFailure(error);
@@ -104,6 +96,26 @@ final class FoundationAreaNetworkAdapter {
             }
             if (!listing) publishConfiguration(server, runtime, result.before(), result.after());
         }));
+    }
+
+    /** Shared area read/mutation; protocol adapters own their correlated response shapes. */
+    static CompletableFuture<ConfigurationResult> configuration(
+            MinecraftServer server, ServerRuntime runtime, ServerPlayer player,
+            StagingAreaConfigC2SPacket request) {
+        String defaultWorld = request.action().equals("ADD")
+                ? McCompat.dimensionId(player.level()) : "minecraft:overworld";
+        return runtime.store().areaCatalog().thenCompose(before -> {
+            if (!ModNetworkHandler.isGlobalWarehouseAction(request.action())) {
+                requireProject(before, request.schematicId());
+            }
+            boolean listing = request.action().equals("LIST") || request.action().equals("LIST_WAREHOUSES")
+                    || request.action().equals("LIST_WAREHOUSE_REFS");
+            if (listing) return CompletableFuture.completedFuture(new ConfigurationResult(before, before));
+            return mutate(runtime, before, request, defaultWorld)
+                    .thenCompose(ignored -> refreshConfiguration(server, runtime))
+                    .thenCompose(ignored -> runtime.store().areaCatalog())
+                    .thenApply(after -> new ConfigurationResult(before, after));
+        });
     }
 
     private static CompletableFuture<Void> refreshConfiguration(MinecraftServer server, ServerRuntime runtime) {
@@ -207,7 +219,7 @@ final class FoundationAreaNetworkAdapter {
         }));
     }
 
-    private static void publishConfiguration(MinecraftServer server, ServerRuntime runtime,
+    static void publishConfiguration(MinecraftServer server, ServerRuntime runtime,
                                              AreaCatalog before, AreaCatalog after) {
         Set<String> projects = new HashSet<>(before.projectNames().keySet());
         projects.addAll(after.projectNames().keySet());
@@ -222,6 +234,12 @@ final class FoundationAreaNetworkAdapter {
             }
         }
         for (ServerPlayer player : server.getPlayerList().getPlayers()) sendWarehouseAreas(runtime, player, after);
+        for (String projectId : projects) {
+            FoundationProjectViewNetworkAdapter.publishConfiguration(server, runtime,
+                    net.syncmaterial.syncmaterial.core.ProjectViewScope.project(projectId), after);
+        }
+        FoundationProjectViewNetworkAdapter.publishConfiguration(server, runtime,
+                net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(), after);
     }
 
     private static void sendList(ServerRuntime runtime, ServerPlayer player, AreaCatalog catalog,
@@ -345,5 +363,5 @@ final class FoundationAreaNetworkAdapter {
         SyncMaterial.LOGGER.warn("实验后端区域请求失败", error);
     }
 
-    private record ConfigurationResult(AreaCatalog before, AreaCatalog after) {}
+    record ConfigurationResult(AreaCatalog before, AreaCatalog after) {}
 }

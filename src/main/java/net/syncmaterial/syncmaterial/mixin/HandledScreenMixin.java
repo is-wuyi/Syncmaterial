@@ -55,7 +55,7 @@ public abstract class HandledScreenMixin<T extends AbstractContainerMenu> {
         // 就地现算，与下面读到的容器内容同一瞬间采样。用每 10 tick 采样的
         // PickupModeState.getNeeds() 会让需求滞后于容器，贪心选格多点亮几格，
         // 实机表现为"取走一个后，后面的物品闪一下再恢复"
-        Map<String, Integer> needs = SyncMaterialClient.livePickupNeeds();
+        Map<String, Long> needs = SyncMaterialClient.livePickupNeeds();
         List<Slot> slots = this.menu.slots;
         // 一次性快照：内容签名与选格都要读同一份数据，嵌套容器只展开一遍
         List<SlotSnapshot> views = new ArrayList<>(slots.size());

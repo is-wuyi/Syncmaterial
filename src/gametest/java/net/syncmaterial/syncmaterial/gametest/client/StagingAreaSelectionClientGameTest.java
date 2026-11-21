@@ -101,7 +101,7 @@ public class StagingAreaSelectionClientGameTest implements FabricClientGameTest 
                 }
             });
 
-            int staged = waitForStagingCount(ctx, server, schematicId, 32);
+            long staged = waitForStagingCount(ctx, server, schematicId, 32);
             if (staged != 32) {
                 throw new AssertionError(
                     "选区内箱子放入 32 个石头后备货区存量应为 32，实际为 " + staged);
@@ -188,14 +188,14 @@ public class StagingAreaSelectionClientGameTest implements FabricClientGameTest 
         return -1;
     }
 
-    private int waitForStagingCount(ClientGameTestContext ctx, TestDedicatedServerContext server,
-                                    String schematicId, int expected) {
-        int last = -1;
+    private long waitForStagingCount(ClientGameTestContext ctx, TestDedicatedServerContext server,
+                                    String schematicId, long expected) {
+        long last = -1;
         for (int elapsed = 0; elapsed < 100; elapsed += 5) {
             ctx.waitTicks(5);
             last = server.computeOnServer(instance -> {
                 var manager = SyncMaterial.getServerStagingAreaManager();
-                return manager == null ? -1
+                return manager == null ? -1L
                     : manager.getStagingCountForMaterial(schematicId, "minecraft:stone");
             });
             if (last == expected) {

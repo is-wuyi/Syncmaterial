@@ -2,6 +2,7 @@ package net.syncmaterial.syncmaterial;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.Test;
 
@@ -141,5 +142,41 @@ class UpdateDebouncerTest {
         tick(debouncer, 5);
         assertEquals(List.of("first", "second"), sent,
             "两次间隔足够的编辑应各发一次，去抖不得吞掉真实的第二次修改");
+    }
+
+    @Test
+    void invalidFenceDiscardsOnTickWithoutSending() {
+        UpdateDebouncer debouncer = new UpdateDebouncer(2);
+        debouncer.schedule(send("stale"), () -> false);
+        tick(debouncer, 5);
+        assertTrue(sent.isEmpty(), "旧会话/换项目/删除后的意图不得发包");
+        assertFalse(debouncer.hasPending());
+    }
+
+    @Test
+    void invalidFenceDiscardsOnCloseFlushWithoutSending() {
+        UpdateDebouncer debouncer = new UpdateDebouncer(20);
+        debouncer.schedule(send("stale"), () -> false);
+        debouncer.flushNow();
+        assertTrue(sent.isEmpty(), "关界面补发也必须服从视图 fencing");
+        assertFalse(debouncer.hasPending());
+    }
+
+    @Test
+    void fenceIsEvaluatedAtFlushNotOnlyAtSchedule() {
+        AtomicBoolean valid = new AtomicBoolean(true);
+        UpdateDebouncer debouncer = new UpdateDebouncer(20);
+        debouncer.schedule(send("value"), valid::get);
+        valid.set(false);
+        debouncer.flushNow();
+        assertTrue(sent.isEmpty());
+    }
+
+    @Test
+    void validFenceStillSendsOnCloseFlush() {
+        UpdateDebouncer debouncer = new UpdateDebouncer(20);
+        debouncer.schedule(send("value"), () -> true);
+        debouncer.flushNow();
+        assertEquals(List.of("value"), sent, "正常关界面补发不得被 fencing 误删");
     }
 }

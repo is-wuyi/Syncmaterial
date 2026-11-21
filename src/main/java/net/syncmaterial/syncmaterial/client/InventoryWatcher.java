@@ -37,6 +37,10 @@ public class InventoryWatcher {
     }
 
     public static void setContext(String schematicId, Map<String, Integer> itemIdToMaterialIdMap) {
+        if (Objects.equals(currentSchematicId, schematicId)
+                && itemIdToMaterialId.equals(itemIdToMaterialIdMap)) {
+            return;
+        }
         currentSchematicId = schematicId;
         itemIdToMaterialId.clear();
         itemIdToMaterialId.putAll(itemIdToMaterialIdMap);

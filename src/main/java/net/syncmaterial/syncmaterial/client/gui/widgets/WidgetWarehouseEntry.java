@@ -32,6 +32,8 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
     private final WarehouseEntry entryData;
     private final boolean isOdd;
     private final int buttonsStartX;
+    private final net.syncmaterial.syncmaterial.client.gui.EditorSaveTracker saveTracker =
+            new net.syncmaterial.syncmaterial.client.gui.EditorSaveTracker();
 
     public WidgetWarehouseEntry(int x, int y, int width, int height, boolean isOdd,
             WarehouseEntry entry, int listIndex, WidgetListWarehouses parent)
@@ -191,10 +193,12 @@ public class WidgetWarehouseEntry extends WidgetListEntryBase<WarehouseEntry>
             if (this.type == ButtonType.DELETE)
             {
                 if (hasShiftDown()) {
-                    net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
-                        new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket(
-                            "", "DELETE_WAREHOUSE", this.widget.entryData.warehouseId(),
-                            java.util.Optional.empty()));
+                    net.syncmaterial.syncmaterial.client.gui.ProjectViewEditorSupport.write(
+                            net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
+                            this.widget.entryData.warehouseId(), "DELETE_WAREHOUSE", java.util.Optional.empty(),
+                            new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket(
+                                    "", "DELETE_WAREHOUSE", this.widget.entryData.warehouseId(),
+                                    java.util.Optional.empty()), this.widget.saveTracker);
                     // 刷新列表
                     this.widget.parent.getWarehouseGui().requestRefresh();
                 } else {

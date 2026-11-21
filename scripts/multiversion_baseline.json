@@ -248,8 +248,8 @@
     }
   },
   "junit": {
-    "shared_min_tests": 349,
-    "platform_min_tests": 642,
+    "shared_min_tests": 532,
+    "platform_min_tests": 797,
     "required_classes": {
       "shared": [
         "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest",
@@ -268,7 +268,28 @@
         "net.syncmaterial.syncmaterial.server.storage.TeamCommandStoreTest",
         "net.syncmaterial.syncmaterial.server.storage.PlayerIdentityReconciliationTest",
         "net.syncmaterial.syncmaterial.server.storage.TransactionLifecycleTest",
-        "net.syncmaterial.syncmaterial.server.storage.TeamIdentityWritesTest"
+        "net.syncmaterial.syncmaterial.server.storage.TeamIdentityWritesTest",
+        "net.syncmaterial.syncmaterial.PickupModeStateTest",
+        "net.syncmaterial.syncmaterial.ProgressFormulasTest",
+        "net.syncmaterial.syncmaterial.client.ClientProjectViewStoreTest",
+        "net.syncmaterial.syncmaterial.client.ProjectInterestLeasesTest",
+        "net.syncmaterial.syncmaterial.client.ProjectViewAssemblerTest",
+        "net.syncmaterial.syncmaterial.client.gui.EditorSaveTrackerTest",
+        "net.syncmaterial.syncmaterial.client.gui.MaterialSelectionTest",
+        "net.syncmaterial.syncmaterial.core.InterestKindTest",
+        "net.syncmaterial.syncmaterial.core.ProjectProgressMaterialViewTest",
+        "net.syncmaterial.syncmaterial.core.ProjectProgressModelTest",
+        "net.syncmaterial.syncmaterial.core.ProjectViewLimitsTest",
+        "net.syncmaterial.syncmaterial.network.ProjectProgressCodecTest",
+        "net.syncmaterial.syncmaterial.network.ProjectProgressFragmenterTest",
+        "net.syncmaterial.syncmaterial.server.runtime.CollaborationServiceTest",
+        "net.syncmaterial.syncmaterial.server.runtime.OnlineInventoryTrackerSnapshotTest",
+        "net.syncmaterial.syncmaterial.server.runtime.ProgressPublicationOrderTest",
+        "net.syncmaterial.syncmaterial.server.runtime.ProjectInterestRegistryTest",
+        "net.syncmaterial.syncmaterial.server.runtime.ProjectProgressServiceTest",
+        "net.syncmaterial.syncmaterial.server.runtime.ProjectViewTrackerTest",
+        "net.syncmaterial.syncmaterial.server.storage.ProjectProgressReadTest",
+        "net.syncmaterial.syncmaterial.UpdateDebouncerTest"
       ],
       "platform": [
         "net.syncmaterial.syncmaterial.adapter.minecraft.MinecraftAreaSnapshotSourceTest",
@@ -299,12 +320,34 @@
         "net.syncmaterial.syncmaterial.client.gui.GuiMaterialListRoleUpdateTest",
         "net.syncmaterial.syncmaterial.network.FoundationTeamNetworkAdapterTest",
         "net.syncmaterial.syncmaterial.network.FoundationTeamAdmissionTest",
-        "net.syncmaterial.syncmaterial.network.LegacyWireGoldenTest"
+        "net.syncmaterial.syncmaterial.network.LegacyWireGoldenTest",
+        "net.syncmaterial.syncmaterial.InventoryWatcherDiffTest",
+        "net.syncmaterial.syncmaterial.MaterialListUtilsTest",
+        "net.syncmaterial.syncmaterial.client.ProjectViewClientTest",
+        "net.syncmaterial.syncmaterial.client.TeamManagementBatchSelectionTest",
+        "net.syncmaterial.syncmaterial.client.gui.AreaWarningLabelsTest",
+        "net.syncmaterial.syncmaterial.client.gui.EditorResponseRouterTest",
+        "net.syncmaterial.syncmaterial.client.gui.GuiMaterialListBatchSelectionTest",
+        "net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorCloseTest",
+        "net.syncmaterial.syncmaterial.client.gui.MaterialHudProjectionTest",
+        "net.syncmaterial.syncmaterial.client.gui.MaterialListLayoutTest",
+        "net.syncmaterial.syncmaterial.client.gui.MaterialListProjectionTest",
+        "net.syncmaterial.syncmaterial.client.gui.MaterialRowStatusTest",
+        "net.syncmaterial.syncmaterial.client.gui.ProjectViewGuiLifecycleTest",
+        "net.syncmaterial.syncmaterial.network.FoundationProjectViewNetworkAdapterTest",
+        "net.syncmaterial.syncmaterial.network.LegacyProjectViewNetworkAdapterTest",
+        "net.syncmaterial.syncmaterial.network.ProjectViewCommandCodecTest",
+        "net.syncmaterial.syncmaterial.network.ProjectViewS2CAssemblerTest",
+        "net.syncmaterial.syncmaterial.network.ProjectViewS2CCodecTest",
+        "net.syncmaterial.syncmaterial.server.legacy.LegacyProjectProgressReaderTransactionTest",
+        "net.syncmaterial.syncmaterial.client.gui.ProjectViewEditorFenceTest",
+        "net.syncmaterial.syncmaterial.client.gui.CollaborationResultLabelsTest",
+        "net.syncmaterial.syncmaterial.FormatCountTest"
       ]
     },
     "required_class_min_tests": {
       "platform": {
-        "net.syncmaterial.syncmaterial.client.gui.SyncMaterialListAuthorityTest": 8,
+        "net.syncmaterial.syncmaterial.client.gui.SyncMaterialListAuthorityTest": 10,
         "net.syncmaterial.syncmaterial.network.AreaInventorySnapshotCodecTest": 4,
         "net.syncmaterial.syncmaterial.network.AreaOverlapMessageTest": 3,
         "net.syncmaterial.syncmaterial.network.ClientPacketHandlerTest": 13,
@@ -327,12 +370,34 @@
         "net.syncmaterial.syncmaterial.server.legacy.LegacyTickTasksTest": 6,
         "net.syncmaterial.syncmaterial.network.TeamPacketCodecTest": 9,
         "net.syncmaterial.syncmaterial.adapter.minecraft.MinecraftPlayerDirectoryTest": 5,
-        "net.syncmaterial.syncmaterial.client.TeamManagementClientTest": 26,
+        "net.syncmaterial.syncmaterial.client.TeamManagementClientTest": 27,
         "net.syncmaterial.syncmaterial.client.gui.PlayerSelectionModelTest": 6,
         "net.syncmaterial.syncmaterial.client.gui.GuiMaterialListRoleUpdateTest": 4,
         "net.syncmaterial.syncmaterial.network.FoundationTeamNetworkAdapterTest": 6,
         "net.syncmaterial.syncmaterial.network.FoundationTeamAdmissionTest": 6,
-        "net.syncmaterial.syncmaterial.network.LegacyWireGoldenTest": 3
+        "net.syncmaterial.syncmaterial.network.LegacyWireGoldenTest": 3,
+        "net.syncmaterial.syncmaterial.InventoryWatcherDiffTest": 7,
+        "net.syncmaterial.syncmaterial.MaterialListUtilsTest": 6,
+        "net.syncmaterial.syncmaterial.client.ProjectViewClientTest": 22,
+        "net.syncmaterial.syncmaterial.client.TeamManagementBatchSelectionTest": 5,
+        "net.syncmaterial.syncmaterial.client.gui.AreaWarningLabelsTest": 2,
+        "net.syncmaterial.syncmaterial.client.gui.EditorResponseRouterTest": 3,
+        "net.syncmaterial.syncmaterial.client.gui.GuiMaterialListBatchSelectionTest": 5,
+        "net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorCloseTest": 1,
+        "net.syncmaterial.syncmaterial.client.gui.MaterialHudProjectionTest": 9,
+        "net.syncmaterial.syncmaterial.client.gui.MaterialListLayoutTest": 14,
+        "net.syncmaterial.syncmaterial.client.gui.MaterialListProjectionTest": 6,
+        "net.syncmaterial.syncmaterial.client.gui.MaterialRowStatusTest": 6,
+        "net.syncmaterial.syncmaterial.client.gui.ProjectViewGuiLifecycleTest": 4,
+        "net.syncmaterial.syncmaterial.network.FoundationProjectViewNetworkAdapterTest": 11,
+        "net.syncmaterial.syncmaterial.network.LegacyProjectViewNetworkAdapterTest": 28,
+        "net.syncmaterial.syncmaterial.network.ProjectViewCommandCodecTest": 8,
+        "net.syncmaterial.syncmaterial.network.ProjectViewS2CAssemblerTest": 2,
+        "net.syncmaterial.syncmaterial.network.ProjectViewS2CCodecTest": 9,
+        "net.syncmaterial.syncmaterial.server.legacy.LegacyProjectProgressReaderTransactionTest": 1,
+        "net.syncmaterial.syncmaterial.client.gui.ProjectViewEditorFenceTest": 6,
+        "net.syncmaterial.syncmaterial.client.gui.CollaborationResultLabelsTest": 2,
+        "net.syncmaterial.syncmaterial.FormatCountTest": 16
       },
       "shared": {
         "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest": 3,
@@ -351,17 +416,38 @@
         "net.syncmaterial.syncmaterial.server.storage.TeamCommandStoreTest": 15,
         "net.syncmaterial.syncmaterial.server.storage.PlayerIdentityReconciliationTest": 19,
         "net.syncmaterial.syncmaterial.server.storage.TransactionLifecycleTest": 14,
-        "net.syncmaterial.syncmaterial.server.storage.TeamIdentityWritesTest": 3
+        "net.syncmaterial.syncmaterial.server.storage.TeamIdentityWritesTest": 3,
+        "net.syncmaterial.syncmaterial.PickupModeStateTest": 24,
+        "net.syncmaterial.syncmaterial.ProgressFormulasTest": 20,
+        "net.syncmaterial.syncmaterial.client.ClientProjectViewStoreTest": 8,
+        "net.syncmaterial.syncmaterial.client.ProjectInterestLeasesTest": 22,
+        "net.syncmaterial.syncmaterial.client.ProjectViewAssemblerTest": 19,
+        "net.syncmaterial.syncmaterial.client.gui.EditorSaveTrackerTest": 4,
+        "net.syncmaterial.syncmaterial.client.gui.MaterialSelectionTest": 11,
+        "net.syncmaterial.syncmaterial.core.InterestKindTest": 5,
+        "net.syncmaterial.syncmaterial.core.ProjectProgressMaterialViewTest": 3,
+        "net.syncmaterial.syncmaterial.core.ProjectProgressModelTest": 9,
+        "net.syncmaterial.syncmaterial.core.ProjectViewLimitsTest": 6,
+        "net.syncmaterial.syncmaterial.network.ProjectProgressCodecTest": 8,
+        "net.syncmaterial.syncmaterial.network.ProjectProgressFragmenterTest": 4,
+        "net.syncmaterial.syncmaterial.server.runtime.CollaborationServiceTest": 6,
+        "net.syncmaterial.syncmaterial.server.runtime.OnlineInventoryTrackerSnapshotTest": 10,
+        "net.syncmaterial.syncmaterial.server.runtime.ProgressPublicationOrderTest": 2,
+        "net.syncmaterial.syncmaterial.server.runtime.ProjectInterestRegistryTest": 19,
+        "net.syncmaterial.syncmaterial.server.runtime.ProjectProgressServiceTest": 13,
+        "net.syncmaterial.syncmaterial.server.runtime.ProjectViewTrackerTest": 5,
+        "net.syncmaterial.syncmaterial.server.storage.ProjectProgressReadTest": 4,
+        "net.syncmaterial.syncmaterial.UpdateDebouncerTest": 15
       }
     }
   },
   "server_run_test_counts": {
-    "legacy": 40,
+    "legacy": 41,
     "foundation": 19
   },
   "client_entries_expected": {
-    "syncmaterial-test": 24,
-    "syncmaterial-foundation-test": 4,
+    "syncmaterial-test": 29,
+    "syncmaterial-foundation-test": 8,
     "syncmaterial-optional-test": 1
   },
   "test_mods": {
@@ -373,7 +459,7 @@
     "syncmaterial-foundation-test": {
       "resources": "src/foundationtest/resources/fabric.mod.json",
       "server_methods_min": 19,
-      "client_entries_min": 4
+      "client_entries_min": 8
     },
     "syncmaterial-optional-test": {
       "resources": "src/optionaltest/resources/fabric.mod.json",
@@ -384,5 +470,315 @@
   "server_filters": {
     "syncmaterial-foundation-test": "syncmaterial-foundation-test:foundation_*",
     "syncmaterial-optional-test": "syncmaterial-optional-test:optional_dependency_server_game_test_*"
+  },
+  "language_resources": {
+    "directory": "src/main/resources/assets/syncmaterial/lang",
+    "reference": "en_us",
+    "locales": [
+      "de_de",
+      "en_us",
+      "es_es",
+      "fr_fr",
+      "ja_jp",
+      "ko_kr",
+      "ru_ru",
+      "zh_cn"
+    ],
+    "expected_keys": [
+      "syncmaterial.config.comment.areaHighlightLineColor",
+      "syncmaterial.config.comment.areaLineColor",
+      "syncmaterial.config.comment.areaSideColor",
+      "syncmaterial.config.comment.containerHighlightColor",
+      "syncmaterial.config.comment.hudAlignment",
+      "syncmaterial.config.comment.hudBgColor",
+      "syncmaterial.config.comment.hudEnabled",
+      "syncmaterial.config.comment.hudMaxLines",
+      "syncmaterial.config.comment.hudScale",
+      "syncmaterial.config.comment.hudTextColor",
+      "syncmaterial.config.comment.hudXOffset",
+      "syncmaterial.config.comment.hudYOffset",
+      "syncmaterial.config.comment.labelEnabled",
+      "syncmaterial.config.comment.labelScale",
+      "syncmaterial.config.comment.warehouseLineColor",
+      "syncmaterial.config.comment.warehouseReferencedLineColor",
+      "syncmaterial.config.comment.warehouseRenderEnabled",
+      "syncmaterial.config.comment.warehouseSideColor",
+      "syncmaterial.config.name.areaHighlightLineColor",
+      "syncmaterial.config.name.areaLineColor",
+      "syncmaterial.config.name.areaSideColor",
+      "syncmaterial.config.name.bottom_left",
+      "syncmaterial.config.name.bottom_right",
+      "syncmaterial.config.name.containerHighlightColor",
+      "syncmaterial.config.name.hudAlignment",
+      "syncmaterial.config.name.hudAlignment.bottom_left",
+      "syncmaterial.config.name.hudAlignment.bottom_right",
+      "syncmaterial.config.name.hudAlignment.top_left",
+      "syncmaterial.config.name.hudAlignment.top_right",
+      "syncmaterial.config.name.hudBgColor",
+      "syncmaterial.config.name.hudEnabled",
+      "syncmaterial.config.name.hudMaxLines",
+      "syncmaterial.config.name.hudScale",
+      "syncmaterial.config.name.hudTextColor",
+      "syncmaterial.config.name.hudXOffset",
+      "syncmaterial.config.name.hudYOffset",
+      "syncmaterial.config.name.labelEnabled",
+      "syncmaterial.config.name.labelScale",
+      "syncmaterial.config.name.top_left",
+      "syncmaterial.config.name.top_right",
+      "syncmaterial.config.name.warehouseLineColor",
+      "syncmaterial.config.name.warehouseReferencedLineColor",
+      "syncmaterial.config.name.warehouseRenderEnabled",
+      "syncmaterial.config.name.warehouseSideColor",
+      "syncmaterial.config.prettyName.hudAlignment",
+      "syncmaterial.config.prettyName.hudEnabled",
+      "syncmaterial.config.prettyName.warehouseRenderEnabled",
+      "syncmaterial.gui.area_status.opaque",
+      "syncmaterial.gui.area_status.stale",
+      "syncmaterial.gui.area_status.unknown",
+      "syncmaterial.gui.button.add_deputy",
+      "syncmaterial.gui.button.add_staging_area",
+      "syncmaterial.gui.button.add_warehouse",
+      "syncmaterial.gui.button.add_warehouse_ref",
+      "syncmaterial.gui.button.assign_to",
+      "syncmaterial.gui.button.cancel",
+      "syncmaterial.gui.button.close",
+      "syncmaterial.gui.button.configure",
+      "syncmaterial.gui.button.confirm",
+      "syncmaterial.gui.button.edit",
+      "syncmaterial.gui.button.hover.plus_minus_tip",
+      "syncmaterial.gui.button.hud_toggle",
+      "syncmaterial.gui.button.join_collaboration",
+      "syncmaterial.gui.button.kick",
+      "syncmaterial.gui.button.leave_collaboration",
+      "syncmaterial.gui.button.material_list.claim",
+      "syncmaterial.gui.button.pending",
+      "syncmaterial.gui.button.pickup_mode",
+      "syncmaterial.gui.button.refresh",
+      "syncmaterial.gui.button.refreshing",
+      "syncmaterial.gui.button.remove_warehouse_ref",
+      "syncmaterial.gui.button.rename",
+      "syncmaterial.gui.button.rename_staging_area",
+      "syncmaterial.gui.button.select",
+      "syncmaterial.gui.button.select_area",
+      "syncmaterial.gui.button.select_area.hover",
+      "syncmaterial.gui.button.settings",
+      "syncmaterial.gui.button.shift_delete",
+      "syncmaterial.gui.button.show_all",
+      "syncmaterial.gui.button.show_my_materials",
+      "syncmaterial.gui.button.staging_area_config",
+      "syncmaterial.gui.button.staging_wireframe",
+      "syncmaterial.gui.button.transfer",
+      "syncmaterial.gui.button.transfer_to",
+      "syncmaterial.gui.button.warehouse_wireframe",
+      "syncmaterial.gui.error.duplicate_area_name",
+      "syncmaterial.gui.error.no_selection",
+      "syncmaterial.gui.hint.assign_to_player",
+      "syncmaterial.gui.hint.claim_materials",
+      "syncmaterial.gui.hint.collect_complete",
+      "syncmaterial.gui.hint.hold_shift_delete",
+      "syncmaterial.gui.hint.horizontal_scroll",
+      "syncmaterial.gui.hint.kick_from_player",
+      "syncmaterial.gui.hint.no_materials",
+      "syncmaterial.gui.hint.pickup_complete",
+      "syncmaterial.gui.hint.pickup_none_needed",
+      "syncmaterial.gui.hint.project_view_not_ready",
+      "syncmaterial.gui.hint.remove_deputy",
+      "syncmaterial.gui.hint.select_materials_first",
+      "syncmaterial.gui.hint.selected_outside_filter",
+      "syncmaterial.gui.hint.select_player",
+      "syncmaterial.gui.hint.warehouse_empty",
+      "syncmaterial.gui.hud.confirm_or_cancel",
+      "syncmaterial.gui.hud.crosshair",
+      "syncmaterial.gui.hud.left_click_set_pos1",
+      "syncmaterial.gui.hud.right_click_set_pos2",
+      "syncmaterial.gui.label.area_coords",
+      "syncmaterial.gui.label.area_entry_display",
+      "syncmaterial.gui.label.area_overlap_warning",
+      "syncmaterial.gui.label.area_world",
+      "syncmaterial.gui.label.corner_1",
+      "syncmaterial.gui.label.corner_2",
+      "syncmaterial.gui.label.deputy_owner",
+      "syncmaterial.gui.label.deputy_owner_none",
+      "syncmaterial.gui.label.freshness_warning",
+      "syncmaterial.gui.label.hide",
+      "syncmaterial.gui.label.loading",
+      "syncmaterial.gui.label.main_owner",
+      "syncmaterial.gui.label.material_list.title.backpack",
+      "syncmaterial.gui.label.material_list.title.claim",
+      "syncmaterial.gui.label.material_list.title.other",
+      "syncmaterial.gui.label.material_list.title.staging",
+      "syncmaterial.gui.label.material_list.title.warehouse",
+      "syncmaterial.gui.label.materials_selected_count",
+      "syncmaterial.gui.label.more_deputies",
+      "syncmaterial.gui.label.no_warehouses",
+      "syncmaterial.gui.label.online",
+      "syncmaterial.gui.label.players_and_materials_count",
+      "syncmaterial.gui.label.players_selected_count",
+      "syncmaterial.gui.label.please_select_player",
+      "syncmaterial.gui.label.progress_done",
+      "syncmaterial.gui.label.progress_other",
+      "syncmaterial.gui.label.progress_other_hover",
+      "syncmaterial.gui.label.progress_remaining",
+      "syncmaterial.gui.label.progress_staging",
+      "syncmaterial.gui.label.progress_staging_hover",
+      "syncmaterial.gui.label.progress_warehouse",
+      "syncmaterial.gui.label.progress_warehouse_hover",
+      "syncmaterial.gui.label.section_materials",
+      "syncmaterial.gui.label.section_owner",
+      "syncmaterial.gui.label.select_player",
+      "syncmaterial.gui.label.self_claim",
+      "syncmaterial.gui.label.show",
+      "syncmaterial.gui.label.size",
+      "syncmaterial.gui.label.staging_areas",
+      "syncmaterial.gui.label.toggle_off",
+      "syncmaterial.gui.label.toggle_on",
+      "syncmaterial.gui.label.unclaimed",
+      "syncmaterial.gui.label.warehouse_has",
+      "syncmaterial.gui.label.warehouse_name",
+      "syncmaterial.gui.label.warehouse_refs_section",
+      "syncmaterial.gui.label.warehouse_world",
+      "syncmaterial.gui.material_status.in_backpacks",
+      "syncmaterial.gui.material_status.no_demand",
+      "syncmaterial.gui.material_status.not_started",
+      "syncmaterial.gui.material_status.partial_staging",
+      "syncmaterial.gui.material_status.staging_ready",
+      "syncmaterial.gui.material_status.team_collected",
+      "syncmaterial.gui.material_status.unknown",
+      "syncmaterial.gui.material_status.warehouse_available",
+      "syncmaterial.gui.result.applied",
+      "syncmaterial.gui.result.denied",
+      "syncmaterial.gui.result.failed",
+      "syncmaterial.gui.result.invalid_request",
+      "syncmaterial.gui.result.not_claimed",
+      "syncmaterial.gui.result.project_missing",
+      "syncmaterial.gui.result.stale_materials",
+      "syncmaterial.gui.result.superseded",
+      "syncmaterial.gui.result.unchanged",
+      "syncmaterial.gui.result.unconfirmed",
+      "syncmaterial.gui.save.failed",
+      "syncmaterial.gui.save.pending",
+      "syncmaterial.gui.save.saved",
+      "syncmaterial.gui.save.saving",
+      "syncmaterial.gui.save.unconfirmed",
+      "syncmaterial.gui.tab.generic",
+      "syncmaterial.gui.tab.hud",
+      "syncmaterial.gui.tab.render",
+      "syncmaterial.gui.title.area_editor_normal",
+      "syncmaterial.gui.title.management",
+      "syncmaterial.gui.title.material_list",
+      "syncmaterial.gui.title.material_list_pickup",
+      "syncmaterial.gui.title.remove_deputy",
+      "syncmaterial.gui.title.rename_area",
+      "syncmaterial.gui.title.select_assign_player",
+      "syncmaterial.gui.title.select_kick_player",
+      "syncmaterial.gui.title.select_warehouse",
+      "syncmaterial.gui.title.settings",
+      "syncmaterial.gui.title.warehouse_editor",
+      "syncmaterial.gui.title.warehouse_manager",
+      "syncmaterial.gui.title.warehouse_name",
+      "syncmaterial.gui.tooltip.area_overlap_warning",
+      "syncmaterial.gui.tooltip.self_claim_disabled",
+      "syncmaterial.message.protocol.client_too_old",
+      "syncmaterial.message.protocol.server_newer"
+    ],
+    "placeholders": {
+      "syncmaterial.gui.button.hud_toggle": {
+        "s": 1
+      },
+      "syncmaterial.gui.button.pickup_mode": {
+        "s": 1
+      },
+      "syncmaterial.gui.button.staging_wireframe": {
+        "s": 1
+      },
+      "syncmaterial.gui.button.transfer_to": {
+        "s": 1
+      },
+      "syncmaterial.gui.button.warehouse_wireframe": {
+        "s": 1
+      },
+      "syncmaterial.gui.error.duplicate_area_name": {
+        "s": 1
+      },
+      "syncmaterial.gui.hint.selected_outside_filter": {
+        "d": 1
+      },
+      "syncmaterial.gui.hud.crosshair": {
+        "d": 3
+      },
+      "syncmaterial.gui.label.area_coords": {
+        "d": 6
+      },
+      "syncmaterial.gui.label.area_entry_display": {
+        "s": 1,
+        "d": 6
+      },
+      "syncmaterial.gui.label.area_world": {
+        "s": 1
+      },
+      "syncmaterial.gui.label.deputy_owner": {
+        "s": 1
+      },
+      "syncmaterial.gui.label.main_owner": {
+        "s": 1
+      },
+      "syncmaterial.gui.label.materials_selected_count": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.more_deputies": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.players_and_materials_count": {
+        "d": 2
+      },
+      "syncmaterial.gui.label.players_selected_count": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.progress_other": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.progress_other_hover": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.progress_remaining": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.progress_staging": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.progress_staging_hover": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.progress_warehouse": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.progress_warehouse_hover": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.self_claim": {
+        "s": 1
+      },
+      "syncmaterial.gui.label.size": {
+        "d": 3
+      },
+      "syncmaterial.gui.label.staging_areas": {
+        "s": 1
+      },
+      "syncmaterial.gui.label.warehouse_has": {
+        "d": 1
+      },
+      "syncmaterial.gui.label.warehouse_refs_section": {
+        "s": 1
+      },
+      "syncmaterial.gui.label.warehouse_world": {
+        "s": 1
+      },
+      "syncmaterial.message.protocol.client_too_old": {
+        "s": 1
+      },
+      "syncmaterial.message.protocol.server_newer": {
+        "s": 1
+      }
+    }
   }
 }

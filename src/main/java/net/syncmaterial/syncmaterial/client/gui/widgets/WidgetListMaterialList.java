@@ -18,25 +18,54 @@ import net.minecraft.core.registries.BuiltInRegistries;
 
 import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListEntry;
+import net.syncmaterial.syncmaterial.client.gui.MaterialListLayout;
 import net.syncmaterial.syncmaterial.client.gui.MaterialListSorter;
+import fi.dy.masa.malilib.gui.LeftRight;
+import fi.dy.masa.malilib.gui.MaLiLibIcons;
 import fi.dy.masa.malilib.gui.widgets.WidgetListBase;
+import fi.dy.masa.malilib.gui.widgets.WidgetSearchBar;
 
 public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, WidgetMaterialListEntry>
 {
-    private static int lastScrollbarPosition;
-
     private final GuiMaterialList gui;
     private final MaterialListSorter sorter;
-    private boolean scrollbarRestored;
+    private Integer anchorMaterialId;
+    private int anchorListIndex;
+    private int anchorScroll;
+    private boolean restoringAnchor;
+    private boolean resetAnchorPending;
+    private int horizontalOffset;
+    private int maxHorizontalOverflow;
+    private MaterialListLayout rowLayout;
+    private int originY;
+
+    public int originY() {
+        return this.originY;
+    }
 
     public WidgetListMaterialList(int x, int y, int width, int height, GuiMaterialList parent)
     {
         super(x, y, width, height, null);
 
-        this.browserEntryHeight = 34;
+        this.browserEntryHeight = net.syncmaterial.syncmaterial.client.gui.MaterialListLayout.ROW_HEIGHT;
         this.gui = parent;
+        this.originY = y;
+        this.widgetSearchBar = new ViewportSearchBar(x + 2, y + 8, width - 16, 14,
+                0, MaLiLibIcons.SEARCH, LeftRight.RIGHT);
+        this.widgetSearchBar.setZLevel(1);
         this.sorter = new MaterialListSorter(parent.getMaterialList());
         this.shouldSortList = true;
+    }
+
+    @Override
+    public void initGui() {
+        var search = ((ViewportSearchBar) this.widgetSearchBar).state();
+        this.widgetSearchBar = new ViewportSearchBar(this.posX + 2, this.posY + 8, this.browserWidth - 16, 14,
+                0, MaLiLibIcons.SEARCH, LeftRight.RIGHT);
+        ((ViewportSearchBar) this.widgetSearchBar).restore(search.searchFilter(), search.searchOpen());
+        this.widgetSearchBar.setZLevel(1);
+        this.rowLayout = null;
+        super.initGui();
     }
 
     public GuiMaterialList getGui() {
@@ -51,8 +80,18 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     *///?}
     {
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
-        lastScrollbarPosition = this.scrollBar.getValue();
+        rememberAnchor();
 
+        if (maxHorizontalOverflow > 0) {
+            String hint = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.hint.horizontal_scroll");
+            int available = Math.max(0, this.browserWidth - 24);
+            hint = MaterialListLayout.clipText(hint, available,
+                    fi.dy.masa.malilib.util.StringUtils::getStringWidth).text();
+            int width = Minecraft.getInstance().font.width(hint);
+            drawContext.drawString(Minecraft.getInstance().font, hint,
+                    this.posX + this.browserWidth - width - 20,
+                    this.posY + this.browserHeight - 10, 0xFFAAAAAA, false);
+        }
         if (this.listWidgets.isEmpty()) {
             String hint = fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.hint.no_materials");
             Minecraft mc = Minecraft.getInstance();
@@ -67,20 +106,21 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     protected void offsetSelectionOrScrollbar(int amount, boolean changeSelection)
     {
         super.offsetSelectionOrScrollbar(amount, changeSelection);
-        lastScrollbarPosition = this.scrollBar.getValue();
+        rememberAnchor();
     }
 
     @Override
     protected WidgetMaterialListEntry createHeaderWidget(int x, int y, int listIndexStart, int usableHeight, int usedHeight)
     {
-        int height = this.browserEntryHeight;
+        int height = net.syncmaterial.syncmaterial.client.gui.MaterialListLayout.HEADER_HEIGHT;
 
         if ((usedHeight + height) > usableHeight)
         {
             return null;
         }
 
-        return this.createListEntryWidget(x, y, listIndexStart, true, null);
+        return new WidgetMaterialListEntry(x, y, this.browserEntryWidth, height,
+                true, this.gui.getMaterialList(), null, listIndexStart, this);
     }
 
     @Override
@@ -121,15 +161,121 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     @Override
     protected void refreshBrowserEntries()
     {
-        super.refreshBrowserEntries();
-
-        if (this.scrollbarRestored == false && lastScrollbarPosition <= this.scrollBar.getMaxValue())
-        {
-            // This needs to happen after the setMaxValue() has been called in reCreateListEntryWidgets()
-            this.scrollBar.setValue(lastScrollbarPosition);
-            this.scrollbarRestored = true;
-            this.reCreateListEntryWidgets();
+        if (restoringAnchor) return;
+        if (!resetAnchorPending) rememberAnchor();
+        resetAnchorPending = false;
+        restoringAnchor = true;
+        rowLayout = null;
+        try {
+            super.refreshBrowserEntries();
+            if (anchorMaterialId != null) {
+                int targetIndex = -1;
+                for (int index = 0; index < this.listContents.size(); index++) {
+                    if (this.listContents.get(index).getDatabaseId() == anchorMaterialId) {
+                        targetIndex = index;
+                        break;
+                    }
+                }
+                int target = targetIndex >= 0 ? targetIndex : anchorScroll;
+                int restored = Math.max(0, Math.min(target, this.scrollBar.getMaxValue()));
+                if (restored != this.scrollBar.getValue()) {
+                    this.scrollBar.setValue(restored);
+                    this.reCreateListEntryWidgets();
+                }
+            }
+            rememberAnchorAfterRefresh();
+        } finally {
+            restoringAnchor = false;
         }
+    }
+
+    private void rememberAnchorAfterRefresh() {
+        if (this.listWidgets.isEmpty()) return;
+        for (var widget : this.listWidgets) {
+            if (widget.getEntry() != null) {
+                anchorMaterialId = widget.getEntry().getDatabaseId();
+                anchorListIndex = widget.getListIndex();
+                anchorScroll = this.scrollBar.getValue();
+                return;
+            }
+        }
+    }
+
+    private void rememberAnchor() {
+        if (!restoringAnchor) rememberAnchorAfterRefresh();
+    }
+
+    MaterialListLayout rowLayout(int width) {
+        if (rowLayout == null || rowLayout.rowWidth() != width) {
+            rowLayout = WidgetMaterialListEntry.measureLayout(width, this.gui.getMaterialList(), this.gui.isOwner());
+            maxHorizontalOverflow = (int) Math.min(rowLayout.horizontalOverflowWidth(), Integer.MAX_VALUE);
+            horizontalOffset = Math.min(horizontalOffset, maxHorizontalOverflow);
+        }
+        return rowLayout;
+    }
+
+    public int horizontalOffset() {
+        return horizontalOffset;
+    }
+
+    public int maxHorizontalOverflow() {
+        return maxHorizontalOverflow;
+    }
+
+    public void refreshFromBeginning() {
+        this.resetAnchorPending = true;
+        this.anchorMaterialId = null;
+        this.anchorListIndex = 0;
+        this.anchorScroll = 0;
+        this.scrollBar.setValue(0);
+        this.refreshEntries();
+    }
+
+    @Override
+    public void resetScrollbarPosition() {
+        this.anchorMaterialId = null;
+        this.anchorListIndex = 0;
+        this.anchorScroll = 0;
+        super.resetScrollbarPosition();
+        this.reCreateListEntryWidgets();
+    }
+
+    /** Captures user-facing state before the screen recreates this fixed-position viewport. */
+    public ViewportState viewportState() {
+        var search = ((ViewportSearchBar) this.widgetSearchBar).state();
+        return new ViewportState(search.searchFilter(), search.searchOpen(),
+                this.anchorMaterialId, this.anchorListIndex, this.anchorScroll, this.horizontalOffset);
+    }
+
+    /** Restores state without replaying any network operation. */
+    public void restoreViewportState(ViewportState state) {
+        this.anchorMaterialId = state.anchorMaterialId();
+        this.anchorListIndex = state.anchorListIndex();
+        this.anchorScroll = state.anchorScroll();
+        this.horizontalOffset = state.horizontalOffset();
+        ((ViewportSearchBar) this.widgetSearchBar).restore(state.searchFilter(), state.searchOpen());
+    }
+
+    public record ViewportState(String searchFilter, boolean searchOpen, Integer anchorMaterialId,
+                                int anchorListIndex, int anchorScroll, int horizontalOffset) {}
+
+    @Override
+    //? if >=26.2 {
+    public boolean onMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount)
+    //?} else {
+    /*public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount)
+    *///?}
+    {
+        if (fi.dy.masa.malilib.gui.GuiBase.isShiftDown() && maxHorizontalOverflow > 0) {
+            int delta = (int) (-verticalAmount * 20 - horizontalAmount * 20);
+            int next = Math.max(0, Math.min(maxHorizontalOverflow, horizontalOffset + delta));
+            if (next != horizontalOffset) {
+                horizontalOffset = next;
+                this.reCreateListEntryWidgets();
+            }
+            return true;
+        }
+        return super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
     @Override
@@ -137,5 +283,32 @@ public class WidgetListMaterialList extends WidgetListBase<MaterialListEntry, Wi
     {
         return new WidgetMaterialListEntry(x, y, this.browserEntryWidth, this.getBrowserEntryHeightFor(entry),
                 isOdd, this.gui.getMaterialList(), entry, listIndex, this);
+    }
+
+    private static final class ViewportSearchBar extends WidgetSearchBar {
+        private ViewportSearchBar(int x, int y, int width, int height, int offset,
+                                  MaLiLibIcons icon, LeftRight alignment) {
+            super(x, y, width, height, offset, icon, alignment);
+        }
+
+        private record SearchState(String searchFilter, boolean searchOpen) {}
+
+        private SearchState state() {
+            //? if >=26.2 {
+            return new SearchState(this.searchBox.getValueWrapper(), this.isSearchOpen());
+            //?} else {
+            /*return new SearchState(this.searchBox.getTextWrapper(), this.isSearchOpen());
+            *///?}
+        }
+
+        private void restore(String filter, boolean open) {
+            //? if >=26.2 {
+            this.searchBox.setValueWrapper(filter);
+            //?} else {
+            /*this.searchBox.setTextWrapper(filter);
+            *///?}
+            this.setSearchOpen(open);
+            this.searchBox.setFocused(open);
+        }
     }
 }

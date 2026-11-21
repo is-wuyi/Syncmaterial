@@ -92,18 +92,32 @@ public class FoundationTeamAssignKickClientGameTest implements FabricClientGameT
                 if (!context.computeOnClient(client -> currentScreen() instanceof GuiPlayerSelectDialog)) {
                     throw new AssertionError("分配整组回包前不得关闭选择弹窗");
                 }
-                waitFor(context, () -> server.computeOnServer(instance -> {
-                    var claims = ServerRuntimeRegistry.get(instance).store().claims(projectId).join();
-                    return claims.size() == 4
-                            && claims.stream().anyMatch(claim -> claim.materialId() == fixture.stoneId()
-                                    && claim.player().uuid().equals(targetA.uuid()))
-                            && claims.stream().anyMatch(claim -> claim.materialId() == fixture.stoneId()
-                                    && claim.player().uuid().equals(targetB.uuid()))
-                            && claims.stream().anyMatch(claim -> claim.materialId() == fixture.dirtId()
-                                    && claim.player().uuid().equals(targetA.uuid()))
-                            && claims.stream().anyMatch(claim -> claim.materialId() == fixture.dirtId()
-                                    && claim.player().uuid().equals(targetB.uuid()));
-                }));
+                try {
+                    waitFor(context, () -> server.computeOnServer(instance -> {
+                        var claims = ServerRuntimeRegistry.get(instance).store().claims(projectId).join();
+                        return claims.size() == 4
+                                && claims.stream().anyMatch(claim -> claim.materialId() == fixture.stoneId()
+                                        && claim.player().uuid().equals(targetA.uuid()))
+                                && claims.stream().anyMatch(claim -> claim.materialId() == fixture.stoneId()
+                                        && claim.player().uuid().equals(targetB.uuid()))
+                                && claims.stream().anyMatch(claim -> claim.materialId() == fixture.dirtId()
+                                        && claim.player().uuid().equals(targetA.uuid()))
+                                && claims.stream().anyMatch(claim -> claim.materialId() == fixture.dirtId()
+                                        && claim.player().uuid().equals(targetB.uuid()));
+                    }));
+                } catch (AssertionError failure) {
+                    String actual = server.computeOnServer(instance -> {
+                        var runtime = ServerRuntimeRegistry.get(instance);
+                        var player = instance.getPlayerList().getPlayers().get(0);
+                        return "claims=" + runtime.store().claims(projectId).join()
+                                + ", catalog=" + runtime.catalogs().currentRevision(player.getUUID(), projectId,
+                                        runtime.connection(player.getUUID()));
+                    });
+                    String view = context.computeOnClient(client -> "screen=" + currentScreen()
+                            + ", catalog=" + gui.getMaterialList().getCatalogRevision()
+                            + ", selected=" + gui.getSelectedMaterialIds());
+                    throw new AssertionError("Assignment did not settle; server " + actual + "; client " + view, failure);
+                }
                 waitFor(context, () -> context.computeOnClient(client ->
                         CurrentScreen.same(gui) && gui.getSelectedMaterialIds().isEmpty()));
                 server.computeOnServer(instance -> {

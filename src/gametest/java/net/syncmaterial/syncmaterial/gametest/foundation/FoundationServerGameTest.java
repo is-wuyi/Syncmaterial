@@ -78,7 +78,13 @@ public class FoundationServerGameTest {
             helper.assertTrue(updated.claims().size() == 1, Component.literal("更新不能删除保留物品的认领"));
             runtime.disconnected(participant.uuid());
             helper.assertTrue(runtime.inventoryCount(participant.uuid(), id, materialId) == 0, Component.literal("离线立即不计库存"));
-            helper.assertTrue(runtime.leave(id, materialId, participant).join(), Component.literal("退出应成功"));
+            helper.assertTrue(runtime.leave(id, materialId, participant).join().status()
+                    == net.syncmaterial.syncmaterial.core.CollaborationOutcome.Status.DENIED,
+                    Component.literal("断线后不得继续提交退出写操作"));
+            helper.assertTrue(runtime.store().claims(id).join().size() == 1,
+                    Component.literal("拒绝旧连接操作不能删除已有认领"));
+            runtime.connected(participant.uuid());
+            helper.assertTrue(runtime.leave(id, materialId, participant).join().success(), Component.literal("重连后退出应成功"));
             helper.assertTrue(runtime.store().claims(id).join().isEmpty(), Component.literal("退出后认领应为空"));
         } finally {
             runtime.store().removeProject(id).join();

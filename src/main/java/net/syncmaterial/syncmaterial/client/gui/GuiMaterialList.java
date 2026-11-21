@@ -36,13 +36,17 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     /** 最近一次权威团队状态；旧服务端没有该对象，身份只能回退为名字。 */
     private TeamState teamState;
     private boolean filterMyMaterials = false;
+    private boolean legacyViewRequested;
     // 取货模式状态与需求量统一由 PickupModeState 持有（见该类注释）
     private List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessWarnings = java.util.Collections.emptyList();
     /** LIST 快照携带的区域重叠提示；null 表示无提示。 */
     private String overlapWarning;
-    private List<Integer> selectedMaterialIds = new ArrayList<>();
+    /** 每项选择带独立意图版本，迟到的分配回执不能清掉新勾选。 */
+    private final MaterialSelection selectedMaterials = new MaterialSelection();
     /** 最近一次刷新响应（测试断言 RescanResponse 真实回流；null=从未收到） */
     private Boolean lastRescanResult;
+    private final List<fi.dy.masa.malilib.gui.button.ButtonBase> toolbarControls = new ArrayList<>();
+    private final List<fi.dy.masa.malilib.gui.button.ButtonBase> footerControls = new ArrayList<>();
     private static boolean stagingRenderEnabled = true;
     /** 右栏「已选 N 种材料」动态文本的 y 坐标（initGui 布局时写入，非 owner 为 -1 不画） */
     private int mgmtSelectedLabelY = -1;
@@ -54,7 +58,65 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
      */
     private static final int CONTENT_TOP = 48;
     /** 底部留白：边线画在 bottom 外 1px，留 6px 保证边线不被屏幕底边裁掉 */
-    private static final int CONTENT_BOTTOM_MARGIN = 6;
+    private static final int CONTENT_BOTTOM_MARGIN = 34;
+    private static final int WARNING_LINE_HEIGHT = 18;
+
+    private int warningHeight() {
+        return (this.overlapWarning != null ? WARNING_LINE_HEIGHT : 0)
+                + (this.freshnessWarnings.isEmpty() ? 0 : WARNING_LINE_HEIGHT);
+    }
+
+    private int contentTop() {
+        return CONTENT_TOP + Math.max(0, this.toolbarRows() - 1) * 22 + this.warningHeight();
+    }
+
+    private boolean wideTeam() {
+        return this.isOwner && MaterialListLayout.modeForScreenWidth(this.getScreenWidth())
+                == MaterialListLayout.Mode.WIDE_SIDEBAR;
+    }
+
+    private List<Integer> toolbarWidths() {
+        List<Integer> widths = new ArrayList<>(List.of(
+                StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.close")) + 10,
+                StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.refresh")) + 10,
+                StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.staging_area_config")) + 10));
+        if (!this.wideTeam()) widths.add(StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.title.management")) + 10);
+        return widths;
+    }
+
+    private int toolbarRows() {
+        return MaterialListLayout.packControls(this.getScreenWidth(), this.toolbarWidths(), true).rows();
+    }
+
+    private int footerRows() {
+        List<Integer> widths = List.of(
+                StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.hud_toggle",
+                        StringUtils.translate(this.materialList.getHudRenderer().getShouldRender()
+                                ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"))) + 10,
+                StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
+                        StringUtils.translate(this.isPickupMode() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"))) + 10,
+                StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
+                        StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide"))) + 10,
+                StringUtils.getStringWidth(StringUtils.translate(this.filterMyMaterials
+                        ? "syncmaterial.gui.button.show_all" : "syncmaterial.gui.button.show_my_materials")) + 10);
+        int rows = MaterialListLayout.packControls(this.getScreenWidth(), widths, false).rows();
+        int total = widths.stream().mapToInt(Integer::intValue).sum() + 6;
+        if (this.isOwner && !this.wideTeam() && !this.selectedMaterials.isEmpty()) {
+            int batchWidth = StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.kick"))
+                    + StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.assign_to")) + 22;
+            if (total + batchWidth + 4 > this.getScreenWidth() - 24) rows++;
+        }
+        return rows;
+    }
+
+    private void relayoutAfterWarningChange(int previousHeight) {
+        if (previousHeight == this.warningHeight()) return;
+        var previous = this.getListWidget().viewportState();
+        this.setListPosition(10, this.contentTop());
+        this.reCreateListWidget();
+        this.getListWidget().restoreViewportState(previous);
+        this.initGui();
+    }
 
     public GuiMaterialList(String schematicId, String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         super(10, CONTENT_TOP);
@@ -69,6 +131,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.materialList.setIsOwner(isOwner);
         this.materialList.setOnStatusUpdate(() -> this.getListWidget().refreshEntries());
         this.materialList.setMaterialEntries(entries);
+        this.materialList.setOnMaterialCatalogChanged(this::retainMaterialSelection);
         this.title = this.materialList.getTitle();
         this.useTitleHierarchy = false;
 
@@ -77,7 +140,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             .setSchematicName(schematicId, schematicName);
 
         MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
-        WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
     }
 
     public SyncMaterialList getMaterialList() { return this.materialList; }
@@ -89,7 +151,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
      * 更新数据新鲜度警告（从协作状态包接收）
      */
     public void updateFreshnessWarnings(List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> info) {
-        this.freshnessWarnings = info != null ? info : java.util.Collections.emptyList();
+        int previousHeight = this.warningHeight();
+        this.freshnessWarnings = info != null ? List.copyOf(info) : java.util.Collections.emptyList();
+        this.relayoutAfterWarningChange(previousHeight);
     }
 
     public List<net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket.AreaFreshnessInfo> getFreshnessWarnings() {
@@ -98,7 +162,9 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     /** 成功 LIST 响应的重叠提示；空串/null 清除。 */
     public void updateOverlapWarning(String message) {
+        int previousHeight = this.warningHeight();
         this.overlapWarning = AreaOverlapWarningRenderer.normalize(message);
+        this.relayoutAfterWarningChange(previousHeight);
     }
 
     public String getOverlapWarning() {
@@ -110,20 +176,21 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public List<String> getDeputyOwners() { return deputyOwners; }
     public boolean isAllowSelfClaim() { return allowSelfClaim; }
     public boolean isFilterMyMaterials() { return filterMyMaterials; }
-    public List<Integer> getSelectedMaterialIds() { return selectedMaterialIds; }
+    public List<Integer> getSelectedMaterialIds() { return selectedMaterials.ids(); }
 
     @Override
     protected int getBrowserWidth() {
         // owner 时列表右边缘停在管理栏左侧 6px 处（列表 listX=10，见构造的 super(10, CONTENT_TOP)）
-        return isOwner ? this.mgmtPanelLeft() - 10 - 6
-                       : this.getScreenWidth() - 20;
+        return isOwner && net.syncmaterial.syncmaterial.client.gui.MaterialListLayout
+                .modeForScreenWidth(this.getScreenWidth()) == net.syncmaterial.syncmaterial.client.gui.MaterialListLayout.Mode.WIDE_SIDEBAR
+                ? this.mgmtPanelLeft() - 10 - 6 : this.getScreenWidth() - 20;
     }
 
     @Override
     protected int getBrowserHeight() {
-        // 分配/踢出按钮已移入右栏，列表可延伸到接近屏幕底部；
-        // 底部留 CONTENT_BOTTOM_MARGIN 供右栏边框的下边线落地（否则被屏幕裁掉）
-        return this.getScreenHeight() - CONTENT_TOP - CONTENT_BOTTOM_MARGIN;
+        // 为横向滚动提示保留底部文字行，不让长语言提示压住最后一行来源条。
+        return this.getScreenHeight() - this.contentTop() - CONTENT_BOTTOM_MARGIN - 12
+                - Math.max(0, this.footerRows() - 1) * 22;
     }
 
     @Override
@@ -136,24 +203,62 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     @Override
     public void initGui() {
         this.title = this.materialList.getTitle();
+        var list = this.getListWidget();
+        if (list.originY() != this.contentTop()) {
+            var previous = list.viewportState();
+            this.setListPosition(10, this.contentTop());
+            this.reCreateListWidget();
+            this.getListWidget().restoreViewportState(previous);
+        }
+        this.setListPosition(10, this.contentTop());
         super.initGui();
         int gap = 2;
+        this.toolbarControls.clear();
         int x = this.getScreenWidth() - 20;
         x -= this.createButtonClose(x, 24) + gap;
-        x -= this.createButtonToggleHud(x, 24) + gap;
         x -= this.createButtonRefresh(x, 24) + gap;
-        x -= this.createButtonToggleStagingRender(x, 24) + gap;
-        x -= this.createButtonTogglePickupMode(x, 24) + gap;
         x -= this.createButtonStagingArea(x, 24) + gap;
-        x -= this.createButtonFilterMyMaterials(x, 24) + gap;
-        if (isOwner) {
-            this.createManagementPanel();
+        boolean wideTeam = this.wideTeam();
+        if (!wideTeam) this.createButtonTeam(x, 24);
+        List<fi.dy.masa.malilib.gui.button.ButtonBase> topControls = this.toolbarControls;
+        var topLayout = MaterialListLayout.packControls(this.getScreenWidth(),
+                topControls.stream().map(fi.dy.masa.malilib.gui.button.ButtonBase::getWidth).toList(), true);
+        for (int index = 0; index < topControls.size(); index++) {
+            var position = topLayout.positions().get(index);
+            topControls.get(index).setPosition(position.x(), 24 + position.y());
         }
-        this.materialList.requestCollaborationStatus();
-        // 自动订阅备货区更新，使协作者能看到游戏内线框渲染
-        String schematicId = this.materialList.getSchematicId();
-        if (schematicId != null && !schematicId.isEmpty()) {
-            ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket(schematicId, "LIST", -1, java.util.Optional.empty()));
+        if (wideTeam) this.createManagementPanel();
+        this.footerControls.clear();
+        int bottomX = 12;
+        int bottomY = this.getScreenHeight() - 24;
+        bottomX += this.createButtonToggleHud(bottomX, bottomY) + gap;
+        bottomX += this.createButtonTogglePickupMode(bottomX, bottomY) + gap;
+        bottomX += this.createButtonToggleStagingRender(bottomX, bottomY) + gap;
+        this.createButtonFilterMyMaterials(bottomX, bottomY);
+        List<fi.dy.masa.malilib.gui.button.ButtonBase> bottomControls = this.footerControls;
+        var bottomLayout = MaterialListLayout.packControls(this.getScreenWidth(),
+                bottomControls.stream().map(fi.dy.masa.malilib.gui.button.ButtonBase::getWidth).toList(), false);
+        int footerY = bottomY - Math.max(0, this.footerRows() - 1) * 22;
+        for (int index = 0; index < bottomControls.size(); index++) {
+            var position = bottomLayout.positions().get(index);
+            bottomControls.get(index).setPosition(position.x(), footerY + position.y());
+        }
+        if (isOwner && !wideTeam && !this.selectedMaterials.isEmpty()) {
+            int batchX = this.getScreenWidth() - 12;
+            batchX -= this.createButtonKick(batchX, bottomY) + gap;
+            this.createButtonAssign(batchX, bottomY);
+        }
+        if (teamPopup) createTeamPopup();
+        else popupButtons.clear();
+        if (!legacyViewRequested && !net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+            legacyViewRequested = true;
+            this.materialList.requestCollaborationStatus();
+            String schematicId = this.materialList.getSchematicId();
+            if (schematicId != null && !schematicId.isEmpty()) {
+                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket(
+                        schematicId, "LIST", -1, java.util.Optional.empty()));
+            }
         }
     }
 
@@ -165,6 +270,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 btn.setEnabled(false);
             }
         });
+        toolbarControls.add(button);
         return button.getWidth();
     }
 
@@ -172,6 +278,11 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public boolean refreshStagingAreas() {
         String schematicId = this.materialList.getSchematicId();
         if (schematicId != null && !schematicId.isEmpty()) {
+            if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                    net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+                return net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                        .map(session -> session.rescan(schematicId, 0) > 0).orElse(false);
+            }
             ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(schematicId));
             return true;
         }
@@ -186,13 +297,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             editor.setParent(this);
             net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(this.mc, editor);
         });
+        toolbarControls.add(button);
         return button.getWidth();
     }
 
     private int createButtonToggleStagingRender(int x, int y) {
         String label = StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
                 StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide"));
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
         this.addButton(button, (btn, mouseButton) -> {
             stagingRenderEnabled = !stagingRenderEnabled;
             String schematicId = this.materialList.getSchematicId();
@@ -202,6 +314,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
                     StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide")));
         });
+        footerControls.add(button);
         return button.getWidth();
     }
 
@@ -209,12 +322,13 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private int createButtonTogglePickupMode(int x, int y) {
         String label = StringUtils.translate("syncmaterial.gui.button.pickup_mode",
                 StringUtils.translate(isPickupMode() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"));
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
         this.addButton(button, (btn, mouseButton) -> {
             boolean next = togglePickupMode();
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
                     StringUtils.translate(next ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
         });
+        footerControls.add(button);
         return button.getWidth();
     }
 
@@ -225,10 +339,17 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public boolean togglePickupMode() {
         boolean next = !isPickupMode();
         net.syncmaterial.syncmaterial.client.PickupModeState.setActive(next);
-        // 订阅/取消订阅仓库容器数据
+        // 协议 5 只使用关联视图兴趣，避免旧订阅与新快照同时覆写同一容器缓存。
         String schematicId = this.materialList.getSchematicId();
         if (schematicId != null && !schematicId.isEmpty()) {
-            ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, next));
+            boolean scoped = net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                    net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS);
+            var session = net.syncmaterial.syncmaterial.client.ProjectViewClient.current().orElse(null);
+            if (scoped && session != null) {
+                session.setPickup(schematicId, next);
+            } else {
+                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, next));
+            }
         }
         if (!next) {
             // 退出取货模式时清空容器缓存（需求量由 setActive 负责清空）
@@ -248,29 +369,31 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private int createButtonToggleHud(int x, int y) {
         String label = StringUtils.translate("syncmaterial.gui.button.hud_toggle",
                 StringUtils.translate(this.materialList.getHudRenderer().getShouldRender() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"));
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
         this.addButton(button, (btn, mouseButton) -> {
             this.materialList.getHudRenderer().toggleShouldRender();
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.hud_toggle",
                     StringUtils.translate(this.materialList.getHudRenderer().getShouldRender() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
         });
+        footerControls.add(button);
         return button.getWidth();
     }
 
     private int createButtonFilterMyMaterials(int x, int y) {
         String label = filterMyMaterials ? StringUtils.translate("syncmaterial.gui.button.show_all") : StringUtils.translate("syncmaterial.gui.button.show_my_materials");
-        ButtonGeneric button = new ButtonGeneric(x, y, -1, true, label);
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
         this.addButton(button, (btn, mouseButton) -> {
             filterMyMaterials = !filterMyMaterials;
             btn.setDisplayString(filterMyMaterials ? StringUtils.translate("syncmaterial.gui.button.show_all") : StringUtils.translate("syncmaterial.gui.button.show_my_materials"));
-            this.getListWidget().refreshEntries();
+            this.getListWidget().refreshFromBeginning();
         });
+        footerControls.add(button);
         return button.getWidth();
     }
 
     // ========== 右侧管理栏（Litematica 放置配置同款双栏布局）==========
 
-    private static final int MGMT_PANEL_W = 160;
+    private static final int MGMT_PANEL_W = net.syncmaterial.syncmaterial.client.gui.MaterialListLayout.TEAM_PANEL_WIDTH;
     /** 面板内容与边框的间距 */
     private static final int MGMT_PAD = 6;
     /** 副负责人平铺上限：超过则折叠成「还有 N 位…」按钮，点击弹批量移除弹窗 */
@@ -288,7 +411,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
     /** 面板底边 = 列表底边，右栏与列表同高（避免右下角出现大片空白） */
     private int mgmtPanelBottom() {
-        return CONTENT_TOP + this.getBrowserHeight();
+        return this.contentTop() + this.getBrowserHeight();
     }
 
     /** 区块分隔线的 y 坐标（initGui 布局时产生，drawScreenBackground 消费） */
@@ -310,7 +433,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private void createManagementPanel() {
         int x = this.mgmtContentLeft();
         int w = MGMT_PANEL_W;
-        int y = CONTENT_TOP + MGMT_PAD;
+        int y = this.contentTop() + MGMT_PAD;
         this.mgmtDividerYs.clear();
 
         this.addLabel(x, y, w, 12, 0xFFFFFFFF,
@@ -379,7 +502,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         ButtonGeneric kickBtn = new ButtonGeneric(x, by, w, 18,
                 StringUtils.translate("syncmaterial.gui.button.kick"));
         this.addButton(kickBtn, (btn, mouseBtn) -> {
-            if (selectedMaterialIds.isEmpty()) {
+            if (selectedMaterials.isEmpty()) {
                 InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
                 return;
             }
@@ -390,7 +513,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         ButtonGeneric assignBtn = new ButtonGeneric(x, by, w, 18,
                 StringUtils.translate("syncmaterial.gui.button.assign_to"));
         this.addButton(assignBtn, (btn, mouseBtn) -> {
-            if (selectedMaterialIds.isEmpty()) {
+            if (selectedMaterials.isEmpty()) {
                 InfoUtils.showGuiOrActionBarMessage(MessageType.WARNING, StringUtils.translate("syncmaterial.gui.hint.select_materials_first"));
                 return;
             }
@@ -417,15 +540,16 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     //?} else {
     /*protected void drawScreenBackground(GuiGraphics drawContext, int mouseX, int mouseY) {
     *///?}
-        super.drawScreenBackground(drawContext, mouseX, mouseY);
+        drawContext.fill(0, 0, this.getScreenWidth(), this.getScreenHeight(), 0xFF181B20);
 
-        if (!isOwner) {
+        if (!isOwner || net.syncmaterial.syncmaterial.client.gui.MaterialListLayout
+                .modeForScreenWidth(this.getScreenWidth()) != net.syncmaterial.syncmaterial.client.gui.MaterialListLayout.Mode.WIDE_SIDEBAR) {
             return;
         }
 
         int x = this.mgmtPanelLeft();
         int w = MGMT_PANEL_W + MGMT_PAD * 2;
-        int top = CONTENT_TOP;
+        int top = this.contentTop();
         int h = this.mgmtPanelBottom() - top;
 
         // 与 malilib 弹窗同款配色：半透明黑底 + 浅灰描边
@@ -477,21 +601,113 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         }
     }
 
+    private boolean teamPopup;
+    private int teamX;
+    private int teamY;
+    private final List<fi.dy.masa.malilib.gui.button.ButtonBase> popupButtons = new ArrayList<>();
+    private static final int TEAM_W = 250;
+    private static final int TEAM_H = 168;
+
+    private void createTeamPopup() {
+        popupButtons.clear();
+        teamX = (this.getScreenWidth() - TEAM_W) / 2;
+        teamY = Math.max(62, (this.getScreenHeight() - TEAM_H) / 2);
+        int x = teamX + 12;
+        int y = teamY + 52;
+        if (isMainOwner) {
+            addPopupButton(new ButtonGeneric(x, y, TEAM_W - 24, 18,
+                    StringUtils.translate("syncmaterial.gui.button.transfer")),
+                    (btn, mouse) -> openTransfer());
+            y += 22;
+            addPopupButton(new ButtonGeneric(x, y, TEAM_W - 24, 18,
+                    StringUtils.translate("syncmaterial.gui.button.add_deputy")),
+                    (btn, mouse) -> openAddDeputy());
+            y += 22;
+            addPopupButton(new ButtonGeneric(x, y, TEAM_W - 24, 18,
+                    StringUtils.translate("syncmaterial.gui.title.remove_deputy")),
+                    (btn, mouse) -> openRemoveDeputies());
+            y += 22;
+        }
+        if (isOwner) {
+            ButtonOnOff selfClaim = new ButtonOnOff(x, y, TEAM_W - 24, false,
+                    "syncmaterial.gui.label.self_claim", allowSelfClaim);
+            addPopupButton(selfClaim, (btn, mouse) -> toggleSelfClaim());
+        }
+        addPopupButton(new ButtonGeneric(x, teamY + 142, TEAM_W - 24, 18,
+                StringUtils.translate("syncmaterial.gui.button.close")),
+                (btn, mouse) -> {
+                    teamPopup = false;
+                    initGui();
+                });
+    }
+
+    private void addPopupButton(fi.dy.masa.malilib.gui.button.ButtonBase button,
+                                fi.dy.masa.malilib.gui.button.IButtonActionListener listener) {
+        button.setActionListener(listener);
+        popupButtons.add(button);
+    }
+
+    private int createButtonAssign(int x, int y) {
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true,
+                StringUtils.translate("syncmaterial.gui.button.assign_to"));
+        this.addButton(button, (btn, mouse) -> openAssignDialog());
+        return button.getWidth();
+    }
+
+    private int createButtonKick(int x, int y) {
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true,
+                StringUtils.translate("syncmaterial.gui.button.kick"));
+        this.addButton(button, (btn, mouse) -> openKickDialog());
+        return button.getWidth();
+    }
+
+    private int createButtonTeam(int x, int y) {
+        ButtonGeneric button = new ButtonGeneric(x, y, -1, true,
+                StringUtils.translate("syncmaterial.gui.title.management"));
+        this.addButton(button, (btn, mouseButton) -> {
+            teamPopup = true;
+            initGui();
+        });
+        toolbarControls.add(button);
+        return button.getWidth();
+    }
+
     private int createButtonClose(int x, int y) {
         ButtonGeneric button = new ButtonGeneric(x, y, -1, true, StringUtils.translate("syncmaterial.gui.button.close"));
         this.addButton(button, (btn, mouseButton) -> this.closeGui(true));
+        toolbarControls.add(button);
         return button.getWidth();
     }
 
     // ========== 网络回调 ==========
 
-    public void onMaterialCatalogUpdated() {
-        this.title = this.materialList.getTitle();
+    /** 目录变化即使发生在子弹窗上方，也必须使失效选择立即退出批量意图。 */
+    void retainMaterialSelection() {
         var ids = this.materialList.getMaterialsAll().stream().map(MaterialListEntry::getDatabaseId)
                 .collect(java.util.stream.Collectors.toSet());
-        this.selectedMaterialIds.removeIf(id -> !ids.contains(id));
-        WidgetMaterialListEntry.setMaxNameLength(this.materialList.getMaterialsAll(), this.materialList.getMultiplier());
-        this.getListWidget().refreshEntries();
+        this.selectedMaterials.retainIds(ids);
+        if (this.getListWidget() != null) this.getListWidget().refreshEntries();
+    }
+
+    public void onMaterialCatalogUpdated() {
+        this.title = this.materialList.getTitle();
+        this.retainMaterialSelection();
+        this.updateFreshnessWarnings(this.materialList.getAreaFreshness());
+    }
+
+    /** 当前搜索／参与筛选不可见、但仍会被批量命令携带的选择数量。 */
+    public int getSelectedOutsideFilterCount() {
+        var visible = new java.util.HashSet<>(this.getCurrentEntryIds());
+        int count = 0;
+        for (Integer id : this.selectedMaterials.ids()) {
+            if (!visible.contains(id)) count++;
+        }
+        return count;
+    }
+
+    public void onRescanUnconfirmed() {
+        this.lastRescanResult = null;
+        this.initGui();
     }
 
     public void onRescanResponse(boolean success, String message) {
@@ -634,10 +850,21 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         }
     }
 
-    /** 批量分配结果落库：成功则清空勾选并重新拉取协作状态 */
+    /** 提交时冻结选择意图，回包只清理仍属于这次提交的勾选。 */
+    public MaterialSelection.Snapshot captureBatchSelection(List<Integer> materialIds) {
+        return this.selectedMaterials.capture(materialIds);
+    }
+
+    /** 未关联到提交意图的旧匿名回包只能刷新，不能清空当前选择。 */
     public void applyBatchAssignResult(boolean success) {
         if (success) {
-            selectedMaterialIds.clear();
+            this.materialList.requestCollaborationStatus();
+        }
+    }
+
+    public void applyBatchAssignResult(boolean success, MaterialSelection.Snapshot captured) {
+        if (success) {
+            this.selectedMaterials.clearCaptured(captured);
             this.materialList.requestCollaborationStatus();
         }
     }
@@ -667,7 +894,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         SortCriteria criteria = MaterialListBase.criteriaForColumn(column);
         if (criteria != null) {
             this.materialList.setSortCriteria(criteria);
-            this.getListWidget().refreshEntries();
+            this.getListWidget().refreshFromBeginning();
         }
     }
 
@@ -711,7 +938,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         super.drawContents(drawContext, mouseX, mouseY, partialTicks);
 
         // 区域重叠提示与数据新鲜度警告：重叠在上，新鲜度在下，两者互不覆盖
-        int warningY = 46;
+        int warningY = CONTENT_TOP + Math.max(0, this.toolbarRows() - 1) * 22;
         if (overlapWarning != null) {
             AreaOverlapWarningRenderer.render(drawContext, 12, warningY, overlapWarning, mouseX, mouseY);
             warningY += 18;
@@ -723,11 +950,61 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         // 右栏动态文本：已选材料数（勾选实时变，不能走 initGui 静态标签）
         if (isOwner && this.mgmtSelectedLabelY >= 0) {
             String countLabel = StringUtils.translate("syncmaterial.gui.label.materials_selected_count",
-                    this.selectedMaterialIds.size());
+                    this.selectedMaterials.size());
             this.drawString(drawContext, countLabel,
                     this.mgmtContentLeft(), this.mgmtSelectedLabelY,
-                    this.selectedMaterialIds.isEmpty() ? 0xFF888888 : 0xFFE0E0E0);
+                    this.selectedMaterials.isEmpty() ? 0xFF888888 : 0xFFE0E0E0);
         }
+        int outside = this.getSelectedOutsideFilterCount();
+        if (outside > 0) {
+            String hint = MaterialListLayout.clipText(
+                    StringUtils.translate("syncmaterial.gui.hint.selected_outside_filter", outside),
+                    Math.max(0, this.getScreenWidth() - 24), StringUtils::getStringWidth).text();
+            int y = this.getScreenHeight() - 36 - Math.max(0, this.footerRows() - 1) * 22;
+            this.drawString(drawContext, hint, 12, y, 0xFFFFB020);
+        }
+    }
+
+    @Override
+    //? if >=26.2 {
+    protected void drawTextFields(GuiContext drawContext, int mouseX, int mouseY) {
+    //?} else {
+    /*protected void drawTextFields(GuiGraphics drawContext, int mouseX, int mouseY) {
+    *///?}
+        super.drawTextFields(drawContext, mouseX, mouseY);
+        if (!teamPopup) return;
+        drawContext.fill(0, 0, this.getScreenWidth(), this.getScreenHeight(), 0x78000000);
+        RenderUtils.drawOutlinedBox(drawContext, teamX, teamY, TEAM_W, TEAM_H,
+                0xFF101010, GuiBase.COLOR_HORIZONTAL_BAR);
+        this.drawString(drawContext, this.title, teamX + 12, teamY + 6, 0xFFFFFFFF);
+        this.drawString(drawContext, StringUtils.translate("syncmaterial.gui.label.main_owner", ownerName),
+                teamX + 12, teamY + 22, 0xFF55FF55);
+        String deputies = this.deputyOwners.isEmpty()
+                ? StringUtils.translate("syncmaterial.gui.label.deputy_owner_none")
+                : String.join(", ", this.deputyOwners);
+        this.drawString(drawContext, MaterialListLayout.clipText(deputies, TEAM_W - 24,
+                StringUtils::getStringWidth).text(), teamX + 12, teamY + 36, 0xFFB0B0B0);
+        for (var button : popupButtons) {
+            button.render(drawContext, mouseX, mouseY, button.isMouseOver(mouseX, mouseY));
+        }
+    }
+
+    @Override
+    //? if >=26.2 {
+    protected void drawButtonHoverTexts(GuiContext drawContext, int mouseX, int mouseY, float partialTicks) {
+    //?} else {
+    /*protected void drawButtonHoverTexts(GuiGraphics drawContext, int mouseX, int mouseY, float partialTicks) {
+    *///?}
+        if (!teamPopup) super.drawButtonHoverTexts(drawContext, mouseX, mouseY, partialTicks);
+    }
+
+    @Override
+    //? if >=26.2 {
+    protected void drawHoveredWidget(GuiContext drawContext, int mouseX, int mouseY) {
+    //?} else {
+    /*protected void drawHoveredWidget(GuiGraphics drawContext, int mouseX, int mouseY) {
+    *///?}
+        if (!teamPopup) super.drawHoveredWidget(drawContext, mouseX, mouseY);
     }
 
     /**
@@ -742,22 +1019,119 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         int bgColor = 0xA0FF8800; // 橙色半透明背景
         int textColor = 0xFFFFFF00; // 黄色文字
 
-        // 构建警告文本
-        StringBuilder sb = new StringBuilder();
-        sb.append(StringUtils.translate("syncmaterial.gui.label.freshness_warning"));
-        sb.append(" ");
-        for (int i = 0; i < freshnessWarnings.size(); i++) {
-            var info = freshnessWarnings.get(i);
-            if (i > 0) sb.append(", ");
-            sb.append(info.areaName()).append(" — ").append(info.status());
-        }
-        String text = sb.toString();
+        String text = AreaWarningLabels.summary(this.freshnessWarnings);
 
         int textWidth = this.mc.font.width(text);
-        int boxWidth = textWidth + 10;
+        int boxWidth = Math.max(0, Math.min(textWidth + 10, this.getScreenWidth() - x - 12));
         int boxHeight = 16;
+        String displayed = MaterialListLayout.clipText("⚠ " + text, Math.max(0, boxWidth - 8),
+                StringUtils::getStringWidth).text();
         drawContext.fill(x, y, x + boxWidth, y + boxHeight, bgColor);
-        drawContext.drawString(this.mc.font, "⚠ " + text, x + 4, y + 3, textColor, false);
+        drawContext.drawString(this.mc.font, displayed, x + 4, y + 3, textColor, false);
+    }
+
+    @Override
+    //? if >=26.2 {
+    public boolean onMouseClicked(net.minecraft.client.input.MouseButtonEvent event, boolean isDoubleClick)
+    //?} else {
+    /*public boolean onMouseClicked(int mouseX, int mouseY, int mouseButton)
+    *///?}
+    {
+        if (!teamPopup) {
+            //? if >=26.2 {
+            return super.onMouseClicked(event, isDoubleClick);
+            //?} else {
+            /*return super.onMouseClicked(mouseX, mouseY, mouseButton);
+            *///?}
+        }
+        //? if >=26.2 {
+        int mouseX = (int) event.x();
+        int mouseY = (int) event.y();
+        //?} else {
+        /*int button = mouseButton;
+        *///?}
+        if (mouseX < teamX || mouseX > teamX + TEAM_W || mouseY < teamY || mouseY > teamY + TEAM_H) {
+            teamPopup = false;
+            initGui();
+            return true;
+        }
+        for (var control : popupButtons) {
+            if (control.isMouseOver(mouseX, mouseY)) {
+                //? if >=26.2 {
+                control.onMouseClicked(event, isDoubleClick);
+                //?} else {
+                /*control.onMouseClicked(mouseX, mouseY, button);
+                *///?}
+                return true;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    //? if >=26.2 {
+    public boolean onMouseReleased(net.minecraft.client.input.MouseButtonEvent event)
+    //?} else {
+    /*public boolean onMouseReleased(int mouseX, int mouseY, int mouseButton)
+    *///?}
+    {
+        if (teamPopup) return true;
+        //? if >=26.2 {
+        return super.onMouseReleased(event);
+        //?} else {
+        /*return super.onMouseReleased(mouseX, mouseY, mouseButton);
+        *///?}
+    }
+
+    @Override
+    //? if >=26.2 {
+    public boolean onMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount)
+    //?} else {
+    /*public boolean onMouseScrolled(int mouseX, int mouseY, double horizontalAmount, double verticalAmount)
+    *///?}
+    {
+        return teamPopup || super.onMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
+    //? if >=26.2 {
+    public boolean onKeyTyped(net.minecraft.client.input.KeyEvent event)
+    //?} else {
+    /*public boolean onKeyTyped(int keyCode, int scanCode, int modifiers)
+    *///?}
+    {
+        if (teamPopup) {
+            //? if >=26.2 {
+            int key = event.key();
+            //?} else {
+            /*int key = keyCode;
+            *///?}
+            if (key == 256) {
+                teamPopup = false;
+                initGui();
+            }
+            return true;
+        }
+        //? if >=26.2 {
+        return super.onKeyTyped(event);
+        //?} else {
+        /*return super.onKeyTyped(keyCode, scanCode, modifiers);
+        *///?}
+    }
+
+    @Override
+    //? if >=26.2 {
+    public boolean onCharTyped(net.minecraft.client.input.CharacterEvent event)
+    //?} else {
+    /*public boolean onCharTyped(char chr, int modifiers)
+    *///?}
+    {
+        if (teamPopup) return true;
+        //? if >=26.2 {
+        return super.onCharTyped(event);
+        //?} else {
+        /*return super.onCharTyped(chr, modifiers);
+        *///?}
     }
 
     public void closeGui(boolean showParent) {
@@ -766,6 +1140,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         // 是 malilib Esc 路径不会调用的死代码，clearContext 从未执行过）。
         // 真正的清理在原理图删除时由 SyncMaterialClient.clearActiveSchematic 统一做。
         TeamManagementClient.onMaterialListClosed(this);
+        net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
+                session.closeGui(this.materialList.getSchematicId()));
         super.closeGui(showParent);
     }
 

@@ -33,6 +33,13 @@ public class ModNetworkHandlerClient {
             });
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(ProjectViewS2CPacket.ID, (payload, context) -> {
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long generation = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                    .ifPresent(session -> session.onPacket(connection, generation, payload)));
+        });
+
         ClientPlayNetworking.registerGlobalReceiver(MaterialStatsResponseS2CPacket.ID, (payload, context) -> {
             context.client().execute(() -> {
                 SyncMaterialClient.openMaterialListScreen(payload.schematicId(), payload.schematicName(), payload.materials(), payload.isOwner(), payload.isMainOwner(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
@@ -44,9 +51,8 @@ public class ModNetworkHandlerClient {
         });
 
         ClientPlayNetworking.registerGlobalReceiver(CollaborationStatusS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> {
-                SyncMaterialClient.onCollaborationStatus(payload);
-            });
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> SyncMaterialClient.onCollaborationStatus(token, payload));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(AreaInventorySnapshotS2CPacket.ID, (payload, context) -> {

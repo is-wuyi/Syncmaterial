@@ -126,20 +126,20 @@ public class CollaborationManager implements AutoCloseable {
 
     public CollaborationStatusS2CPacket getCollaborationStatus(String schematicId, int materialId) {
         try {
-            int totalCount = 0;
+            long totalCount = 0L;
             String itemId = "";
             try (var rs = database.executeQuery(
                 "SELECT count, item_id FROM material_entries WHERE id = ? AND schematic_id = ?",
                 materialId, schematicId
             )) {
                 if (rs.next()) {
-                    totalCount = rs.getInt("count");
+                    totalCount = rs.getLong("count");
                     itemId = rs.getString("item_id");
                 }
             }
 
-            int stagingCount = stagingAreaManager.getStagingCountForMaterial(schematicId, itemId);
-            int warehouseCount = stagingAreaManager.getWarehouseCountForMaterial(schematicId, itemId);
+            long stagingCount = stagingAreaManager.getStagingCountForMaterial(schematicId, itemId);
+            long warehouseCount = stagingAreaManager.getWarehouseCountForMaterial(schematicId, itemId);
 
             List<CollaborationStatusS2CPacket.ParticipantInfo> participants = new ArrayList<>();
             try (var rs = database.executeQuery(
@@ -158,21 +158,23 @@ public class CollaborationManager implements AutoCloseable {
                 }
             }
 
-            int playersSum = 0;
+            long playersSum = 0L;
             for (var p : participants) {
-                playersSum += p.count();
+                playersSum = Math.addExact(playersSum, p.count());
             }
             // 与 ModNetworkHandler/HUD 保持同一口径：已收集含备货区 + 仓库 + 参与者背包
-            int collected = stagingCount + warehouseCount + playersSum;
+            long collected = Math.addExact(Math.addExact(stagingCount, warehouseCount), playersSum);
             SyncMaterial.LOGGER.debug("getCollaborationStatus: material={}, total={}, staging={}, warehouse={}, participants={}, collected={}",
                 materialId, totalCount, stagingCount, warehouseCount, participants.size(), collected);
 
             // 构建数据新鲜度列表
             List<CollaborationStatusS2CPacket.AreaFreshnessInfo> freshnessInfo = buildFreshnessInfo(schematicId);
 
-            return new CollaborationStatusS2CPacket(schematicId, materialId, totalCount, stagingCount, warehouseCount, participants, freshnessInfo);
+            return new CollaborationStatusS2CPacket(schematicId, materialId,
+                    Math.toIntExact(totalCount), Math.toIntExact(stagingCount),
+                    Math.toIntExact(warehouseCount), participants, freshnessInfo);
 
-        } catch (SQLException e) {
+        } catch (SQLException | ArithmeticException e) {
             SyncMaterial.LOGGER.error("获取协作状态失败", e);
             return null;
         }

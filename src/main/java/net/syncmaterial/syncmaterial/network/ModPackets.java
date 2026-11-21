@@ -68,6 +68,10 @@ public class ModPackets {
     public static final Identifier TEAM_COMMAND = id("team_command");
     public static final Identifier TEAM_RESPONSE = id("team_response");
 
+    // 统一项目视图（协议 5）：命令与结果／项目进度分片
+    public static final Identifier PROJECT_VIEW_COMMAND = id("project_view_command");
+    public static final Identifier PROJECT_VIEW = id("project_view");
+
     private static Identifier id(String path) {
         return Identifier.fromNamespaceAndPath(NAMESPACE, path);
     }
@@ -122,6 +126,10 @@ public class ModPackets {
     // 项目／请求关联的团队管理（协议 4）
     public static final ResourceLocation TEAM_COMMAND = id("team_command");
     public static final ResourceLocation TEAM_RESPONSE = id("team_response");
+
+    // 统一项目视图（协议 5）：命令与结果／项目进度分片
+    public static final ResourceLocation PROJECT_VIEW_COMMAND = id("project_view_command");
+    public static final ResourceLocation PROJECT_VIEW = id("project_view");
 
     private static ResourceLocation id(String path) {
         return ResourceLocation.fromNamespaceAndPath(NAMESPACE, path);

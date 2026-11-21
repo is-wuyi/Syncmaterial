@@ -26,7 +26,7 @@ import net.syncmaterial.syncmaterial.api.ProgressFormulas;
  */
 public final class PickupModeState {
     private static boolean active;
-    private static Map<String, Integer> needs = Map.of();
+    private static Map<String, Long> needs = Map.of();
 
     private PickupModeState() {}
 
@@ -47,7 +47,7 @@ public final class PickupModeState {
      * 这是每若干 tick 采样一次的缓存值，供 HUD 与仓库线框使用。
      * 箱子格子高亮不要用它 —— 见 computeNeeds 的说明。
      */
-    public static Map<String, Integer> getNeeds() {
+    public static Map<String, Long> getNeeds() {
         return needs;
     }
 
@@ -67,7 +67,7 @@ public final class PickupModeState {
      * 调用方负责驱动（每若干 tick 一次），不依赖任何渲染回调。
      */
     public static void recompute(List<? extends MaterialSnapshot> materials) {
-        recompute(materials, Map.of());
+        recompute(materials, null);
     }
 
     /**
@@ -83,15 +83,77 @@ public final class PickupModeState {
      * 本地背包对"我手上有多少"是权威且零延迟的，故优先采用；服务端那份
      * 仍用于展示他人持有量，两者职责分开。
      *
-     * @param liveCounts itemId → 本地实测数量；缺失的条目回退到快照值
+     * @param liveCounts itemId → 本地实测数量；null 表示没有即时样本，非空样本缺失即为 0
      */
     public static void recompute(List<? extends MaterialSnapshot> materials,
-            Map<String, Integer> liveCounts) {
+            Map<String, Long> liveCounts) {
         if (!active || materials == null) {
             needs = Map.of();
             return;
         }
         needs = computeNeeds(materials, liveCounts);
+    }
+
+    /**
+     * 单条目取货需求（与 {@link #computeNeeds} 共用同一套同物品额度分配）。
+     *
+     * <p>{@code remaining} 是本条目扣除备货区与分配给我的背包额度后仍差多少；
+     * {@code pickupMissing} 是其中真正能从仓库取到的数量，即
+     * {@code min(remaining, warehouse)}。未认领条目两者都是 0。</p>
+     */
+    public record MaterialPickupNeed(long remaining, long pickupMissing) {
+        public static final MaterialPickupNeed NONE = new MaterialPickupNeed(0L, 0L);
+
+        public MaterialPickupNeed {
+            if (remaining < 0L || pickupMissing < 0L) {
+                throw new IllegalArgumentException("pickup needs must be >= 0");
+            }
+            if (pickupMissing > remaining) {
+                throw new IllegalArgumentException("pickupMissing cannot exceed remaining");
+            }
+        }
+    }
+
+    /**
+     * 按输入顺序逐条目计算取货需求，不聚合。
+     *
+     * <p>HUD 需要逐行显示"我还需取多少"，同时必须与仓库线框的聚合需求量共用
+     * 同一套算法：同一 itemId 的多个材料条目共享背包实测数，不能每条都减一遍
+     * 全额。把额度分配保留在这里，避免 HUD 另写一份近似逻辑后与高亮漂移。</p>
+     *
+     * @param liveCounts itemId → 本地含光标实测数量；null 表示没有即时样本，
+     *                   此时回退到快照的 {@link MaterialSnapshot#myCount()}；
+     *                   非 null 但缺少某物品表示本机确认该物品为 0
+     */
+    public static MaterialPickupNeed[] computePerMaterialPickupNeeds(
+            List<? extends MaterialSnapshot> materials, Map<String, Long> liveCounts) {
+        if (materials == null) return new MaterialPickupNeed[0];
+
+        MaterialPickupNeed[] needs = new MaterialPickupNeed[materials.size()];
+        Map<String, Long> allowance = liveCounts == null ? null : new HashMap<>(liveCounts);
+        for (int index = 0; index < needs.length; index++) {
+            MaterialSnapshot entry = materials.get(index);
+            if (entry == null || !entry.claimedByCurrentPlayer()) {
+                needs[index] = MaterialPickupNeed.NONE;
+                continue;
+            }
+            String itemId = entry.itemId();
+            long myCount = entry.myCount();
+            if (allowance != null) {
+                long left = allowance.getOrDefault(itemId, 0L);
+                // 即时样本里缺少该物品就是本机确认 0；只有 null 样本才回退快照。
+                long demand = ProgressFormulas.saturatingSubtract(entry.countTotal(), entry.stagingCount());
+                myCount = Math.min(left, demand);
+                allowance.put(itemId, left - myCount);
+            }
+            long remaining = ProgressFormulas.saturatingSubtract(
+                    ProgressFormulas.saturatingSubtract(entry.countTotal(), entry.stagingCount()), myCount);
+            // 复用公开公式，保持与 HUD/GUI 其它调用点完全相同的输入校验与饱和语义。
+            long pickupMissing = ProgressFormulas.pickupMissing(
+                    entry.countTotal(), entry.stagingCount(), myCount, entry.warehouseCount());
+            needs[index] = new MaterialPickupNeed(remaining, pickupMissing);
+        }
+        return needs;
     }
 
     /**
@@ -106,31 +168,19 @@ public final class PickupModeState {
      *   因为高亮是"从第一格往后累加直到凑够需求量"，需求量与容器内容
      *   若不同源，差多少就会多点亮几格 —— 取走一个物品时容器少 1、
      *   需求却还是旧值，贪心就会多走两格，表现为后面的物品闪一下再恢复。
+     *
+     * <p>聚合值在 {@link Long#MAX_VALUE} 处饱和，不会因多个条目求和回绕或抛异常。</p>
      */
-    public static Map<String, Integer> computeNeeds(List<? extends MaterialSnapshot> materials,
-            Map<String, Integer> liveCounts) {
+    public static Map<String, Long> computeNeeds(List<? extends MaterialSnapshot> materials,
+            Map<String, Long> liveCounts) {
         if (materials == null) return Map.of();
 
-        Map<String, Integer> live = liveCounts == null ? Map.of() : liveCounts;
-        // 同一物品可能对应多个材料条目，而实测数是该物品在背包里的总量。
-        // 若给每个条目都减一遍全额，需求会被低估；故按条目顺序分配额度。
-        Map<String, Integer> allowance = new HashMap<>(live);
-        Map<String, Integer> next = new HashMap<>();
-        for (MaterialSnapshot entry : materials) {
-            if (!entry.claimedByCurrentPlayer()) continue;
-            String itemId = entry.itemId();
-            int myCount = entry.myCount();
-            if (live.containsKey(itemId)) {
-                int left = allowance.getOrDefault(itemId, 0);
-                // 本条目最多认领到自己的需要量，余额留给同物品的后续条目
-                int demand = Math.max(0, entry.countTotal() - entry.stagingCount());
-                myCount = Math.min(left, demand);
-                allowance.put(itemId, left - myCount);
-            }
-            int pickupMissing = (int) ProgressFormulas.pickupMissing(
-                entry.countTotal(), entry.stagingCount(), myCount, entry.warehouseCount());
+        MaterialPickupNeed[] perMaterial = computePerMaterialPickupNeeds(materials, liveCounts);
+        Map<String, Long> next = new HashMap<>();
+        for (int index = 0; index < perMaterial.length; index++) {
+            long pickupMissing = perMaterial[index].pickupMissing();
             if (pickupMissing > 0) {
-                next.merge(itemId, pickupMissing, Integer::sum);
+                next.merge(materials.get(index).itemId(), pickupMissing, ProgressFormulas::saturatingAdd);
             }
         }
         return Collections.unmodifiableMap(next);
@@ -142,10 +192,10 @@ public final class PickupModeState {
      */
     public interface MaterialSnapshot {
         String itemId();
-        int countTotal();
-        int stagingCount();
-        int myCount();
-        int warehouseCount();
+        long countTotal();
+        long stagingCount();
+        long myCount();
+        long warehouseCount();
         boolean claimedByCurrentPlayer();
     }
 }

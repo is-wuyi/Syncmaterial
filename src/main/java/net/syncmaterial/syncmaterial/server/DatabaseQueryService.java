@@ -31,7 +31,11 @@ public class DatabaseQueryService {
             while (qr.next()) {
                 int dbId = qr.getInt("id");
                 String itemId = qr.getString("item_id");
-                int count = qr.getInt("count");
+                long count = qr.getLong("count");
+                if (count < 0) {
+                    SyncMaterial.LOGGER.error("材料 {} 的数量为负数: {}", dbId, count);
+                    continue;
+                }
 
                 if (itemId == null || itemId.isEmpty()) {
                     continue;
@@ -43,7 +47,9 @@ public class DatabaseQueryService {
                 var itemRef = itemRegistry.get(identifier);
 
                 if (itemRef.isPresent() && itemRef.get().value() != net.minecraft.world.item.Items.AIR) {
-                    var stack = new net.minecraft.world.item.ItemStack(itemRef.get(), count);
+                    // ItemStack's slot count is an int; the authoritative material total is
+                    // carried as a checked long by MaterialEntry and its long codec.
+                    var stack = new net.minecraft.world.item.ItemStack(itemRef.get(), 1);
                     materials.add(new MaterialEntry(dbId, stack, count));
                 } else {
                     SyncMaterial.LOGGER.warn("未找到物品: {}", itemId);

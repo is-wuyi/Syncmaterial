@@ -30,7 +30,8 @@ class ProtocolVersionSharedTest {
         assertEquals(2, ProtocolVersion.MATERIAL_CATALOG_UPDATES);
         assertEquals(3, ProtocolVersion.AREA_INVENTORY_SNAPSHOTS);
         assertEquals(4, ProtocolVersion.SCOPED_TEAM_MANAGEMENT);
-        assertEquals(4, ProtocolVersion.CURRENT);
+        assertEquals(5, ProtocolVersion.SCOPED_PROJECT_VIEWS);
+        assertEquals(5, ProtocolVersion.CURRENT);
         assertEquals(1, ProtocolVersion.MIN_COMPATIBLE);
     }
 }

@@ -91,9 +91,9 @@ public class PickupHighlightClientGameTest implements FabricClientGameTest {
 
             // 前置断言：需求量必须先算出来，否则后面「高亮为空」分不清是
             // Mixin 没注入还是需求本来就是空的
-            Map<String, Integer> needs = ctx.computeOnClient(client ->
+            Map<String, Long> needs = ctx.computeOnClient(client ->
                 Map.copyOf(PickupModeState.getNeeds()));
-            if (!Integer.valueOf(TOTAL_NEEDED).equals(needs.get("minecraft:stone"))) {
+            if (!Long.valueOf(TOTAL_NEEDED).equals(needs.get("minecraft:stone"))) {
                 throw new AssertionError(
                     "前置条件不成立：取货需求量应为 " + TOTAL_NEEDED + "，实际为 " + needs);
             }

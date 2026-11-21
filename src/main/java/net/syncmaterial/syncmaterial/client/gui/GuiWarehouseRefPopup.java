@@ -23,8 +23,11 @@ import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.KeyCodes;
 import fi.dy.masa.malilib.util.StringUtils;
 
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.syncmaterial.syncmaterial.SyncMaterial;
+import net.syncmaterial.syncmaterial.client.ProjectViewClient;
+import net.syncmaterial.syncmaterial.core.InterestKind;
+import net.syncmaterial.syncmaterial.network.ClientProtocolState;
+import net.syncmaterial.syncmaterial.network.ProtocolVersion;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket;
 
@@ -37,8 +40,19 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
     private List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouses = new ArrayList<>();
     private boolean loading = true;
     private WarehouseListWidget listWidget;
+    /** 本次弹窗是否已读取列表；loading 期间 resize 不得重复发 LIST。 */
+    private boolean warehouseListRequested;
+    /** 已读取的全局视图代次；只有视图真正重开时才允许再读。 */
+    private ProjectViewClient.ViewToken warehouseListView;
     /** 本项目 LIST_WAREHOUSES 快照携带的重叠提示；null 表示无提示。 */
     private String overlapWarning;
+    /** 本弹窗自己的全局视图消费者；不依赖先访问仓库管理器。 */
+    private ProjectViewClient.GlobalLease globalLease;
+    private final EditorSaveTracker saveTracker = new EditorSaveTracker();
+
+    public EditorSaveTracker.State getSaveState() {
+        return saveTracker.state();
+    }
 
     public GuiWarehouseRefPopup(String schematicId)
     {
@@ -83,6 +97,33 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         this.initGui();
     }
 
+    public void applyProjectViewConfiguration(
+            java.util.List<net.syncmaterial.syncmaterial.core.AreaDefinition> definitions) {
+        onWarehouseListResponse(definitions.stream().map(area -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                area.id(), area.name(), area.bounds().x1(), area.bounds().y1(), area.bounds().z1(),
+                area.bounds().x2(), area.bounds().y2(), area.bounds().z2(), area.world())).toList());
+    }
+
+    /** Ensures the global scope exists before the first LIST_WAREHOUSES request. */
+    void ensureGlobalLease()
+    {
+        if (this.globalLease == null) {
+            this.globalLease = ProjectViewClient.current()
+                    .map(session -> session.acquireGlobalWarehouse(InterestKind.AREA_CONFIG.bit()))
+                    .orElse(null);
+        } else {
+            this.globalLease.retry();
+        }
+    }
+
+    void releaseGlobalLease()
+    {
+        if (this.globalLease != null) {
+            this.globalLease.close();
+            this.globalLease = null;
+        }
+    }
+
     @Override
     public void initGui()
     {
@@ -90,9 +131,7 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
 
         if (loading)
         {
-            // 首次打开时发请求：带上本项目 id，服务端按项目范围判定重叠提示
-            ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                    this.schematicId, "LIST_WAREHOUSES", 0, Optional.empty()));
+            requestWarehouseList();
             return;
         }
 
@@ -104,6 +143,29 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         this.listWidget = new WarehouseListWidget(listX, listY, listWidth, listHeight);
         this.listWidget.setEntries(this.warehouses);
         this.listWidget.initGui();
+    }
+
+    /**
+     * Ensures the global view is OPEN, then sends LIST_WAREHOUSES only once for this popup
+     * and global view generation. Repeated loading initGui calls (including resize) reuse it.
+     */
+    void requestWarehouseList()
+    {
+        ensureGlobalLease();
+        ProjectViewClient.ViewToken view = ProjectViewEditorSupport.captureView(
+                net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse());
+        if (warehouseListRequested && java.util.Objects.equals(warehouseListView, view)) {
+            return;
+        }
+        if (ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS)
+                && globalLease == null) {
+            return;
+        }
+        warehouseListRequested = true;
+        warehouseListView = view;
+        ProjectViewEditorSupport.read(net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
+                "LIST_WAREHOUSES", new StagingAreaConfigC2SPacket(
+                        this.schematicId, "LIST_WAREHOUSES", 0, Optional.empty()));
     }
 
     @Override
@@ -264,6 +326,21 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
     }
 
     @Override
+    public void closeGui(boolean showParent)
+    {
+        releaseGlobalLease();
+        super.closeGui(showParent);
+    }
+
+    @Override
+    public void removed()
+    {
+        // Esc/点击弹窗外/选择完成都会直接 setScreen(parent)，不一定走 closeGui。
+        releaseGlobalLease();
+        super.removed();
+    }
+
+    @Override
     public boolean isPauseScreen()
     {
         return false;
@@ -271,8 +348,10 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
 
     private void selectWarehouse(StagingAreaConfigResponseS2CPacket.AreaInfo warehouse)
     {
-        ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                this.schematicId, "ADD_WAREHOUSE_REF", warehouse.areaId(), Optional.empty()));
+        ProjectViewEditorSupport.write(net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId),
+                warehouse.areaId(), "ADD_WAREHOUSE_REF", Optional.empty(),
+                new StagingAreaConfigC2SPacket(schematicId, "ADD_WAREHOUSE_REF", warehouse.areaId(), Optional.empty()),
+                saveTracker);
         GuiBase.openGui(this.getParent());
     }
 

@@ -3,6 +3,7 @@
 
 import gzip
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -158,6 +159,120 @@ class StaticFindingGateTest(unittest.TestCase):
     def test_removed_baseline_findings_do_not_fail(self):
         baseline = {"spotbugs": {"accepted_findings": {"shared": []}}}
         self.assertEqual([], GUARD.new_spotbugs_findings(GUARD.Counter(), baseline, "shared"))
+
+
+class LanguageResourceGateTest(unittest.TestCase):
+    EN = {
+        "greeting": "Hello %s",
+        "count": "%d items",
+        "prose": "Progress 100% complete",
+        "coords": "%1$s [%2$d,%3$d]",
+    }
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.lang = self.root / "lang"
+        self.lang.mkdir()
+        self.locales = ["de_de", "en_us"]
+        self.contract = {
+            "directory": "lang",
+            "reference": "en_us",
+            "locales": list(self.locales),
+            "expected_keys": sorted(self.EN),
+            "placeholders": {
+                "greeting": {"s": 1},
+                "count": {"d": 1},
+                "coords": {"s": 1, "d": 2},
+            },
+        }
+        self.write("en_us", self.EN)
+        self.write("de_de", self.EN)
+
+    def write(self, locale, data):
+        path = self.lang / (locale + ".json")
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def write_raw(self, locale, raw):
+        (self.lang / (locale + ".json")).write_bytes(raw)
+
+    def problems(self):
+        return GUARD.language_resource_problems(self.root, self.contract)
+
+    def test_real_contract_covers_all_eight_locales_and_declared_keys(self):
+        baseline = json.loads((ROOT / "scripts/multiversion_baseline.json").read_text(encoding="utf-8"))
+        contract = baseline["language_resources"]
+        self.assertEqual(8, len(contract["locales"]))
+        reference, problems = GUARD.read_language_json(ROOT / contract["directory"] / "en_us.json")
+        self.assertEqual([], problems)
+        self.assertEqual(set(reference), set(contract["expected_keys"]))
+        self.assertEqual([], GUARD.language_resource_problems(ROOT, contract))
+
+    def test_clean_fixture_passes(self):
+        self.assertEqual([], self.problems())
+
+    def test_bom_is_rejected(self):
+        self.write_raw("de_de", b"\xef\xbb\xbf" + json.dumps(self.EN).encode("utf-8"))
+        self.assertTrue(any("byte-order mark" in problem for problem in self.problems()))
+
+    def test_duplicate_json_key_is_rejected(self):
+        raw = json.dumps(self.EN)
+        self.write_raw("de_de", (raw[:-1] + ', "greeting": "Hello %s"}').encode("utf-8"))
+        self.assertTrue(any("duplicate keys" in problem for problem in self.problems()))
+
+    def test_invalid_json_is_rejected(self):
+        self.write_raw("de_de", b"{not json")
+        self.assertTrue(any("invalid JSON" in problem for problem in self.problems()))
+
+    def test_missing_language_file_is_rejected(self):
+        (self.lang / "de_de.json").unlink()
+        self.assertTrue(any("missing language files" in problem for problem in self.problems()))
+
+    def test_unexpected_language_file_is_rejected(self):
+        self.write("fr_fr", self.EN)
+        self.assertTrue(any("unexpected language files" in problem for problem in self.problems()))
+
+    def test_missing_key_is_rejected(self):
+        data = dict(self.EN)
+        data.pop("greeting")
+        self.write("de_de", data)
+        self.assertTrue(any("missing keys" in problem for problem in self.problems()))
+
+    def test_extra_key_is_rejected(self):
+        data = dict(self.EN)
+        data["surplus"] = "unexpected"
+        self.write("de_de", data)
+        self.assertTrue(any("unexpected keys" in problem for problem in self.problems()))
+
+    def test_placeholder_type_mismatch_is_rejected(self):
+        data = dict(self.EN)
+        data["count"] = "%s items"
+        self.write("de_de", data)
+        self.assertTrue(any("placeholder mismatch for 'count'" in problem
+                            for problem in self.problems()))
+
+    def test_placeholder_count_mismatch_is_rejected(self):
+        data = dict(self.EN)
+        data["greeting"] = "Hello %s %s"
+        self.write("de_de", data)
+        self.assertTrue(any("placeholder mismatch for 'greeting'" in problem
+                            for problem in self.problems()))
+
+    def test_contract_catches_reference_and_locale_drift_together(self):
+        for locale in self.locales:
+            data = dict(self.EN)
+            data["greeting"] = "Hello"
+            self.write(locale, data)
+        self.assertTrue(any("placeholder mismatch for 'greeting'" in problem
+                            for problem in self.problems()))
+
+    def test_prose_percent_is_not_a_placeholder(self):
+        for text in ("100%", "50%% complete", "Progress 100% complete",
+                     "100% sure", "50%off", "%n"):
+            self.assertEqual({}, dict(GUARD.language_placeholder_counts(text)))
+        self.assertEqual({"s": 1, "d": 2},
+                         dict(GUARD.language_placeholder_counts("%1$s %2$d %02d")))
 
 
 if __name__ == "__main__":

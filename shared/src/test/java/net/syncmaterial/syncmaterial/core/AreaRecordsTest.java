@@ -124,13 +124,16 @@ class AreaRecordsTest {
         counts.put("minecraft:dirt", 2L);
 
         assertEquals(Map.of("minecraft:stone", 5L), observation.counts());
+        assertEquals(java.util.Set.of("minecraft:stone"), observation.presentItemIds());
         assertFalse(observation.isOpaque());
         assertThrows(UnsupportedOperationException.class,
                 () -> observation.counts().put("minecraft:dirt", 1L));
 
         ContainerObservation opaque = new ContainerObservation(
-                new ContainerKey("minecraft:overworld", 0, 64, 0), Map.of(), "loot table");
+                new ContainerKey("minecraft:overworld", 0, 64, 0),
+                Map.of("minecraft:stone", 0L), "legacy item presence");
         assertTrue(opaque.isOpaque());
+        assertEquals(java.util.Set.of("minecraft:stone"), opaque.presentItemIds());
 
         assertThrows(IllegalArgumentException.class, () -> new ContainerObservation(
                 new ContainerKey("minecraft:overworld", 0, 64, 0),

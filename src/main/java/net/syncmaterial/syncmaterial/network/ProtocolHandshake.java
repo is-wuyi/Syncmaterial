@@ -72,21 +72,28 @@ public final class ProtocolHandshake {
     }
 
     public static void remove(ServerPlayer player) {
+        remove(player, player == null ? null : player.connection);
+    }
+
+    /** Removes only the captured connection, never a replacement connection on the same player. */
+    public static void remove(ServerPlayer player, Object connection) {
         synchronized (LOCK) {
             MinecraftServer server = getServer(player);
             Map<UUID, Handshake> players = SERVERS.get(server);
             if (players == null || player == null || server.getPlayerList() == null) return;
             var current = server.getPlayerList().getPlayer(player.getUUID());
-            removeConnection(players, player.getUUID(), player.connection, current);
+            removeConnection(players, player.getUUID(), connection, current);
         }
     }
 
     private static void removeConnection(Map<UUID, Handshake> players, UUID playerId,
                                          @javax.annotation.Nullable Object connection,
                                          @javax.annotation.Nullable ServerPlayer current) {
-        if (connection == null && current != null) return;
+        if (connection == null && current != null && current.connection != null) return;
         players.computeIfPresent(playerId, (ignored, previous) ->
-                previous.connection() == connection || (connection == null && current == null) ? null : previous);
+                previous.connection() == connection
+                        || (connection == null && (current == null || current.connection == null))
+                        ? null : previous);
     }
 
     public static void clear(MinecraftServer server) {

@@ -83,6 +83,33 @@ public class InventoryWatcherDiffTest {
     }
 
     @Test
+    void repeatedIdenticalContextDoesNotResetObservationHistory() throws Exception {
+        InventoryWatcher.clearContext();
+        Map<String, Integer> context = Map.of("minecraft:dirt", 1);
+        InventoryWatcher.setContext("project", context);
+        var counts = InventoryWatcher.class.getDeclaredField("lastKnownCounts");
+        counts.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<Integer, Integer> history = (Map<Integer, Integer>) counts.get(null);
+        history.put(1, 4);
+        var ticks = InventoryWatcher.class.getDeclaredField("tickCounter");
+        ticks.setAccessible(true);
+        ticks.setInt(null, 40);
+        InventoryWatcher.enablePeriodicReports();
+
+        InventoryWatcher.setContext("project", context);
+        assertEquals(4, history.get(1));
+        assertEquals(40, ticks.getInt(null));
+        assertTrue(InventoryWatcher.hasPeriodicReports());
+
+        InventoryWatcher.setContext("project", Map.of("minecraft:stone", 2));
+        assertTrue(history.isEmpty());
+        assertEquals(0, ticks.getInt(null));
+        assertFalse(InventoryWatcher.hasPeriodicReports());
+        InventoryWatcher.clearContext();
+    }
+
+    @Test
     void firstTimeSeesMaterial_detectedAsNew() {
         // lastKnownCounts 为空（首次检查）
         var current = mapOf(1, 5, 2, 10);

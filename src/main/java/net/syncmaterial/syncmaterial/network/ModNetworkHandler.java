@@ -61,6 +61,7 @@ public class ModNetworkHandler {
         PayloadRegistrar.c2s(KickFromMaterialC2SPacket.ID, KickFromMaterialC2SPacket.CODEC);
         PayloadRegistrar.c2s(PlayerListRequestC2SPacket.ID, PlayerListRequestC2SPacket.CODEC);
         PayloadRegistrar.c2s(TeamCommandC2SPacket.ID, TeamCommandC2SPacket.CODEC);
+        PayloadRegistrar.c2s(ProjectViewCommandC2SPacket.ID, ProjectViewCommandC2SPacket.CODEC);
         PayloadRegistrar.c2s(MaterialListCloseC2SPacket.ID, MaterialListCloseC2SPacket.CODEC);
         // Phase 5
         PayloadRegistrar.c2s(WarehouseContainerRequestC2SPacket.ID, WarehouseContainerRequestC2SPacket.CODEC);
@@ -79,6 +80,7 @@ public class ModNetworkHandler {
         PayloadRegistrar.s2c(KickFromMaterialResponseS2CPacket.ID, KickFromMaterialResponseS2CPacket.CODEC);
         PayloadRegistrar.s2c(PlayerListResponseS2CPacket.ID, PlayerListResponseS2CPacket.CODEC);
         PayloadRegistrar.s2c(TeamResponseS2CPacket.ID, TeamResponseS2CPacket.CODEC);
+        PayloadRegistrar.s2c(ProjectViewS2CPacket.ID, ProjectViewS2CPacket.CODEC);
         // Phase 5
         PayloadRegistrar.s2c(WarehouseContainerResponseS2CPacket.ID, WarehouseContainerResponseS2CPacket.CODEC);
         PayloadRegistrar.s2c(WarehouseAreaResponseS2CPacket.ID, WarehouseAreaResponseS2CPacket.CODEC);
@@ -124,7 +126,7 @@ public class ModNetworkHandler {
                 ServerPlayNetworking.send(player, new HelloS2CPacket(
                         ProtocolVersion.CURRENT, SyncMaterial.getModVersion(), accepted));
                 if (accepted) {
-                    runtime.connected(player.getUUID());
+                    runtime.connected(player.getUUID(), connection);
                     FoundationNetworkAdapter.sendInitialData(server, player);
                 }
                 return;
@@ -390,6 +392,20 @@ public class ModNetworkHandler {
             LegacyNetworkDispatch.dispatch(context, owner ->
                     handleWarehouseContainerRequest(owner, payload, player));
         });
+
+        // 协议 5：项目视图统一命令。能力门在接收时和 owner 线程处理前各校验一次。
+        ServerPlayNetworking.registerGlobalReceiver(ProjectViewCommandC2SPacket.ID, (payload, context) -> {
+            ServerPlayer player = context.player();
+            if (player == null || !ProtocolHandshake.supports(player,
+                    ProtocolVersion.SCOPED_PROJECT_VIEWS)) return;
+            Object connection = player.connection;
+            MinecraftServer server = context.server();
+            LegacyNetworkDispatch.dispatch(context, owner -> {
+                if (owner.projectViews() != null) {
+                    owner.projectViews().handle(payload, player, connection, server);
+                }
+            });
+        });
     }
 
     static void handleJoinCollaboration(LegacyServerContext owner, JoinCollaborationC2SPacket payload,
@@ -424,13 +440,22 @@ public class ModNetworkHandler {
         if (collaboration.joinCollaboration(schematicId, materialId, playerName)) {
             for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
                 collaboration.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
+                owner.trackInventory(player, schematicId, entry.getKey(), entry.getValue().longValue());
             }
+            owner.markClaimEpoch(playerName, schematicId, materialId);
             broadcastStatus(owner, schematicId, materialId);
+            if (owner.projectViews() != null) owner.projectViews().markDirty(schematicId);
         }
     }
 
     static void handleContainerUpdate(LegacyServerContext owner, InventoryUpdateC2SPacket payload,
                                       ServerPlayer player, MinecraftServer server) {
+        handleContainerUpdate(owner, payload, player, server, System.nanoTime());
+    }
+
+    static void handleContainerUpdate(LegacyServerContext owner, InventoryUpdateC2SPacket payload,
+                                      ServerPlayer player, MinecraftServer server,
+                                      long receivedAtNanos) {
         if (!LegacyNetworkDispatch.accepts(owner, player, server)) return;
 
         String schematicId = payload.schematicId();
@@ -441,9 +466,12 @@ public class ModNetworkHandler {
         var collaboration = owner.collaboration();
         if (collaboration == null) return;
         SyncMaterial.LOGGER.debug("收到玩家 {} 的库存更新: 材料 {}, 数量 {}", playerName, materialId, count);
-        if (collaboration.isCollaborating(schematicId, materialId, playerName)) {
+        if (collaboration.isCollaborating(schematicId, materialId, playerName)
+                && owner.acceptsObservation(playerName, schematicId, materialId, receivedAtNanos)) {
             collaboration.updatePlayerInventory(playerName, schematicId, materialId, count);
+            owner.trackInventory(player, schematicId, materialId, count);
             broadcastStatus(owner, schematicId, materialId);
+            if (owner.projectViews() != null) owner.projectViews().markDirty(schematicId);
         } else {
             SyncMaterial.LOGGER.debug("玩家 {} 未协作材料 {}，忽略库存更新", playerName, materialId);
         }
@@ -707,30 +735,51 @@ public class ModNetworkHandler {
             return;
         }
 
+        Object connection = player.connection;
         if (BackendMode.isFoundationEnabled()) {
             var runtime = ServerRuntimeRegistry.get(server);
             var current = server.getPlayerList().getPlayer(player.getUUID());
             if (runtime != null && (current == null || current == player)) {
                 FoundationNetworkAdapter.onPlayerDisconnect(runtime, player.getUUID());
-                runtime.disconnected(player.getUUID());
+                runtime.disconnected(player.getUUID(), connection);
             }
         }
 
         LegacyServerContext owner = LegacyServerRegistry.get(server);
         if (owner != null) {
             owner.execute(() -> {
-                // 排队期间的上下文切换不能再清另一个实例的订阅。
                 if (LegacyServerRegistry.get(server) != owner) return;
-                owner.subscriptions().forgetPlayer(player);
                 var current = server.getPlayerList().getPlayer(player.getUUID());
-                if (current == null || current == player) owner.teamRequests().disconnected(player.getUUID());
-                var manager = owner.staging();
-                if (manager != null) {
-                    manager.unsubscribeAll(player);
+                boolean samePlayer = current == null || current == player;
+                boolean sameConnection = player.connection == connection;
+                boolean noActiveConnection = player.connection == null;
+                if (samePlayer && (sameConnection || noActiveConnection)) {
+                    owner.subscriptions().forgetPlayer(player);
+                    if (owner.projectViews() != null) {
+                        owner.projectViews().disconnected(player, connection);
+                    }
+                    owner.disconnectInventory(player.getUUID(), connection);
+                    owner.clearPlayerClaimEpochs(player.getName().getString());
+                    owner.teamRequests().disconnected(player.getUUID());
+                    var manager = owner.staging();
+                    if (manager != null) manager.unsubscribeAll(player);
+                } else if (!samePlayer) {
+                    owner.subscriptions().forgetPlayer(player);
+                    if (owner.projectViews() != null) {
+                        owner.projectViews().disconnected(player, connection);
+                    }
+                    owner.disconnectInventory(player.getUUID(), connection);
+                    var manager = owner.staging();
+                    if (manager != null) manager.unsubscribeAll(player);
+                } else {
+                    if (owner.projectViews() != null) {
+                        owner.projectViews().disconnected(player, connection);
+                    }
+                    owner.disconnectInventory(player.getUUID(), connection);
                 }
             });
         }
-        ProtocolHandshake.remove(player);
+        ProtocolHandshake.remove(player, connection);
     }
 
     /** 原版世界边界，坐标绝对值上限 */

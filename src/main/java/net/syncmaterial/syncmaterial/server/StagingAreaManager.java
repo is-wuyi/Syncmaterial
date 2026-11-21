@@ -39,6 +39,9 @@ public class StagingAreaManager implements AutoCloseable {
     // 初始化状态按 "S:区域id"/"W:仓库id" 记录：备货区和仓库的自增 id 各自独立，
     // 不加前缀会互相串（备货区 3 已初始化 ≠ 仓库 3 已初始化）
     private final Set<String> initializedAreas = ConcurrentHashMap.newKeySet();
+    // 最近一次整区扫描未能覆盖全部区块的区域；在成功整区重扫前保持"当前状态未知"。
+    // 只由显式整区重扫维护，增量区块扫描不会清除，避免把残缺结果当作完整覆盖。
+    private final Set<String> incompleteScans = ConcurrentHashMap.newKeySet();
     // 临时区块跟踪：初始化阶段记录已扫描的区块，全部扫描完成后清除
     private final Map<String, Set<Long>> initChunkTracking = new ConcurrentHashMap<>();
     private MinecraftServer server;
@@ -90,6 +93,7 @@ public class StagingAreaManager implements AutoCloseable {
         processedRemovals.clear();
         subscribers.clear();
         initializedAreas.clear();
+        incompleteScans.clear();
         initChunkTracking.clear();
         stagingAreasBySchematic.clear();
         stagingAreasByWorld = Map.of();
@@ -144,6 +148,12 @@ public class StagingAreaManager implements AutoCloseable {
 
     public void broadcastUpdate(String schematicId) {
         if (!isOpen() || owner == null) return;
+        // 旧编辑入口或其它玩家的区域变更也要让协议 5 项目视图失效；
+        // 这里只标记，实际读取与发送由上下文 tick 在服务器线程合并完成。
+        if (owner.projectViews() != null) {
+            owner.projectViews().markDirty(schematicId);
+            owner.projectViews().markConfigurationDirty(schematicId);
+        }
         Set<ServerPlayer> set = subscribers.get(schematicId);
         if (set == null || set.isEmpty()) {
             return;
@@ -447,7 +457,12 @@ public class StagingAreaManager implements AutoCloseable {
             // 广播受影响原理图的最新材料状态（含仓库/备货区计数）
             if (!affectedSchematics.isEmpty() && server != null) {
                 for (String schematicId : affectedSchematics) {
-                    if (owner != null) net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
+                    if (owner != null) {
+                        if (owner.projectViews() != null) {
+                            owner.projectViews().markWarehouseDirty(schematicId);
+                        }
+                        net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
+                    }
                 }
             }
         });
@@ -522,7 +537,7 @@ public class StagingAreaManager implements AutoCloseable {
     }
 
     /** 一次区域扫描的结果：complete=false 表示有区块未加载被跳过，统计不完整。 */
-    private record ScanResult(Map<String, Integer> items, boolean complete) {}
+    private record ScanResult(Map<String, Long> items, boolean complete) {}
 
     /**
      * 扫描备货区内容器内容（在主线程调用，需要访问世界数据）。
@@ -546,7 +561,7 @@ public class StagingAreaManager implements AutoCloseable {
                 net.minecraft.core.registries.Registries.DIMENSION, dim));
         if (!owns(world)) return null;
 
-        Map<String, Integer> totalItems = new HashMap<>();
+        Map<String, Long> totalItems = new HashMap<>();
         int skippedChunks = 0;
 
         int minX = Math.min(area.x1, area.x2);
@@ -600,29 +615,49 @@ public class StagingAreaManager implements AutoCloseable {
     }
 
     public void rescanStagingArea(int areaId) {
-        var scan = scanAreaContents(areaId);
+        rescanStagingAreaExact(areaId);
+    }
+
+    /**
+     * 整区重扫并明确返回本次是否实际完成了全量覆盖。false 表示区域/世界不存在，
+     * 或有区块未加载而保留了旧统计；调用方不能把它当作"当前状态已确认"。
+     */
+    public boolean rescanStagingAreaExact(int areaId) {
+        String key = initKey("staging_area", areaId);
+        ScanResult scan;
+        try {
+            scan = scanAreaContents(areaId);
+        } catch (ArithmeticException overflow) {
+            incompleteScans.add(key);
+            SyncMaterial.LOGGER.error("[StagingArea] area {} count overflow, preserving previous totals", areaId, overflow);
+            return false;
+        }
         if (scan == null) {
+            incompleteScans.add(key);
             SyncMaterial.LOGGER.warn("[StagingArea] rescanStagingArea: area {} not found or world missing", areaId);
-            return;
+            return false;
         }
         // 有区块未加载时不做全量覆盖：全量覆盖会用"仅已加载区块"的残缺结果替换整表，
         // 让卸载区块里的物品从统计中消失（countMissing 虚高）。保留现有统计，
         // 等区块加载时由 scanChunkForContainerAreas 增量合并/完成校正。
         if (!scan.complete()) {
+            incompleteScans.add(key);
             SyncMaterial.LOGGER.info("[StagingArea] rescanStagingArea: area {} 有区块未加载，保留现有统计不做全量覆盖", areaId);
-            return;
+            return false;
         }
 
         SyncMaterial.LOGGER.info("[StagingArea] rescanStagingArea: areaId={} found {} item types", areaId, scan.items().size());
         updateStagingAreaContainer(areaId, scan.items());
+        incompleteScans.remove(key);
+        return true;
     }
 
     /** 统计容器内物品（含潜影盒） */
-    private void countContainerItems(Container inventory, Map<String, Integer> totalItems) {
+    private void countContainerItems(Container inventory, Map<String, Long> totalItems) {
         for (int i = 0; i < inventory.getContainerSize(); i++) {
             var stack = inventory.getItem(i);
             if (stack.isEmpty()) continue;
-            totalItems.merge(stack.getItem().toString(), stack.getCount(), Integer::sum);
+            totalItems.merge(stack.getItem().toString(), (long) stack.getCount(), Math::addExact);
 
             if (stack.getItem() instanceof net.minecraft.world.item.BlockItem blockItem &&
                 blockItem.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
@@ -630,7 +665,7 @@ public class StagingAreaManager implements AutoCloseable {
                 if (container != null) {
                     for (var stored : McCompat.nonEmptyShulkerItems(container).toList()) {
                         if (!stored.isEmpty()) {
-                            totalItems.merge(stored.getItem().toString(), stored.getCount(), Integer::sum);
+                            totalItems.merge(stored.getItem().toString(), (long) stored.getCount(), Math::addExact);
                         }
                     }
                 }
@@ -649,7 +684,7 @@ public class StagingAreaManager implements AutoCloseable {
         return null;
     }
 
-    private void updateStagingAreaContainer(int areaId, Map<String, Integer> itemCounts) {
+    private void updateStagingAreaContainer(int areaId, Map<String, Long> itemCounts) {
         if (itemCounts == null || itemCounts.isEmpty()) {
             SyncMaterial.LOGGER.info("[StagingArea] updateStagingAreaContainer: areaId={} itemCounts is empty, clearing old records", areaId);
             try {
@@ -669,7 +704,7 @@ public class StagingAreaManager implements AutoCloseable {
             try {
                 database.executeUpdate("DELETE FROM staging_area_inventory WHERE staging_area_id = ?", areaId);
 
-                for (Map.Entry<String, Integer> entry : itemCounts.entrySet()) {
+                for (Map.Entry<String, Long> entry : itemCounts.entrySet()) {
                     database.executeUpdate(
                         "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, ?)",
                         areaId, entry.getKey(), entry.getValue()
@@ -685,7 +720,7 @@ public class StagingAreaManager implements AutoCloseable {
         }
     }
 
-    public int getStagingCountForMaterial(String schematicId, String itemId) {
+    public long getStagingCountForMaterial(String schematicId, String itemId) {
         try (var rs = database.executeQuery(
             "SELECT COALESCE(SUM(sai.count), 0) FROM staging_area_inventory sai " +
             "JOIN staging_areas sa ON sai.staging_area_id = sa.id " +
@@ -693,18 +728,20 @@ public class StagingAreaManager implements AutoCloseable {
             schematicId, itemId
         )) {
             if (rs.next()) {
-                return rs.getInt(1);
+                long total = rs.getLong(1);
+                if (total < 0) throw new IllegalStateException("negative staging total");
+                return total;
             }
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("Failed to get staging count for material", e);
         }
-        return 0;
+        return 0L;
     }
 
     /**
      * 统计原理图引用的仓库库存
      */
-    public int getWarehouseCountForMaterial(String schematicId, String itemId) {
+    public long getWarehouseCountForMaterial(String schematicId, String itemId) {
         try (var rs = database.executeQuery(
             "SELECT COALESCE(SUM(wi.count), 0) FROM warehouse_inventory wi " +
             "JOIN schematic_warehouses sw ON wi.warehouse_id = sw.warehouse_id " +
@@ -712,12 +749,14 @@ public class StagingAreaManager implements AutoCloseable {
             schematicId, itemId
         )) {
             if (rs.next()) {
-                return rs.getInt(1);
+                long total = rs.getLong(1);
+                if (total < 0) throw new IllegalStateException("negative warehouse total");
+                return total;
             }
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("Failed to get warehouse count for material", e);
         }
-        return 0;
+        return 0L;
     }
 
     public void onContainerRemoved(BlockPos pos, ServerLevel world) {
@@ -786,7 +825,12 @@ public class StagingAreaManager implements AutoCloseable {
             // 广播受影响原理图的最新材料状态
             if (!affectedSchematics.isEmpty() && server != null) {
                 for (String schematicId : affectedSchematics) {
-                    if (owner != null) net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
+                    if (owner != null) {
+                        if (owner.projectViews() != null) {
+                            owner.projectViews().markWarehouseDirty(schematicId);
+                        }
+                        net.syncmaterial.syncmaterial.network.Phase4Handler.broadcastAllMaterialStatus(owner, schematicId);
+                    }
                 }
             }
         }
@@ -879,20 +923,41 @@ public class StagingAreaManager implements AutoCloseable {
      * 状态（前端显示"数据可能过时"且库存为 0），直到有容器变动才被动触发扫描。
      */
     public void rescanWarehouseAndMarkChunks(int warehouseId) {
-        if (!isOpen()) return;
-        Warehouse wh = warehousesById.get(warehouseId);
-        if (wh == null) return;
+        rescanWarehouseExact(warehouseId);
+    }
 
-        var scan = scanWarehouseContents(warehouseId);
-        if (scan == null) return;
+    /** 仓库整区重扫；返回值语义与 {@link #rescanStagingAreaExact(int)} 相同。 */
+    public boolean rescanWarehouseExact(int warehouseId) {
+        if (!isOpen()) return false;
+        Warehouse wh = warehousesById.get(warehouseId);
+        if (wh == null) {
+            incompleteScans.add(initKey("warehouse", warehouseId));
+            return false;
+        }
+
+        ScanResult scan;
+        try {
+            scan = scanWarehouseContents(warehouseId);
+        } catch (ArithmeticException overflow) {
+            incompleteScans.add(initKey("warehouse", warehouseId));
+            SyncMaterial.LOGGER.error("[StagingArea] warehouse {} count overflow, preserving previous totals", warehouseId, overflow);
+            return false;
+        }
+        if (scan == null) {
+            incompleteScans.add(initKey("warehouse", warehouseId));
+            return false;
+        }
         // 同备货区：有区块未加载时保留现有统计，不用残缺结果全量覆盖
         if (!scan.complete()) {
+            incompleteScans.add(initKey("warehouse", warehouseId));
             SyncMaterial.LOGGER.info("[StagingArea] rescanWarehouse: id={} 有区块未加载，保留现有统计不做全量覆盖", warehouseId);
-            return;
+            return false;
         }
 
         updateWarehouseContainer(warehouseId, scan.items());
+        incompleteScans.remove(initKey("warehouse", warehouseId));
         SyncMaterial.LOGGER.info("[StagingArea] rescanWarehouse: id={} found {} item types", warehouseId, scan.items().size());
+        return true;
     }
 
     /**
@@ -914,15 +979,11 @@ public class StagingAreaManager implements AutoCloseable {
                 net.minecraft.core.registries.Registries.DIMENSION, dim));
         if (!owns(world)) return null;
 
-        // 全量重扫前清空旧明细，避免已移除的容器残留在取货模式高亮里
-        try {
-            database.executeUpdate(
-                "DELETE FROM container_inventory WHERE area_id = ? AND area_type = 'warehouse'", warehouseId);
-        } catch (SQLException e) {
-            SyncMaterial.LOGGER.error("[StagingArea] 清理仓库容器明细失败: id={}", warehouseId, e);
-        }
-
-        Map<String, Integer> totalItems = new HashMap<>();
+        // Do not clear all container details up front: an incomplete scan must preserve
+        // details for unloaded chunks. Loaded positions are replaced individually below,
+        // and stale positions are removed only after a complete scan.
+        Map<String, Long> totalItems = new HashMap<>();
+        Set<Long> seenContainers = new HashSet<>();
         int minX = Math.min(wh.x1(), wh.x2());
         int maxX = Math.max(wh.x1(), wh.x2());
         int minY = Math.min(wh.y1(), wh.y2());
@@ -953,6 +1014,7 @@ public class StagingAreaManager implements AutoCloseable {
                                 Container inventory = (Container) be;
                                 countContainerItems(inventory, totalItems);
                                 writeContainerContainer(warehouseId, "warehouse", x, y, z, inventory);
+                                seenContainers.add(packPosition(x, y, z));
                             }
                         }
                     }
@@ -963,18 +1025,54 @@ public class StagingAreaManager implements AutoCloseable {
                     wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
             }
         }
-        return new ScanResult(totalItems, skippedChunks == 0);
+        boolean complete = skippedChunks == 0;
+        if (complete) {
+            deleteStaleContainerPositions(warehouseId, "warehouse", seenContainers);
+        }
+        return new ScanResult(totalItems, complete);
+    }
+
+    private static long packPosition(int x, int y, int z) {
+        return ((long) x & 0x3FFFFFFL) << 38 | ((long) z & 0x3FFFFFFL) << 12 | ((long) y & 0xFFFL);
+    }
+
+    private void deleteStaleContainerPositions(int areaId, String areaType, Set<Long> seen) {
+        List<int[]> stale = new ArrayList<>();
+        try (var rows = database.executeQuery(
+                "SELECT DISTINCT pos_x, pos_y, pos_z FROM container_inventory "
+                        + "WHERE area_id = ? AND area_type = ?", areaId, areaType)) {
+            while (rows.next()) {
+                int x = rows.getInt("pos_x");
+                int y = rows.getInt("pos_y");
+                int z = rows.getInt("pos_z");
+                if (!seen.contains(packPosition(x, y, z))) {
+                    stale.add(new int[]{x, y, z});
+                }
+            }
+        } catch (SQLException failure) {
+            SyncMaterial.LOGGER.warn("[StagingArea] 读取旧容器位置失败: area={} type={}", areaId, areaType, failure);
+            return;
+        }
+        for (int[] position : stale) {
+            try {
+                database.executeUpdate(
+                        "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                        areaId, areaType, position[0], position[1], position[2]);
+            } catch (SQLException failure) {
+                SyncMaterial.LOGGER.warn("[StagingArea] 清理过期容器位置失败: area={}", areaId, failure);
+            }
+        }
     }
 
     /**
      * 更新仓库库存总数表
      */
-    private void updateWarehouseContainer(int warehouseId, Map<String, Integer> itemCounts) {
+    private void updateWarehouseContainer(int warehouseId, Map<String, Long> itemCounts) {
         try {
             database.beginTransaction();
             try {
                 database.executeUpdate("DELETE FROM warehouse_inventory WHERE warehouse_id = ?", warehouseId);
-                for (Map.Entry<String, Integer> entry : itemCounts.entrySet()) {
+                for (Map.Entry<String, Long> entry : itemCounts.entrySet()) {
                     database.executeUpdate(
                         "INSERT INTO warehouse_inventory (warehouse_id, item_id, count) VALUES (?, ?, ?)",
                         warehouseId, entry.getKey(), entry.getValue());
@@ -1013,6 +1111,13 @@ public class StagingAreaManager implements AutoCloseable {
             }
         }
 
+        try {
+            database.executeUpdate(
+                "DELETE FROM container_inventory WHERE area_id=? AND area_type=? AND pos_x=? AND pos_y=? AND pos_z=?",
+                areaId, areaType, x, y, z);
+        } catch (SQLException e) {
+            SyncMaterial.LOGGER.error("Failed to clear container inventory position", e);
+        }
         for (String itemId : itemIds) {
             try {
                 database.executeUpdate(
@@ -1032,10 +1137,25 @@ public class StagingAreaManager implements AutoCloseable {
     }
 
     /**
+     * 备货区当前状态是否可确认：已初始化且最近一次整区重扫没有因未加载区块而残缺。
+     * 仅用于需要如实报告新鲜度的协议 5 视图，不改变旧界面的初始化判定。
+     */
+    public boolean isStagingAreaCurrent(int areaId) {
+        String key = initKey("staging_area", areaId);
+        return initializedAreas.contains(key) && !incompleteScans.contains(key);
+    }
+
+    /**
      * 仓库是否已初始化（本次启动后所有区块至少扫描过一次）
      */
     public boolean isWarehouseInitialized(int warehouseId) {
         return initializedAreas.contains(initKey("warehouse", warehouseId));
+    }
+
+    /** 仓库当前状态是否可确认；语义与 {@link #isStagingAreaCurrent(int)} 相同。 */
+    public boolean isWarehouseCurrent(int warehouseId) {
+        String key = initKey("warehouse", warehouseId);
+        return initializedAreas.contains(key) && !incompleteScans.contains(key);
     }
 
     private static String initKey(String areaType, int id) {
@@ -1049,6 +1169,7 @@ public class StagingAreaManager implements AutoCloseable {
     private void resetInitState(String areaType, int id) {
         String key = initKey(areaType, id);
         initializedAreas.remove(key);
+        incompleteScans.remove(key);
         initChunkTracking.remove(key);
     }
 
@@ -1103,12 +1224,19 @@ public class StagingAreaManager implements AutoCloseable {
                 if (initializedAreas.contains(initKey("staging_area", area.id))) continue;
                 if (chunkIntersectsArea(chunkX, chunkZ, area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
                     clearTotalsOnFirstChunk("staging_area", area.id);
-                    scanChunkForArea(chunk, world, area.id, "staging_area",
-                        area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
+                    try {
+                        scanChunkForArea(chunk, world, area.id, "staging_area",
+                            area.x1, area.y1, area.z1, area.x2, area.y2, area.z2);
+                    } catch (ArithmeticException overflow) {
+                        incompleteScans.add(initKey("staging_area", area.id));
+                        SyncMaterial.LOGGER.error("[StagingArea] staging area {} count overflow in chunk scan", area.id, overflow);
+                        continue;
+                    }
                     if (markChunkAndCheckInit("staging_area", area.id, chunkPos,
                         area.x1, area.y1, area.z1, area.x2, area.y2, area.z2)) {
                         correctTotalsIfFullyLoaded(world, "staging_area", area.id,
                             area.x1, area.z1, area.x2, area.z2);
+                        notifyAreaCurrent("staging_area", area.id);
                     }
                 }
             }
@@ -1121,12 +1249,19 @@ public class StagingAreaManager implements AutoCloseable {
                 if (initializedAreas.contains(initKey("warehouse", wh.id()))) continue;
                 if (chunkIntersectsArea(chunkX, chunkZ, wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
                     clearTotalsOnFirstChunk("warehouse", wh.id());
-                    scanChunkForArea(chunk, world, wh.id(), "warehouse",
-                        wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
+                    try {
+                        scanChunkForArea(chunk, world, wh.id(), "warehouse",
+                            wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2());
+                    } catch (ArithmeticException overflow) {
+                        incompleteScans.add(initKey("warehouse", wh.id()));
+                        SyncMaterial.LOGGER.error("[StagingArea] warehouse {} count overflow in chunk scan", wh.id(), overflow);
+                        continue;
+                    }
                     if (markChunkAndCheckInit("warehouse", wh.id(), chunkPos,
                         wh.x1(), wh.y1(), wh.z1(), wh.x2(), wh.y2(), wh.z2())) {
                         correctTotalsIfFullyLoaded(world, "warehouse", wh.id(),
                             wh.x1(), wh.z1(), wh.x2(), wh.z2());
+                        notifyAreaCurrent("warehouse", wh.id());
                     }
                 }
             }
@@ -1194,7 +1329,7 @@ public class StagingAreaManager implements AutoCloseable {
         int minZ = Math.max(McCompat.chunkZ(chunk.getPos()) << 4, Math.min(z1, z2));
         int maxZ = Math.min((McCompat.chunkZ(chunk.getPos()) << 4) + 15, Math.max(z1, z2));
 
-        Map<String, Integer> items = new HashMap<>();
+        Map<String, Long> items = new HashMap<>();
         for (int x = minX; x <= maxX; x++) {
             for (int y = minY; y <= maxY; y++) {
                 for (int z = minZ; z <= maxZ; z++) {
@@ -1220,20 +1355,20 @@ public class StagingAreaManager implements AutoCloseable {
     }
 
     /** 逐条合并区块扫描结果到备货区总数（无则插入，有则累加） */
-    private void mergeStagingAreaContainer(int areaId, Map<String, Integer> items) {
+    private void mergeStagingAreaContainer(int areaId, Map<String, Long> items) {
         // 不用 upsert：staging_area_inventory 无 (staging_area_id, item_id) 唯一索引，
         // ON CONFLICT 无匹配约束会直接报错。事务化足以消除逐条自动提交的开销。
         try {
             database.beginTransaction();
             try {
-                for (Map.Entry<String, Integer> e : items.entrySet()) {
+                for (Map.Entry<String, Long> e : items.entrySet()) {
                     try (var rs = database.executeQuery(
                             "SELECT count FROM staging_area_inventory WHERE staging_area_id = ? AND item_id = ?",
                             areaId, e.getKey())) {
                         if (rs.next()) {
                             database.executeUpdate(
                                 "UPDATE staging_area_inventory SET count = ? WHERE staging_area_id = ? AND item_id = ?",
-                                rs.getInt("count") + e.getValue(), areaId, e.getKey());
+                                Math.addExact(rs.getLong("count"), e.getValue()), areaId, e.getKey());
                         } else {
                             database.executeUpdate(
                                 "INSERT INTO staging_area_inventory (staging_area_id, item_id, count) VALUES (?, ?, ?)",
@@ -1242,28 +1377,35 @@ public class StagingAreaManager implements AutoCloseable {
                     }
                 }
                 database.commitTransaction();
-            } catch (SQLException ex) {
-                database.rollbackTransaction();
+            } catch (SQLException | RuntimeException ex) {
+                try {
+                    database.rollbackTransaction();
+                } catch (SQLException rollbackFailure) {
+                    ex.addSuppressed(rollbackFailure);
+                }
                 throw ex;
             }
+        } catch (ArithmeticException overflow) {
+            incompleteScans.add(initKey("staging_area", areaId));
+            SyncMaterial.LOGGER.error("[StagingArea] 合并备货区统计溢出: areaId={}", areaId, overflow);
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("[StagingArea] 合并备货区统计失败: areaId={}", areaId, e);
         }
     }
 
     /** 逐条合并区块扫描结果到仓库总数（无则插入，有则累加） */
-    private void mergeWarehouseContainer(int warehouseId, Map<String, Integer> items) {
+    private void mergeWarehouseContainer(int warehouseId, Map<String, Long> items) {
         try {
             database.beginTransaction();
             try {
-                for (Map.Entry<String, Integer> e : items.entrySet()) {
+                for (Map.Entry<String, Long> e : items.entrySet()) {
                     try (var rs = database.executeQuery(
                             "SELECT count FROM warehouse_inventory WHERE warehouse_id = ? AND item_id = ?",
                             warehouseId, e.getKey())) {
                         if (rs.next()) {
                             database.executeUpdate(
                                 "UPDATE warehouse_inventory SET count = ? WHERE warehouse_id = ? AND item_id = ?",
-                                rs.getInt("count") + e.getValue(), warehouseId, e.getKey());
+                                Math.addExact(rs.getLong("count"), e.getValue()), warehouseId, e.getKey());
                         } else {
                             database.executeUpdate(
                                 "INSERT INTO warehouse_inventory (warehouse_id, item_id, count) VALUES (?, ?, ?)",
@@ -1272,12 +1414,40 @@ public class StagingAreaManager implements AutoCloseable {
                     }
                 }
                 database.commitTransaction();
-            } catch (SQLException ex) {
-                database.rollbackTransaction();
+            } catch (SQLException | RuntimeException ex) {
+                try {
+                    database.rollbackTransaction();
+                } catch (SQLException rollbackFailure) {
+                    ex.addSuppressed(rollbackFailure);
+                }
                 throw ex;
             }
+        } catch (ArithmeticException overflow) {
+            incompleteScans.add(initKey("warehouse", warehouseId));
+            SyncMaterial.LOGGER.error("[StagingArea] 合并仓库统计溢出: warehouseId={}", warehouseId, overflow);
         } catch (SQLException e) {
             SyncMaterial.LOGGER.error("[StagingArea] 合并仓库统计失败: warehouseId={}", warehouseId, e);
+        }
+    }
+
+    private void notifyAreaCurrent(String areaType, int areaId) {
+        if (owner == null || owner.projectViews() == null) return;
+        if ("warehouse".equals(areaType)) {
+            for (String schematicId : getSchematicsReferencingWarehouse(areaId)) {
+                owner.projectViews().markDirty(schematicId);
+                owner.projectViews().markConfigurationDirty(schematicId);
+                owner.projectViews().markWarehouseDirty(schematicId);
+            }
+            return;
+        }
+        for (Map.Entry<String, List<StagingArea>> entry : stagingAreasBySchematic.entrySet()) {
+            for (StagingArea area : entry.getValue()) {
+                if (area.id() == areaId) {
+                    owner.projectViews().markDirty(entry.getKey());
+                    owner.projectViews().markConfigurationDirty(entry.getKey());
+                    return;
+                }
+            }
         }
     }
 
