@@ -610,7 +610,8 @@ public class ModNetworkHandler {
 
             // 查询所有仓库的容器数据
             List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers =
-                    manager.getContainerEntriesForWarehouses(allWarehouseIds);
+                    manager.getContainerEntriesForWarehouses(allWarehouseIds,
+                    net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(player.level()));
             sendToPlayers(owner, Set.of(player), new WarehouseContainerResponseS2CPacket(containers));
             SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 订阅取货模式: 原理图 {}, 仓库 {}",
                     player.getName().getString(), schematicId, warehouseIds);
@@ -639,7 +640,8 @@ public class ModNetworkHandler {
                 continue;
             }
             List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers =
-                    manager.getContainerEntriesForWarehouses(allWarehouseIds);
+                    manager.getContainerEntriesForWarehouses(allWarehouseIds,
+                    net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(player.level()));
             sendToPlayers(owner, Set.of(player), new WarehouseContainerResponseS2CPacket(containers));
         }
     }

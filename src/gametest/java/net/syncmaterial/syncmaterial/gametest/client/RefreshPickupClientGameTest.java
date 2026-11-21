@@ -96,12 +96,12 @@ public class RefreshPickupClientGameTest implements FabricClientGameTest {
 
             // 开启：本地状态 + 订阅响应回流（容器缓存就绪标志）
             boolean pickupOn = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
-                PickupModeState.isActive()
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive()
                     && StagingAreaRenderer.getInstance().hasWarehouseContainersLoaded()));
             if (!pickupOn) {
                 throw new AssertionError(
                     "取货模式开启后本地状态未激活或容器订阅响应未回流: active="
-                        + ctx.computeOnClient(client -> PickupModeState.isActive())
+                        + ctx.computeOnClient(client -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive())
                         + ", loaded=" + ctx.computeOnClient(client ->
                             StagingAreaRenderer.getInstance().hasWarehouseContainersLoaded()));
             }
@@ -115,7 +115,7 @@ public class RefreshPickupClientGameTest implements FabricClientGameTest {
                 }
             });
             boolean pickupOff = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
-                !PickupModeState.isActive()
+                !net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive()
                     && !StagingAreaRenderer.getInstance().hasWarehouseContainersLoaded()));
             if (!pickupOff) {
                 throw new AssertionError("取货模式关闭后状态或容器缓存未清理");
@@ -139,7 +139,7 @@ public class RefreshPickupClientGameTest implements FabricClientGameTest {
                     gui.closeGui(false);
                 }
                 InventoryWatcher.clearContext();
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
             });
         }
     }

@@ -553,8 +553,10 @@ class TeamManagementClientTest {
         scopedProtocol();
         Object connection = new Object();
         TeamManagementClient.onJoin(connection);
+        scopedProtocol();
         TeamManagementClient.onMaterialListOpened(gui);
         assertNull(TeamManagementClient.toggleSelfClaim(gui));
+        assertEquals(1, sent.size(), "自行认领开关应先产生一条真实命令");
         long token = TeamManagementClient.invalidateConnection(connection);
         assertEquals(1, TeamManagementClient.pendingCountForTesting());
         assertTrue(TeamManagementClient.finishPendingDisconnect());
@@ -570,6 +572,7 @@ class TeamManagementClientTest {
         Object currentConnection = new Object();
         TeamManagementClient.onJoin(oldConnection);
         TeamManagementClient.onJoin(currentConnection);
+        scopedProtocol();
         TeamManagementClient.onMaterialListOpened(gui);
         assertNull(TeamManagementClient.toggleSelfClaim(gui));
         long token = TeamManagementClient.connectionToken();
@@ -587,6 +590,7 @@ class TeamManagementClientTest {
         TeamManagementClient.onJoin(oldConnection);
         long old = TeamManagementClient.invalidateConnection(oldConnection);
         TeamManagementClient.onJoin(new Object());
+        scopedProtocol();
         TeamManagementClient.onMaterialListOpened(gui);
         assertNull(TeamManagementClient.toggleSelfClaim(gui));
         assertFalse(TeamManagementClient.finishPendingDisconnect());
@@ -610,10 +614,9 @@ class TeamManagementClientTest {
     void collaborationBroadcastFromAnOldConnectionIsDiscarded() throws Exception {
         var status = new net.syncmaterial.syncmaterial.network.CollaborationStatusS2CPacket(
                 PROJECT, 11, 64, 0, 0, List.of(), List.of());
-        var field = SyncMaterialClient.class.getDeclaredField("activeMaterialList");
-        field.setAccessible(true);
-        Object previous = field.get(null);
-        field.set(null, syncList);
+        var session = net.syncmaterial.syncmaterial.client.session.ClientSessionManager.current().orElseThrow();
+        SyncMaterialList previous = session.materialList();
+        session.materialList(syncList);
         try {
             long current = TeamManagementClient.connectionToken();
             SyncMaterialClient.onCollaborationStatus(current - 1, status);
@@ -622,8 +625,74 @@ class TeamManagementClientTest {
             SyncMaterialClient.onCollaborationStatus(current, status);
             verify(syncList).onCollaborationStatus(status);
         } finally {
-            field.set(null, previous);
+            session.materialList(previous);
         }
+    }
+
+    @Test
+    void sessionSwitchDropsPreviousRequestsAndKnownTeamState() {
+        scopedProtocol();
+        TeamManagementClient.onMaterialListOpened(gui);
+        long tokenA = TeamManagementClient.connectionToken();
+        assertNull(TeamManagementClient.submitGroup(gui, null, TeamAction.TOGGLE_SELF_CLAIM,
+                List.of(), List.of()));
+        TeamCommandC2SPacket requestA = lastCommand();
+        TeamManagementClient.onTeamResponse(response(PROJECT, 0, TeamAction.TEAM_STATE,
+                4, true, "", state(PROJECT, ACTOR, List.of(), true)));
+        assertNotNull(TeamManagementClient.getTeamState(PROJECT));
+
+        TeamManagementClient.onJoin();
+        long tokenB = TeamManagementClient.connectionToken();
+        scopedProtocol();
+        assertTrue(tokenB > tokenA);
+        assertEquals(0, TeamManagementClient.pendingCountForTesting(),
+                "旧连接的待处理请求不能带入新连接");
+        assertNull(TeamManagementClient.getTeamState(PROJECT), "新连接不能继承旧连接角色");
+
+        clearInvocations(gui);
+        TeamManagementClient.onTeamResponse(tokenA, response(PROJECT, requestA.command().requestId(),
+                TeamAction.TOGGLE_SELF_CLAIM, 9, true, "",
+                state(PROJECT, ACTOR, List.of(), false)));
+        verifyNoInteractions(gui);
+        assertEquals(0, TeamManagementClient.pendingCountForTesting());
+
+        TeamManagementClient.onMaterialListOpened(gui);
+        assertNull(TeamManagementClient.submitGroup(gui, null, TeamAction.TOGGLE_SELF_CLAIM,
+                List.of(), List.of()));
+        assertEquals(1, TeamManagementClient.pendingCountForTesting());
+        TeamCommandC2SPacket requestB = lastCommand();
+        assertTrue(requestB.command().requestId() > requestA.command().requestId(),
+                "requestId 应跨连接单调");
+    }
+
+    @Test
+    void sessionCloseInvalidatesCapturedRequestsWithoutFabricatingOutcome() {
+        scopedProtocol();
+        TeamManagementClient.onMaterialListOpened(gui);
+        GuiPlayerSelectDialog dialog = mockDialog(gui, PROJECT);
+        currentScreen = dialog;
+        assertNull(TeamManagementClient.submitGroup(gui, dialog, TeamAction.ASSIGN,
+                List.of(ALICE), List.of(11)));
+        TeamCommandC2SPacket packet = lastCommand();
+        TeamState team = state(PROJECT, ACTOR, List.of(), true);
+        TeamManagementClient.onTeamResponse(response(PROJECT, 0, TeamAction.TEAM_STATE,
+                3, true, "", team));
+        assertNotNull(TeamManagementClient.getTeamState(PROJECT));
+        assertEquals(1, TeamManagementClient.pendingCountForTesting());
+
+        long oldToken = TeamManagementClient.connectionToken();
+        clearInvocations(gui, dialog);
+        assertTrue(TeamManagementClient.finishDisconnect(
+                TeamManagementClient.invalidateConnection()));
+        assertFalse(TeamManagementClient.isConnectedForTesting());
+        assertEquals(0, TeamManagementClient.pendingCountForTesting(),
+                "会话关闭必须丢弃全部捕获请求");
+        assertNull(TeamManagementClient.getTeamState(PROJECT), "会话关闭必须丢弃角色状态");
+
+        TeamManagementClient.onTeamResponse(oldToken, response(PROJECT, packet.command().requestId(),
+                TeamAction.ASSIGN, 1, true, "", state(PROJECT, ACTOR, List.of(), true)));
+
+        verifyNoInteractions(gui, dialog);
     }
 
     @Test

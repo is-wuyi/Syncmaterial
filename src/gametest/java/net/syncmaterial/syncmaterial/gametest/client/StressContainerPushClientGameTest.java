@@ -199,7 +199,7 @@ public class StressContainerPushClientGameTest implements FabricClientGameTest {
         } finally {
             ctx.runOnClient(client -> {
                 ClientScreenAccess.showScreen(client, null);
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();
             });

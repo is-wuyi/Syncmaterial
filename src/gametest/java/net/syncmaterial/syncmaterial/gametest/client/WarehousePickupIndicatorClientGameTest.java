@@ -133,7 +133,7 @@ public class WarehousePickupIndicatorClientGameTest implements FabricClientGameT
 
             // ===== 需求量：min(128 - 0 - 0, 64) = 64 =====
             Map<String, Long> needs = ctx.computeOnClient(client ->
-                Map.copyOf(PickupModeState.getNeeds()));
+                Map.copyOf(net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeeds()));
             if (!Long.valueOf(64).equals(needs.get(STONE))) {
                 throw new AssertionError("取货需求量应为 64（受仓库现有量封顶），实际为 " + needs);
             }
@@ -142,7 +142,7 @@ public class WarehousePickupIndicatorClientGameTest implements FabricClientGameT
             List<net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket.ContainerEntry> filtered =
                 ctx.computeOnClient(client -> StagingAreaRenderer.filterContainersForPickup(
                     StagingAreaRenderer.getInstance().getWarehouseContainers(),
-                    PickupModeState.getNeededItemIds()));
+                    net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeededItemIds()));
 
             if (filtered.size() != 1) {
                 throw new AssertionError("指示器应只亮含需取物品的箱子（1 个），实际 " + filtered.size());
@@ -170,7 +170,7 @@ public class WarehousePickupIndicatorClientGameTest implements FabricClientGameT
         } finally {
             ctx.runOnClient(client -> {
                 ClientScreenAccess.showScreen(client, null);
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();
             });

@@ -60,13 +60,13 @@ public class HudToggleDataFlowClientGameTest implements FabricClientGameTest {
                                 .ParticipantData(client.player.getName().getString(), 0)));
                     }
                 }
-                PickupModeState.setActive(true);
-                PickupModeState.recompute(
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().setActive(true);
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().recompute(
                     active == null ? null : active.getMaterialsAll());
             });
 
             Map<String, Long> initial = ctx.computeOnClient(client ->
-                Map.copyOf(PickupModeState.getNeeds()));
+                Map.copyOf(net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeeds()));
             if (!Long.valueOf(64).equals(initial.get("minecraft:dirt")))
                 throw new AssertionError("HUD 关闭时初始需求量应为 64，实际为 " + initial);
 
@@ -83,7 +83,7 @@ public class HudToggleDataFlowClientGameTest implements FabricClientGameTest {
             ctx.waitTicks(RECOMPUTE_WAIT_TICKS);
 
             Map<String, Long> updated = ctx.computeOnClient(client ->
-                Map.copyOf(PickupModeState.getNeeds()));
+                Map.copyOf(net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeeds()));
             if (!Long.valueOf(10).equals(updated.get("minecraft:dirt"))) {
                 throw new AssertionError(
                     "HUD 关闭期间数据变化后需求量应更新为 10，实际为 " + updated
@@ -99,7 +99,7 @@ public class HudToggleDataFlowClientGameTest implements FabricClientGameTest {
         } finally {
             ctx.runOnClient(client -> {
                 Configs.Generic.HUD_ENABLED.setBooleanValue(originalMasterSwitch);
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
                 net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
             });
         }

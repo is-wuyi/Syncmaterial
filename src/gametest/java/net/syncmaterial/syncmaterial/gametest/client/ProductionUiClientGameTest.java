@@ -158,7 +158,7 @@ public final class ProductionUiClientGameTest implements FabricClientGameTest {
             context.runOnClient(client -> {
                 ClientScreenAccess.showScreen(client, null);
                 InventoryWatcher.clearContext();
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
             });
         }
 
@@ -680,19 +680,19 @@ public final class ProductionUiClientGameTest implements FabricClientGameTest {
                 criteria, reverse, totalOrder);
 
         // Pickup and HUD switches: real bottom-bar button clicks.
-        boolean pickupBefore = PickupModeState.isActive();
+        boolean pickupBefore = net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive();
         clickButton(context, "取货指示器：");
-        boolean pickupAfter = PickupModeState.isActive();
+        boolean pickupAfter = net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive();
         if (pickupAfter == pickupBefore) {
             defect("pickup_toggle", "state did not change; before=" + pickupBefore);
         }
         clickButton(context, "取货指示器：");
-        if (PickupModeState.isActive() != pickupBefore) {
+        if (net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive() != pickupBefore) {
             defect("pickup_toggle_restore",
-                    "expected " + pickupBefore + " after second click, got " + PickupModeState.isActive());
+                    "expected " + pickupBefore + " after second click, got " + net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive());
         }
         SyncMaterial.LOGGER.info("UI_INPUT pickup before={} afterFirst={} afterSecond={}",
-                pickupBefore, pickupAfter, PickupModeState.isActive());
+                pickupBefore, pickupAfter, net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive());
 
         boolean hudBefore = currentGui(context).getMaterialList().getHudRenderer().getShouldRender();
         clickButton(context, "HUD信息显示：");
@@ -1121,7 +1121,7 @@ public final class ProductionUiClientGameTest implements FabricClientGameTest {
 
     private void normalizeInputs(ClientGameTestContext context) {
         GuiMaterialList gui = currentGui(context);
-        if (PickupModeState.isActive()) {
+        if (net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive()) {
             clickButton(context, "取货指示器：");
         }
         if (!currentGui(context).getMaterialList().getHudRenderer().getShouldRender()) {
@@ -1136,7 +1136,7 @@ public final class ProductionUiClientGameTest implements FabricClientGameTest {
             context.waitTicks(1);
         }
         SyncMaterial.LOGGER.info("UI_INPUT normalize pickup={} hud={} filter={} scroll={}",
-                PickupModeState.isActive(),
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive(),
                 currentGui(context).getMaterialList().getHudRenderer().getShouldRender(),
                 currentGui(context).isFilterMyMaterials(), metrics(context).scrollValue);
     }

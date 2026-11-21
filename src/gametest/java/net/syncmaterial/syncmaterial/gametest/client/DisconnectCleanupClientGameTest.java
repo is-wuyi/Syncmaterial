@@ -42,7 +42,7 @@ public class DisconnectCleanupClientGameTest implements FabricClientGameTest {
                         schematicId, "Disconnect Cleanup Test",
                         List.of(new MaterialEntry(1, new ItemStack(Items.DIRT), 64)),
                         true, true, "Player0", List.of(), true);
-                    PickupModeState.setActive(true);
+                    net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().setActive(true);
                     StagingAreaRenderer.getInstance().updateWarehouseAreas(
                         List.of(new StagingAreaConfigResponseS2CPacket.AreaInfo(
                             1, "仓库A", 0, 64, 0, 5, 70, 5, "minecraft:overworld")),
@@ -54,7 +54,7 @@ public class DisconnectCleanupClientGameTest implements FabricClientGameTest {
                 boolean allSet = ctx.computeOnClient(client ->
                     SyncMaterialClient.getActiveMaterialList() != null
                         && InventoryWatcher.isWatching()
-                        && PickupModeState.isActive()
+                        && net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive()
                         && !StagingAreaRenderer.getInstance().getWarehouseAreas().isEmpty()
                         && ClientProtocolState.isUsable());
                 if (!allSet) {
@@ -74,7 +74,7 @@ public class DisconnectCleanupClientGameTest implements FabricClientGameTest {
                 if (InventoryWatcher.isWatching()) {
                     sb.append("背包监听未解除（会朝新服发旧 schematicId）；");
                 }
-                if (PickupModeState.isActive() || !PickupModeState.getNeeds().isEmpty()) {
+                if (net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive() || !net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeeds().isEmpty()) {
                     sb.append("取货模式状态未清空；");
                 }
                 if (!StagingAreaRenderer.getInstance().getWarehouseAreas().isEmpty()) {
@@ -100,7 +100,7 @@ public class DisconnectCleanupClientGameTest implements FabricClientGameTest {
         } finally {
             ctx.runOnClient(client -> {
                 InventoryWatcher.clearContext();
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
             });
         }
     }

@@ -151,7 +151,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
             List<WarehouseContainerResponseS2CPacket.ContainerEntry> filteredAfterNegative =
                 ctx.computeOnClient(client -> StagingAreaRenderer.filterContainersForPickup(
                     StagingAreaRenderer.getInstance().getWarehouseContainers(),
-                    PickupModeState.getNeededItemIds()));
+                    net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeededItemIds()));
             if (filteredAfterNegative.size() != 2) {
                 throw new AssertionError("两个含需取物品的箱子都应亮起，实际 "
                     + describeFiltered(filteredAfterNegative));
@@ -161,7 +161,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
             server.runCommand("give @a minecraft:stone 128");
 
             boolean satisfied = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
-                !PickupModeState.getNeededItemIds().contains(STONE)));
+                !net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeededItemIds().contains(STONE)));
             if (!satisfied) {
                 throw new AssertionError("背包拿满 128 个后需求未清零: " + needsDescription(ctx));
             }
@@ -169,7 +169,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
             int filteredWhenFull = ctx.computeOnClient(client ->
                 StagingAreaRenderer.filterContainersForPickup(
                     StagingAreaRenderer.getInstance().getWarehouseContainers(),
-                    PickupModeState.getNeededItemIds()).size());
+                    net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeededItemIds()).size());
             if (filteredWhenFull != 0) {
                 throw new AssertionError("取满后指示器应全灭（空需求集 → 空），实际点亮 " + filteredWhenFull);
             }
@@ -189,7 +189,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
         } finally {
             ctx.runOnClient(client -> {
                 ClientScreenAccess.showScreen(client, null);
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
                 InventoryWatcher.clearContext();
             });
@@ -233,7 +233,7 @@ public class WarehouseContainerPushClientGameTest implements FabricClientGameTes
     }
 
     private String needsDescription(ClientGameTestContext ctx) {
-        return ctx.computeOnClient(client -> PickupModeState.getNeeds().toString());
+        return ctx.computeOnClient(client -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeeds().toString());
     }
 
     private boolean waitForCondition(ClientGameTestContext ctx,

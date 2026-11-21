@@ -83,30 +83,47 @@ public class InventoryWatcherDiffTest {
     }
 
     @Test
-    void repeatedIdenticalContextDoesNotResetObservationHistory() throws Exception {
-        InventoryWatcher.clearContext();
-        Map<String, Integer> context = Map.of("minecraft:dirt", 1);
-        InventoryWatcher.setContext("project", context);
-        var counts = InventoryWatcher.class.getDeclaredField("lastKnownCounts");
-        counts.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Map<Integer, Integer> history = (Map<Integer, Integer>) counts.get(null);
-        history.put(1, 4);
-        var ticks = InventoryWatcher.class.getDeclaredField("tickCounter");
-        ticks.setAccessible(true);
-        ticks.setInt(null, 40);
-        InventoryWatcher.enablePeriodicReports();
+    void repeatedIdenticalContextDoesNotResetObservationHistory() {
+        InventoryWatcher.Context context = new InventoryWatcher.Context();
+        Map<String, Integer> mapping = Map.of("minecraft:dirt", 1);
+        context.setContext("project", mapping);
 
-        InventoryWatcher.setContext("project", context);
-        assertEquals(4, history.get(1));
-        assertEquals(40, ticks.getInt(null));
-        assertTrue(InventoryWatcher.hasPeriodicReports());
+        assertEquals(1, context.observeCounts(mapOf(1, 4)).size());
+        context.enablePeriodicReports();
 
-        InventoryWatcher.setContext("project", Map.of("minecraft:stone", 2));
-        assertTrue(history.isEmpty());
-        assertEquals(0, ticks.getInt(null));
-        assertFalse(InventoryWatcher.hasPeriodicReports());
-        InventoryWatcher.clearContext();
+        // 相同上下文重复设置：diff 基线和周期上报开关都必须保留，
+        // 否则 GUI 每次重开都会把整份背包重新上报一遍。
+        context.setContext("project", mapping);
+        assertTrue(context.observeCounts(mapOf(1, 4)).isEmpty(),
+            "相同上下文必须保留 diff 基线");
+        assertTrue(context.hasPeriodicReports(), "相同上下文不应重置周期上报");
+
+        // 换上下文：基线清空、周期上报关闭。
+        context.setContext("project", Map.of("minecraft:stone", 2));
+        assertFalse(context.hasPeriodicReports());
+        assertEquals(1, context.observeCounts(mapOf(1, 4)).size(),
+            "换上下文必须清空 diff 基线");
+        context.clear();
+        assertFalse(context.isWatching());
+    }
+
+    @Test
+    void contexts_isolateWhitelistAndDiffBaseline() {
+        InventoryWatcher.Context first = new InventoryWatcher.Context();
+        InventoryWatcher.Context second = new InventoryWatcher.Context();
+        first.setContext("first", Map.of("minecraft:stone", 1));
+        second.setContext("second", Map.of("minecraft:dirt", 2));
+
+        assertEquals(1, first.observeCounts(mapOf(1, 4)).size());
+        assertTrue(first.observeCounts(mapOf(1, 4)).isEmpty(), "重复观测不再产生 diff");
+
+        assertEquals(1, second.observeCounts(mapOf(2, 8)).size(),
+            "另一个 Context 有独立的 diff 基线");
+        assertTrue(second.observeCounts(mapOf(2, 8)).isEmpty());
+
+        first.clear();
+        assertFalse(first.isWatching());
+        assertTrue(second.isWatching(), "清理一个 Context 不能影响另一个");
     }
 
     @Test

@@ -59,8 +59,6 @@ import fi.dy.masa.litematica.util.PositionUtils.Corner;
 public class GuiStagingAreaEditorNormal extends GuiBase
                                       implements StagingAreaEditorGui, StagingAreaSelector.SelectionCallback
 {
-    @Nullable private static GuiStagingAreaEditorNormal currentEditor;
-
     protected final AreaSelection selection;
     protected final String schematicId;
     protected WidgetCheckBox checkBoxCorner1;
@@ -75,9 +73,9 @@ public class GuiStagingAreaEditorNormal extends GuiBase
      */
     @Nullable protected String pendingAreaName;
     /**
-     * 备货区名称 → 所属维度。
-     * 列表条目由 AreaSelection/Box 重建，而 Box（Litematica 模型）不带维度字段，
-     * 所以维度只能在收服务端响应时单独记一份。
+     * 备货区名称 → 所属维度（编辑器列表展示用）。
+     * Box 现在也带有 world（渲染按它做维度过滤），这里保留一份独立映射，
+     * 是因为列表条目由 AreaSelection/Box 重建，界面显示不应依赖渲染状态。
      */
     protected final java.util.Map<String, String> areaWorlds = new java.util.HashMap<>();
 
@@ -129,15 +127,12 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 : null;
     }
 
-    @Nullable
-    public static GuiStagingAreaEditorNormal getCurrentEditor()
-    {
-        return currentEditor;
-    }
-
+    /**
+     * 兼容旧调用入口。编辑器实例由界面自身持有，不再放在进程级静态字段里；
+     * 断线清理无需（也无法）从外部丢弃它，保留空实现避免调用方受影响。
+     */
     public static void clearCurrentEditor()
     {
-        currentEditor = null;
     }
 
     public void setNeedsServerLoad()
@@ -252,12 +247,15 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 {
                     existing.setPos1(new BlockPos(area.x1(), area.y1(), area.z1()));
                     existing.setPos2(new BlockPos(area.x2(), area.y2(), area.z2()));
+                    existing.setWorld(area.world());
                 }
                 else
                 {
                     BlockPos pos1 = new BlockPos(area.x1(), area.y1(), area.z1());
                     BlockPos pos2 = new BlockPos(area.x2(), area.y2(), area.z2());
-                    this.selection.addSubRegionBox(new Box(pos1, pos2, area.name()), true);
+                    Box box = new Box(pos1, pos2, area.name());
+                    box.setWorld(area.world());
+                    this.selection.addSubRegionBox(box, true);
                 }
                 this.selection.setServerId(area.name(), area.areaId());
             }
@@ -285,6 +283,11 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             for (var area : packet.areas())
             {
                 this.areaWorlds.put(area.name(), area.world());
+                Box box = this.selection.getSubRegionBox(area.name());
+                if (box != null)
+                {
+                    box.setWorld(area.world());
+                }
                 if (this.selection.getServerId(area.name()) == null)
                 {
                     this.selection.setServerId(area.name(), area.areaId());
@@ -313,7 +316,6 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     public void initGui()
     {
         super.initGui();
-        currentEditor = this;
         if (this.schematicId != null && !this.schematicId.isEmpty()) {
             net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
                     session.openEditor(this.schematicId));
@@ -752,13 +754,16 @@ public class GuiStagingAreaEditorNormal extends GuiBase
 
         if (newAreaName != null)
         {
+            String world = currentWorldId();
             Box newBox = new Box(pos1, pos2, newAreaName);
+            newBox.setWorld(world);
             this.selection.addSubRegionBox(newBox, true);
             this.selection.setSelectedSubRegionBox(newAreaName);
+            if (world != null) this.areaWorlds.put(newAreaName, world);
 
             if (this.schematicId != null && !this.schematicId.isEmpty())
             {
-                AreaData areaData = toAreaData(newAreaName, pos1, pos2, currentWorldId());
+                AreaData areaData = toAreaData(newAreaName, pos1, pos2, world);
                 writeAreaConfig("ADD", 0, Optional.of(areaData));
             }
         }
@@ -770,12 +775,16 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 box.setPos1(pos1);
                 box.setPos2(pos2);
 
+                // 带上当前维度：准星选区只能在玩家所在维度进行，
+                // 若跨维度重选范围，world 必须一起迁移，否则坐标与维度不一致
+                String world = currentWorldId();
+                box.setWorld(world);
+                if (world != null) this.areaWorlds.put(boxName, world);
+
                 Integer serverId = this.selection.getServerId(boxName);
                 if (serverId != null && this.schematicId != null && !this.schematicId.isEmpty())
                 {
-                    // 带上当前维度：准星选区只能在玩家所在维度进行，
-                    // 若跨维度重选范围，world 必须一起迁移，否则坐标与维度不一致
-                    AreaData areaData = toAreaData(boxName, pos1, pos2, currentWorldId());
+                    AreaData areaData = toAreaData(boxName, pos1, pos2, world);
                     writeAreaConfig("UPDATE", serverId, Optional.of(areaData));
                 }
             }
@@ -1188,7 +1197,9 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             // 直接启动即可：MaLiLib 弹窗基类在本方法返回 true 之后还会执行
             // openGui(parent) 把编辑器重新打开，但 StagingAreaSelector 会在
             // onTick 里持续关闭界面直到真正退出，不需要调用方安排时序。
-            StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null);
+            // 新建备货区同样捕获所属项目 scope：确认时才能校验项目视图仍然有效。
+            StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null,
+                    StagingAreaSelector.TargetType.STAGING_AREA, this.gui.schematicId, -1);
             return true;
         }
     }

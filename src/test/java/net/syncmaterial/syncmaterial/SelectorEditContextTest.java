@@ -3,6 +3,7 @@ package net.syncmaterial.syncmaterial;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
@@ -17,17 +18,28 @@ import net.syncmaterial.syncmaterial.client.gui.StagingAreaSelector;
  */
 public class SelectorEditContextTest
 {
+    /**
+     * 选区状态现在由连接会话拥有；单元测试没有真实会话，直接创建独立实例，
+     * 不再依赖进程级单例。
+     */
+    private StagingAreaSelector selector;
+
+    @BeforeEach
+    void setUp()
+    {
+        this.selector = new StagingAreaSelector();
+    }
+
     @AfterEach
     void tearDown()
     {
-        // 单例状态跨用例共享，必须复位
-        StagingAreaSelector.getInstance().reset();
+        this.selector.reset();
     }
 
     @Test
     void inactiveSelector_skipsNothing()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
 
         assertFalse(selector.isEditingWarehouse(1),
             "未激活时不得让正式渲染跳过任何仓库，否则线框会凭空消失");
@@ -38,7 +50,7 @@ public class SelectorEditContextTest
     @Test
     void editingWarehouse_skipsOnlyThatWarehouse()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         selector.start(dummyCallback(), null, "仓库A", null, null,
             StagingAreaSelector.TargetType.WAREHOUSE, null, 7);
 
@@ -51,7 +63,7 @@ public class SelectorEditContextTest
     @Test
     void creatingWarehouse_skipsNothing()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         // 新建：用仓库配色但没有目标 ID
         selector.start(dummyCallback(), null, null, null, null,
             StagingAreaSelector.TargetType.WAREHOUSE, null, -1);
@@ -64,7 +76,7 @@ public class SelectorEditContextTest
     @Test
     void editingStagingArea_matchesBySchematicAndBoxName()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         selector.start(dummyCallback(), null, "备货区A", null, null,
             StagingAreaSelector.TargetType.STAGING_AREA, "s1", -1);
 
@@ -79,7 +91,7 @@ public class SelectorEditContextTest
     @Test
     void creatingStagingArea_skipsNothing()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         // 新建备货区走默认重载：无编辑目标
         selector.start(dummyCallback(), null, null, null, null);
 
@@ -91,7 +103,7 @@ public class SelectorEditContextTest
     @Test
     void reset_clearsEditContext()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         selector.start(dummyCallback(), null, "仓库A", null, null,
             StagingAreaSelector.TargetType.WAREHOUSE, null, 7);
         assertTrue(selector.isEditingWarehouse(7));
@@ -106,7 +118,7 @@ public class SelectorEditContextTest
     @Test
     void restart_replacesPreviousContext()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         selector.start(dummyCallback(), null, "仓库A", null, null,
             StagingAreaSelector.TargetType.WAREHOUSE, null, 7);
         selector.start(dummyCallback(), null, "备货区A", null, null,
@@ -129,7 +141,7 @@ public class SelectorEditContextTest
     @Test
     void start_marksScreenPendingClose()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         selector.start(dummyCallback(), null, null, null, null);
 
         assertTrue(selector.isPendingScreenClose(),
@@ -139,7 +151,7 @@ public class SelectorEditContextTest
     @Test
     void cancel_clearsPendingScreenClose()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         selector.start(dummyCallback(), null, null, null, null);
 
         selector.cancel();
@@ -151,7 +163,7 @@ public class SelectorEditContextTest
     @Test
     void reset_clearsPendingScreenClose()
     {
-        var selector = StagingAreaSelector.getInstance();
+        var selector = this.selector;
         selector.start(dummyCallback(), null, null, null, null);
 
         selector.reset();

@@ -23,8 +23,6 @@ import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 
 /** One client-connection owner for scoped views, consumer leases and atomic content state. */
 public final class ProjectViewClient {
-    private static volatile ProjectViewClient current;
-
     private final Object connection;
     private final long connectionGeneration;
     private final Consumer<CustomPacketPayload> transport;
@@ -64,28 +62,26 @@ public final class ProjectViewClient {
         this.protocol5 = Objects.requireNonNull(protocol5, "protocol5");
     }
 
+    /** Compatibility entry; production JOIN uses ClientSessionManager directly. */
     public static void join(Object connection) {
-        current = new ProjectViewClient(connection, TeamManagementClient.connectionToken(),
-                ClientPlayNetworking::send, TeamManagementClient::allocateProjectViewRequestId,
-                () -> ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS));
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.join(connection);
     }
 
     public static Optional<ProjectViewClient> current() {
-        return Optional.ofNullable(current);
+        return net.syncmaterial.syncmaterial.client.session.ClientSessionManager.current()
+                .map(net.syncmaterial.syncmaterial.client.session.ClientConnectionSession::projectView);
     }
 
     /** Client-tick backstop for disconnect cleanup and fast reconnects. */
     public static void discard() {
-        ProjectViewClient session = current;
-        if (session != null) session.closeConnection();
-        current = null;
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.discard();
     }
 
     public static void disconnect(Object connection, long generation) {
-        ProjectViewClient session = current;
-        if (session != null && session.connection == connection && session.connectionGeneration == generation) {
-            session.closeConnection();
-            current = null;
+        long pending = net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                .invalidateConnection(connection);
+        if (pending >= 0) {
+            net.syncmaterial.syncmaterial.client.session.ClientSessionManager.finishDisconnect(pending);
         }
     }
 
@@ -686,6 +682,11 @@ public final class ProjectViewClient {
     public void closeGlobal(boolean notifyServer) {
         globalLeases.clear();
         closeGlobalView(notifyServer);
+    }
+
+    /** Idempotent close owned by the enclosing ClientConnectionSession. */
+    public void close() {
+        closeConnection();
     }
 
     private void closeConnection() {

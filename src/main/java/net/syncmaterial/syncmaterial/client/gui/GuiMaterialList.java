@@ -28,6 +28,7 @@ import fi.dy.masa.malilib.util.StringUtils;
 
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList> {
     private final SyncMaterialList materialList;
+    private SyncMaterialList.Binding materialBinding;
     private boolean isOwner;
     private boolean isMainOwner;
     private String ownerName;
@@ -47,7 +48,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     private Boolean lastRescanResult;
     private final List<fi.dy.masa.malilib.gui.button.ButtonBase> toolbarControls = new ArrayList<>();
     private final List<fi.dy.masa.malilib.gui.button.ButtonBase> footerControls = new ArrayList<>();
-    private static boolean stagingRenderEnabled = true;
     /** 右栏「已选 N 种材料」动态文本的 y 坐标（initGui 布局时写入，非 owner 为 -1 不画） */
     private int mgmtSelectedLabelY = -1;
 
@@ -96,7 +96,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.pickup_mode",
                         StringUtils.translate(this.isPickupMode() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off"))) + 10,
                 StringUtils.getStringWidth(StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
-                        StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide"))) + 10,
+                        StringUtils.translate(stagingRenderEnabled() ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide"))) + 10,
                 StringUtils.getStringWidth(StringUtils.translate(this.filterMyMaterials
                         ? "syncmaterial.gui.button.show_all" : "syncmaterial.gui.button.show_my_materials")) + 10);
         int rows = MaterialListLayout.packControls(this.getScreenWidth(), widths, false).rows();
@@ -129,23 +129,24 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.materialList = new SyncMaterialList(schematicId, schematicName);
         this.materialList.setAllowSelfClaim(allowSelfClaim);
         this.materialList.setIsOwner(isOwner);
-        this.materialList.setOnStatusUpdate(() -> this.getListWidget().refreshEntries());
+        this.materialBinding = this.materialList.bind(this::onMaterialStatusUpdated, this::onMaterialCatalogUpdated);
         this.materialList.setMaterialEntries(entries);
-        this.materialList.setOnMaterialCatalogChanged(this::retainMaterialSelection);
         this.title = this.materialList.getTitle();
         this.useTitleHierarchy = false;
 
-        // 设置原理图名称，用于备货区线框标注
-        net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
-            .setSchematicName(schematicId, schematicName);
+        // 切项目只清其他项目的备货区数据；共享全局仓库保留。
+        net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer renderer =
+                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance();
+        renderer.activateProject(schematicId);
+        renderer.setSchematicName(schematicId, schematicName);
 
         MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
     }
 
     public SyncMaterialList getMaterialList() { return this.materialList; }
     public boolean isOwner() { return isOwner; }
-    public boolean isPickupMode() { return net.syncmaterial.syncmaterial.client.PickupModeState.isActive(); }
-    public static boolean isPickupModeStatic() { return net.syncmaterial.syncmaterial.client.PickupModeState.isActive(); }
+    public boolean isPickupMode() { return net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive(); }
+    public static boolean isPickupModeStatic() { return net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive(); }
 
     /**
      * 更新数据新鲜度警告（从协作状态包接收）
@@ -301,18 +302,25 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         return button.getWidth();
     }
 
+    private boolean stagingRenderEnabled() {
+        String schematicId = this.materialList.getSchematicId();
+        return schematicId == null || net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer
+                .getInstance().isRenderEnabled(schematicId);
+    }
+
     private int createButtonToggleStagingRender(int x, int y) {
         String label = StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
-                StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide"));
+                StringUtils.translate(stagingRenderEnabled() ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide"));
         ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
         this.addButton(button, (btn, mouseButton) -> {
-            stagingRenderEnabled = !stagingRenderEnabled;
+            boolean next = !stagingRenderEnabled();
             String schematicId = this.materialList.getSchematicId();
             if (schematicId != null) {
-                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().setRenderEnabled(schematicId, stagingRenderEnabled);
+                net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
+                        .setRenderEnabled(schematicId, next);
             }
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.staging_wireframe",
-                    StringUtils.translate(stagingRenderEnabled ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide")));
+                    StringUtils.translate(next ? "syncmaterial.gui.label.show" : "syncmaterial.gui.label.hide")));
         });
         footerControls.add(button);
         return button.getWidth();
@@ -338,7 +346,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
      */
     public boolean togglePickupMode() {
         boolean next = !isPickupMode();
-        net.syncmaterial.syncmaterial.client.PickupModeState.setActive(next);
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().setActive(next);
         // 协议 5 只使用关联视图兴趣，避免旧订阅与新快照同时覆写同一容器缓存。
         String schematicId = this.materialList.getSchematicId();
         if (schematicId != null && !schematicId.isEmpty()) {
@@ -356,7 +364,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearWarehouseContainers();
         } else {
             // 立刻算一次，不必等下一个 tick 周期，避免刚开启时线框/高亮空一拍
-            net.syncmaterial.syncmaterial.client.PickupModeState.recompute(
+            net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().recompute(
                     this.materialList.getMaterialsAll(),
                     net.syncmaterial.syncmaterial.client.InventoryScanner
                             .liveCountsByItemId(this.mc.player));
@@ -372,6 +380,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         ButtonGeneric button = new ButtonGeneric(x, y, -1, false, label);
         this.addButton(button, (btn, mouseButton) -> {
             this.materialList.getHudRenderer().toggleShouldRender();
+            net.syncmaterial.syncmaterial.client.session.ClientSessionManager.current()
+                    .ifPresent(session -> session.hudVisible(this.materialList.getHudRenderer().getShouldRender()));
             btn.setDisplayString(StringUtils.translate("syncmaterial.gui.button.hud_toggle",
                     StringUtils.translate(this.materialList.getHudRenderer().getShouldRender() ? "syncmaterial.gui.label.toggle_on" : "syncmaterial.gui.label.toggle_off")));
         });
@@ -692,7 +702,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     public void onMaterialCatalogUpdated() {
         this.title = this.materialList.getTitle();
         this.retainMaterialSelection();
+        this.onMaterialStatusUpdated();
+    }
+
+    private void onMaterialStatusUpdated() {
+        this.getListWidget().refreshEntries();
         this.updateFreshnessWarnings(this.materialList.getAreaFreshness());
+        this.updateOverlapWarning(this.materialList.hasAreaOverlap()
+                ? net.syncmaterial.syncmaterial.network.AreaOverlapStatus.MESSAGE_KEY : null);
     }
 
     /** 当前搜索／参与筛选不可见、但仍会被批量命令携带的选择数量。 */
@@ -1135,6 +1152,12 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
     }
 
     public void closeGui(boolean showParent) {
+        if (this.materialBinding != null) {
+            this.materialBinding.close();
+            this.materialBinding = null;
+        }
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.current()
+                .ifPresent(session -> session.hudVisible(this.materialList.getHudRenderer().getShouldRender()));
         // 关闭界面不解除背包监听、不退订状态广播：HUD 的生命周期长于 GUI，
         // 数据源必须随 HUD 存续（与 1.21.7 实际行为一致——当时的 close() 重写
         // 是 malilib Esc 路径不会调用的死代码，clearContext 从未执行过）。

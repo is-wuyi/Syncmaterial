@@ -13,10 +13,12 @@ public class ModNetworkHandlerClient {
 
     public static void register() {
         ClientPlayNetworking.registerGlobalReceiver(HelloS2CPacket.ID, (payload, context) -> {
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
             context.client().execute(() -> {
-                ClientProtocolState.onHandshakeResponse(
+                boolean applied = ClientProtocolState.onHandshakeResponse(connection, token,
                         payload.protocolVersion(), payload.modVersion(), payload.accepted());
-
+                if (!applied) return;
                 if (!payload.accepted()) {
                     fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
                             fi.dy.masa.malilib.gui.Message.MessageType.ERROR,
@@ -36,96 +38,121 @@ public class ModNetworkHandlerClient {
         ClientPlayNetworking.registerGlobalReceiver(ProjectViewS2CPacket.ID, (payload, context) -> {
             Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
             long generation = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
-            context.client().execute(() -> net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
-                    .ifPresent(session -> session.onPacket(connection, generation, payload)));
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, generation, () -> net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                            .ifPresent(session -> session.onPacket(connection, generation, payload))));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(MaterialStatsResponseS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> {
-                SyncMaterialClient.openMaterialListScreen(payload.schematicId(), payload.schematicName(), payload.materials(), payload.isOwner(), payload.isMainOwner(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim());
-            });
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> SyncMaterialClient.openMaterialListScreen(
+                            payload.schematicId(), payload.schematicName(), payload.materials(), payload.isOwner(),
+                            payload.isMainOwner(), payload.ownerName(), payload.deputyOwners(), payload.allowSelfClaim())));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(MaterialCatalogUpdateS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> SyncMaterialClient.onMaterialCatalogUpdate(payload));
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> SyncMaterialClient.onMaterialCatalogUpdate(payload)));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(CollaborationStatusS2CPacket.ID, (payload, context) -> {
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
             long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
-            context.client().execute(() -> SyncMaterialClient.onCollaborationStatus(token, payload));
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> SyncMaterialClient.onCollaborationStatus(token, payload)));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(AreaInventorySnapshotS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> SyncMaterialClient.onAreaInventorySnapshot(payload));
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> SyncMaterialClient.onAreaInventorySnapshot(payload)));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(StagingAreaConfigResponseS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> routeStagingAreaResponse(payload));
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> routeStagingAreaResponse(payload)));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(RescanStagingAreaResponseS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> {
-                net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.info("[Rescan] 收到重新扫描响应: success={}, message={}", payload.success(), payload.message());
-                var screen = currentScreen();
-                if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
-                    materialListScreen.onRescanResponse(payload.success(), payload.message());
-                }
-            });
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> {
+                        net.syncmaterial.syncmaterial.SyncMaterial.LOGGER.info(
+                                "[Rescan] 收到重新扫描响应: success={}, message={}", payload.success(), payload.message());
+                        var screen = currentScreen();
+                        if (screen instanceof net.syncmaterial.syncmaterial.client.gui.GuiMaterialList materialListScreen) {
+                            materialListScreen.onRescanResponse(payload.success(), payload.message());
+                        }
+                    }));
         });
 
         // 协议 4：项目/请求关联的团队状态与操作结果，统一交给客户端关联层。
         // 连接代次在接收线程先捕获，避免排队到客户端线程前断线重进后错用旧包。
         ClientPlayNetworking.registerGlobalReceiver(TeamResponseS2CPacket.ID, (payload, context) -> {
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
             long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
-            context.client().execute(() -> {
-                net.syncmaterial.syncmaterial.client.TeamManagementClient
-                        .onTeamResponse(token, payload.response());
-            });
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> net.syncmaterial.syncmaterial.client.TeamManagementClient
+                            .onTeamResponse(token, payload.response())));
         });
 
         // 旧服务端（协议 < 4）：冻结包没有 requestId/项目，交给旧模式 FIFO 关联；
         // 只有匹配到原始请求的回包才会落地，不再按“当前屏幕类型”直接更新界面。
         ClientPlayNetworking.registerGlobalReceiver(OwnerActionResponseS2CPacket.ID, (payload, context) -> {
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
             long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
-            context.client().execute(() -> {
-                net.syncmaterial.syncmaterial.client.TeamManagementClient
-                        .onLegacyOwnerActionResponse(token, payload);
-            });
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> net.syncmaterial.syncmaterial.client.TeamManagementClient
+                            .onLegacyOwnerActionResponse(token, payload)));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(BatchAssignResponseS2CPacket.ID, (payload, context) -> {
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
             long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
-            context.client().execute(() -> {
-                net.syncmaterial.syncmaterial.client.TeamManagementClient
-                        .onLegacyBatchAssignResponse(token, payload);
-            });
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> net.syncmaterial.syncmaterial.client.TeamManagementClient
+                            .onLegacyBatchAssignResponse(token, payload)));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(KickFromMaterialResponseS2CPacket.ID, (payload, context) -> {
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
             long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
-            context.client().execute(() -> {
-                net.syncmaterial.syncmaterial.client.TeamManagementClient
-                        .onLegacyKickResponse(token, payload);
-            });
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> net.syncmaterial.syncmaterial.client.TeamManagementClient
+                            .onLegacyKickResponse(token, payload)));
         });
 
         // 旧服务端玩家列表：只能回到发起请求的那个弹窗
         ClientPlayNetworking.registerGlobalReceiver(PlayerListResponseS2CPacket.ID, (payload, context) -> {
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
             long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
-            context.client().execute(() -> {
-                net.syncmaterial.syncmaterial.client.TeamManagementClient
-                        .onLegacyPlayerListResponse(token, payload.players());
-            });
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> net.syncmaterial.syncmaterial.client.TeamManagementClient
+                            .onLegacyPlayerListResponse(token, payload.players())));
         });
 
         // Phase 5: 仓库容器数据响应
         ClientPlayNetworking.registerGlobalReceiver(WarehouseContainerResponseS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> handleWarehouseContainerResponse(payload));
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> handleWarehouseContainerResponse(payload)));
         });
 
         // Phase 5: 仓库区域线框数据（全局广播）
         ClientPlayNetworking.registerGlobalReceiver(WarehouseAreaResponseS2CPacket.ID, (payload, context) -> {
-            context.client().execute(() -> handleWarehouseAreaResponse(payload));
+            Object connection = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionIdentity();
+            long token = net.syncmaterial.syncmaterial.client.TeamManagementClient.connectionToken();
+            context.client().execute(() -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                    .ifCurrent(connection, token, () -> handleWarehouseAreaResponse(payload)));
         });
     }
 
@@ -288,6 +315,7 @@ public class ModNetworkHandlerClient {
                     new net.minecraft.core.BlockPos(area.x1(), area.y1(), area.z1()),
                     new net.minecraft.core.BlockPos(area.x2(), area.y2(), area.z2()),
                     area.name());
+                box.setWorld(area.world());
                 selection.addSubRegionBox(box, true);
                 selection.setServerId(area.name(), area.areaId());
             }

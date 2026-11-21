@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -20,6 +21,8 @@ import net.syncmaterial.syncmaterial.client.gui.GuiMaterialList;
 import net.syncmaterial.syncmaterial.client.gui.GuiPlayerSelectDialog;
 import net.syncmaterial.syncmaterial.client.gui.MaterialSelection;
 import net.syncmaterial.syncmaterial.client.gui.SyncMaterialList;
+import net.syncmaterial.syncmaterial.client.session.ClientConnectionSession;
+import net.syncmaterial.syncmaterial.client.session.ClientSessionManager;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.TeamAction;
 import net.syncmaterial.syncmaterial.core.TeamCommand;
@@ -51,6 +54,11 @@ import net.syncmaterial.syncmaterial.network.TeamCommandC2SPacket;
  * 项目字段，只能靠"同一项目 + 每种包 FIFO"关联；因此不支持并发的跨项目请求，
  * 也不会把任何没有对应请求的广播套到当前界面上。旧服务端仍可能向订阅者广播
  * 额外响应，这种无法消除的错配风险在旧模式中明确保留，不假装可以完全关联。</p>
+ *
+ * <p>本类的全部可变状态都由 {@link SessionState} 持有，并随
+ * {@link ClientConnectionSession} 一同创建、关闭；连接生命周期（代次、当前连接、
+ * 是否已连接、延迟清理）唯一委托 {@link ClientSessionManager}。静态方法只是当前
+ * 会话状态的访问入口，不再内置第二套连接状态。</p>
  */
 public final class TeamManagementClient {
     private enum LegacyKind {
@@ -146,27 +154,69 @@ public final class TeamManagementClient {
     private static final Consumer<CustomPacketPayload> DEFAULT_TRANSPORT =
             payload -> ClientPlayNetworking.send(payload);
 
-    private static final Map<Long, PendingRequest> PENDING = new LinkedHashMap<>();
-    private static final Map<LegacyKind, Deque<LegacyPending>> LEGACY_QUEUES =
-            new EnumMap<>(LegacyKind.class);
-    private static final Map<String, TeamState> TEAM_STATES = new HashMap<>();
-    private static final Map<String, Long> TEAM_SEQUENCES = new HashMap<>();
+    /**
+     * 一个 {@link ClientConnectionSession} 独占的团队管理状态：待处理请求、旧服务端
+     * FIFO、已知角色状态与序号、当前项目/界面绑定，以及传输和身份/屏幕提供者。
+     * 关闭会话时 {@link #clear()} 静默丢弃全部捕获，不伪造任何团队操作结果。
+     */
+    public static final class SessionState {
+        private final Map<Long, PendingRequest> PENDING = new LinkedHashMap<>();
+        private final Map<LegacyKind, Deque<LegacyPending>> LEGACY_QUEUES =
+                new EnumMap<>(LegacyKind.class);
+        private final Map<String, TeamState> TEAM_STATES = new HashMap<>();
+        private final Map<String, Long> TEAM_SEQUENCES = new HashMap<>();
+        private Consumer<CustomPacketPayload> transport = DEFAULT_TRANSPORT;
+        private Supplier<PlayerIdentity> identityProvider = TeamManagementClient::minecraftIdentity;
+        private Supplier<Screen> screenProvider = TeamManagementClient::minecraftScreen;
+        private String activeProject;
+        private GuiMaterialList activeGui;
+        private SyncMaterialList activeList;
 
-    private static Consumer<CustomPacketPayload> transport = DEFAULT_TRANSPORT;
-    private static Supplier<PlayerIdentity> identityProvider = TeamManagementClient::minecraftIdentity;
-    private static Supplier<Screen> screenProvider = TeamManagementClient::minecraftScreen;
+        public SessionState() {
+        }
 
-    private static final Object CONNECTION_LOCK = new Object();
-    private static final java.util.concurrent.atomic.AtomicLong CONNECTION_GENERATION = new java.util.concurrent.atomic.AtomicLong();
-    private static final java.util.concurrent.atomic.AtomicLong PENDING_DISCONNECT = new java.util.concurrent.atomic.AtomicLong(-1);
-    private static Object activeConnection;
-    private static volatile boolean connected;
-    private static final java.util.concurrent.atomic.AtomicLong NEXT_REQUEST_ID = new java.util.concurrent.atomic.AtomicLong(1);
-    private static String activeProject;
-    private static GuiMaterialList activeGui;
-    private static SyncMaterialList activeList;
+        /** 连接关闭：丢弃所有待处理请求与角色状态，并恢复生产提供者。 */
+        public void clear() {
+            this.PENDING.clear();
+            this.LEGACY_QUEUES.clear();
+            this.TEAM_STATES.clear();
+            this.TEAM_SEQUENCES.clear();
+            this.activeProject = null;
+            this.activeGui = null;
+            this.activeList = null;
+            this.transport = DEFAULT_TRANSPORT;
+            this.identityProvider = TeamManagementClient::minecraftIdentity;
+            this.screenProvider = TeamManagementClient::minecraftScreen;
+        }
+    }
+
+    private static final AtomicLong NEXT_REQUEST_ID = new AtomicLong(1);
+
+    /** 测试专用的新会话默认提供者；生产环境始终为 null。 */
+    private static Consumer<CustomPacketPayload> testTransport;
+    private static Supplier<PlayerIdentity> testIdentityProvider;
+    private static Supplier<Screen> testScreenProvider;
 
     private TeamManagementClient() {
+    }
+
+    private static SessionState currentState() {
+        return ClientSessionManager.current()
+                .filter(ClientConnectionSession::isOpen)
+                .map(ClientConnectionSession::teamManagement)
+                .orElse(null);
+    }
+
+    private static void applyTestProviders(SessionState state) {
+        if (testTransport != null) {
+            state.transport = testTransport;
+        }
+        if (testIdentityProvider != null) {
+            state.identityProvider = testIdentityProvider;
+        }
+        if (testScreenProvider != null) {
+            state.screenProvider = testScreenProvider;
+        }
     }
 
     // ========== 生命周期 ==========
@@ -177,20 +227,8 @@ public final class TeamManagementClient {
     }
 
     public static void onJoin(Object connection) {
-        java.util.Objects.requireNonNull(connection, "connection");
-        synchronized (CONNECTION_LOCK) {
-            CONNECTION_GENERATION.incrementAndGet();
-            PENDING_DISCONNECT.set(-1);
-            activeConnection = connection;
-            connected = true;
-        }
-        PENDING.clear();
-        LEGACY_QUEUES.clear();
-        TEAM_STATES.clear();
-        TEAM_SEQUENCES.clear();
-        activeProject = null;
-        activeGui = null;
-        activeList = null;
+        ClientConnectionSession session = ClientSessionManager.join(connection);
+        applyTestProviders(session.teamManagement());
         // requestId 在进程内保持单调递增，不随连接重置：连接代次已经负责隔离旧回包。
     }
 
@@ -201,45 +239,20 @@ public final class TeamManagementClient {
 
     /** Netty may invalidate the connection, but only the client thread owns mutable maps. */
     public static long invalidateConnection() {
-        synchronized (CONNECTION_LOCK) {
-            return invalidateActiveConnection();
-        }
+        return ClientSessionManager.invalidateConnection();
     }
 
     public static long invalidateConnection(Object connection) {
-        synchronized (CONNECTION_LOCK) {
-            if (connection == null || activeConnection != connection) return -1;
-            return invalidateActiveConnection();
-        }
-    }
-
-    private static long invalidateActiveConnection() {
-        if (!connected) return PENDING_DISCONNECT.get();
-        connected = false;
-        long token = CONNECTION_GENERATION.incrementAndGet();
-        PENDING_DISCONNECT.set(token);
-        return token;
+        return ClientSessionManager.invalidateConnection(connection);
     }
 
     /** Client ticks own this backstop because Minecraft.disconnect may cancel queued tasks. */
     public static boolean finishPendingDisconnect() {
-        return finishDisconnect(PENDING_DISCONNECT.get());
+        return ClientSessionManager.finishPendingDisconnect();
     }
 
     public static boolean finishDisconnect(long token) {
-        synchronized (CONNECTION_LOCK) {
-            if (token < 0 || token != CONNECTION_GENERATION.get() || connected
-                    || !PENDING_DISCONNECT.compareAndSet(token, -1)) return false;
-            activeConnection = null;
-        }
-        PENDING.clear();
-        LEGACY_QUEUES.clear();
-        TEAM_STATES.clear();
-        TEAM_SEQUENCES.clear();
-        activeProject = null;
-        activeGui = null;
-        activeList = null;
-        return true;
+        return ClientSessionManager.finishDisconnect(token);
     }
 
     /** 材料列表界面打开（或同一项目重新打开）：重新绑定原始界面并应用已知角色。 */
@@ -247,24 +260,28 @@ public final class TeamManagementClient {
         if (gui == null) {
             return;
         }
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
         String project = gui.getSchematicId();
         if (project == null || project.isBlank()) {
             return;
         }
-        if (activeGui != null && activeGui != gui) {
-            invalidateForScreen(activeGui);
+        if (state.activeGui != null && state.activeGui != gui) {
+            invalidateForScreen(state, state.activeGui);
         }
-        if (activeProject != null && !activeProject.equals(project)) {
-            invalidateAllRequests();
+        if (state.activeProject != null && !state.activeProject.equals(project)) {
+            invalidateAllRequests(state);
         }
-        activeProject = project;
-        bindActiveGui(gui);
-        activeList = gui.getMaterialList();
+        state.activeProject = project;
+        bindActiveGui(state, gui);
+        state.activeList = gui.getMaterialList();
 
-        TeamState known = TEAM_STATES.get(project);
+        TeamState known = state.TEAM_STATES.get(project);
         if (known != null) {
-            gui.applyTeamState(known, localIdentity());
-            applyListPermissions(project, known);
+            gui.applyTeamState(known, localIdentity(state));
+            applyListPermissions(state, project, known);
         }
     }
 
@@ -272,8 +289,8 @@ public final class TeamManagementClient {
      * 活跃界面引用只在客户端线程写入。单列一个方法避免 SpotBugs 把
      * “把可变的 Screen 参数存进静态字段”误判为对外暴露内部状态。
      */
-    private static void bindActiveGui(GuiMaterialList gui) {
-        activeGui = gui;
+    private static void bindActiveGui(SessionState state, GuiMaterialList gui) {
+        state.activeGui = gui;
     }
 
     /** 材料列表界面关闭：属于该界面的待处理请求全部失效，但角色状态仍可供 HUD 使用。 */
@@ -281,9 +298,13 @@ public final class TeamManagementClient {
         if (gui == null) {
             return;
         }
-        invalidateForScreen(gui);
-        if (activeGui == gui) {
-            activeGui = null;
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
+        invalidateForScreen(state, gui);
+        if (state.activeGui == gui) {
+            state.activeGui = null;
         }
     }
 
@@ -295,7 +316,11 @@ public final class TeamManagementClient {
         if (gui == null) {
             return;
         }
-        invalidateDirectRequests(gui);
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
+        invalidateDirectRequests(state, gui);
     }
 
     /** 弹窗被标准 setScreen 移除：不再接收该弹窗的任何回包或结束回调。 */
@@ -308,13 +333,17 @@ public final class TeamManagementClient {
         if (projectId == null || projectId.isBlank()) {
             return;
         }
-        invalidateProject(projectId);
-        TEAM_STATES.remove(projectId);
-        TEAM_SEQUENCES.remove(projectId);
-        if (projectId.equals(activeProject)) {
-            activeProject = null;
-            activeGui = null;
-            activeList = null;
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
+        invalidateProject(state, projectId);
+        state.TEAM_STATES.remove(projectId);
+        state.TEAM_SEQUENCES.remove(projectId);
+        if (projectId.equals(state.activeProject)) {
+            state.activeProject = null;
+            state.activeGui = null;
+            state.activeList = null;
         }
     }
 
@@ -323,8 +352,12 @@ public final class TeamManagementClient {
         if (dialog == null) {
             return;
         }
-        PENDING.values().removeIf(pending -> pending.dialog == dialog);
-        for (Deque<LegacyPending> queue : LEGACY_QUEUES.values()) {
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
+        state.PENDING.values().removeIf(pending -> pending.dialog == dialog);
+        for (Deque<LegacyPending> queue : state.LEGACY_QUEUES.values()) {
             queue.removeIf(pending -> pending.dialog == dialog);
         }
     }
@@ -338,7 +371,11 @@ public final class TeamManagementClient {
 
     /** 指定项目最近一次被接受的权威团队状态；没有则返回 null。 */
     public static TeamState getTeamState(String projectId) {
-        return projectId == null ? null : TEAM_STATES.get(projectId);
+        if (projectId == null) {
+            return null;
+        }
+        SessionState state = currentState();
+        return state == null ? null : state.TEAM_STATES.get(projectId);
     }
 
     /**
@@ -349,11 +386,12 @@ public final class TeamManagementClient {
         if (name == null || name.isBlank()) {
             return null;
         }
-        TeamState state = projectId == null ? null : TEAM_STATES.get(projectId);
-        if (state != null) {
+        SessionState state = currentState();
+        TeamState team = state == null || projectId == null ? null : state.TEAM_STATES.get(projectId);
+        if (team != null) {
             PlayerIdentity unique = null;
             boolean ambiguous = false;
-            for (PlayerIdentity candidate : identitiesOf(state)) {
+            for (PlayerIdentity candidate : identitiesOf(team)) {
                 if (candidate.name().equalsIgnoreCase(name)) {
                     if (unique == null) {
                         unique = candidate;
@@ -384,18 +422,20 @@ public final class TeamManagementClient {
             return;
         }
         GuiMaterialList list = dialog.getMaterialList();
-        String error = checkContext(dialog.getSchematicId(), list);
+        SessionState state = currentState();
+        String error = checkContext(state, dialog.getSchematicId(), list);
         if (error != null) {
             dialog.onPlayerListFailed(error);
             return;
         }
-        if (!isCapturedScreenValid(list, dialog)) {
+        if (!isCapturedScreenValid(state, list, dialog)) {
             dialog.onPlayerListFailed("界面已关闭，请重新打开材料列表");
             return;
         }
 
+        long generation = ClientSessionManager.connectionToken();
         if (isScopedManagementSupported()) {
-            if (PENDING.size() + 1 > TeamLimits.IN_FLIGHT) {
+            if (state.PENDING.size() + 1 > TeamLimits.IN_FLIGHT) {
                 dialog.onPlayerListFailed("操作过于频繁，请稍后再试");
                 return;
             }
@@ -404,29 +444,29 @@ public final class TeamManagementClient {
                 dialog.onPlayerListFailed(REQUEST_IDS_EXHAUSTED);
                 return;
             }
-            PENDING.put(requestId, new PendingRequest(requestId, dialog.getSchematicId(),
-                    TeamAction.PLAYERS, CONNECTION_GENERATION.get(), list, dialog, null));
+            state.PENDING.put(requestId, new PendingRequest(requestId, dialog.getSchematicId(),
+                    TeamAction.PLAYERS, generation, list, dialog, null));
             try {
-                transport.accept(new TeamCommandC2SPacket(new TeamCommand(dialog.getSchematicId(),
+                state.transport.accept(new TeamCommandC2SPacket(new TeamCommand(dialog.getSchematicId(),
                         requestId, TeamAction.PLAYERS, -1, List.of(), List.of())));
             } catch (RuntimeException sendFailure) {
-                PENDING.remove(requestId);
+                state.PENDING.remove(requestId);
                 dialog.onPlayerListFailed("发送请求失败");
             }
             return;
         }
 
-        if (hasLegacyPending(LegacyKind.PLAYERS)) {
+        if (hasLegacyPending(state, LegacyKind.PLAYERS)) {
             dialog.onPlayerListFailed(LEGACY_BUSY);
             return;
         }
         LegacyPending pending = new LegacyPending(LegacyKind.PLAYERS, dialog.getSchematicId(),
-                CONNECTION_GENERATION.get(), list, dialog, null);
-        if (!enqueueLegacy(pending)) {
+                generation, list, dialog, null);
+        if (!enqueueLegacy(state, pending)) {
             dialog.onPlayerListFailed(PROJECT_BUSY);
             return;
         }
-        sendLegacy(new PlayerListRequestC2SPacket(dialog.getSchematicId()), pending);
+        sendLegacy(state, new PlayerListRequestC2SPacket(dialog.getSchematicId()), pending);
     }
 
     /** 右栏开关：单条命令。 */
@@ -457,7 +497,8 @@ public final class TeamManagementClient {
         List<Integer> safeMaterials = materialIds == null ? List.of() : List.copyOf(materialIds);
         GuiMaterialList owner = list != null ? list : dialog == null ? null : dialog.getMaterialList();
         String projectId = owner == null ? null : owner.getSchematicId();
-        String contextError = checkContext(projectId, owner);
+        SessionState state = currentState();
+        String contextError = checkContext(state, projectId, owner);
         if (contextError != null) {
             return contextError;
         }
@@ -471,25 +512,26 @@ public final class TeamManagementClient {
         boolean scoped = isScopedManagementSupported();
         MaterialSelection.Snapshot selectionSnapshot = action == TeamAction.ASSIGN
                 ? owner.captureBatchSelection(safeMaterials) : MaterialSelection.Snapshot.empty();
-        OperationGroup group = new OperationGroup(projectId, CONNECTION_GENERATION.get(), owner, dialog,
-                action, safeMaterials, safeTargets, singleRequest, scoped, selectionSnapshot);
+        OperationGroup group = new OperationGroup(projectId, ClientSessionManager.connectionToken(),
+                owner, dialog, action, safeMaterials, safeTargets, singleRequest, scoped,
+                selectionSnapshot);
 
         if (scoped) {
-            if (PENDING.size() + 1 > TeamLimits.IN_FLIGHT) {
+            if (state.PENDING.size() + 1 > TeamLimits.IN_FLIGHT) {
                 return "操作过于频繁，请稍后再试";
             }
-            sendNextScoped(group);
+            sendNextScoped(state, group);
             return null;
         }
 
-        if (!enqueueLegacyProject(projectId)) {
+        if (!enqueueLegacyProject(state, projectId)) {
             return PROJECT_BUSY;
         }
         LegacyKind kind = legacyKindFor(action);
-        if (kind != null && hasLegacyPending(kind)) {
+        if (kind != null && hasLegacyPending(state, kind)) {
             return LEGACY_BUSY;
         }
-        sendNextLegacy(group);
+        sendNextLegacy(state, group);
         return null;
     }
 
@@ -506,8 +548,8 @@ public final class TeamManagementClient {
         };
     }
 
-    private static String checkContext(String projectId, GuiMaterialList list) {
-        if (!connected) {
+    private static String checkContext(SessionState state, String projectId, GuiMaterialList list) {
+        if (state == null || !ClientSessionManager.isConnected()) {
             return "尚未连接到服务器";
         }
         if (projectId == null || projectId.isBlank()) {
@@ -516,23 +558,23 @@ public final class TeamManagementClient {
         if (list == null) {
             return "材料列表不可用";
         }
-        if (activeProject != null && !activeProject.equals(projectId)) {
+        if (state.activeProject != null && !state.activeProject.equals(projectId)) {
             return "项目已切换，请重新打开材料列表";
         }
-        if (activeGui == null) {
-            activeProject = projectId;
-            activeList = list.getMaterialList();
-            bindActiveGui(list);
-        } else if (activeGui != list) {
+        if (state.activeGui == null) {
+            state.activeProject = projectId;
+            state.activeList = list.getMaterialList();
+            bindActiveGui(state, list);
+        } else if (state.activeGui != list) {
             // 真实场景中重新打开界面会先经过 SyncMaterialClient；测试或调试路径
             // 直接构造界面时，只有该界面确实是当前屏幕才接管，避免旧界面劫持。
             if (!isCurrentScreen(list)) {
                 return "界面已关闭，请重新打开材料列表";
             }
-            invalidateForScreen(activeGui);
-            activeProject = projectId;
-            activeList = list.getMaterialList();
-            bindActiveGui(list);
+            invalidateForScreen(state, state.activeGui);
+            state.activeProject = projectId;
+            state.activeList = list.getMaterialList();
+            bindActiveGui(state, list);
         }
         return null;
     }
@@ -590,11 +632,11 @@ public final class TeamManagementClient {
         return null;
     }
 
-    private static void sendNextScoped(OperationGroup group) {
+    private static void sendNextScoped(SessionState state, OperationGroup group) {
         if (group.finished || group.awaiting) {
             return;
         }
-        if (!isCapturedScreenValid(group.list, group.dialog)) {
+        if (!isCapturedScreenValid(state, group.list, group.dialog)) {
             // 弹窗/列表已离开屏幕：不再向服务端发送后续目标，也不再回调关闭界面
             group.finished = true;
             return;
@@ -604,7 +646,7 @@ public final class TeamManagementClient {
             finishGroup(group);
             return;
         }
-        if (PENDING.size() + 1 > TeamLimits.IN_FLIGHT) {
+        if (state.PENDING.size() + 1 > TeamLimits.IN_FLIGHT) {
             group.failures++;
             group.failureMessage = "操作过于频繁，请稍后再试";
             finishGroup(group);
@@ -626,13 +668,13 @@ public final class TeamManagementClient {
             finishGroup(group);
             return;
         }
-        PENDING.put(requestId, new PendingRequest(requestId, group.projectId, group.action,
+        state.PENDING.put(requestId, new PendingRequest(requestId, group.projectId, group.action,
                 group.generation, group.list, group.dialog, group));
         group.awaiting = true;
         try {
-            transport.accept(new TeamCommandC2SPacket(command));
+            state.transport.accept(new TeamCommandC2SPacket(command));
         } catch (RuntimeException sendFailure) {
-            PENDING.remove(requestId);
+            state.PENDING.remove(requestId);
             group.awaiting = false;
             group.failures++;
             group.failureMessage = "发送请求失败";
@@ -686,7 +728,7 @@ public final class TeamManagementClient {
 
     /** 协议 4 回包入口：request0 是项目状态推送，其余按 requestId 关联原始请求。 */
     public static void onTeamResponse(TeamResponse response) {
-        onTeamResponse(connectionToken(), response);
+        onTeamResponse(ClientSessionManager.connectionToken(), response);
     }
 
     /**
@@ -694,40 +736,44 @@ public final class TeamManagementClient {
      * 旧连接的推送被当成新连接状态。旧服务端注入的新包在能力闸门处直接丢弃。
      */
     public static void onTeamResponse(long connectionToken, TeamResponse response) {
-        if (connectionToken != CONNECTION_GENERATION.get() || response == null) {
+        if (connectionToken != ClientSessionManager.connectionToken() || response == null) {
             return;
         }
         if (!isScopedManagementSupported()) {
             SyncMaterial.LOGGER.debug("忽略服务端不支持的团队回包: project={}", response.projectId());
             return;
         }
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
         if (response.requestId() == 0) {
             if (!response.success() || response.action() != TeamAction.TEAM_STATE) {
                 return;
             }
-            if (!connected || !isActiveProject(response.projectId())) {
+            if (!ClientSessionManager.isConnected() || !isActiveProject(state, response.projectId())) {
                 return;
             }
-            applyTeamState(response.projectId(), response.team(), response.sequence());
+            applyTeamState(state, response.projectId(), response.team(), response.sequence());
             return;
         }
 
-        PendingRequest pending = PENDING.get(response.requestId());
+        PendingRequest pending = state.PENDING.get(response.requestId());
         if (pending == null) {
             SyncMaterial.LOGGER.debug("忽略无对应请求的团队回包: requestId={}, project={}",
                     response.requestId(), response.projectId());
             return;
         }
-        if (pending.generation != CONNECTION_GENERATION.get() || !connected
+        if (pending.generation != connectionToken || !ClientSessionManager.isConnected()
                 || !pending.projectId.equals(response.projectId())
-                || pending.action != response.action() || !isActiveProject(pending.projectId)
-                || !isCapturedScreenValid(pending.list, pending.dialog)) {
+                || pending.action != response.action() || !isActiveProject(state, pending.projectId)
+                || !isCapturedScreenValid(state, pending.list, pending.dialog)) {
             // 伪造/错配包不消费原请求，也不把失败写进无关界面；真正的回包仍可到达。
             SyncMaterial.LOGGER.debug("忽略错配的团队回包: requestId={}, project={}, action={}",
                     response.requestId(), response.projectId(), response.action());
             return;
         }
-        PENDING.remove(response.requestId());
+        state.PENDING.remove(response.requestId());
 
         if (pending.isPlayersRequest()) {
             if (response.success()) {
@@ -748,124 +794,144 @@ public final class TeamManagementClient {
         }
         group.awaiting = false;
         if (response.team() != null) {
-            applyTeamState(pending.projectId, response.team(), response.sequence());
+            applyTeamState(state, pending.projectId, response.team(), response.sequence());
         }
         recordResult(group, response.success(), response.message());
         if (!group.singleRequest) {
             group.remaining.poll();
         }
-        advance(group);
+        advance(state, group);
     }
 
     // ========== 旧服务端回包（冻结包，无 requestId） ==========
 
     public static void onLegacyOwnerActionResponse(OwnerActionResponseS2CPacket payload) {
-        onLegacyOwnerActionResponse(connectionToken(), payload);
+        onLegacyOwnerActionResponse(ClientSessionManager.connectionToken(), payload);
     }
 
     public static void onLegacyOwnerActionResponse(long connectionToken,
                                                    OwnerActionResponseS2CPacket payload) {
-        if (connectionToken != CONNECTION_GENERATION.get() || payload == null || isScopedManagementSupported()) {
+        if (connectionToken != ClientSessionManager.connectionToken()
+                || payload == null || isScopedManagementSupported()) {
             return;
         }
-        LegacyPending pending = pollLegacy(LegacyKind.OWNER_ACTION);
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
+        LegacyPending pending = pollLegacy(state, LegacyKind.OWNER_ACTION);
         if (pending == null) {
             SyncMaterial.LOGGER.debug("忽略无对应请求的旧版负责人响应");
             return;
         }
-        if (!isCurrentCapture(pending)) {
+        if (!isCurrentCapture(state, pending)) {
             return;
         }
         if (payload.success()) {
             pending.list.applyLegacyOwnerState(payload.ownerName(), payload.deputyOwners(),
                     payload.allowSelfClaim());
         }
-        completeLegacy(pending, payload.success(), payload.message());
+        completeLegacy(state, pending, payload.success(), payload.message());
     }
 
     public static void onLegacyBatchAssignResponse(BatchAssignResponseS2CPacket payload) {
-        onLegacyBatchAssignResponse(connectionToken(), payload);
+        onLegacyBatchAssignResponse(ClientSessionManager.connectionToken(), payload);
     }
 
     public static void onLegacyBatchAssignResponse(long connectionToken,
                                                    BatchAssignResponseS2CPacket payload) {
-        if (connectionToken != CONNECTION_GENERATION.get() || payload == null || isScopedManagementSupported()) {
+        if (connectionToken != ClientSessionManager.connectionToken()
+                || payload == null || isScopedManagementSupported()) {
             return;
         }
-        LegacyPending pending = pollLegacy(LegacyKind.ASSIGN);
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
+        LegacyPending pending = pollLegacy(state, LegacyKind.ASSIGN);
         if (pending == null) {
             return;
         }
-        if (!isCurrentCapture(pending)) {
+        if (!isCurrentCapture(state, pending)) {
             return;
         }
-        completeLegacy(pending, payload.success(), payload.message());
+        completeLegacy(state, pending, payload.success(), payload.message());
     }
 
     public static void onLegacyKickResponse(KickFromMaterialResponseS2CPacket payload) {
-        onLegacyKickResponse(connectionToken(), payload);
+        onLegacyKickResponse(ClientSessionManager.connectionToken(), payload);
     }
 
     public static void onLegacyKickResponse(long connectionToken,
                                             KickFromMaterialResponseS2CPacket payload) {
-        if (connectionToken != CONNECTION_GENERATION.get() || payload == null || isScopedManagementSupported()) {
+        if (connectionToken != ClientSessionManager.connectionToken()
+                || payload == null || isScopedManagementSupported()) {
             return;
         }
-        LegacyPending pending = pollLegacy(LegacyKind.KICK);
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
+        LegacyPending pending = pollLegacy(state, LegacyKind.KICK);
         if (pending == null) {
             return;
         }
-        if (!isCurrentCapture(pending)) {
+        if (!isCurrentCapture(state, pending)) {
             return;
         }
-        completeLegacy(pending, payload.success(), payload.message());
+        completeLegacy(state, pending, payload.success(), payload.message());
     }
 
     public static void onLegacyPlayerListResponse(List<PlayerInfo> players) {
-        onLegacyPlayerListResponse(connectionToken(), players);
+        onLegacyPlayerListResponse(ClientSessionManager.connectionToken(), players);
     }
 
     public static void onLegacyPlayerListResponse(long connectionToken, List<PlayerInfo> players) {
-        if (connectionToken != CONNECTION_GENERATION.get() || isScopedManagementSupported()) {
+        if (connectionToken != ClientSessionManager.connectionToken()
+                || isScopedManagementSupported()) {
             return;
         }
-        LegacyPending pending = pollLegacy(LegacyKind.PLAYERS);
+        SessionState state = currentState();
+        if (state == null) {
+            return;
+        }
+        LegacyPending pending = pollLegacy(state, LegacyKind.PLAYERS);
         if (pending == null) {
             return;
         }
-        if (!isCurrentCapture(pending)) {
+        if (!isCurrentCapture(state, pending)) {
             return;
         }
         pending.dialog.onPlayerListResponse(players == null ? List.of() : players);
     }
 
-    private static LegacyPending pollLegacy(LegacyKind kind) {
-        Deque<LegacyPending> queue = LEGACY_QUEUES.get(kind);
+    private static LegacyPending pollLegacy(SessionState state, LegacyKind kind) {
+        Deque<LegacyPending> queue = state.LEGACY_QUEUES.get(kind);
         return queue == null ? null : queue.pollFirst();
     }
 
-    private static boolean enqueueLegacy(LegacyPending pending) {
-        if (!enqueueLegacyProject(pending.projectId)) {
+    private static boolean enqueueLegacy(SessionState state, LegacyPending pending) {
+        if (!enqueueLegacyProject(state, pending.projectId)) {
             return false;
         }
-        LEGACY_QUEUES.computeIfAbsent(pending.kind, key -> new ArrayDeque<>()).addLast(pending);
+        state.LEGACY_QUEUES.computeIfAbsent(pending.kind, key -> new ArrayDeque<>()).addLast(pending);
         return true;
     }
 
     /** 旧协议同一时刻只允许一个项目有未完成请求。 */
-    private static boolean enqueueLegacyProject(String projectId) {
-        for (Deque<LegacyPending> queue : LEGACY_QUEUES.values()) {
+    private static boolean enqueueLegacyProject(SessionState state, String projectId) {
+        for (Deque<LegacyPending> queue : state.LEGACY_QUEUES.values()) {
             for (LegacyPending pending : queue) {
                 if (!pending.projectId.equals(projectId)) {
                     return false;
                 }
             }
         }
-        return activeProject == null || activeProject.equals(projectId);
+        return state.activeProject == null || state.activeProject.equals(projectId);
     }
 
-    private static boolean hasLegacyPending(LegacyKind kind) {
-        Deque<LegacyPending> queue = LEGACY_QUEUES.get(kind);
+    private static boolean hasLegacyPending(SessionState state, LegacyKind kind) {
+        Deque<LegacyPending> queue = state.LEGACY_QUEUES.get(kind);
         return queue != null && !queue.isEmpty();
     }
 
@@ -874,26 +940,29 @@ public final class TeamManagementClient {
      * 捕获的列表，要么是捕获的弹窗。构造期请求在弹窗尚未显示时以父列表为当前屏幕，
      * 显示后则必须仍是该弹窗；被别的同项目界面替换后不再接受任何回包。
      */
-    private static boolean isCapturedScreenValid(GuiMaterialList list, GuiPlayerSelectDialog dialog) {
-        if (list == null || list != activeGui) {
+    private static boolean isCapturedScreenValid(SessionState state, GuiMaterialList list,
+                                                 GuiPlayerSelectDialog dialog) {
+        if (state == null || list == null || list != state.activeGui) {
             return false;
         }
-        Screen current = screenProvider == null ? null : screenProvider.get();
+        Screen current = state.screenProvider == null ? null : state.screenProvider.get();
         if (dialog != null && current == dialog) {
             return true;
         }
         return current == list;
     }
 
-    private static boolean isCurrentCapture(LegacyPending pending) {
-        return connected && pending.generation == CONNECTION_GENERATION.get()
-                && isActiveProject(pending.projectId)
+    private static boolean isCurrentCapture(SessionState state, LegacyPending pending) {
+        return ClientSessionManager.isConnected()
+                && pending.generation == ClientSessionManager.connectionToken()
+                && isActiveProject(state, pending.projectId)
                 && (pending.list == null || pending.list.getSchematicId() == null
                         || pending.list.getSchematicId().equals(pending.projectId))
-                && isCapturedScreenValid(pending.list, pending.dialog);
+                && isCapturedScreenValid(state, pending.list, pending.dialog);
     }
 
-    private static void completeLegacy(LegacyPending pending, boolean success, String message) {
+    private static void completeLegacy(SessionState state, LegacyPending pending,
+                                       boolean success, String message) {
         OperationGroup group = pending.group;
         if (group == null || group.finished) {
             return;
@@ -907,14 +976,14 @@ public final class TeamManagementClient {
         if (!group.singleRequest && !remaining.isEmpty()) {
             remaining.poll();
         }
-        advance(group);
+        advance(state, group);
     }
 
-    private static void sendNextLegacy(OperationGroup group) {
+    private static void sendNextLegacy(SessionState state, OperationGroup group) {
         if (group.finished || group.awaiting) {
             return;
         }
-        if (!isCapturedScreenValid(group.list, group.dialog)) {
+        if (!isCapturedScreenValid(state, group.list, group.dialog)) {
             group.finished = true;
             return;
         }
@@ -958,21 +1027,22 @@ public final class TeamManagementClient {
 
         LegacyPending pending = new LegacyPending(kind, group.projectId, group.generation,
                 group.list, group.dialog, group);
-        if (!enqueueLegacy(pending)) {
+        if (!enqueueLegacy(state, pending)) {
             group.failures++;
             group.failureMessage = PROJECT_BUSY;
             finishGroup(group);
             return;
         }
         group.awaiting = true;
-        sendLegacy(packet, pending);
+        sendLegacy(state, packet, pending);
     }
 
-    private static void sendLegacy(CustomPacketPayload packet, LegacyPending pending) {
+    private static void sendLegacy(SessionState state, CustomPacketPayload packet,
+                                   LegacyPending pending) {
         try {
-            transport.accept(packet);
+            state.transport.accept(packet);
         } catch (RuntimeException sendFailure) {
-            Deque<LegacyPending> queue = LEGACY_QUEUES.get(pending.kind);
+            Deque<LegacyPending> queue = state.LEGACY_QUEUES.get(pending.kind);
             if (queue != null) {
                 queue.removeFirstOccurrence(pending);
             }
@@ -1010,15 +1080,15 @@ public final class TeamManagementClient {
         }
     }
 
-    private static void advance(OperationGroup group) {
+    private static void advance(SessionState state, OperationGroup group) {
         if (group.finished) {
             return;
         }
         if (!group.remaining.isEmpty()) {
             if (group.scoped) {
-                sendNextScoped(group);
+                sendNextScoped(state, group);
             } else {
-                sendNextLegacy(group);
+                sendNextLegacy(state, group);
             }
         } else {
             finishGroup(group);
@@ -1068,48 +1138,50 @@ public final class TeamManagementClient {
 
     // ========== 角色状态 ==========
 
-    private static boolean isActiveProject(String projectId) {
-        return projectId != null && projectId.equals(activeProject);
+    private static boolean isActiveProject(SessionState state, String projectId) {
+        return state != null && projectId != null && projectId.equals(state.activeProject);
     }
 
     /**
      * 只接受严格更新的投递序号，避免旧的项目状态覆盖新状态。传入的 team 必须属于
      * 同一项目；request0 推送与操作回包中的权威状态走同一条路径。
      */
-    private static void applyTeamState(String projectId, TeamState team, long sequence) {
+    private static void applyTeamState(SessionState state, String projectId,
+                                       TeamState team, long sequence) {
         if (team == null || !projectId.equals(team.projectId())) {
             return;
         }
-        Long knownSequence = TEAM_SEQUENCES.get(projectId);
+        Long knownSequence = state.TEAM_SEQUENCES.get(projectId);
         if (knownSequence != null && sequence <= knownSequence) {
             return;
         }
-        TEAM_SEQUENCES.put(projectId, sequence);
-        TEAM_STATES.put(projectId, team);
-        if (!isActiveProject(projectId)) {
+        state.TEAM_SEQUENCES.put(projectId, sequence);
+        state.TEAM_STATES.put(projectId, team);
+        if (!isActiveProject(state, projectId)) {
             return;
         }
-        applyListPermissions(projectId, team);
-        GuiMaterialList gui = activeGui;
+        applyListPermissions(state, projectId, team);
+        GuiMaterialList gui = state.activeGui;
         if (gui != null && projectId.equals(gui.getSchematicId())) {
-            gui.applyTeamState(team, localIdentity());
+            gui.applyTeamState(team, localIdentity(state));
         }
     }
 
-    private static void applyListPermissions(String projectId, TeamState team) {
-        SyncMaterialList list = activeList;
+    private static void applyListPermissions(SessionState state, String projectId, TeamState team) {
+        SyncMaterialList list = state.activeList;
         if (list == null || !projectId.equals(list.getSchematicId())) {
             return;
         }
-        PlayerIdentity local = localIdentity();
+        PlayerIdentity local = localIdentity(state);
         if (local != null) {
             list.setIsOwner(team.isOwner(local));
         }
         list.setAllowSelfClaim(team.allowSelfClaim());
     }
 
-    private static PlayerIdentity localIdentity() {
-        return identityProvider == null ? null : identityProvider.get();
+    private static PlayerIdentity localIdentity(SessionState state) {
+        Supplier<PlayerIdentity> provider = state == null ? null : state.identityProvider;
+        return provider == null ? null : provider.get();
     }
 
     private static PlayerIdentity minecraftIdentity() {
@@ -1126,41 +1198,44 @@ public final class TeamManagementClient {
 
     /** Actual connection identity used by protocol-5 assemblers; never an equals/hash token. */
     public static Object connectionIdentity() {
-        synchronized (CONNECTION_LOCK) {
-            return connected ? activeConnection : null;
-        }
+        return ClientSessionManager.connectionIdentity();
     }
 
     /** 接收器在 mc.execute 排队前捕获，避免旧连接的回包落到重连后的同项目界面。 */
     public static long connectionToken() {
-        return CONNECTION_GENERATION.get();
+        return ClientSessionManager.connectionToken();
+    }
+
+    /** 当前是否仍有已连接会话；团队状态与请求只在连接期间有效。 */
+    public static boolean isConnected() {
+        return ClientSessionManager.isConnected();
     }
 
     // ========== 失效处理 ==========
 
-    private static void invalidateAllRequests() {
-        PENDING.clear();
-        LEGACY_QUEUES.clear();
+    private static void invalidateAllRequests(SessionState state) {
+        state.PENDING.clear();
+        state.LEGACY_QUEUES.clear();
     }
 
-    private static void invalidateDirectRequests(GuiMaterialList gui) {
-        PENDING.values().removeIf(pending -> pending.list == gui && pending.dialog == null);
-        for (Deque<LegacyPending> queue : LEGACY_QUEUES.values()) {
+    private static void invalidateDirectRequests(SessionState state, GuiMaterialList gui) {
+        state.PENDING.values().removeIf(pending -> pending.list == gui && pending.dialog == null);
+        for (Deque<LegacyPending> queue : state.LEGACY_QUEUES.values()) {
             queue.removeIf(pending -> pending.list == gui && pending.dialog == null);
         }
     }
 
-    private static void invalidateProject(String projectId) {
-        PENDING.values().removeIf(pending -> projectId.equals(pending.projectId));
-        for (Deque<LegacyPending> queue : LEGACY_QUEUES.values()) {
+    private static void invalidateProject(SessionState state, String projectId) {
+        state.PENDING.values().removeIf(pending -> projectId.equals(pending.projectId));
+        for (Deque<LegacyPending> queue : state.LEGACY_QUEUES.values()) {
             queue.removeIf(pending -> projectId.equals(pending.projectId));
         }
     }
 
-    private static void invalidateForScreen(GuiMaterialList gui) {
-        PENDING.values().removeIf(pending -> pending.list == gui
+    private static void invalidateForScreen(SessionState state, GuiMaterialList gui) {
+        state.PENDING.values().removeIf(pending -> pending.list == gui
                 || (pending.dialog != null && pending.dialog.getMaterialList() == gui));
-        for (Deque<LegacyPending> queue : LEGACY_QUEUES.values()) {
+        for (Deque<LegacyPending> queue : state.LEGACY_QUEUES.values()) {
             queue.removeIf(pending -> pending.list == gui
                     || (pending.dialog != null && pending.dialog.getMaterialList() == gui));
         }
@@ -1168,56 +1243,61 @@ public final class TeamManagementClient {
 
     // ========== 测试入口 ==========
 
-    static void setTransportForTesting(Consumer<CustomPacketPayload> testTransport) {
-        transport = testTransport == null ? DEFAULT_TRANSPORT : testTransport;
+    static void setTransportForTesting(Consumer<CustomPacketPayload> transportOverride) {
+        testTransport = transportOverride;
+        SessionState state = currentState();
+        if (state != null) {
+            state.transport = transportOverride == null ? DEFAULT_TRANSPORT : transportOverride;
+        }
     }
 
     static void setIdentityProviderForTesting(Supplier<PlayerIdentity> provider) {
-        identityProvider = provider == null ? TeamManagementClient::minecraftIdentity : provider;
+        testIdentityProvider = provider;
+        SessionState state = currentState();
+        if (state != null) {
+            state.identityProvider = provider == null
+                    ? TeamManagementClient::minecraftIdentity : provider;
+        }
     }
 
     static void setScreenProviderForTesting(Supplier<Screen> provider) {
-        screenProvider = provider == null ? TeamManagementClient::minecraftScreen : provider;
+        testScreenProvider = provider;
+        SessionState state = currentState();
+        if (state != null) {
+            state.screenProvider = provider == null
+                    ? TeamManagementClient::minecraftScreen : provider;
+        }
     }
 
     static void resetForTesting() {
-        synchronized (CONNECTION_LOCK) {
-            CONNECTION_GENERATION.set(0);
-            PENDING_DISCONNECT.set(-1);
-            activeConnection = null;
-            connected = false;
-        }
+        ClientSessionManager.resetForTesting();
         NEXT_REQUEST_ID.set(1);
-        activeProject = null;
-        activeGui = null;
-        activeList = null;
-        PENDING.clear();
-        LEGACY_QUEUES.clear();
-        TEAM_STATES.clear();
-        TEAM_SEQUENCES.clear();
-        transport = DEFAULT_TRANSPORT;
-        identityProvider = TeamManagementClient::minecraftIdentity;
-        screenProvider = TeamManagementClient::minecraftScreen;
+        testTransport = null;
+        testIdentityProvider = null;
+        testScreenProvider = null;
     }
 
     static int pendingCountForTesting() {
-        return PENDING.size();
+        SessionState state = currentState();
+        return state == null ? 0 : state.PENDING.size();
     }
 
     static long generationForTesting() {
-        return CONNECTION_GENERATION.get();
+        return ClientSessionManager.connectionToken();
     }
 
     static List<Long> pendingRequestIdsForTesting() {
-        return new ArrayList<>(PENDING.keySet());
+        SessionState state = currentState();
+        return state == null ? new ArrayList<>() : new ArrayList<>(state.PENDING.keySet());
     }
 
     static boolean isConnectedForTesting() {
-        return connected;
+        return ClientSessionManager.isConnected();
     }
 
     static long latestSequenceForTesting(String projectId) {
-        Long sequence = TEAM_SEQUENCES.get(projectId);
+        SessionState state = currentState();
+        Long sequence = state == null ? null : state.TEAM_SEQUENCES.get(projectId);
         return sequence == null ? -1 : sequence;
     }
 }

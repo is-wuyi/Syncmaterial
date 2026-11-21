@@ -25,6 +25,8 @@ import net.syncmaterial.syncmaterial.client.InventoryWatcher;
  */
 public class InventoryWhitelistTest {
 
+    private final InventoryWatcher.Context context = new InventoryWatcher.Context();
+
     @BeforeAll
     static void setup() {
         SharedConstants.tryDetectVersion();
@@ -34,7 +36,8 @@ public class InventoryWhitelistTest {
 
     @AfterEach
     void cleanup() {
-        InventoryWatcher.clearContext();
+        context.clear();
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.resetForTesting();
     }
 
     private Inventory inventoryOf(ItemStack... stacks) {
@@ -59,11 +62,11 @@ public class InventoryWhitelistTest {
 
     @Test
     void whitelistedItemsCounted_othersIgnored() {
-        InventoryWatcher.setContext("s1", Map.of(
+        context.setContext("s1", Map.of(
             "minecraft:stone", 1,
             "minecraft:diamond", 2));
 
-        var counts = InventoryWatcher.getCounts(inventoryOf(
+        var counts = context.getCounts(inventoryOf(
             new ItemStack(Items.STONE, 32),
             new ItemStack(Items.DIRT, 64),        // 不在白名单：忽略
             new ItemStack(Items.DIAMOND, 3)));
@@ -73,9 +76,9 @@ public class InventoryWhitelistTest {
 
     @Test
     void sameItemMultipleSlots_summed() {
-        InventoryWatcher.setContext("s1", Map.of("minecraft:stone", 1));
+        context.setContext("s1", Map.of("minecraft:stone", 1));
 
-        var counts = InventoryWatcher.getCounts(inventoryOf(
+        var counts = context.getCounts(inventoryOf(
             new ItemStack(Items.STONE, 10),
             new ItemStack(Items.STONE, 20)));
 
@@ -84,11 +87,11 @@ public class InventoryWhitelistTest {
 
     @Test
     void shulkerContents_countedIfWhitelisted() {
-        InventoryWatcher.setContext("s1", Map.of(
+        context.setContext("s1", Map.of(
             "minecraft:diamond", 2,
             "minecraft:purple_shulker_box", 3));
 
-        var counts = InventoryWatcher.getCounts(inventoryOf(shulkerWith(64)));
+        var counts = context.getCounts(inventoryOf(shulkerWith(64)));
 
         assertEquals(64, counts.get(2), "潜影盒内钻石应递归计入");
         assertEquals(1, counts.get(3), "潜影盒本身按白名单计入一件");
@@ -97,18 +100,18 @@ public class InventoryWhitelistTest {
     @Test
     void shulkerContents_ignoredIfNotWhitelisted() {
         // 钻石不在白名单：潜影盒内容物不应计入
-        InventoryWatcher.setContext("s1", Map.of("minecraft:purple_shulker_box", 3));
+        context.setContext("s1", Map.of("minecraft:purple_shulker_box", 3));
 
-        var counts = InventoryWatcher.getCounts(inventoryOf(shulkerWith(64)));
+        var counts = context.getCounts(inventoryOf(shulkerWith(64)));
 
         assertEquals(Map.of(3, 1), counts);
     }
 
     @Test
     void emptyWhitelist_nothingCounted() {
-        InventoryWatcher.setContext("s1", Map.of());
+        context.setContext("s1", Map.of());
 
-        var counts = InventoryWatcher.getCounts(inventoryOf(
+        var counts = context.getCounts(inventoryOf(
             new ItemStack(Items.STONE, 32), shulkerWith(64)));
 
         assertTrue(counts.isEmpty());
@@ -116,34 +119,55 @@ public class InventoryWhitelistTest {
 
     @Test
     void clearContext_resetsWhitelist() {
-        InventoryWatcher.setContext("s1", Map.of("minecraft:stone", 1));
-        InventoryWatcher.clearContext();
+        context.setContext("s1", Map.of("minecraft:stone", 1));
+        context.clear();
 
-        var counts = InventoryWatcher.getCounts(inventoryOf(new ItemStack(Items.STONE, 32)));
+        var counts = context.getCounts(inventoryOf(new ItemStack(Items.STONE, 32)));
 
         assertTrue(counts.isEmpty(), "清空上下文后白名单应失效");
     }
 
     @Test
     void periodicReportsRequireFoundationCatalogAndResetWithContext() {
-        InventoryWatcher.setContext("s1", Map.of("minecraft:stone", 1));
-        assertFalse(InventoryWatcher.hasPeriodicReports());
-        InventoryWatcher.enablePeriodicReports();
-        assertTrue(InventoryWatcher.hasPeriodicReports());
-        InventoryWatcher.setContext("s2", Map.of("minecraft:stone", 2));
-        assertFalse(InventoryWatcher.hasPeriodicReports());
-        InventoryWatcher.enablePeriodicReports();
-        InventoryWatcher.clearContext();
-        assertFalse(InventoryWatcher.hasPeriodicReports());
+        context.setContext("s1", Map.of("minecraft:stone", 1));
+        assertFalse(context.hasPeriodicReports());
+        context.enablePeriodicReports();
+        assertTrue(context.hasPeriodicReports());
+        context.setContext("s2", Map.of("minecraft:stone", 2));
+        assertFalse(context.hasPeriodicReports());
+        context.enablePeriodicReports();
+        context.clear();
+        assertFalse(context.hasPeriodicReports());
     }
 
     @Test
     void emptyStacks_skipped() {
-        InventoryWatcher.setContext("s1", Map.of("minecraft:stone", 1));
+        context.setContext("s1", Map.of("minecraft:stone", 1));
 
-        var counts = InventoryWatcher.getCounts(inventoryOf(
+        var counts = context.getCounts(inventoryOf(
             ItemStack.EMPTY, new ItemStack(Items.STONE, 5), ItemStack.EMPTY));
 
         assertEquals(Map.of(1, 5), counts);
+    }
+
+    @Test
+    void explicitWhitelistOverload_doesNotDependOnContext() {
+        var counts = InventoryWatcher.getCounts(inventoryOf(new ItemStack(Items.STONE, 7)),
+            Map.of("minecraft:stone", 4));
+
+        assertEquals(Map.of(4, 7), counts, "显式白名单入口不读取 Context 状态");
+    }
+
+    @Test
+    void staticCompatibilityEntry_withoutSessionIsEmptyAndNoOp() {
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.resetForTesting();
+
+        InventoryWatcher.setContext("s1", Map.of("minecraft:stone", 1));
+        InventoryWatcher.enablePeriodicReports();
+
+        assertFalse(InventoryWatcher.isWatching(), "没有会话时不应有任何监听上下文");
+        assertFalse(InventoryWatcher.hasPeriodicReports(), "没有会话时不应启用周期上报");
+        assertTrue(InventoryWatcher.getCounts(inventoryOf(new ItemStack(Items.STONE, 32))).isEmpty(),
+            "没有会话时兼容入口必须返回空表，不能回退到全局白名单");
     }
 }

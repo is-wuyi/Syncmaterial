@@ -342,7 +342,14 @@
         "net.syncmaterial.syncmaterial.server.legacy.LegacyProjectProgressReaderTransactionTest",
         "net.syncmaterial.syncmaterial.client.gui.ProjectViewEditorFenceTest",
         "net.syncmaterial.syncmaterial.client.gui.CollaborationResultLabelsTest",
-        "net.syncmaterial.syncmaterial.FormatCountTest"
+        "net.syncmaterial.syncmaterial.FormatCountTest",
+        "net.syncmaterial.syncmaterial.client.session.ClientSessionManagerTest",
+        "net.syncmaterial.syncmaterial.client.gui.SyncMaterialListBindingTest",
+        "net.syncmaterial.syncmaterial.client.render.StagingAreaRendererStateTest",
+        "net.syncmaterial.syncmaterial.client.gui.StagingAreaSelectorLifecycleTest",
+        "net.syncmaterial.syncmaterial.SelectorEditContextTest",
+        "net.syncmaterial.syncmaterial.InventoryWhitelistTest",
+        "net.syncmaterial.syncmaterial.WarehouseDatabaseTest"
       ]
     },
     "required_class_min_tests": {
@@ -370,7 +377,7 @@
         "net.syncmaterial.syncmaterial.server.legacy.LegacyTickTasksTest": 6,
         "net.syncmaterial.syncmaterial.network.TeamPacketCodecTest": 9,
         "net.syncmaterial.syncmaterial.adapter.minecraft.MinecraftPlayerDirectoryTest": 5,
-        "net.syncmaterial.syncmaterial.client.TeamManagementClientTest": 27,
+        "net.syncmaterial.syncmaterial.client.TeamManagementClientTest": 30,
         "net.syncmaterial.syncmaterial.client.gui.PlayerSelectionModelTest": 6,
         "net.syncmaterial.syncmaterial.client.gui.GuiMaterialListRoleUpdateTest": 4,
         "net.syncmaterial.syncmaterial.network.FoundationTeamNetworkAdapterTest": 6,
@@ -397,7 +404,14 @@
         "net.syncmaterial.syncmaterial.server.legacy.LegacyProjectProgressReaderTransactionTest": 1,
         "net.syncmaterial.syncmaterial.client.gui.ProjectViewEditorFenceTest": 6,
         "net.syncmaterial.syncmaterial.client.gui.CollaborationResultLabelsTest": 2,
-        "net.syncmaterial.syncmaterial.FormatCountTest": 16
+        "net.syncmaterial.syncmaterial.FormatCountTest": 16,
+        "net.syncmaterial.syncmaterial.client.session.ClientSessionManagerTest": 4,
+        "net.syncmaterial.syncmaterial.client.gui.SyncMaterialListBindingTest": 2,
+        "net.syncmaterial.syncmaterial.client.render.StagingAreaRendererStateTest": 8,
+        "net.syncmaterial.syncmaterial.client.gui.StagingAreaSelectorLifecycleTest": 9,
+        "net.syncmaterial.syncmaterial.SelectorEditContextTest": 10,
+        "net.syncmaterial.syncmaterial.InventoryWhitelistTest": 10,
+        "net.syncmaterial.syncmaterial.WarehouseDatabaseTest": 13
       },
       "shared": {
         "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest": 3,
@@ -417,7 +431,7 @@
         "net.syncmaterial.syncmaterial.server.storage.PlayerIdentityReconciliationTest": 19,
         "net.syncmaterial.syncmaterial.server.storage.TransactionLifecycleTest": 14,
         "net.syncmaterial.syncmaterial.server.storage.TeamIdentityWritesTest": 3,
-        "net.syncmaterial.syncmaterial.PickupModeStateTest": 24,
+        "net.syncmaterial.syncmaterial.PickupModeStateTest": 25,
         "net.syncmaterial.syncmaterial.ProgressFormulasTest": 20,
         "net.syncmaterial.syncmaterial.client.ClientProjectViewStoreTest": 8,
         "net.syncmaterial.syncmaterial.client.ProjectInterestLeasesTest": 22,
@@ -446,8 +460,8 @@
     "foundation": 19
   },
   "client_entries_expected": {
-    "syncmaterial-test": 29,
-    "syncmaterial-foundation-test": 8,
+    "syncmaterial-test": 30,
+    "syncmaterial-foundation-test": 9,
     "syncmaterial-optional-test": 1
   },
   "test_mods": {
@@ -459,7 +473,7 @@
     "syncmaterial-foundation-test": {
       "resources": "src/foundationtest/resources/fabric.mod.json",
       "server_methods_min": 19,
-      "client_entries_min": 8
+      "client_entries_min": 9
     },
     "syncmaterial-optional-test": {
       "resources": "src/optionaltest/resources/fabric.mod.json",

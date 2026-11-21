@@ -81,6 +81,7 @@ final class LegacyNetworkTestSupport implements AutoCloseable {
         when(player.getName()).thenReturn(Component.literal(playerName));
         when(player.getUUID()).thenReturn(playerId);
         when(player.level()).thenReturn(level);
+        when(level.dimension()).thenReturn(net.minecraft.world.level.Level.OVERWORLD);
         when(level.getServer()).thenReturn(server);
         when(server.getPlayerList()).thenReturn(playerList);
         when(playerList.getPlayers()).thenReturn(List.of(player));

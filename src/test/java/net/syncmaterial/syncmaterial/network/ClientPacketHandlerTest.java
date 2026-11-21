@@ -19,6 +19,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.server.level.ServerPlayer;
 import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
+import net.syncmaterial.syncmaterial.client.session.ClientSessionManager;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 
 /**
@@ -40,6 +41,9 @@ class ClientPacketHandlerTest {
 
     @BeforeEach
     void setUp() {
+        // 渲染状态由连接会话拥有；这里建立测试会话，旧 API 才会委托到可用的 State
+        ClientSessionManager.resetForTesting();
+        ClientSessionManager.join(new Object());
         // mock 客户端单例：currentScreen() 因 gui 字段为 null 返回 null（无打开界面），
         // player 等字段同样为 null，走"无界面/无玩家"分支
         clientMock = mockStatic(Minecraft.class);
@@ -49,9 +53,7 @@ class ClientPacketHandlerTest {
     @AfterEach
     void tearDown() {
         clientMock.close();
-        StagingAreaRenderer.getInstance().removeRenderData(SCHEMATIC);
-        StagingAreaRenderer.getInstance().clearWarehouseContainers();
-        StagingAreaRenderer.getInstance().clearWarehouseAreas();
+        ClientSessionManager.resetForTesting();
     }
 
     private static StagingAreaConfigResponseS2CPacket.AreaInfo area(int id, String name) {

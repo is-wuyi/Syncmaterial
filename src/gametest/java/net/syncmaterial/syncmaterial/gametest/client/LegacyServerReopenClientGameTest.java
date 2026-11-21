@@ -165,7 +165,7 @@ public final class LegacyServerReopenClientGameTest implements FabricClientGameT
             context.runOnClient(client -> {
                 ClientScreenAccess.showScreen(client, null);
                 InventoryWatcher.clearContext();
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
                 StagingAreaRenderer.getInstance().clearWarehouseContainers();
             });
         }

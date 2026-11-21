@@ -92,7 +92,7 @@ public class PickupHighlightClientGameTest implements FabricClientGameTest {
             // 前置断言：需求量必须先算出来，否则后面「高亮为空」分不清是
             // Mixin 没注入还是需求本来就是空的
             Map<String, Long> needs = ctx.computeOnClient(client ->
-                Map.copyOf(PickupModeState.getNeeds()));
+                Map.copyOf(net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().getNeeds()));
             if (!Long.valueOf(TOTAL_NEEDED).equals(needs.get("minecraft:stone"))) {
                 throw new AssertionError(
                     "前置条件不成立：取货需求量应为 " + TOTAL_NEEDED + "，实际为 " + needs);
@@ -139,7 +139,7 @@ public class PickupHighlightClientGameTest implements FabricClientGameTest {
         } finally {
             ctx.runOnClient(client -> {
                 ClientScreenAccess.showScreen(client, null);
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
                 PickupHighlight.invalidate();
                 net.syncmaterial.syncmaterial.client.InventoryWatcher.clearContext();
             });
@@ -164,8 +164,8 @@ public class PickupHighlightClientGameTest implements FabricClientGameTest {
                         client.player.getName().getString(), 0)));
                 }
             }
-            PickupModeState.setActive(true);
-            PickupModeState.recompute(active == null ? null : active.getMaterialsAll());
+            net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().setActive(true);
+            net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().recompute(active == null ? null : active.getMaterialsAll());
         });
         ctx.waitTicks(5);
     }

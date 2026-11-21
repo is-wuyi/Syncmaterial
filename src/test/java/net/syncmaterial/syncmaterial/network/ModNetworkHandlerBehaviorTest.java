@@ -231,7 +231,7 @@ class ModNetworkHandlerBehaviorTest {
     void warehouseSubscribe_sendsContainerEntriesOfReferencedWarehouses() {
         when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
             new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
-        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of(
+        when(manager.getContainerEntriesForWarehouses(anySet(), anyString())).thenReturn(List.of(
             new WarehouseContainerResponseS2CPacket.ContainerEntry(1, 64, 1, List.of("minecraft:stone"))));
 
         ModNetworkHandler.handleWarehouseContainerRequest(owner,
@@ -268,7 +268,7 @@ class ModNetworkHandlerBehaviorTest {
     void warehouseUnsubscribe_stopsPush() {
         when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
             new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
-        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+        when(manager.getContainerEntriesForWarehouses(anySet(), anyString())).thenReturn(List.of());
 
         ModNetworkHandler.handleWarehouseContainerRequest(owner,
             new WarehouseContainerRequestC2SPacket("s1", true), player);
@@ -285,7 +285,7 @@ class ModNetworkHandlerBehaviorTest {
             new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
         when(manager.getWarehousesForSchematic("s2")).thenReturn(List.of(
             new StagingAreaManager.Warehouse(2, "w2", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
-        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+        when(manager.getContainerEntriesForWarehouses(anySet(), anyString())).thenReturn(List.of());
 
         ModNetworkHandler.handleWarehouseContainerRequest(owner,
             new WarehouseContainerRequestC2SPacket("s1", true), player);
@@ -295,7 +295,7 @@ class ModNetworkHandlerBehaviorTest {
         ModNetworkHandler.pushWarehouseContainerUpdate(owner);
 
         verify(manager, atLeastOnce()).getContainerEntriesForWarehouses(argThat(ids ->
-            ids.size() == 2 && ids.contains(1) && ids.contains(2)));
+            ids.size() == 2 && ids.contains(1) && ids.contains(2)), anyString());
         networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), times(3));
     }
 
@@ -305,7 +305,7 @@ class ModNetworkHandlerBehaviorTest {
     void playerDisconnect_clearsWarehouseSubscription() {
         when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
             new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
-        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+        when(manager.getContainerEntriesForWarehouses(anySet(), anyString())).thenReturn(List.of());
 
         ModNetworkHandler.handleWarehouseContainerRequest(owner,
             new WarehouseContainerRequestC2SPacket("s1", true), player);
@@ -336,7 +336,7 @@ class ModNetworkHandlerBehaviorTest {
     void warehousePush_skipsDisconnectedPlayer() {
         when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
             new StagingAreaManager.Warehouse(1, "w1", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
-        when(manager.getContainerEntriesForWarehouses(anySet())).thenReturn(List.of());
+        when(manager.getContainerEntriesForWarehouses(anySet(), anyString())).thenReturn(List.of());
 
         ModNetworkHandler.handleWarehouseContainerRequest(owner,
             new WarehouseContainerRequestC2SPacket("s1", true), player);

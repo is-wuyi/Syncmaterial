@@ -21,6 +21,12 @@ public class Box
     private BlockPos size = BlockPos.ZERO;
     private String name = "Unnamed";
     private Corner selectedCorner = Corner.NONE;
+    /**
+     * 该区域所属维度（服务端 {@code AreaInfo.world}）。
+     * 空/null 表示未知（旧服务端或尚未同步），渲染时按"任何维度都显示"处理，
+     * 避免升级瞬间把已有线框全部隐藏。
+     */
+    @Nullable private String world;
 
     public Box()
     {
@@ -63,6 +69,18 @@ public class Box
     public Corner getSelectedCorner()
     {
         return this.selectedCorner;
+    }
+
+    /** 所属维度；null 表示未知，渲染不得据此隐藏线框 */
+    @Nullable
+    public String getWorld()
+    {
+        return this.world;
+    }
+
+    public void setWorld(@Nullable String world)
+    {
+        this.world = world;
     }
 
     public void setPos1(@Nullable BlockPos pos)

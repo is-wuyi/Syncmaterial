@@ -23,11 +23,8 @@ import net.syncmaterial.syncmaterial.server.SchematicDatabase;
  * 2. 备货区创建：ADD 包 → 服务端建区 → 响应回客户端 → 渲染器收到线框数据
  * 3. 备货区扫描：区内放箱子装物品 → 服务端统计出该材料的备货区存量
  *
- * 注意选区的按键读取分两套机制：
- * - 左键/右键走 KeyMapping.isDown()，客户端 GameTest 的合成输入可驱动
- * - Esc/Enter 走 GLFW.glfwGetKey() 直接轮询硬件状态，合成输入驱动不了，
- *   因此确认/取消在测试里直接调 confirm()/cancel()。这是被测代码的可测性
- *   限制，不是测试偷懒 —— 记录在此以免日后误以为覆盖了真实按键路径。
+ * 左右键由 KeyMapping.isDown() 读取，Enter/Esc 经 MaLiLib 键盘事件进入同一
+ * 选区状态机；本用例全部通过客户端合成输入驱动，不直接调用确认/取消方法。
  */
 public class StagingAreaSelectionClientGameTest implements FabricClientGameTest {
 
@@ -132,7 +129,7 @@ public class StagingAreaSelectionClientGameTest implements FabricClientGameTest 
             throw new AssertionError("start 后选区模式应处于激活态");
         }
 
-        ctx.runOnClient(client -> StagingAreaSelector.getInstance().cancel());
+        ctx.getInput().pressKey(256);
         ctx.waitTicks(5);
 
         boolean stillActive = ctx.computeOnClient(client ->
@@ -155,7 +152,7 @@ public class StagingAreaSelectionClientGameTest implements FabricClientGameTest 
             }, null, "确认测试", POS1, POS2));
         ctx.waitTicks(5);
 
-        ctx.runOnClient(client -> StagingAreaSelector.getInstance().confirm());
+        ctx.getInput().pressKey(257);
         ctx.waitTicks(5);
 
         if (!POS1.equals(captured[0]) || !POS2.equals(captured[1])) {

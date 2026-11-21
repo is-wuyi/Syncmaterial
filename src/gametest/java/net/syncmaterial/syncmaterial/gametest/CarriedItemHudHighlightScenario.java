@@ -110,7 +110,7 @@ public abstract class CarriedItemHudHighlightScenario {
 
             ctx.runOnClient(client -> gui.togglePickupMode());
             if (!waitFor(ctx, () -> ctx.computeOnClient(client ->
-                    PickupModeState.isActive() && SyncMaterialClient.livePickupNeeds()
+                    net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive() && SyncMaterialClient.livePickupNeeds()
                             .getOrDefault(STONE, 0L) == REQUIRED))) {
                 throw new AssertionError("取货需求量未建立: needs="
                         + ctx.computeOnClient(client -> SyncMaterialClient.livePickupNeeds()));
@@ -251,7 +251,7 @@ public abstract class CarriedItemHudHighlightScenario {
             ctx.runOnClient(client -> {
                 Configs.Generic.HUD_ENABLED.setBooleanValue(originalHud);
                 ClientScreenAccess.showScreen(client, null);
-                PickupModeState.clear();
+                net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().clear();
                 PickupHighlight.invalidate();
                 InventoryWatcher.clearContext();
             });

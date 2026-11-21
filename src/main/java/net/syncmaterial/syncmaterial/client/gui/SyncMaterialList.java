@@ -20,15 +20,15 @@ import java.util.Set;
 public class SyncMaterialList extends MaterialListBase {
     private final String schematicId;
     private String title;
-    private boolean foundationBackend;
+    private volatile boolean foundationBackend;
     private final Map<Integer, CollaborationStatusS2CPacket> collaborationStatusMap = new HashMap<>();
     private Runnable onStatusUpdate;
     /** 目录已原子替换时通知选择层，即使材料 GUI 当前被弹窗遮住。 */
     private Runnable onMaterialCatalogChanged;
-    private boolean allowSelfClaim = true;
-    private boolean isOwner = false;
+    private volatile boolean allowSelfClaim = true;
+    private volatile boolean isOwner = false;
     private net.syncmaterial.syncmaterial.core.ProjectProgressSnapshot projectProgress;
-    private boolean projectProgressCurrent;
+    private volatile boolean projectProgressCurrent;
     private final Map<Integer, Long> pendingClaims = new HashMap<>();
 
     public boolean isClaimPending(int materialId) {
@@ -51,8 +51,8 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     /** 当前屏幕绑定的材料目录投递序号；未收到目录更新时为 -1。 */
-    private long catalogRevision = -1;
-    private long managementCatalogRevision = -1;
+    private volatile long catalogRevision = -1;
+    private volatile long managementCatalogRevision = -1;
     private String managementCatalogName = "";
     private List<ManagementMaterial> managementCatalogMaterials = List.of();
 
@@ -80,11 +80,11 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     /** 已应用的最新区域库存快照序号；目录变化时重置。 */
-    private long lastInventorySequence = -1;
+    private volatile long lastInventorySequence = -1;
     /** 是否收到过与当前目录匹配的 v3 权威库存快照。 */
-    private boolean authoritativeInventory;
+    private volatile boolean authoritativeInventory;
     /** v3 快照的 known 与 freshness 共同决定；旧协作状态不能改写。 */
-    private boolean authoritativeKnown;
+    private volatile boolean authoritativeKnown;
     private final Map<Integer, AreaCounts> authoritativeCounts = new HashMap<>();
     private List<CollaborationStatusS2CPacket.AreaFreshnessInfo> authoritativeFreshness = List.of();
 
@@ -110,6 +110,32 @@ public class SyncMaterialList extends MaterialListBase {
 
     public void setOnMaterialCatalogChanged(Runnable callback) {
         this.onMaterialCatalogChanged = callback;
+    }
+
+    public interface Binding {
+        void close();
+    }
+
+    /** Attaches one screen without transferring the project model's lifetime to it. */
+    public Binding bind(Runnable statusUpdate, Runnable catalogChanged) {
+        this.onStatusUpdate = statusUpdate;
+        this.onMaterialCatalogChanged = catalogChanged;
+        java.util.concurrent.atomic.AtomicBoolean open = new java.util.concurrent.atomic.AtomicBoolean(true);
+        return () -> {
+            if (!open.compareAndSet(true, false)) return;
+            if (this.onStatusUpdate == statusUpdate) this.onStatusUpdate = null;
+            if (this.onMaterialCatalogChanged == catalogChanged) this.onMaterialCatalogChanged = null;
+        };
+    }
+
+    /** Releases screen callbacks while retaining the authoritative model for HUD/pickup. */
+    public void clearBindings() {
+        this.onStatusUpdate = null;
+        this.onMaterialCatalogChanged = null;
+    }
+
+    public boolean hasAreaOverlap() {
+        return this.projectProgress != null && this.projectProgress.areaOverlap();
     }
 
     private void notifyMaterialCatalogChanged() {

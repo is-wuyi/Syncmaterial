@@ -72,6 +72,10 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         this.title = StringUtils.translate("litematica.gui.title.area_editor_sub_region");
     }
 
+    public String getSchematicId() {
+        return this.schematicId;
+    }
+
     @Override
     public void initGui()
     {

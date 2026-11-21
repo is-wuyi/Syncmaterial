@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Path;
 import java.sql.SQLException;
+import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -112,6 +113,29 @@ public class WarehouseDatabaseTest
             "DELETE FROM container_inventory WHERE area_id = ? AND area_type = 'warehouse'", warehouseId);
 
         assertEquals(0, countRows("SELECT COUNT(*) FROM container_inventory WHERE area_id = ?", warehouseId));
+    }
+
+    @Test
+    void containerEntries_areFilteredByPlayerDimension() throws SQLException {
+        var manager = new net.syncmaterial.syncmaterial.server.StagingAreaManager(db);
+        int overworld = manager.addWarehouse("主世界仓", "minecraft:overworld", 0, 0, 0, 10, 10, 10);
+        int nether = manager.addWarehouse("下界仓", "minecraft:the_nether", 0, 0, 0, 10, 10, 10);
+        db.executeUpdate("INSERT INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) "
+                + "VALUES (?, 'warehouse', 5, 65, 5, 'minecraft:stone')", overworld);
+        db.executeUpdate("INSERT INTO container_inventory (area_id, area_type, pos_x, pos_y, pos_z, item_id) "
+                + "VALUES (?, 'warehouse', 5, 65, 5, 'minecraft:iron_ingot')", nether);
+
+        var overworldEntries = manager.getContainerEntriesForWarehouses(
+                java.util.Set.of(overworld, nether), "minecraft:overworld");
+        var netherEntries = manager.getContainerEntriesForWarehouses(
+                java.util.Set.of(overworld, nether), "minecraft:the_nether");
+
+        assertEquals(1, overworldEntries.size());
+        assertEquals(List.of("minecraft:stone"), overworldEntries.get(0).itemIds());
+        assertEquals(1, netherEntries.size());
+        assertEquals(List.of("minecraft:iron_ingot"), netherEntries.get(0).itemIds());
+        assertTrue(manager.getContainerEntriesForWarehouses(
+                java.util.Set.of(overworld, nether), "minecraft:the_end").isEmpty());
     }
 
     // ========== 跨维度迁移（beta.18） ==========

@@ -1659,6 +1659,19 @@ public class StagingAreaManager implements AutoCloseable {
 
     // ========== Phase 5: 容器数据查询 ==========
 
+    /** 冻结旧包不带维度；发送前按接收玩家所在世界过滤，避免同坐标跨维度高亮。 */
+    public List<net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket.ContainerEntry>
+            getContainerEntriesForWarehouses(Set<Integer> warehouseIds, String worldId) {
+        if (worldId == null || worldId.isBlank()) return List.of();
+        Set<Integer> inWorld = warehouseIds.stream()
+                .filter(id -> {
+                    Warehouse warehouse = this.warehousesById.get(id);
+                    return warehouse != null && worldId.equals(warehouse.world());
+                })
+                .collect(java.util.stream.Collectors.toSet());
+        return getContainerEntriesForWarehouses(inWorld);
+    }
+
     /**
      * 查询指定仓库集合的 container_inventory，返回容器坐标+物品种类列表
      */

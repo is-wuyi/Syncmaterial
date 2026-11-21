@@ -1,5 +1,6 @@
 package net.syncmaterial.syncmaterial.client.gui;
 
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 import org.lwjgl.glfw.GLFW;
@@ -21,10 +22,31 @@ import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
 
 import net.syncmaterial.syncmaterial.SyncMaterial;
+import net.syncmaterial.syncmaterial.client.ProjectViewClient;
+import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.client.config.Configs;
+import net.syncmaterial.syncmaterial.client.session.ClientConnectionSession;
+import net.syncmaterial.syncmaterial.client.session.ClientSessionManager;
+import net.syncmaterial.syncmaterial.core.ProjectViewScope;
+import net.syncmaterial.syncmaterial.network.ClientProtocolState;
+import net.syncmaterial.syncmaterial.network.ProtocolVersion;
 
+/**
+ * 准星选区状态机。
+ *
+ * <p>每个连接会话拥有一个实例（{@code ClientConnectionSession.selector()}），
+ * {@link #getInstance()} 只是"当前会话的 selector"的便捷入口；没有活动会话时
+ * 返回一个永不激活的断开空实例，避免旧连接残留的选区模式落到主菜单/新服务器。</p>
+ *
+ * <p>{@link #start} 会一次性捕获四样东西：目标 scope（项目或 global 仓库）、
+ * 编辑意图（目标备货区/仓库或新建）、启动时的维度、以及原回调/返回界面/视图
+ * 围栏。{@link #confirm()} / {@link #cancel()} 最多消费一次，消费时立刻释放
+ * callback、returnScreen 与 pendingScreenClose；换维度、目标视图失效或断线
+ * 一律只丢弃，不提交旧角点，也不恢复已失效的旧界面。</p>
+ */
 public class StagingAreaSelector {
-    private static final StagingAreaSelector INSTANCE = new StagingAreaSelector();
+    private static final FenceCheck ALWAYS_CURRENT = () -> true;
+    private static final StagingAreaSelector DETACHED = new StagingAreaSelector(true);
 
     /**
      * 准星选区完成回调接口（解耦 StagingAreaSelector 和具体 GUI 类）
@@ -42,9 +64,53 @@ public class StagingAreaSelector {
         WAREHOUSE
     }
 
+    /**
+     * 本次选区归属的 scope。global 表示全局仓库（不隶属任何项目）；
+     * projectId 为 null 且非 global 表示上下文未知（旧调用方没有传项目）。
+     */
+    public record SelectionScope(@Nullable String projectId, boolean global) {
+        public SelectionScope {
+            if (!global && projectId != null && projectId.isBlank()) {
+                projectId = null;
+            }
+        }
+
+        public static SelectionScope project(String projectId) {
+            return new SelectionScope(Objects.requireNonNull(projectId, "projectId"), false);
+        }
+
+        /** 不能命名为 global()：会与记录组件 global 的访问器冲突。 */
+        public static SelectionScope globalScope() {
+            return new SelectionScope(null, true);
+        }
+
+        /** 供 ProjectView 围栏使用的类型化 scope；未知上下文返回 null。 */
+        @Nullable
+        public ProjectViewScope viewScope() {
+            if (this.global) return ProjectViewScope.globalWarehouse();
+            return this.projectId == null ? null : ProjectViewScope.project(this.projectId);
+        }
+    }
+
+    /** 视图围栏：start 时捕获，confirm/cancel 时确认目标仍然有效。 */
+    @FunctionalInterface
+    interface FenceCheck {
+        boolean isCurrent();
+    }
+
+    /** 维度来源；生产读取玩家当前维度，测试可注入。 */
+    @FunctionalInterface
+    interface DimensionSource {
+        @Nullable
+        String currentDimension();
+    }
+
     private static final Color4f COLOR_POS1 = new Color4f(1.0f, 0.0f, 0.0f, 1.0f);
     private static final Color4f COLOR_POS2 = new Color4f(0.0f, 0.0f, 1.0f, 1.0f);
     private static final Color4f COLOR_LOOKING = new Color4f(1.0f, 1.0f, 0.0f, 0.5f);
+
+    /** 断开空实例：不拥有任何会话，任何输入都不得让它激活。 */
+    private final boolean detached;
 
     private boolean active = false;
     @Nullable private BlockPos pos1 = null;
@@ -61,6 +127,13 @@ public class StagingAreaSelector {
     private int editingWarehouseId = -1;
     /** 正在编辑的备货区所属原理图，配合 targetBoxName 供正式渲染跳过 */
     @Nullable private String editingSchematicId = null;
+    /** 启动时捕获的 scope（项目或 global），消费后清空。 */
+    @Nullable private SelectionScope scope = null;
+    /** 启动时捕获的视图围栏；目标被删除/换视图后确认会被丢弃。 */
+    private FenceCheck viewFence = ALWAYS_CURRENT;
+    /** 启动时的维度；换维度后旧角点一律不提交。 */
+    @Nullable private String startDimension = null;
+    private DimensionSource dimensionSource = StagingAreaSelector::minecraftDimension;
     /**
      * 是否仍需关闭界面。
      *
@@ -72,10 +145,22 @@ public class StagingAreaSelector {
     private boolean leftClicked = false;
     private boolean rightClicked = false;
 
-    private StagingAreaSelector() {}
+    /** 供 ClientConnectionSession 为每个连接创建一个独立实例。 */
+    public StagingAreaSelector() {
+        this(false);
+    }
 
+    private StagingAreaSelector(boolean detached) {
+        this.detached = detached;
+    }
+
+    /**
+     * 当前会话的选区实例；无会话时返回断开空实例（永不激活）。
+     */
     public static StagingAreaSelector getInstance() {
-        return INSTANCE;
+        return ClientSessionManager.current()
+                .map(ClientConnectionSession::selector)
+                .orElse(DETACHED);
     }
 
     public boolean isActive() {
@@ -101,6 +186,11 @@ public class StagingAreaSelector {
         return this.pos2;
     }
 
+    @Nullable
+    public SelectionScope getScope() {
+        return this.scope;
+    }
+
     public void start(SelectionCallback callback, Screen returnScreen,
                       @Nullable String boxName, @Nullable BlockPos initialPos1, @Nullable BlockPos initialPos2) {
         this.start(callback, returnScreen, boxName, initialPos1, initialPos2,
@@ -111,12 +201,29 @@ public class StagingAreaSelector {
      * 启动准星选区。
      *
      * @param targetType         决定区域框配色，使编辑时与该对象平时的线框颜色一致
-     * @param editingSchematicId 编辑备货区时传所属原理图；新建传 null
+     * @param editingSchematicId 编辑/新建备货区时的所属原理图；仓库目标可传 null
      * @param editingWarehouseId 编辑仓库时传仓库 ID；新建或编辑备货区传 -1
      */
     public void start(SelectionCallback callback, Screen returnScreen,
                       @Nullable String boxName, @Nullable BlockPos initialPos1, @Nullable BlockPos initialPos2,
                       TargetType targetType, @Nullable String editingSchematicId, int editingWarehouseId) {
+        if (this.detached) {
+            SyncMaterial.LOGGER.debug("[StagingAreaSelector] 当前无活动连接会话，忽略选区启动");
+            return;
+        }
+
+        // 上一次未消费的意图直接丢弃：不调用旧 callback，也不恢复旧界面
+        if (this.active) {
+            SyncMaterial.LOGGER.info("[StagingAreaSelector] 重新启动选区，丢弃上一次未消费的意图");
+        }
+
+        this.targetType = targetType != null ? targetType : TargetType.STAGING_AREA;
+        this.editingSchematicId = editingSchematicId;
+        this.editingWarehouseId = editingWarehouseId;
+        this.scope = resolveScope(this.targetType, editingSchematicId);
+        this.viewFence = captureViewFence(this.scope);
+        this.startDimension = this.dimensionSource.currentDimension();
+
         this.active = true;
         this.callback = callback;
         this.returnScreen = returnScreen;
@@ -124,9 +231,6 @@ public class StagingAreaSelector {
         this.pos1 = initialPos1;
         this.pos2 = initialPos2;
         this.posLookingAt = null;
-        this.targetType = targetType != null ? targetType : TargetType.STAGING_AREA;
-        this.editingSchematicId = editingSchematicId;
-        this.editingWarehouseId = editingWarehouseId;
 
         Minecraft mc = Minecraft.getInstance();
         // 这里先关一次，随后由 onTick 每帧兜底，直到界面真正消失。
@@ -144,8 +248,8 @@ public class StagingAreaSelector {
             net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(mc, null);
         }
 
-        SyncMaterial.LOGGER.info("[StagingAreaSelector] 启动选区模式: boxName={}, pos1={}, pos2={}, type={}",
-                boxName, initialPos1, initialPos2, this.targetType);
+        SyncMaterial.LOGGER.info("[StagingAreaSelector] 启动选区模式: boxName={}, pos1={}, pos2={}, type={}, scope={}",
+                boxName, initialPos1, initialPos2, this.targetType, this.scope);
     }
 
     /**
@@ -166,10 +270,41 @@ public class StagingAreaSelector {
                 && this.targetBoxName.equals(boxName);
     }
 
+    /**
+     * 取消选区。目标视图已失效（项目/仓库被删除或换视图）时不恢复旧界面。
+     */
     public void cancel() {
+        if (this.detached || !this.active) {
+            return;
+        }
         SyncMaterial.LOGGER.info("[StagingAreaSelector] 取消选区");
+        boolean fenceCurrent = this.viewFence.isCurrent();
+        Screen screen = this.returnScreen;
         this.active = false;
-        this.returnToGui();
+        this.consumeIntent();
+        if (fenceCurrent) {
+            restoreScreen(screen);
+        }
+    }
+
+    /**
+     * 丢弃选区：不调用回调、不恢复旧界面、清掉旧角点。
+     * 用于换维度、断线以及目标已失效的场景。
+     */
+    /** Called by the session dimension tracker; old-world points are never submitted. */
+    public void onDimensionChanged() {
+        this.discardIfDimensionChanged();
+    }
+
+    public void discard() {
+        if (this.detached) {
+            return;
+        }
+        this.active = false;
+        this.pos1 = null;
+        this.pos2 = null;
+        this.posLookingAt = null;
+        this.consumeIntent();
     }
 
     /**
@@ -181,59 +316,83 @@ public class StagingAreaSelector {
         this.pos1 = null;
         this.pos2 = null;
         this.posLookingAt = null;
-        this.callback = null;
-        this.returnScreen = null;
-        this.targetBoxName = null;
-        this.editingSchematicId = null;
-        this.editingWarehouseId = -1;
-        this.targetType = TargetType.STAGING_AREA;
-        // 不清会导致断连后持续关闭界面（连主菜单都会被关掉）
-        this.pendingScreenClose = false;
-        this.leftClicked = false;
-        this.rightClicked = false;
+        this.startDimension = null;
+        this.consumeIntent();
     }
 
+    /**
+     * 确认选区。无论成功、角点不足、维度已变还是视图失效，本次意图最多消费一次：
+     * callback、returnScreen、pendingScreenClose 在消费时立刻释放。
+     */
     public void confirm() {
-        if (this.pos1 == null || this.pos2 == null) {
+        if (this.detached || !this.active) {
+            return;
+        }
+
+        // 换维度后旧角点属于别的世界，不能提交
+        if (this.discardIfDimensionChanged()) {
+            return;
+        }
+
+        BlockPos pos1 = this.pos1;
+        BlockPos pos2 = this.pos2;
+        if (pos1 == null || pos2 == null) {
             SyncMaterial.LOGGER.warn("[StagingAreaSelector] 确认失败: pos1 或 pos2 为空");
             return;
         }
 
-        SyncMaterial.LOGGER.info("[StagingAreaSelector] 确认选区: pos1={}, pos2={}", this.pos1, this.pos2);
-        this.active = false;
+        String boxName = this.targetBoxName;
+        SelectionCallback callback = this.callback;
+        Screen screen = this.returnScreen;
+        boolean fenceCurrent = this.viewFence.isCurrent();
 
-        if (this.callback != null) {
-            this.callback.onSelectionConfirmed(this.targetBoxName, this.pos1, this.pos2);
+        this.active = false;
+        this.consumeIntent();
+
+        SyncMaterial.LOGGER.info("[StagingAreaSelector] 确认选区: pos1={}, pos2={}", pos1, pos2);
+
+        if (!fenceCurrent) {
+            // 目标项目/仓库已被删除或视图已替换：不写回旧界面，也不回调旧 GUI
+            SyncMaterial.LOGGER.info("[StagingAreaSelector] 目标视图已失效，丢弃选区结果且不恢复旧界面");
+            return;
         }
 
-        this.returnToGui();
+        if (callback != null) {
+            callback.onSelectionConfirmed(boxName, pos1, pos2);
+        }
+
+        // 回调之后再恢复界面：回调可能已经把新界面打开
+        restoreScreen(screen);
     }
 
-    private void returnToGui() {
-        // 必须先清标记再 setScreen：否则 onTick 会把刚恢复的界面又关掉
-        this.pendingScreenClose = false;
-
-        Minecraft mc = Minecraft.getInstance();
-        if (mc != null && this.returnScreen != null) {
-            net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(mc, this.returnScreen);
+    /** MaLiLib keyboard entry; only an active selection consumes Enter/Escape. */
+    public boolean onKeyInput(int keyCode, int scanCode, int modifiers, boolean pressed) {
+        if (this.detached || !this.active || !pressed) return false;
+        if (keyCode == GLFW.GLFW_KEY_ENTER) {
+            this.confirm();
+            return true;
         }
-        this.returnScreen = null;
-        this.targetBoxName = null;
-        // 编辑上下文必须一并清掉：否则正式渲染会继续跳过该对象，
-        // 而选区已退出不再绘制，那个框就永久消失了
-        this.editingSchematicId = null;
-        this.editingWarehouseId = -1;
-        this.targetType = TargetType.STAGING_AREA;
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            this.cancel();
+            return true;
+        }
+        return false;
     }
 
     public void onTick() {
-        if (!this.active) {
+        if (this.detached || !this.active) {
+            return;
+        }
+
+        // 换维度：取消且不提交旧角点，也不恢复旧界面
+        if (this.discardIfDimensionChanged()) {
             return;
         }
 
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) {
-            this.cancel();
+        if (mc == null || mc.player == null || mc.level == null) {
+            // 断线/离开世界：不能恢复到已断开的服务器界面
+            this.discard();
             return;
         }
 
@@ -387,5 +546,122 @@ public class StagingAreaSelector {
         if (!lineCrosshair.isEmpty()) {
             drawContext.drawString(mc.font, lineCrosshair, centerX - mc.font.width(lineCrosshair) / 2, textY + 42, 0xFF55FFFF, true);
         }
+    }
+
+    // ========== 内部：scope / 围栏 / 维度 ==========
+
+    @Nullable
+    private static SelectionScope resolveScope(TargetType targetType, @Nullable String editingSchematicId) {
+        if (targetType == TargetType.WAREHOUSE) {
+            return SelectionScope.globalScope();
+        }
+        if (editingSchematicId != null && !editingSchematicId.isBlank()) {
+            return SelectionScope.project(editingSchematicId);
+        }
+        // 旧调用方（新建备货区）没有显式传项目：取当前项目视图的 scope
+        ProjectViewClient client = ProjectViewClient.current().orElse(null);
+        if (client == null) {
+            return null;
+        }
+        ProjectViewScope viewScope = client.projectStore()
+                .map(store -> store.scope())
+                .orElse(null);
+        return viewScope != null && viewScope.isProject()
+                ? SelectionScope.project(viewScope.projectId())
+                : null;
+    }
+
+    private static FenceCheck captureViewFence(@Nullable SelectionScope scope) {
+        ProjectViewScope viewScope = scope == null ? null : scope.viewScope();
+        if (viewScope == null) {
+            return ALWAYS_CURRENT;
+        }
+        boolean scoped = ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS);
+        ProjectViewEditorSupport.EditFence fence = ProjectViewEditorSupport.captureFence(viewScope);
+        if (scoped && fence.view() == null) {
+            // 协议 5 下视图尚未建立时无法捕获有效视图代次，不阻断本次选区
+            return ALWAYS_CURRENT;
+        }
+        return () -> ProjectViewEditorSupport.isFenceCurrent(fence);
+    }
+
+    private boolean dimensionChangedSinceStart() {
+        String start = this.startDimension;
+        if (start == null) {
+            return false;
+        }
+        String current = this.dimensionSource.currentDimension();
+        return current != null && !start.equals(current);
+    }
+
+    /**
+     * 维度围栏：换维度时丢弃选区且不提交旧角点。
+     *
+     * @return true 表示已丢弃
+     */
+    boolean discardIfDimensionChanged() {
+        if (!this.dimensionChangedSinceStart()) {
+            return false;
+        }
+        SyncMaterial.LOGGER.info("[StagingAreaSelector] 维度已变化，取消选区且不提交旧角点: {} -> {}",
+                this.startDimension, this.dimensionSource.currentDimension());
+        this.discard();
+        return true;
+    }
+
+    /** 释放本次意图的一次性资源；调用方负责设置 active=false。 */
+    private void consumeIntent() {
+        this.callback = null;
+        this.returnScreen = null;
+        this.pendingScreenClose = false;
+        this.targetBoxName = null;
+        this.editingSchematicId = null;
+        this.editingWarehouseId = -1;
+        this.targetType = TargetType.STAGING_AREA;
+        this.scope = null;
+        this.viewFence = ALWAYS_CURRENT;
+        this.leftClicked = false;
+        this.rightClicked = false;
+    }
+
+    private static void restoreScreen(@Nullable Screen screen) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc != null && screen != null) {
+            net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(mc, screen);
+        }
+    }
+
+    @Nullable
+    private static String minecraftDimension() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc == null || mc.player == null || mc.player.level() == null) {
+            return null;
+        }
+        return McCompat.dimensionId(mc.player.level());
+    }
+
+    // ========== 测试钩子（同包可见） ==========
+
+    void setViewFenceForTesting(FenceCheck fence) {
+        this.viewFence = fence == null ? ALWAYS_CURRENT : fence;
+    }
+
+    void setDimensionSourceForTesting(DimensionSource source) {
+        this.dimensionSource = source == null ? StagingAreaSelector::minecraftDimension : source;
+    }
+
+    @Nullable
+    SelectionCallback callbackForTesting() {
+        return this.callback;
+    }
+
+    @Nullable
+    Screen returnScreenForTesting() {
+        return this.returnScreen;
+    }
+
+    @Nullable
+    String startDimensionForTesting() {
+        return this.startDimension;
     }
 }

@@ -23,18 +23,22 @@ import net.syncmaterial.syncmaterial.api.ProgressFormulas;
  *
  * 现在统一为：needs 是唯一数据（itemId → 还需取货数），线框过滤用它的
  * keySet，两者口径天然一致；更新由调用方在 tick 中驱动，与渲染解耦。
+ *
+ * <p>本类只持有状态、不持有"当前状态"的全局引用：每个客户端连接各有一个
+ * 实例（由 ClientConnectionSession 拥有）。shared 模块不能依赖平台会话
+ * 管理器，调用方需要自行从当前会话取实例。</p>
  */
 public final class PickupModeState {
-    private static boolean active;
-    private static Map<String, Long> needs = Map.of();
+    private boolean active;
+    private Map<String, Long> needs = Map.of();
 
-    private PickupModeState() {}
+    public PickupModeState() {}
 
-    public static boolean isActive() {
+    public boolean isActive() {
         return active;
     }
 
-    public static void setActive(boolean value) {
+    public void setActive(boolean value) {
         active = value;
         if (!active) {
             needs = Map.of();
@@ -47,17 +51,17 @@ public final class PickupModeState {
      * 这是每若干 tick 采样一次的缓存值，供 HUD 与仓库线框使用。
      * 箱子格子高亮不要用它 —— 见 computeNeeds 的说明。
      */
-    public static Map<String, Long> getNeeds() {
+    public Map<String, Long> getNeeds() {
         return needs;
     }
 
     /** 需要取货的物品 ID 集合，供仓库容器线框过滤 */
-    public static Set<String> getNeededItemIds() {
+    public Set<String> getNeededItemIds() {
         return needs.keySet();
     }
 
     /** 退出世界/换服/原理图被删除时调用：状态不清会带着陈旧需求继续高亮 */
-    public static void clear() {
+    public void clear() {
         active = false;
         needs = Map.of();
     }
@@ -66,7 +70,7 @@ public final class PickupModeState {
      * 依据当前材料清单重算需求。未激活时清空。
      * 调用方负责驱动（每若干 tick 一次），不依赖任何渲染回调。
      */
-    public static void recompute(List<? extends MaterialSnapshot> materials) {
+    public void recompute(List<? extends MaterialSnapshot> materials) {
         recompute(materials, null);
     }
 
@@ -85,7 +89,7 @@ public final class PickupModeState {
      *
      * @param liveCounts itemId → 本地实测数量；null 表示没有即时样本，非空样本缺失即为 0
      */
-    public static void recompute(List<? extends MaterialSnapshot> materials,
+    public void recompute(List<? extends MaterialSnapshot> materials,
             Map<String, Long> liveCounts) {
         if (!active || materials == null) {
             needs = Map.of();

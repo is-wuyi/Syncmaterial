@@ -274,21 +274,22 @@ class PickupHighlightTest {
         assertEquals(2, withFreshNeeds.size(), "就地现算不该多点亮");
     }
 
-    /** computeNeeds 是纯函数：不得改动 PickupModeState 的缓存状态 */
+    /** computeNeeds 是纯函数：不得改动 PickupModeState 实例的缓存状态 */
     @Test
     void computeNeeds_doesNotMutateCachedState() {
-        PickupModeState.clear();
-        PickupModeState.setActive(true);
-        PickupModeState.recompute(
+        PickupModeState state = new PickupModeState();
+        state.clear();
+        state.setActive(true);
+        state.recompute(
             List.of(new Snapshot("minecraft:stone", 64, 0, 0, 64, true)));
-        Map<String, Long> before = Map.copyOf(PickupModeState.getNeeds());
+        Map<String, Long> before = Map.copyOf(state.getNeeds());
 
         PickupModeState.computeNeeds(
             List.of(new Snapshot("minecraft:dirt", 32, 0, 0, 32, true)),
             counts("minecraft:dirt", 0));
 
-        assertEquals(before, PickupModeState.getNeeds(),
+        assertEquals(before, state.getNeeds(),
             "就地现算不得污染 HUD 与线框读取的缓存值");
-        PickupModeState.clear();
+        state.clear();
     }
 }
