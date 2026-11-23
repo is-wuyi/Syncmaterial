@@ -41,6 +41,8 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     private boolean warehouseListRequested;
     /** 已读取的全局视图代次；只有视图真正重开时才允许再读。 */
     private ProjectViewClient.ViewToken warehouseListView;
+    /** 本界面发起的准星选区转场（新建仓库）：removed() 时保留 global lease。 */
+    private boolean selectorTransition;
     private final EditorSaveTracker saveTracker = new EditorSaveTracker();
 
     public EditorSaveTracker.State getSaveState() {
@@ -86,8 +88,34 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     public void initGui()
     {
         super.initGui();
+        this.selectorTransition = false;
         ensureWarehouseListRead(false);
         addTopButtons();
+        // 被子界面遮挡期间错过的后台配置更新，在恢复时从最新权威 store 补齐，
+        // 不依赖"收到配置时 currentScreen 恰好是本界面"
+        applyLatestGlobalStoreConfiguration();
+        var coordinator = net.syncmaterial.syncmaterial.client.SyncMaterialClient.projectCoordinator();
+        if (coordinator != null) {
+            coordinator.subscribeConfigurations(this,
+                    net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
+                    (action, areas) -> {
+                        if ("LIST_WAREHOUSES".equals(action)) this.applyProjectViewConfiguration(areas);
+                    });
+        }
+    }
+
+    /**
+     * Replays the latest accepted global configuration from the session store into the
+     * list. Safe to call repeatedly (idempotent data replace); legacy servers without a
+     * global store keep the legacy packet routing unchanged.
+     */
+    void applyLatestGlobalStoreConfiguration()
+    {
+        ProjectViewClient.current()
+                .flatMap(ProjectViewClient::globalStore)
+                .filter(store -> store.valid())
+                .flatMap(store -> store.configuration("LIST_WAREHOUSES"))
+                .ifPresent(this::applyProjectViewConfiguration);
     }
 
     /**
@@ -139,6 +167,19 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
     {
         releaseGlobalLease();
         super.closeGui(showParent);
+    }
+
+    /**
+     * 直接 setScreen 退出的兜底释放；本界面发起的准星选区转场（新建仓库）
+     * 保留 lease，等确认/取消回到本界面时复用。
+     */
+    @Override
+    public void removed()
+    {
+        super.removed();
+        if (!this.selectorTransition) {
+            releaseGlobalLease();
+        }
     }
 
     /**
@@ -202,6 +243,8 @@ public class GuiWarehouseManager extends GuiListBase<WarehouseEntry, WidgetWareh
 
             // 新建：还没有仓库 ID，但仍用仓库配色，避免确认后框的颜色突变。
             // 界面关闭时序由 StagingAreaSelector.onTick 兜底，此处直接启动。
+            // 本界面发起的选区转场保留 global lease，removed() 不误释放。
+            this.gui.selectorTransition = true;
             StagingAreaSelector.getInstance().start(this.gui, this.gui, null, null, null,
                     StagingAreaSelector.TargetType.WAREHOUSE, null, -1);
             return true;

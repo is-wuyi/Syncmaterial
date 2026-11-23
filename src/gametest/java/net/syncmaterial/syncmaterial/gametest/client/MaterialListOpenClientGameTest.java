@@ -16,9 +16,8 @@ import net.syncmaterial.syncmaterial.network.MaterialStatsRequestC2SPacket;
 import net.syncmaterial.syncmaterial.server.SchematicDatabase;
 
 /**
- * 材料清单打开链路端到端测试：MaterialStatsRequestC2SPacket →
- * 服务端查库（materials + claims + player_inventories）→
- * MaterialStatsResponseS2CPacket → receiver 路由 → GuiMaterialList 自动打开。
+ * 材料清单打开链路端到端测试：真实项目 OPEN → 服务端查库与在线观测 →
+ * 协议5视图回包 → receiver／协调器路由 → GuiMaterialList 自动打开。
  *
  * 与既有测试的关键差异：此前的测试都手动调用 openMaterialListScreen
  * 直开 GUI，跳过了"请求 → 查库 → 响应 → 路由"整条链路；本测试只发
@@ -82,9 +81,12 @@ public class MaterialListOpenClientGameTest implements FabricClientGameTest {
                 return null;
             });
 
-            // ===== 唯一动作：发真实请求包，GUI 必须由 receiver 自动打开 =====
-            ctx.runOnClient(client -> ClientPlayNetworking.send(
-                new MaterialStatsRequestC2SPacket(schematicId)));
+            // 当前协议5由真实项目 OPENED 打开；冻结旧包由协议1—4兼容测试另行覆盖。
+            ctx.runOnClient(client -> {
+                if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(schematicId)) {
+                    throw new AssertionError("真实项目材料请求未建立");
+                }
+            });
 
             ctx.waitForScreen(GuiMaterialList.class);
 

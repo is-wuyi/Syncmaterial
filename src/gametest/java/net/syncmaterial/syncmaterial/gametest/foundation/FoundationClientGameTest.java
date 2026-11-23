@@ -55,7 +55,11 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                     runtime.store().ingest(metadata, List.of(new MaterialCount("minecraft:dirt", 64)), runtime.interpretationId()).join();
                     return runtime.store().findProject(projectId).join().orElseThrow().materials().get(0).id();
                 });
-                context.runOnClient(client -> ClientPlayNetworking.send(new MaterialStatsRequestC2SPacket(projectId)));
+                context.runOnClient(client -> {
+                    if (!SyncMaterialClient.requestMaterialList(projectId)) {
+                        throw new AssertionError("Foundation project view request was not accepted");
+                    }
+                });
                 context.waitForScreen(GuiMaterialList.class);
                 waitFor(context, () -> context.computeOnClient(client -> {
                     if (!(ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui)) return false;
@@ -168,10 +172,18 @@ public class FoundationClientGameTest implements FabricClientGameTest {
             runtime.store().addWarehouseReference(projectId, warehouse.id()).join();
             return new AreaFixture(world, staging.id(), warehouse.id(), stagingPos, warehousePos);
         });
+        var warehouseLease = new java.util.concurrent.atomic.AtomicReference<net.syncmaterial.syncmaterial.client.ProjectViewClient.GlobalLease>();
         try {
             context.runOnClient(client -> {
-                ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(projectId, "LIST", -1, java.util.Optional.empty()));
-                ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(projectId));
+                var view = net.syncmaterial.syncmaterial.client.ProjectViewClient.current().orElseThrow();
+                view.openEditor(projectId);
+                if (view.areaConfig(net.syncmaterial.syncmaterial.core.ProjectViewScope.project(projectId),
+                        0, "LIST", java.util.Optional.empty()) <= 0) {
+                    throw new AssertionError("Foundation 项目 LIST 未建立");
+                }
+                if (!screen.refreshStagingAreas()) {
+                    throw new AssertionError("Foundation 项目重扫未发出");
+                }
             });
             try {
                 waitFor(context, () -> context.computeOnClient(client -> {
@@ -245,11 +257,18 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("Dirty area update did not settle; client " + clientState + "; server " + serverState, failure);
             }
 
-            context.runOnClient(client -> ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(projectId,
-                    "UPDATE_WAREHOUSE", fixture.warehouseId(), java.util.Optional.of(new StagingAreaConfigC2SPacket.AreaData(
-                    "Client warehouse " + projectId, fixture.warehouse().getX(), fixture.warehouse().getY(), fixture.warehouse().getZ(),
-                    fixture.warehouse().getX(), fixture.warehouse().getY(), fixture.warehouse().getZ(),
-                    java.util.Optional.of(fixture.world()))))));
+            long warehouseUpdate = context.computeOnClient(client -> {
+                var view = net.syncmaterial.syncmaterial.client.ProjectViewClient.current().orElseThrow();
+                warehouseLease.set(view.acquireGlobalWarehouse(
+                        net.syncmaterial.syncmaterial.core.InterestKind.AREA_CONFIG.bit()));
+                return view.areaConfig(net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
+                        fixture.warehouseId(), "UPDATE_WAREHOUSE", java.util.Optional.of(
+                                new StagingAreaConfigC2SPacket.AreaData("Client warehouse " + projectId,
+                                        fixture.warehouse().getX(), fixture.warehouse().getY(), fixture.warehouse().getZ(),
+                                        fixture.warehouse().getX(), fixture.warehouse().getY(), fixture.warehouse().getZ(),
+                                        java.util.Optional.of(fixture.world()))));
+            });
+            if (warehouseUpdate <= 0) throw new AssertionError("Foundation global 仓库 UPDATE 未建立");
             waitFor(context, () -> context.computeOnClient(client -> screen.getOverlapWarning() == null
                     && screen.getMaterialList().isPreparationKnown() && screen.getFreshnessWarnings().isEmpty()));
 
@@ -274,7 +293,12 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                 runtime.requestBroadcast(projectId);
                 return null;
             });
-            context.runOnClient(client -> ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(projectId)));
+            context.runOnClient(client -> {
+                if (!screen.refreshStagingAreas()) {
+                    throw new AssertionError("Foundation 清理后的重扫未发出");
+                }
+                if (warehouseLease.get() != null) warehouseLease.get().close();
+            });
             waitFor(context, () -> context.computeOnClient(client -> screen.getMaterialList().isPreparationKnown()
                     && screen.getMaterialList().getMaterialsAll().stream()
                     .allMatch(entry -> entry.getStagingCount() == 0 && entry.getWarehouseCount() == 0)));

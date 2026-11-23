@@ -65,8 +65,11 @@ public class FoundationTeamOwnerClientGameTest implements FabricClientGameTest {
                         && client.getWindow().getGuiScaledHeight() == 540);
                 Fixture fixture = server.computeOnServer(instance -> createFixture(
                         instance, projectId, List.of(deputyA, deputyB, transferTarget)));
-                context.runOnClient(client ->
-                        ClientPlayNetworking.send(new MaterialStatsRequestC2SPacket(projectId)));
+                context.runOnClient(client -> {
+                    if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(projectId)) {
+                        throw new AssertionError("Foundation 团队项目未建立");
+                    }
+                });
                 context.waitForScreen(GuiMaterialList.class);
                 GuiMaterialList gui = context.computeOnClient(client ->
                         (GuiMaterialList) ClientScreenAccess.currentScreen(client));
@@ -75,8 +78,11 @@ public class FoundationTeamOwnerClientGameTest implements FabricClientGameTest {
                                 && gui.getTeamState() != null
                                 && projectId.equals(gui.getTeamState().projectId())
                                 && gui.isMainOwner() && gui.isOwner()));
-                context.runOnClient(client ->
-                        ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(projectId)));
+                context.runOnClient(client -> {
+                    if (!gui.refreshStagingAreas()) {
+                        throw new AssertionError("Foundation 项目重扫未发出");
+                    }
+                });
                 waitFor(context, () -> context.computeOnClient(client ->
                         currentScreen() == gui && areaAuthorityVisible(gui, fixture.stoneId())));
                 long catalogRevision = context.computeOnClient(client ->

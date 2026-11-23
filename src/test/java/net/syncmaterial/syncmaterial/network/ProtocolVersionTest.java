@@ -15,11 +15,25 @@ import static org.junit.jupiter.api.Assertions.*;
 class ProtocolVersionTest
 {
     @BeforeEach
+    void setUpSession()
+    {
+        // direct entry 仅供测试：显式建立会话后握手状态才有可写归属
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.resetForTesting();
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.join(new Object());
+    }
+
+    @BeforeEach
     @AfterEach
     void clearHandshakeState()
     {
         ProtocolHandshake.clearAll();
         ClientProtocolState.reset();
+    }
+
+    @AfterEach
+    void tearDownSession()
+    {
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.resetForTesting();
     }
 
     // ==================== 版本比较 ====================

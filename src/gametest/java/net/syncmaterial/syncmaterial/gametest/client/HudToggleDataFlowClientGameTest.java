@@ -41,10 +41,12 @@ public class HudToggleDataFlowClientGameTest implements FabricClientGameTest {
             ctx.waitTicks(20);
 
             // 材料：总量 64、备货区 0、背包 0、仓库 64 → 需求 = 64
-            ctx.runOnClient(client -> SyncMaterialClient.openMaterialListScreen(
-                schematicId, "HUD Toggle Test",
-                List.of(new MaterialEntry(1, new ItemStack(Items.DIRT), 64)),
-                true, true, "Player0", List.of(), true));
+            // 这是合成 HUD 算法夹具，不请求一个不存在的服务端项目。
+            ctx.runOnClient(client -> net.syncmaterial.syncmaterial.client.session.ClientSessionManager.current()
+                    .orElseThrow().projectCoordinator().presentMaterialList(
+                    schematicId, "HUD Toggle Test",
+                    List.of(new MaterialEntry(1, new ItemStack(Items.DIRT), 64)),
+                    true, true, "Player0", List.of(), true));
             ctx.waitForScreen(GuiMaterialList.class);
 
             // 把 HUD 两个开关都关掉，再开启取货模式并铺上需求数据

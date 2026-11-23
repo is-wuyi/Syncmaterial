@@ -118,6 +118,37 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         this.initGui();
     }
 
+    /** Binds an existing project projection; construction does not replace session state. */
+    public GuiMaterialList(SyncMaterialList materialList) {
+        this(materialList, false, "", List.of());
+    }
+
+    public GuiMaterialList(SyncMaterialList materialList, boolean mainOwner,
+            String ownerName, List<String> deputyOwners) {
+        this(materialList, materialList.getTitle(), List.of(), materialList.isOwner(),
+                mainOwner, ownerName, deputyOwners, materialList.isAllowSelfClaim());
+    }
+
+    public GuiMaterialList(SyncMaterialList materialList, String schematicName,
+            List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries, boolean isOwner,
+            boolean isMainOwner, String ownerName, List<String> deputyOwners,
+            boolean allowSelfClaim) {
+        super(10, CONTENT_TOP);
+
+        this.materialList = materialList;
+        this.isOwner = isOwner;
+        this.isMainOwner = isMainOwner;
+        this.ownerName = ownerName != null ? ownerName : "";
+        this.deputyOwners = deputyOwners != null ? new ArrayList<>(deputyOwners) : new ArrayList<>();
+        this.allowSelfClaim = allowSelfClaim;
+        this.materialBinding = this.materialList.bind(this::onMaterialStatusUpdated,
+                this::onMaterialCatalogUpdated);
+        this.title = this.materialList.getTitle();
+        this.useTitleHierarchy = false;
+
+        MaterialListUtils.updateAvailableCounts(this.materialList.getMaterialsAll(), this.mc.player);
+    }
+
     public GuiMaterialList(String schematicId, String schematicName, List<net.syncmaterial.syncmaterial.api.MaterialEntry> entries, boolean isOwner, boolean isMainOwner, String ownerName, List<String> deputyOwners, boolean allowSelfClaim) {
         super(10, CONTENT_TOP);
 
@@ -257,7 +288,7 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             this.materialList.requestCollaborationStatus();
             String schematicId = this.materialList.getSchematicId();
             if (schematicId != null && !schematicId.isEmpty()) {
-                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket(
+                this.materialList.sendPacket(new net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket(
                         schematicId, "LIST", -1, java.util.Optional.empty()));
             }
         }
@@ -281,10 +312,10 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         if (schematicId != null && !schematicId.isEmpty()) {
             if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
                     net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
-                return net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
-                        .map(session -> session.rescan(schematicId, 0) > 0).orElse(false);
+                var view = this.materialList.projectView();
+                return view != null && view.rescan(schematicId, 0) > 0;
             }
-            ClientPlayNetworking.send(new RescanStagingAreaC2SPacket(schematicId));
+            this.materialList.sendPacket(new RescanStagingAreaC2SPacket(schematicId));
             return true;
         }
         return false;
@@ -349,19 +380,24 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().setActive(next);
         // 协议 5 只使用关联视图兴趣，避免旧订阅与新快照同时覆写同一容器缓存。
         String schematicId = this.materialList.getSchematicId();
+        boolean scoped = net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS);
         if (schematicId != null && !schematicId.isEmpty()) {
-            boolean scoped = net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
-                    net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS);
-            var session = net.syncmaterial.syncmaterial.client.ProjectViewClient.current().orElse(null);
-            if (scoped && session != null) {
-                session.setPickup(schematicId, next);
+            var view = this.materialList.projectView();
+            if (scoped && view != null) {
+                view.setPickup(schematicId, next);
             } else {
-                ClientPlayNetworking.send(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, next));
+                this.materialList.sendPacket(new net.syncmaterial.syncmaterial.network.WarehouseContainerRequestC2SPacket(schematicId, next));
             }
         }
         if (!next) {
-            // 退出取货模式时清空容器缓存（需求量由 setActive 负责清空）
-            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance().clearWarehouseContainers();
+            // 退出取货模式只清当前项目的协议5快照或旧协议全局缓存。
+            var renderer = net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance();
+            if (scoped && schematicId != null && !schematicId.isEmpty()) {
+                renderer.clearWarehouseContainers(schematicId);
+            } else {
+                renderer.clearWarehouseContainers();
+            }
         } else {
             // 立刻算一次，不必等下一个 tick 周期，避免刚开启时线框/高亮空一拍
             net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().recompute(
@@ -1151,28 +1187,45 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
         *///?}
     }
 
-    public void closeGui(boolean showParent) {
+    /** Detaches only this screen; project progress, inventory and HUD stay independent. */
+    public void suspendBinding() {
         if (this.materialBinding != null) {
             this.materialBinding.close();
             this.materialBinding = null;
         }
-        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.current()
-                .ifPresent(session -> session.hudVisible(this.materialList.getHudRenderer().getShouldRender()));
-        // 关闭界面不解除背包监听、不退订状态广播：HUD 的生命周期长于 GUI，
-        // 数据源必须随 HUD 存续（与 1.21.7 实际行为一致——当时的 close() 重写
-        // 是 malilib Esc 路径不会调用的死代码，clearContext 从未执行过）。
-        // 真正的清理在原理图删除时由 SyncMaterialClient.clearActiveSchematic 统一做。
-        TeamManagementClient.onMaterialListClosed(this);
-        net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
-                session.closeGui(this.materialList.getSchematicId()));
+    }
+
+    /** Reattaches the same browsing intent after a child screen returns. */
+    public void resumeBinding() {
+        if (this.materialBinding == null) {
+            this.materialBinding = this.materialList.bind(
+                    this::onMaterialStatusUpdated, this::onMaterialCatalogUpdated);
+        }
+        this.onMaterialCatalogUpdated();
+    }
+
+    public void closeGui(boolean showParent) {
+        var coordinator = net.syncmaterial.syncmaterial.client.SyncMaterialClient.projectCoordinator();
+        if (coordinator != null && coordinator.materialScreen() == this) {
+            coordinator.closeMaterialScreen(this);
+        } else {
+            this.suspendBinding();
+            TeamManagementClient.onMaterialListClosed(this);
+            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
+                    session.closeGui(this.materialList.getSchematicId()));
+        }
         super.closeGui(showParent);
     }
 
     @Override
     public void removed() {
-        // 标准 setScreen 路径不调用 closeGui；打开子弹窗时父列表同样会收到 removed，
-        // 因此这里只失效直接绑定父界面的请求，弹窗自己的请求由弹窗 removed 处理。
-        TeamManagementClient.onMaterialListRemoved(this);
+        var coordinator = net.syncmaterial.syncmaterial.client.SyncMaterialClient.projectCoordinator();
+        if (coordinator != null && coordinator.materialScreen() == this) {
+            coordinator.materialScreenRemoved(this, net.syncmaterial.syncmaterial.client.ClientScreenAccess
+                    .currentScreen(net.minecraft.client.Minecraft.getInstance()));
+        } else {
+            TeamManagementClient.onMaterialListRemoved(this);
+        }
         super.removed();
     }
 

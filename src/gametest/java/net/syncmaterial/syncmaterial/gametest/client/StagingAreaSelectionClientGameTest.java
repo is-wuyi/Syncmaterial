@@ -57,18 +57,33 @@ public class StagingAreaSelectionClientGameTest implements FabricClientGameTest 
 
             // ===== 第一段：选区状态机 =====
 
-            verifyCancelDoesNotCallBack(ctx);
-            BlockPos[] confirmed = verifyConfirmReportsPositions(ctx);
+            ctx.runOnClient(client -> {
+                if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(schematicId)) {
+                    throw new AssertionError("无法打开选区所属的真实项目视图");
+                }
+            });
+            ctx.waitForScreen(net.syncmaterial.syncmaterial.client.gui.GuiMaterialList.class);
+            ctx.runOnClient(client -> {
+                net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                        .ifPresent(view -> view.openEditor(schematicId));
+                net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(client, null);
+            });
+
+            verifyCancelDoesNotCallBack(ctx, schematicId);
+            BlockPos[] confirmed = verifyConfirmReportsPositions(ctx, schematicId);
 
             // ===== 第二段：用选区结果创建备货区 =====
 
-            ctx.runOnClient(client -> ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                schematicId, "ADD", -1,
-                Optional.of(new StagingAreaConfigC2SPacket.AreaData(
-                    "选区备货区",
-                    confirmed[0].getX(), confirmed[0].getY(), confirmed[0].getZ(),
-                    confirmed[1].getX(), confirmed[1].getY(), confirmed[1].getZ(),
-                    Optional.empty())))));
+            long addRequest = ctx.computeOnClient(client ->
+                    net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                            .map(view -> view.areaConfig(
+                                    net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId),
+                                    0, "ADD", Optional.of(new StagingAreaConfigC2SPacket.AreaData(
+                                            "选区备货区", confirmed[0].getX(), confirmed[0].getY(), confirmed[0].getZ(),
+                                            confirmed[1].getX(), confirmed[1].getY(), confirmed[1].getZ(),
+                                            Optional.of("minecraft:overworld")))))
+                            .orElse(-1L));
+            if (addRequest <= 0) throw new AssertionError("协议5 ADD 未绑定到原项目视图");
 
             int areaId = waitForAreaId(ctx, server, schematicId);
             if (areaId <= 0) {
@@ -78,8 +93,9 @@ public class StagingAreaSelectionClientGameTest implements FabricClientGameTest 
             // 服务端响应应回流到渲染器：客户端能画出这个备货区的线框
             boolean rendererHasArea = waitForCondition(ctx, () ->
                 ctx.computeOnClient(client -> {
-                    var selection = StagingAreaRenderer.getInstance().getSelection(schematicId);
-                    return selection != null && !selection.getAllSubRegionBoxes().isEmpty();
+                    var projection = net.syncmaterial.syncmaterial.client.session.ClientSessionManager.current()
+                            .orElseThrow().rendering().projectAreas(schematicId);
+                    return projection != null && !projection.areas().isEmpty();
                 }));
             if (!rendererHasArea) {
                 throw new AssertionError("备货区创建后客户端渲染器未收到线框数据");
@@ -117,10 +133,11 @@ public class StagingAreaSelectionClientGameTest implements FabricClientGameTest 
     }
 
     /** 取消选区不应触发回调，且必须退出激活态（残留会让下次进服仍处于选区模式） */
-    private void verifyCancelDoesNotCallBack(ClientGameTestContext ctx) {
+    private void verifyCancelDoesNotCallBack(ClientGameTestContext ctx, String schematicId) {
         boolean[] called = {false};
         ctx.runOnClient(client -> StagingAreaSelector.getInstance().start(
-            (name, p1, p2) -> called[0] = true, null, "取消测试", POS1, POS2));
+            (name, p1, p2) -> called[0] = true, null, "取消测试", POS1, POS2,
+                StagingAreaSelector.TargetType.STAGING_AREA, schematicId, -1));
         ctx.waitTicks(5);
 
         boolean activeAfterStart = ctx.computeOnClient(client ->
@@ -143,13 +160,14 @@ public class StagingAreaSelectionClientGameTest implements FabricClientGameTest 
     }
 
     /** 确认选区应把两个角点原样交给回调 */
-    private BlockPos[] verifyConfirmReportsPositions(ClientGameTestContext ctx) {
+    private BlockPos[] verifyConfirmReportsPositions(ClientGameTestContext ctx, String schematicId) {
         BlockPos[] captured = new BlockPos[2];
         ctx.runOnClient(client -> StagingAreaSelector.getInstance().start(
             (name, p1, p2) -> {
                 captured[0] = p1;
                 captured[1] = p2;
-            }, null, "确认测试", POS1, POS2));
+            }, null, "确认测试", POS1, POS2, StagingAreaSelector.TargetType.STAGING_AREA,
+                schematicId, -1));
         ctx.waitTicks(5);
 
         ctx.getInput().pressKey(257);

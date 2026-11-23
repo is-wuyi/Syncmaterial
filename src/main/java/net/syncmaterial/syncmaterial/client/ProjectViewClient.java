@@ -50,6 +50,7 @@ public final class ProjectViewClient {
     private Consumer<OperationTimeout> operationTimeoutListener = timeout -> {};
     private Consumer<ClientProjectViewStore> stateListener = store -> {};
     private Consumer<ProjectViewScope> deletionListener = scope -> {};
+    private Consumer<String> activeProjectListener = projectId -> {};
 
     public ProjectViewClient(Object connection, long connectionGeneration,
             Consumer<CustomPacketPayload> transport, LongSupplier requestIds,
@@ -104,6 +105,11 @@ public final class ProjectViewClient {
 
     public void setDeletionListener(Consumer<ProjectViewScope> listener) {
         deletionListener = Objects.requireNonNull(listener, "listener");
+    }
+
+    /** Called only after an OPEN was accepted, including a direct editor without a material GUI. */
+    public void setActiveProjectListener(Consumer<String> listener) {
+        this.activeProjectListener = Objects.requireNonNull(listener, "listener");
     }
 
     public long openProject(String projectId, int mask) {
@@ -434,7 +440,10 @@ public final class ProjectViewClient {
                     && target != null && target.matches(packet.scope(), packet.viewId(), packet.generation())) {
                 pendingOpens.remove(packet.requestId(), pending);
                 target.confirmed = true;
-                if (target == project) synchronizeProjectMask(target);
+                if (target == project) {
+                    synchronizeProjectMask(target);
+                    activeProjectListener.accept(target.scope.projectId());
+                }
                 if (target.notifyOpened) openedListener.accept(packet);
             }
             return;
@@ -492,8 +501,13 @@ public final class ProjectViewClient {
         return false;
     }
 
+    private static boolean targetScopeRefreshes(ViewState current, ProjectViewScope target) {
+        return current != null && current.scope.equals(target);
+    }
+
     private void completeProjectSwitch(PendingProjectSwitch pending, ProjectViewS2CPacket packet) {
-        boolean gui = leases.isGuiOpen();
+        boolean gui = leases.isGuiOpen() && (targetScopeRefreshes(project, pending.target.scope)
+                || pending.target.notifyOpened);
         boolean pickup = leases.isPickupActive();
         boolean outlines = leases.isOutlinesActive();
         ViewState previous = project;
@@ -522,6 +536,7 @@ public final class ProjectViewClient {
         leases.activate(target.scope.projectId(), target.generation);
         target.confirmed = true;
         project = target;
+        activeProjectListener.accept(target.scope.projectId());
         restoreConsumers(gui, pickup, outlines, editor);
         synchronizeProjectMask(target);
         if (target.notifyOpened) openedListener.accept(packet);
@@ -819,6 +834,14 @@ public final class ProjectViewClient {
         Objects.requireNonNull(scope, "scope");
         ViewState view = viewForAreaConfig(scope);
         return view == null ? null : new ViewToken(this, scope, view.viewId, view.generation);
+    }
+
+    /** True only after this exact view generation was accepted by the server. */
+    public boolean isAcceptedView(ViewToken token) {
+        if (token == null || token.session() != this) return false;
+        ViewState view = token.scope().global() ? this.global : this.project;
+        return view != null && view.confirmed
+                && view.matches(token.scope(), token.viewId(), token.generation());
     }
 
     /** Whether {@code token} still names this session's live view for its scope. */

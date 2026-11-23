@@ -58,8 +58,11 @@ public class FoundationTeamAssignKickClientGameTest implements FabricClientGameT
                             .findFirst().orElseThrow().id();
                     return new Fixture(stoneId, dirtId);
                 });
-                context.runOnClient(client ->
-                        ClientPlayNetworking.send(new MaterialStatsRequestC2SPacket(projectId)));
+                context.runOnClient(client -> {
+                    if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(projectId)) {
+                        throw new AssertionError("Foundation 批量协作项目未建立");
+                    }
+                });
                 context.waitForScreen(GuiMaterialList.class);
                 GuiMaterialList gui = context.computeOnClient(client ->
                         (GuiMaterialList) ClientScreenAccess.currentScreen(client));

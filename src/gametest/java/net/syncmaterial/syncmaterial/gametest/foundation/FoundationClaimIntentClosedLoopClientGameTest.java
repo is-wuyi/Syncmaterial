@@ -70,8 +70,11 @@ public class FoundationClaimIntentClosedLoopClientGameTest implements FabricClie
 
             ctx.waitFor(client -> ClientProtocolState.serverSupports(
                     ProtocolVersion.SCOPED_PROJECT_VIEWS));
-            ctx.runOnClient(client -> ClientPlayNetworking.send(
-                    new MaterialStatsRequestC2SPacket(PROJECT)));
+            ctx.runOnClient(client -> {
+                if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(PROJECT)) {
+                    throw new AssertionError("Foundation 认领项目未建立");
+                }
+            });
             ctx.waitForScreen(GuiMaterialList.class);
             ctx.waitFor(client -> ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS));
             waitForProjectProgress(ctx);

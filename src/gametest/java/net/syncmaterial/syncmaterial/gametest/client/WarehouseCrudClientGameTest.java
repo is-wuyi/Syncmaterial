@@ -30,10 +30,9 @@ import net.syncmaterial.syncmaterial.server.SchematicDatabase;
  * WarehouseDatabaseTest），本测试补的是它们之上的整条客户端链路：
  * 按钮回调是否真的发包、响应是否真的回流到 GUI、渲染器是否真的收到线框。
  *
- * 与其他客户端测试一致的做法：选区确认/取消直接调 confirm()/cancel()
- * （Enter/Esc 走 GLFW 硬件轮询，合成输入驱动不了，见 StagingAreaSelection-
- * ClientGameTest 的说明）；创建流程因此直接调用 manager 的选区回调，
- * 与真实点击「添加仓库」→ 输名字 → 准星确认后的代码路径完全相同。
+ * 本用例创建流程直接调用 manager 的选区回调，与真实点击「添加仓库」→
+ * 输名字 → 准星确认后的代码路径相同；Enter/Esc 的合成输入覆盖由
+ * StagingAreaSelectionClientGameTest 与 StagingAreaDimensionScenario 提供。
  */
 public class WarehouseCrudClientGameTest implements FabricClientGameTest {
 
@@ -130,15 +129,26 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
 
             // ===== 4. 引用：添加与移除 =====
 
-            // 先订阅材料列表：渲染器"被引用"标记的广播只统计玩家当前订阅的
-            // 原理图（打开材料列表时由 QueryMaterialStatus 触发订阅），
-            // 不订阅则服务端不会认为该玩家在关注这个原理图
-            ctx.runOnClient(client -> ClientPlayNetworking.send(
-                new net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket(schematicId)));
-            ctx.waitTicks(10);
+            // 真实项目与编辑兴趣驱动协议5引用快照，不能用旧广播替代关联视图。
+            ctx.runOnClient(client -> {
+                if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(schematicId)) {
+                    throw new AssertionError("无法打开引用测试项目");
+                }
+            });
+            ctx.waitForScreen(net.syncmaterial.syncmaterial.client.gui.GuiMaterialList.class);
+            ctx.runOnClient(client -> {
+                net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                        .ifPresent(view -> view.openEditor(schematicId));
+                net.syncmaterial.syncmaterial.client.ClientScreenAccess.showScreen(client, null);
+            });
+            ctx.waitTicks(5);
 
-            ctx.runOnClient(client -> ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                schematicId, "ADD_WAREHOUSE_REF", warehouseId, Optional.empty())));
+            long addReference = ctx.computeOnClient(client ->
+                    net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                            .map(view -> view.areaConfig(
+                                    net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId),
+                                    warehouseId, "ADD_WAREHOUSE_REF", Optional.empty())).orElse(-1L));
+            if (addReference <= 0) throw new AssertionError("协议5引用写入未建立");
             ctx.waitTicks(10);
 
             boolean referenced = server.computeOnServer(instance -> {
@@ -159,8 +169,12 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("添加引用后客户端渲染器未标记该仓库为被引用");
             }
 
-            ctx.runOnClient(client -> ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
-                schematicId, "REMOVE_WAREHOUSE_REF", warehouseId, Optional.empty())));
+            long removeReference = ctx.computeOnClient(client ->
+                    net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                            .map(view -> view.areaConfig(
+                                    net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId),
+                                    warehouseId, "REMOVE_WAREHOUSE_REF", Optional.empty())).orElse(-1L));
+            if (removeReference <= 0) throw new AssertionError("协议5取消引用未建立");
             ctx.waitTicks(10);
 
             boolean stillReferenced = server.computeOnServer(instance -> {
@@ -170,6 +184,13 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
             });
             if (stillReferenced) {
                 throw new AssertionError("移除仓库引用后服务端引用关系仍然存在");
+            }
+
+            boolean clearedReference = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                    !net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
+                            .isWarehouseReferenced(warehouseId)));
+            if (!clearedReference) {
+                throw new AssertionError("取消引用后客户端项目投影仍保留旧引用");
             }
 
             // ===== 5. 删除 =====

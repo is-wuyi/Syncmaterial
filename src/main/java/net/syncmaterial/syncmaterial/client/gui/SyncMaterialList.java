@@ -19,6 +19,7 @@ import java.util.Set;
 
 public class SyncMaterialList extends MaterialListBase {
     private final String schematicId;
+    private net.syncmaterial.syncmaterial.client.session.ClientConnectionSession owner;
     private String title;
     private volatile boolean foundationBackend;
     private final Map<Integer, CollaborationStatusS2CPacket> collaborationStatusMap = new HashMap<>();
@@ -91,6 +92,32 @@ public class SyncMaterialList extends MaterialListBase {
     public SyncMaterialList(String schematicId, String title) {
         this.schematicId = schematicId;
         this.title = title;
+    }
+
+    /** Binds this projection to the connection that owns it, rather than a future current session. */
+    public void bindSession(net.syncmaterial.syncmaterial.client.session.ClientConnectionSession session) {
+        if (session == null || this.owner != null && this.owner != session) {
+            throw new IllegalArgumentException("a material projection has exactly one connection");
+        }
+        this.owner = session;
+    }
+
+    private boolean supportsProjectViews() {
+        return this.owner != null
+                ? this.owner.handshake().serverSupports(
+                        net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)
+                : net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                        net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS);
+    }
+
+    void sendPacket(net.minecraft.network.protocol.common.custom.CustomPacketPayload packet) {
+        if (this.owner != null) this.owner.sendPacket(packet);
+        else ClientPlayNetworking.send(packet); // Standalone UI tests have no connection owner.
+    }
+
+    public net.syncmaterial.syncmaterial.client.ProjectViewClient projectView() {
+        return this.owner != null ? this.owner.projectView()
+                : net.syncmaterial.syncmaterial.client.ProjectViewClient.current().orElse(null);
     }
 
     public void setAllowSelfClaim(boolean allowSelfClaim) {
@@ -196,7 +223,9 @@ public class SyncMaterialList extends MaterialListBase {
             String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.getStack().getItem()).toString();
             itemIdToMaterialId.put(itemId, entry.getDatabaseId());
         }
-        net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(schematicId, itemIdToMaterialId);
+        if (this.owner == null) {
+            net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(this.schematicId, itemIdToMaterialId);
+        }
         notifyMaterialCatalogChanged();
     }
 
@@ -267,8 +296,10 @@ public class SyncMaterialList extends MaterialListBase {
                 .map(warning -> new CollaborationStatusS2CPacket.AreaFreshnessInfo(
                         warning.kind().wireName(), warning.areaId(), warning.areaName(), warning.status()))
                 .toList();
-        net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(schematicId, context);
-        net.syncmaterial.syncmaterial.client.InventoryWatcher.enablePeriodicReports();
+        if (this.owner == null) {
+            net.syncmaterial.syncmaterial.client.InventoryWatcher.setContext(this.schematicId, context);
+            net.syncmaterial.syncmaterial.client.InventoryWatcher.enablePeriodicReports();
+        }
         notifyMaterialCatalogChanged();
         if (onStatusUpdate != null) onStatusUpdate.run();
         return true;
@@ -374,13 +405,13 @@ public class SyncMaterialList extends MaterialListBase {
     }
 
     public void requestCollaborationStatus() {
-        if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
-                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
-            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
-                    session.refreshProject(schematicId));
+        if (this.supportsProjectViews()) {
+            if (this.owner != null) this.owner.projectView().refreshProject(this.schematicId);
+            else net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
+                    session.refreshProject(this.schematicId));
             return;
         }
-        ClientPlayNetworking.send(new QueryMaterialStatusC2SPacket(schematicId));
+        this.sendPacket(new QueryMaterialStatusC2SPacket(this.schematicId));
     }
 
     /** 测试钩子：读取指定材料最近一次广播的协作状态，未收到过返回 null。 */
@@ -398,9 +429,8 @@ public class SyncMaterialList extends MaterialListBase {
         updateEntriesWithCollaborationStatus();
         // 旧协作状态只在还没有 v3 权威快照时提供新鲜度提示；收到空列表同样清除旧警告。
         // 已有权威快照后，旧包不得改写权威库存的"已知"状态或覆盖其 freshness。
-        if (!this.authoritativeInventory
-                && net.syncmaterial.syncmaterial.client.ClientScreenAccess.currentScreen(Minecraft.getInstance()) instanceof GuiMaterialList gui) {
-            gui.updateFreshnessWarnings(status.freshnessInfo());
+        if (!this.authoritativeInventory) {
+            this.authoritativeFreshness = List.copyOf(status.freshnessInfo());
         }
         if (onStatusUpdate != null) {
             onStatusUpdate.run();
@@ -459,8 +489,7 @@ public class SyncMaterialList extends MaterialListBase {
     @Override
     public void claimEntry(MaterialListEntry entry) {
         if (entry == null) return;
-        if (net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
-                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+        if (this.supportsProjectViews()) {
             if (projectProgress == null) {
                 // 能力已协商但首份权威目录尚未到达，不能退回无关联的旧 JOIN/LEAVE 包。
                 fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
@@ -469,44 +498,52 @@ public class SyncMaterialList extends MaterialListBase {
                                 "syncmaterial.gui.hint.project_view_not_ready"));
                 return;
             }
-            net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session -> {
+            var view = this.owner != null ? this.owner.projectView()
+                    : net.syncmaterial.syncmaterial.client.ProjectViewClient.current().orElse(null);
+            if (view != null) {
                 long request;
                 if (entry.isCurrentPlayerClaimed()) {
-                    request = session.leave(schematicId, entry.getDatabaseId());
-                } else if (allowSelfClaim || isOwner) {
+                    request = view.leave(this.schematicId, entry.getDatabaseId());
+                } else if (this.allowSelfClaim || this.isOwner) {
                     long count = net.syncmaterial.syncmaterial.client.InventoryScanner
                             .liveCountsByItemId(Minecraft.getInstance().player)
                             .getOrDefault(entry.itemId(), 0L);
-                    request = session.join(schematicId, entry.getDatabaseId(), List.of(
+                    request = view.join(this.schematicId, entry.getDatabaseId(), List.of(
                             new net.syncmaterial.syncmaterial.network.ProjectViewCommandC2SPacket.InventoryCount(
                                     entry.getDatabaseId(), count)));
                 } else {
                     request = -1;
                 }
                 if (request > 0) {
-                    pendingClaims.put(entry.getDatabaseId(), request);
-                    if (onStatusUpdate != null) onStatusUpdate.run();
+                    this.pendingClaims.put(entry.getDatabaseId(), request);
+                    if (this.onStatusUpdate != null) this.onStatusUpdate.run();
                 }
-            });
+            }
             return;
         }
 
         CollaborationStatusS2CPacket status = collaborationStatusMap.get(entry.getDatabaseId());
         if (status != null && status.participants().stream().anyMatch(p -> p.playerName().equals(Minecraft.getInstance().player.getName().getString()))) {
             // 已认领 → 退出协作（任何时候都允许）
-            ClientPlayNetworking.send(new LeaveCollaborationC2SPacket(schematicId, entry.getDatabaseId()));
+            this.sendPacket(new LeaveCollaborationC2SPacket(schematicId, entry.getDatabaseId()));
         } else {
             // 未认领 → 检查是否允许自行认领
             if (!allowSelfClaim && !isOwner) {
-                net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
-                    new net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket(schematicId));
+                this.sendPacket(new net.syncmaterial.syncmaterial.network.QueryMaterialStatusC2SPacket(schematicId));
                 return;
             }
-            Map<Integer, Integer> inventoryCounts = net.syncmaterial.syncmaterial.client.InventoryWatcher.getCurrentCounts();
+            Map<String, Integer> whitelist = new HashMap<>();
+            for (var material : this.getMaterialsAll()) {
+                whitelist.put(material.itemId(), material.getDatabaseId());
+            }
+            var player = Minecraft.getInstance().player;
+            Map<Integer, Integer> inventoryCounts = player == null ? Map.of()
+                    : net.syncmaterial.syncmaterial.client.InventoryWatcher.getCounts(
+                            player.getInventory(), whitelist);
             if (this.foundationBackend) {
                 inventoryCounts = Map.of(entry.getDatabaseId(), inventoryCounts.getOrDefault(entry.getDatabaseId(), 0));
             }
-            ClientPlayNetworking.send(new JoinCollaborationC2SPacket(schematicId, entry.getDatabaseId(), inventoryCounts));
+            this.sendPacket(new JoinCollaborationC2SPacket(schematicId, entry.getDatabaseId(), inventoryCounts));
         }
     }
 

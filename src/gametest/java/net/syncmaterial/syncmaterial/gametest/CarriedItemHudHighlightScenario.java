@@ -74,8 +74,11 @@ public abstract class CarriedItemHudHighlightScenario {
 
             ctx.waitFor(client -> ClientProtocolState.serverSupports(
                     ProtocolVersion.SCOPED_PROJECT_VIEWS));
-            ctx.runOnClient(client -> ClientPlayNetworking.send(
-                    new MaterialStatsRequestC2SPacket(projectId)));
+            ctx.runOnClient(client -> {
+                if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(projectId)) {
+                    throw new AssertionError("光标取货项目未建立");
+                }
+            });
             ctx.waitForScreen(GuiMaterialList.class);
             ctx.waitFor(client -> ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS));
             waitForProjectProgress(ctx, projectId);

@@ -8,16 +8,16 @@
 
 | 项目 | 状态 |
 |---|---|
-| 最近核对日期 | 2026-11-22 |
-| 当前阶段 | WP8客户端状态迁移及本批必要WP9已提交推送且CI全绿；后续为WP9其余职责收敛与WP10条件核对，WP11未开始 |
+| 最近核对日期 | 2026-11-23 |
+| 当前阶段 | beta.61客户端职责闭环及本批必要WP9本地完整验收通过；提交推送与精确SHA CI待完成，WP11未开始 |
 | 开发分支 | `rewrite/backend-foundation` |
-| 最新实现提交 | [`cab2945`](https://github.com/is-wuyi/Syncmaterial/commit/cab294526383705619a81cbdd82db5297506d73d)：WP8客户端会话与选区渲染生命周期，已提交推送，CI全部8项通过 |
-| 实现版本 | 已交付 beta.60／协议5／最低兼容1，Foundation schema3不变；此前交付为 beta.59 |
+| 最新实现提交 | beta.61：本地验收完成，待提交推送与CI；上一已推送实现为beta.60 `cab2945` |
+| 实现版本 | beta.61本地完整验收通过；协议5／最低兼容1／Foundation schema3不变 |
 | 运行时支持 | Minecraft 1.21.7、1.21.8、26.2；共享业务只维护一份，各节点分别构建和验收 |
 | 默认后端 | **仍为 legacy**；Foundation 需 `-Dsyncmaterial.backend=foundation` 显式启用 |
-| 下一批 | 继续WP9必要职责收敛并核对WP10旧业务退场条件；WP11全仓终态另行验收 |
-| 当前阻塞 | 本批无已知验收阻塞；完整重构尚未完成，后续职责不得把本批范围外工作视为已交付 |
-| 发布状态 | beta.60 本地完整验收通过，`cab2945` 已推送，[CI全部8项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/44945047718)；未打发布 tag，未切换正式服 |
+| 下一批 | 完成beta.61客户端职责闭环后，收敛服务器兴趣／广播与剩余WP9；功能对等后才进入WP10 |
+| 当前阻塞 | 本地验收已完成；提交推送与精确SHA CI待完成。WP9全仓职责清理、WP10退场和WP11终态不在本批完成范围内 |
+| 发布状态 | beta.61 本地完整验收通过，提交推送与CI待完成；未打发布 tag，未切换正式服 |
 
 当前 Foundation 已接通材料导入／查询、基础认领与在线库存、区域配置／仓库引用、被动扫描、去重库存和新鲜度，以及负责人写操作、批量分配、按材料踢人、玩家目录。WP5 管理闭环及 WP6／WP7 的团队收集、订阅与生产主清单已交付；WP8剩余客户端状态迁移和旧结构退场不能混为一谈，不能据此宣称全项目重构完成。
 
@@ -126,9 +126,9 @@
 ### WP8 客户端会话与状态迁移 — ✅ 已完成
 
 - [x] 当前目录的权威区域库存绑定、部分响应路由及警告清理。
-- [x] 建立明确的客户端会话／项目状态，减少跨组件静态状态耦合。
-- [x] 整合 GUI、HUD、选区、管理弹窗和取货高亮的数据来源。
-- [x] 统一切项目、断线重连、目录变化、删除项目、换维度和乱序响应处理。
+- [x] beta.60已建立唯一连接会话与一组可复用状态迁移，已提交推送且CI全绿。
+- [x] beta.61补齐项目模型所有权、原连接接收／发送、临时／真实界面转换及编辑意图／只读投影的终态合同。
+- [x] 以真实项目切换、目标删除、服务端维度传送和旧坐标不落库验收统一失效行为。
 - [x] 按已批准原生MaLiLib设计完成生产UI及相关客户端状态迁移；不换UI库，最终视觉仍由用户确认，不以测试代替审美验收。
 
 ### WP9 模块职责与项目规范收敛 — ◐ 部分完成
@@ -204,6 +204,33 @@
 - SpotBugs shared 0、平台各6且严格无新增；三个 beta.60 jar 的 Minecraft范围、Java 21／25字节码、shared／SQLite单次嵌套与测试隔离均通过。478份源码在矩阵前后的摘要均为 `df5be92ae86e1a13fdaeaed34aa1c5946e4a3663fac2dc8bd5366b866442f121`。
 
 本批只完成WP8剩余迁移及必要WP9，不代表WP9全仓职责清理、WP10旧业务退场或WP11全仓终态完成。持久`singleplayer`隐藏仓库键的跨世界身份迁移另行评估，不在本批静默改键。
+
+## 4B. 本批实施：客户端职责闭环＋WP10退场条件核对（本地验收通过，提交与CI待完成）
+
+2026-11-22 用户批准 beta.61 计划。定向复核确认 beta.60 的“WP8全部完成”表述过宽：材料模型仍由screen创建，权威渲染与可变编辑对象共用，真实维度传送与旧坐标不落库尚未验收。本批将这些合同列为明确交付，不以已有CI全绿掩盖。协议5、最低兼容1、schema3、默认legacy不变，不重画UI、不删除legacy、不部署或发布。
+
+- 连接以Fabric INIT时的原handler绑定接收器，JOIN捕获原PacketSender；会话内的项目协调器拥有材料投影与界面绑定。无会话兼容查询不得产生可写状态，团队管理请求到期只标未确认，不重放write。
+- 权威项目配置与编辑工作副本分开，去抖登记时保存目标、完整坐标、维度和输入版本；临时子界面保留父意图，真正退出释放回调和必要lease。旧包缺少的请求／维度关联仍不伪造。
+- 持久副本 `syncmaterial-wp9-client-20261122/` 分连接、编辑和集成三线。连接线的定向测试与编辑线的1.21.8双后端客户端回归已取得分项证据，其中真实服务端维度传送后旧选区未落库、新维度重选成功；这些是独立副本分项结果，不代替当前整合源码的三节点完整矩阵。
+- 最终同一冻结源码执行 clean／禁缓存 `buildAllVersions checkAllVersions testAllClients testOptionalDependencies`，28分20秒全部成功。严格守卫50项通过，0警告／0缺证据／0失败。
+- shared 533项；1.21.7／1.21.8各889项、26.2为886项单测，全部零失败／错误／跳过；每节点服务端41＋19、客户端31＋10，缺依赖双后端服务端2＋2及客户端1＋1通过。
+- SpotBugs shared 0、平台各6且严格无新增；三个 beta.61 jar 的 Minecraft范围、Java 21／25字节码、shared／SQLite单次嵌套与测试隔离均通过。486份受控源码在矩阵前后的摘要均为 `7e7699eba3131bfe63b5f53d670044b71d29db3939d512355e94becf532e2471`。
+- 审查补掉同owner＋scope订阅在`initGui`／缩放时累积的问题；本批不宣称WP9全仓清理、WP10旧业务退场或全仓零遗漏。实现提交推送与精确SHA CI尚待完成。
+
+### WP10退场前逐职责核对
+
+以下是核对清单，不是功能对等或可以删除legacy的结论。
+
+| 职责 | legacy现状 | Foundation／可复用实现 | 退场前必须核对的证据或缺口 |
+|---|---|---|---|
+| 存储与运行时 | `SchematicDatabase`、`LegacyServerContext`及旧查询／协作 | `SqliteProjectStore` schema3、`ServerRuntime`、单写线程和真实JDBC迁移／关闭测试 | 替换旧测试seam，保留备份、回滚、路径租约和重启证据；旧`syncmaterial.db`仍只备份，不导入、覆盖或删除 |
+| 协作与团队 | `CollaborationManager`、`Phase4Handler`，旧名称权限与旧包投影 | `CollaborationService`、`ProjectTeamWrites`、在线观测和共享进度公式 | 同一输入下的权限、认领、分配／踢人、库存守恒和未知材料行为对照；最终保留已批准的UUID无歧义规则，不退回较弱语义 |
+| 区域与扫描 | `StagingAreaManager`及旧dirty／初始化／容器缓存 | `AreaScanService`、`AreaScanStore`与只读已加载区块的平台端口 | 将跨区块、双箱、卸载、拆箱、几何变化、loot／pending BE和预算场景逐项映射，不能只比较测试数量；区域同名后缀与拒绝的差异需先定案 |
+| 发现与导入 | watcher、旧parser、旧Syncmatica接入 | 共享`IngestService`、材料pipeline、`PlacementsDiscovery`和可选适配器 | 实际上传、重命名、删除、同hash重启、缺失文件、无效JSON、上下文替换及可选模组存在时的测试 |
+| 网络与兼容 | 旧receiver、广播和协议5薄适配并存 | Foundation旧包适配＋同一协议5项目视图 | 协议1—4真实客户端闭环、冻结wire golden、能力门及迟到回包；不删包ID、不抬最低兼容、不用协议5测试代替旧协议 |
+| 兴趣与广播 | `LegacySubscriptions`、区域manager订阅、runtime订阅和registry并行 | `ProjectInterestRegistry`／`ProjectViewTracker`已共用核心，但旧广播仍有独立成员关系 | 下一批统一兴趣／收件人、断线／项目删除和global scope语义；两份`syncLegacySubscription`保留调用证据后收敛 |
+
+单人持久`HiddenWarehouses`的`singleplayer`跨世界键另批评估，不在本批改格式或丢设置。正式服切换、默认后端变更、tag／release仍需单独明确批准。
 
 ## 5. 已确认决策
 

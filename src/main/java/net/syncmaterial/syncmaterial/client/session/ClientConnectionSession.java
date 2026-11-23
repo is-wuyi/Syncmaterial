@@ -1,7 +1,8 @@
 package net.syncmaterial.syncmaterial.client.session;
 
 import java.util.Objects;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import java.util.function.Consumer;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.syncmaterial.syncmaterial.client.DimensionChangeTracker;
 import net.syncmaterial.syncmaterial.client.InventoryWatcher;
 import net.syncmaterial.syncmaterial.client.PickupModeState;
@@ -17,8 +18,11 @@ import net.syncmaterial.syncmaterial.network.ProtocolVersion;
 public final class ClientConnectionSession implements AutoCloseable {
     private final Object connection;
     private final long token;
+    /** 原连接 PacketSender 的窄发送端口；JOIN 时捕获，发送前复核会话仍开放。 */
+    private final Consumer<CustomPacketPayload> transport;
     private final ClientHandshakeState handshake;
     private final ProjectViewClient projectView;
+    private final ClientProjectCoordinator projectCoordinator;
     private final TeamManagementClient.SessionState teamManagement;
     private final InventoryWatcher.Context inventory;
     private final PickupModeState pickup;
@@ -32,28 +36,33 @@ public final class ClientConnectionSession implements AutoCloseable {
     private int pickupRecomputeTicks;
     private boolean closed;
 
-    ClientConnectionSession(Object connection, long token) {
+    ClientConnectionSession(Object connection, long token,
+            Consumer<CustomPacketPayload> transport) {
         this.connection = Objects.requireNonNull(connection, "connection");
         if (token <= 0) throw new IllegalArgumentException("connection token must be positive");
+        this.transport = Objects.requireNonNull(transport, "transport");
         this.token = token;
         this.handshake = new ClientHandshakeState();
         this.teamManagement = new TeamManagementClient.SessionState();
-        this.inventory = new InventoryWatcher.Context();
+        this.teamManagement.bindTransport(this::sendPacket);
+        this.inventory = new InventoryWatcher.Context(this::sendPacket);
         this.pickup = new PickupModeState();
         this.rendering = new StagingAreaRenderer.State();
         this.selector = new StagingAreaSelector();
         this.editorResponses = new EditorResponseRouter();
-        this.projectView = new ProjectViewClient(connection, token,
-                payload -> {
-                    if (this.isOpen()) ClientPlayNetworking.send(payload);
-                }, TeamManagementClient::allocateProjectViewRequestId,
+        // ProjectViewClient 的发送端口已接在本会话的 sendPacket 上；主线程如需调整
+        // 构造接线，保持指向 sendPacket 即可（绝不能回到全局 ClientPlayNetworking.send）
+        this.projectView = new ProjectViewClient(connection, token, this::sendPacket,
+                TeamManagementClient::allocateProjectViewRequestId,
                 () -> this.handshake.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS));
+        this.projectCoordinator = new ClientProjectCoordinator(this);
     }
 
     public Object connection() { return connection; }
     public long token() { return token; }
     public ClientHandshakeState handshake() { return handshake; }
     public ProjectViewClient projectView() { return projectView; }
+    public ClientProjectCoordinator projectCoordinator() { return projectCoordinator; }
     public TeamManagementClient.SessionState teamManagement() { return teamManagement; }
     public InventoryWatcher.Context inventory() { return inventory; }
     public PickupModeState pickup() { return pickup; }
@@ -69,6 +78,18 @@ public final class ClientConnectionSession implements AutoCloseable {
     public void hudVisible(boolean value) { this.hudVisible = value; }
     public int nextPickupTick() { return ++this.pickupRecomputeTicks; }
 
+    /**
+     * 原连接发送端口：仅当会话仍开放时通过 JOIN 捕获的 transport 发出；
+     * 绝不回查 Minecraft 当前连接，旧会话的延迟发送不可能落到新连接。
+     * 客户端模型/SyncMaterialClient 统一调用本方法发包，不要再走
+     * ClientPlayNetworking.send 全局入口。
+     */
+    public boolean sendPacket(CustomPacketPayload payload) {
+        if (payload == null || !isOpen()) return false;
+        this.transport.accept(payload);
+        return true;
+    }
+
     public synchronized boolean isOpen() { return !closed; }
 
     public boolean matches(Object candidate, long candidateToken) {
@@ -79,6 +100,7 @@ public final class ClientConnectionSession implements AutoCloseable {
     public synchronized void close() {
         if (closed) return;
         closed = true;
+        projectCoordinator.close();
         projectView.close();
         editorResponses.clearInstance();
         selector.reset();

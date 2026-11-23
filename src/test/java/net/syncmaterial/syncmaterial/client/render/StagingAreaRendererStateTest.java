@@ -8,9 +8,11 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
+import net.minecraft.core.BlockPos;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigResponseS2CPacket.AreaInfo;
 import net.syncmaterial.syncmaterial.network.WarehouseContainerResponseS2CPacket.ContainerEntry;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
+import net.syncmaterial.syncmaterial.selection.Box;
 
 /**
  * 会话渲染状态的纯逻辑测试：快照整体替换、项目级清理、维度过滤。
@@ -173,5 +175,150 @@ class StagingAreaRendererStateTest {
                 "已知维度不一致必须过滤");
         assertFalse(StagingAreaRenderer.matchesWorld("minecraft:overworld", null),
                 "玩家维度未知时不渲染已知其他维度的区域");
+    }
+
+    // ========== beta.61：权威投影与编辑工作副本分离 ==========
+
+    private static final net.syncmaterial.syncmaterial.core.AreaBounds BOUNDS =
+            new net.syncmaterial.syncmaterial.core.AreaBounds(0, 64, 0, 5, 70, 5);
+
+    @Test
+    void applyProjectAreas_replacesAuthoritativeSnapshotAndLeavesWorkingCopyAlone() {
+        var state = new StagingAreaRenderer.State();
+        AreaSelection workingCopy = new AreaSelection();
+        state.updateSelection("project-a", workingCopy);
+
+        state.applyProjectAreas("project-a", List.of(
+                new StagingAreaRenderer.State.ProjectArea(7, "区域A", "minecraft:overworld", BOUNDS)),
+                42L, "view-token");
+
+        var snapshot = state.projectAreas("project-a");
+        assertEquals(42L, snapshot.configSequence());
+        assertEquals("view-token", snapshot.viewIdentity());
+        assertEquals(1, snapshot.areas().size());
+        assertEquals(7, snapshot.areas().get(0).areaId());
+
+        // 权威配置不得覆写编辑器正在使用的可变 AreaSelection
+        assertSame(workingCopy, state.selection("project-a"),
+                "权威快照替换时编辑工作副本必须原样保留");
+        assertTrue(workingCopy.getAllSubRegionBoxes().isEmpty(),
+                "权威配置不得把区域写进编辑器工作副本");
+
+        // 旧快照不被后续应用改写（不可变整体替换）
+        var first = snapshot;
+        state.applyProjectAreas("project-a", List.of(
+                new StagingAreaRenderer.State.ProjectArea(8, "区域B", "minecraft:overworld", BOUNDS)),
+                43L, null);
+        assertEquals(1, first.areas().size(), "旧权威快照必须保持只读");
+        assertEquals(1, state.projectAreas("project-a").areas().size());
+        assertEquals("区域B", state.projectAreas("project-a").areas().get(0).name());
+    }
+
+    @Test
+    void projectDeletionAndSwitchClearAuthoritativeProjectionPrecisely() {
+        var state = new StagingAreaRenderer.State();
+        state.applyProjectAreas("project-a", List.of(
+                new StagingAreaRenderer.State.ProjectArea(1, "区域A", "w", BOUNDS)), 1L, null);
+        state.applyProjectAreas("project-b", List.of(
+                new StagingAreaRenderer.State.ProjectArea(2, "区域B", "w", BOUNDS)), 2L, null);
+        state.setEditorPreview("project-a", new AreaSelection());
+
+        // 删除 A：只清 A 的投影/预览，B 原样保留
+        state.removeRenderData("project-a");
+        assertNull(state.projectAreas("project-a"));
+        assertNotNull(state.projectAreas("project-b"), "删除 A 不得清 B 的投影");
+        assertEquals(StagingAreaRenderer.State.EditorPreview.NONE, state.editorPreview());
+
+        // 切到 B：A 的数据清掉，global 仓库独立
+        state.applyProjectAreas("project-a", List.of(
+                new StagingAreaRenderer.State.ProjectArea(1, "区域A", "w", BOUNDS)), 1L, null);
+        state.activateProject("project-b");
+        assertNull(state.projectAreas("project-a"));
+        assertNotNull(state.projectAreas("project-b"));
+    }
+
+    @Test
+    void clearResetsAuthoritativeProjectionAndPreview() {
+        var state = new StagingAreaRenderer.State();
+        state.applyProjectAreas("project-a", List.of(
+                new StagingAreaRenderer.State.ProjectArea(1, "区域A", "w", BOUNDS)), 1L, null);
+        state.setEditorPreview("project-a", new AreaSelection());
+
+        state.clear();
+
+        assertNull(state.projectAreas("project-a"));
+        assertEquals(StagingAreaRenderer.State.EditorPreview.NONE, state.editorPreview());
+    }
+
+    @Test
+    void editorPreviewIsOverlayOnlyAndNeverAuthoritative() {
+        var state = new StagingAreaRenderer.State();
+        AreaSelection workingCopy = new AreaSelection();
+        workingCopy.addSubRegionBox(new Box(new BlockPos(0, 0, 0), new BlockPos(1, 1, 1), "本地预览"), true);
+
+        state.setEditorPreview("project-a", workingCopy);
+        assertTrue(state.editorPreview().matches("project-a"));
+        assertFalse(state.editorPreview().matches("project-b"));
+        assertNull(state.projectAreas("project-a"), "预览登记不得生成权威投影");
+
+        state.setEditorPreview("project-a", null);
+        assertEquals(StagingAreaRenderer.State.EditorPreview.NONE, state.editorPreview());
+    }
+
+    // ========== beta.61：协议 5 按项目归属的容器与引用 ==========
+
+    @Test
+    void projectWarehouseContainersAreScopedPerProject() {
+        var state = new StagingAreaRenderer.State();
+        state.updateProjectWarehouseContainers("project-a", List.of(container(1)), "minecraft:overworld");
+        state.updateProjectWarehouseContainers("project-b", List.of(container(2)), "minecraft:the_nether");
+
+        assertEquals(1, state.projectWarehouseContainers("project-a").entries().size());
+        assertEquals("minecraft:the_nether", state.projectWarehouseContainers("project-b").world());
+        assertTrue(state.hasProjectWarehouseContainers());
+
+        // 只清 A：B 与 legacy 全局快照不受影响（项目删除不得当全局删除）
+        state.updateWarehouseContainers(List.of(container(9)), "minecraft:overworld");
+        state.clearProjectWarehouseContainers("project-a");
+        assertNull(state.projectWarehouseContainers("project-a"));
+        assertNotNull(state.projectWarehouseContainers("project-b"));
+        assertEquals(1, state.warehouseContainers().entries().size(), "legacy 全局快照独立");
+    }
+
+    @Test
+    void projectWarehouseReferencesUnionAndPreciseClear() {
+        var state = new StagingAreaRenderer.State();
+        state.applyProjectWarehouseReferences("project-a", List.of(1, 2));
+        state.applyProjectWarehouseReferences("project-b", List.of(3));
+        state.updateWarehouseAreas(List.of(area(9, "仓库", "w")), List.of(7));
+
+        assertTrue(state.isWarehouseReferenced(1));
+        assertTrue(state.isWarehouseReferenced(3));
+        assertTrue(state.isWarehouseReferenced(7), "legacy 全局引用仍在并集里");
+
+        state.clearProjectWarehouseReferences("project-a");
+        assertFalse(state.isWarehouseReferenced(1), "清 A 的引用不得影响 B");
+        assertTrue(state.isWarehouseReferenced(3));
+        assertTrue(state.isWarehouseReferenced(7));
+
+        state.removeRenderData("project-b");
+        assertFalse(state.isWarehouseReferenced(3));
+        assertEquals(1, state.warehouseAreas().areas().size(), "项目删除不得清 global 仓库定义");
+    }
+
+    @Test
+    void activateProjectDropsOtherProjectsContainersAndReferences() {
+        var state = new StagingAreaRenderer.State();
+        state.updateProjectWarehouseContainers("project-a", List.of(container(1)), "w");
+        state.updateProjectWarehouseContainers("project-b", List.of(container(2)), "w");
+        state.applyProjectWarehouseReferences("project-a", List.of(1));
+        state.applyProjectWarehouseReferences("project-b", List.of(2));
+
+        state.activateProject("project-b");
+
+        assertNull(state.projectWarehouseContainers("project-a"));
+        assertNotNull(state.projectWarehouseContainers("project-b"));
+        assertFalse(state.isWarehouseReferenced(1));
+        assertTrue(state.isWarehouseReferenced(2));
     }
 }

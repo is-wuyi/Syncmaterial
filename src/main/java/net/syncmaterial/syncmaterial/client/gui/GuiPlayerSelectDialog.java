@@ -218,6 +218,21 @@ public class GuiPlayerSelectDialog extends GuiDialogBase
         }
     }
 
+    /**
+     * 操作组 200 tick 等待窗口到期：只解除本次提交等待并提示未确认，
+     * 不推断服务端结果、不清已选玩家，玩家可自行重试。action 仅为结果关联。
+     */
+    public void onGroupUnconfirmed(TeamAction action)
+    {
+        this.submitted = false;
+        if (this.confirmButton != null)
+        {
+            this.confirmButton.setEnabled(!this.selectionModel.isEmpty());
+        }
+        this.addMessage(MessageType.INFO,
+                fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.save.unconfirmed"));
+    }
+
     @Override
     public void initGui()
     {

@@ -17,6 +17,7 @@ import fi.dy.masa.malilib.gui.interfaces.ITextFieldListener;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.position.PositionUtils.CoordinateType;
 
+import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.ProjectViewClient;
 import net.syncmaterial.syncmaterial.core.InterestKind;
 import net.syncmaterial.syncmaterial.core.ProjectViewScope;
@@ -56,6 +57,8 @@ public class GuiWarehouseEditor extends GuiBase
     private final EditorSaveTracker saveTracker = new EditorSaveTracker();
     /** This editor is a global-view consumer independently of the manager that opened it. */
     private ProjectViewClient.GlobalLease globalLease;
+    /** 本编辑器发起的准星选区转场：removed() 时保留 global lease 与待发意图。 */
+    private boolean selectorTransition;
 
     public EditorSaveTracker.State getSaveState() {
         return saveTracker.state();
@@ -80,6 +83,7 @@ public class GuiWarehouseEditor extends GuiBase
     public void initGui()
     {
         super.initGui();
+        this.selectorTransition = false;
         ensureGlobalLease();
 
         int x = 12;
@@ -234,15 +238,29 @@ public class GuiWarehouseEditor extends GuiBase
 
     /**
      * A delayed write is valid only while the same global view that accepted this editor
-     * remains current. A reconnect, view replacement or deletion discards it instead of
-     * writing into the next view generation.
+     * remains current, and only while its registered version is still the latest edit.
+     * A reconnect, view replacement, deletion or a newer button action discards it
+     * instead of writing into the next view generation or after newer data.
      */
     private void scheduleSendUpdate()
     {
+        long version = this.saveTracker.edit();
         ProjectViewEditorSupport.EditFence fence =
                 ProjectViewEditorSupport.captureFence(ProjectViewScope.globalWarehouse());
-        this.coordinateDebouncer.schedule(this::sendUpdate,
-                () -> ProjectViewEditorSupport.isFenceCurrent(fence));
+        // 登记时刻的不可变载荷：仓库主键 + 当时完整字段，发送时不再读取当前编辑值
+        AreaData payload = new AreaData(this.name,
+                this.pos1.getX(), this.pos1.getY(), this.pos1.getZ(),
+                this.pos2.getX(), this.pos2.getY(), this.pos2.getZ(),
+                Optional.ofNullable(this.world));
+        int warehouseId = this.warehouseId;
+        this.coordinateDebouncer.schedule(() -> {
+                    ProjectViewEditorSupport.writePrepared(ProjectViewScope.globalWarehouse(),
+                            warehouseId, "UPDATE_WAREHOUSE", Optional.of(payload),
+                            new StagingAreaConfigC2SPacket("", "UPDATE_WAREHOUSE", warehouseId, Optional.of(payload)),
+                            this.saveTracker, version);
+                    this.manager.requestRefresh();
+                },
+                ProjectViewEditorSupport.intentValidity(fence, version, this.saveTracker));
     }
 
     private void nudgeCoordinate(Corner corner, CoordinateType type, int amount)
@@ -261,6 +279,8 @@ public class GuiWarehouseEditor extends GuiBase
             return;
         }
 
+        // 先补发已登记未发出的输入（失效载荷会被去抖器丢弃），再应用本次动作
+        this.coordinateDebouncer.flushNow();
         BlockPos pos = fi.dy.masa.malilib.util.position.PositionUtils.getEntityBlockPos(mc.player);
         if (corner == Corner.CORNER_1)
         {
@@ -287,6 +307,7 @@ public class GuiWarehouseEditor extends GuiBase
         {
             return;
         }
+        this.coordinateDebouncer.flushNow();
         this.name = newName.trim();
         this.sendUpdate();
     }
@@ -347,7 +368,9 @@ public class GuiWarehouseEditor extends GuiBase
     @Override
     public void closeGui(boolean showParent)
     {
-        // removed() flushes a pending coordinate update; keep the global view alive for it.
+        // 正常退出固定顺序：先补发未发出的坐标改动（此时全局视图仍有效），
+        // 再释放本编辑器的 global lease。
+        this.coordinateDebouncer.flushNow();
         super.closeGui(showParent);
         releaseGlobalLease();
     }
@@ -356,12 +379,16 @@ public class GuiWarehouseEditor extends GuiBase
      * 关界面前把未发出的坐标改动补发，否则用户刚敲的值会被丢掉。
      * 覆盖 Esc 与关闭按钮两条路径：前者走 malilib 的 closeGui，
      * 后者走 vanilla 的 close，两者最终都会触发 removed。
+     * 直接 setScreen 退出也有兜底释放；本编辑器发起的准星选区转场保留 lease。
      */
     @Override
     public void removed()
     {
         this.coordinateDebouncer.flushNow();
         super.removed();
+        if (!this.selectorTransition) {
+            releaseGlobalLease();
+        }
     }
 
     @Override
@@ -382,9 +409,21 @@ public class GuiWarehouseEditor extends GuiBase
     /**
      * 立即发包。坐标类改动请走 coordinateDebouncer，不要直接调这里 ——
      * 服务端 UPDATE_WAREHOUSE 会触发全量重扫 + 全服广播，逐字符发包会打爆服务端。
+     *
+     * <p>目标仓库已从权威全局目录删除时不再发送，避免把已删除目标重新写回。</p>
      */
     private void sendUpdate()
     {
+        if (!targetStillExists())
+        {
+            SyncMaterial.LOGGER.warn("[WarehouseEditor] 仓库 {} 已被删除，放弃本次 UPDATE_WAREHOUSE", this.warehouseId);
+            if (Minecraft.getInstance() != null) {
+                fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                        fi.dy.masa.malilib.gui.Message.MessageType.ERROR,
+                        StringUtils.translate("syncmaterial.gui.error.warehouse_missing"));
+            }
+            return;
+        }
         AreaData data = new AreaData(this.name,
                 this.pos1.getX(), this.pos1.getY(), this.pos1.getZ(),
                 this.pos2.getX(), this.pos2.getY(), this.pos2.getZ(),
@@ -394,6 +433,24 @@ public class GuiWarehouseEditor extends GuiBase
                 new StagingAreaConfigC2SPacket("", "UPDATE_WAREHOUSE", this.warehouseId, Optional.of(data)),
                 saveTracker);
         this.manager.requestRefresh();
+    }
+
+    /**
+     * 用已有的权威全局目录验证目标仍然存在，而不只依赖视图代次；
+     * 旧协议或目录尚未建立时不做本地判定，交给服务端回执。
+     */
+    private boolean targetStillExists()
+    {
+        if (!net.syncmaterial.syncmaterial.network.ClientProtocolState.serverSupports(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
+            return true;
+        }
+        return ProjectViewClient.current()
+                .flatMap(ProjectViewClient::globalStore)
+                .filter(store -> store.valid())
+                .flatMap(store -> store.configuration("LIST_WAREHOUSES"))
+                .map(list -> list.stream().anyMatch(area -> area.id() == this.warehouseId))
+                .orElse(true);
     }
 
     // ========== 准星选区回调 ==========
@@ -406,6 +463,8 @@ public class GuiWarehouseEditor extends GuiBase
             return;
         }
 
+        // 先补发已登记未发出的输入（失效载荷会被去抖器丢弃），再应用本次选区结果
+        this.coordinateDebouncer.flushNow();
         this.pos1 = pos1;
         this.pos2 = pos2;
         // 准星只能在玩家所在维度选点，所以范围重选等同于迁移到该维度
@@ -419,6 +478,19 @@ public class GuiWarehouseEditor extends GuiBase
     }
 
     // ========== 内部类 ==========
+
+    /**
+     * 准星重选的初始角点：仓库属于玩家当前维度时带入旧角点（就地改框）；
+     * 属于其他维度（换维度后旧坐标）则不带初始值，旧 world 坐标不当作新维度初始值。
+     */
+    private BlockPos[] initialCornersForSelection()
+    {
+        if (this.world == null || this.world.isBlank() || this.world.equals(currentWorldId()))
+        {
+            return new BlockPos[] { this.pos1, this.pos2 };
+        }
+        return new BlockPos[] { null, null };
+    }
 
     private static class ButtonListener implements IButtonActionListener
     {
@@ -463,9 +535,12 @@ public class GuiWarehouseEditor extends GuiBase
 
                 case SELECT_AREA:
                     // 传入仓库上下文：区域框用仓库配色，且正式渲染跳过这个仓库，
-                    // 视觉上就是在就地改它的框
+                    // 视觉上就是在就地改它的框。
+                    // 仓库属于其他维度（换维度后旧坐标）时不带旧 world 初始角点
+                    BlockPos[] initial = this.parent.initialCornersForSelection();
+                    this.parent.selectorTransition = true;
                     StagingAreaSelector.getInstance().start(this.parent, this.parent,
-                            this.parent.name, this.parent.pos1, this.parent.pos2,
+                            this.parent.name, initial[0], initial[1],
                             StagingAreaSelector.TargetType.WAREHOUSE, null, this.parent.warehouseId);
                     return;
 

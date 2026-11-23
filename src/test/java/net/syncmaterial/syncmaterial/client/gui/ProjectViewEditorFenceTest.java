@@ -54,6 +54,8 @@ class ProjectViewEditorFenceTest {
 
     @BeforeEach
     void setUp() {
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.resetForTesting();
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.join(new Object());
         session = new ProjectViewClient(connection, 1, sent::add, requestIds::getAndIncrement, () -> true);
         current = mockStatic(ProjectViewClient.class);
         current.when(ProjectViewClient::current).thenReturn(Optional.of(session));
@@ -65,6 +67,7 @@ class ProjectViewEditorFenceTest {
         EditorResponseRouter.clear();
         current.close();
         ClientProtocolState.reset();
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.resetForTesting();
     }
 
     @Test
@@ -136,26 +139,48 @@ class ProjectViewEditorFenceTest {
         session.openProject("project", InterestKind.AREA_CONFIG.bit());
         GuiStagingAreaEditorNormal editor = mock(GuiStagingAreaEditorNormal.class, CALLS_REAL_METHODS);
         UpdateDebouncer debouncer = new UpdateDebouncer(20);
+        AreaSelection selection = new AreaSelection();
+        selection.addSubRegionBox(new Box(new BlockPos(0, 0, 0), new BlockPos(1, 1, 1), "area"), true);
+        selection.setServerId("area", 5);
+        selection.setSelectedSubRegionBox("area");
+        EditorSaveTracker tracker = new EditorSaveTracker();
         setField(editor, "schematicId", "project");
         setField(editor, "coordinateDebouncer", debouncer);
-        doNothing().when(editor).sendCoordinateUpdate(any());
+        setField(editor, "selection", selection);
+        setField(editor, "saveTracker", tracker);
 
+        int writesBefore = areaConfigWrites();
+
+        // 合法输入登记即产生版本；去抖载荷携带同一版本与登记时刻的坐标快照
+        long versionBefore = tracker.version();
         editor.scheduleCoordinateUpdate(fi.dy.masa.litematica.util.PositionUtils.Corner.CORNER_1);
+        assertTrue(tracker.version() > versionBefore, "登记延迟输入时必须立即产生新版本");
+        assertEquals(EditorSaveTracker.State.PENDING, tracker.state());
         debouncer.flushNow();
-        verify(editor, times(1)).sendCoordinateUpdate(
-                fi.dy.masa.litematica.util.PositionUtils.Corner.CORNER_1);
-        clearInvocations(editor);
+        assertEquals(areaConfigWrites(), writesBefore + 1, "视图当前时去抖载荷必须发出");
+        assertEquals(EditorSaveTracker.State.SAVING, tracker.state(), "发出的载荷进入 SAVING");
 
         session.openProject("other", InterestKind.AREA_CONFIG.bit());
         ProjectViewCommandC2SPacket switchCommand = lastCommand();
         session.onPacket(connection, 1, ProjectViewPackets.opened(OTHER, switchCommand.requestId(),
                 switchCommand.viewId(), switchCommand.generation(), UUID.randomUUID()));
 
+        int writesAfterSwitch = areaConfigWrites();
         editor.scheduleCoordinateUpdate(fi.dy.masa.litematica.util.PositionUtils.Corner.CORNER_1);
         debouncer.tick();
         debouncer.flushNow();
-        verify(editor, never()).sendCoordinateUpdate(
-                fi.dy.masa.litematica.util.PositionUtils.Corner.CORNER_1);
+        assertEquals(areaConfigWrites(), writesAfterSwitch,
+                "切项目后的旧意图不得发到新视图");
+        assertEquals(EditorSaveTracker.State.UNCONFIRMED, tracker.state(),
+                "被丢弃的载荷不得伪装已保存");
+    }
+
+    private int areaConfigWrites() {
+        return (int) sent.stream()
+                .filter(ProjectViewCommandC2SPacket.class::isInstance)
+                .map(ProjectViewCommandC2SPacket.class::cast)
+                .filter(command -> command.areaAction() != null)
+                .count();
     }
 
     @Test

@@ -521,17 +521,22 @@ class TeamManagementClientTest {
         TeamManagementClient.onMaterialListOpened(gui);
         assertNull(TeamManagementClient.toggleSelfClaim(gui));
         var command = lastCommand().command();
+        // 断开前先捕获会话；invalidate 后 current 不再暴露它，映射通过原会话直接检查
+        var captured = net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                .current().orElseThrow();
         java.util.concurrent.atomic.AtomicLong token = new java.util.concurrent.atomic.AtomicLong();
         Thread network = new Thread(() -> token.set(TeamManagementClient.invalidateConnection()));
         network.start();
         network.join();
         assertFalse(TeamManagementClient.isConnectedForTesting());
-        assertEquals(1, TeamManagementClient.pendingCountForTesting());
+        assertEquals(1, captured.teamManagement().pendingRequestCount(),
+                "网络线程失效不得触碰客户端持有的映射");
         TeamManagementClient.onTeamResponse(new TeamResponse(PROJECT, command.requestId(), TeamAction.TOGGLE_SELF_CLAIM,
                 1, true, "", state(PROJECT, ACTOR, List.of(), false), List.of(), 1, 1));
         verify(gui, never()).applyTeamState(any(), any());
         TeamManagementClient.finishDisconnect(token.get());
-        assertEquals(0, TeamManagementClient.pendingCountForTesting());
+        assertEquals(0, captured.teamManagement().pendingRequestCount(),
+                "客户端 tick 兜底关闭后才清理映射");
     }
 
     @Test
@@ -557,10 +562,13 @@ class TeamManagementClientTest {
         TeamManagementClient.onMaterialListOpened(gui);
         assertNull(TeamManagementClient.toggleSelfClaim(gui));
         assertEquals(1, sent.size(), "自行认领开关应先产生一条真实命令");
+        // 断开前捕获会话：invalidate 后业务不得再经由全局 current 触达它
+        var captured = net.syncmaterial.syncmaterial.client.session.ClientSessionManager
+                .current().orElseThrow();
         long token = TeamManagementClient.invalidateConnection(connection);
-        assertEquals(1, TeamManagementClient.pendingCountForTesting());
+        assertEquals(1, captured.teamManagement().pendingRequestCount());
         assertTrue(TeamManagementClient.finishPendingDisconnect());
-        assertEquals(0, TeamManagementClient.pendingCountForTesting());
+        assertEquals(0, captured.teamManagement().pendingRequestCount());
         assertFalse(TeamManagementClient.finishPendingDisconnect());
         assertFalse(TeamManagementClient.finishDisconnect(token));
     }

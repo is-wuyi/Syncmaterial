@@ -31,8 +31,15 @@ public class InventoryWatcher {
         private final Map<Integer, Integer> lastKnownCounts = new HashMap<>();
         private int tickCounter;
         private boolean periodicReports;
+        private final java.util.function.Consumer<net.minecraft.network.protocol.common.custom.CustomPacketPayload> transport;
 
-        public Context() {}
+        public Context() {
+            this(ClientPlayNetworking::send);
+        }
+
+        public Context(java.util.function.Consumer<net.minecraft.network.protocol.common.custom.CustomPacketPayload> transport) {
+            this.transport = java.util.Objects.requireNonNull(transport, "transport");
+        }
 
         public String currentSchematicId() {
             return currentSchematicId;
@@ -109,7 +116,7 @@ public class InventoryWatcher {
             checkContainerChanges(inventory);
             if (tickCounter % 100 == 0 && periodicReports) {
                 for (var entry : getCounts(inventory).entrySet()) {
-                    ClientPlayNetworking.send(new InventoryUpdateC2SPacket(
+                    this.transport.accept(new InventoryUpdateC2SPacket(
                             currentSchematicId, entry.getKey(), entry.getValue()));
                 }
             }
@@ -121,7 +128,7 @@ public class InventoryWatcher {
             List<ContainerDiff> diffs = observeCounts(getCounts(inventory));
 
             for (ContainerDiff diff : diffs) {
-                ClientPlayNetworking.send(new InventoryUpdateC2SPacket(
+                this.transport.accept(new InventoryUpdateC2SPacket(
                         currentSchematicId, diff.materialId(), diff.newCount()));
             }
             if (!diffs.isEmpty()) {

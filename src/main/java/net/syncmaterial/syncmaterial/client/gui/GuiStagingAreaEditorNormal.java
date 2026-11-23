@@ -86,6 +86,8 @@ public class GuiStagingAreaEditorNormal extends GuiBase
      */
     protected final UpdateDebouncer coordinateDebouncer = new UpdateDebouncer(COORD_QUIET_TICKS);
     private final EditorSaveTracker saveTracker = new EditorSaveTracker();
+    /** 去抖载荷携带的目标备货区主键；载荷被丢弃/发出后清空。 */
+    @Nullable private Integer pendingCoordinateServerId;
 
     public EditorSaveTracker.State getSaveState() {
         return saveTracker.state();
@@ -103,6 +105,8 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     protected int warehouseListHeight;
     /** 本项目 LIST / LIST_WAREHOUSE_REFS 快照携带的重叠提示；null 表示无提示。 */
     @Nullable private String overlapWarning;
+    /** 合并权威配置时有未落定意图，列表刷新被推迟；意图落定后由 tick 补一次重建。 */
+    private boolean needsListRefresh;
 
     protected static StagingAreaConfigC2SPacket.AreaData toAreaData(String name, BlockPos pos1, BlockPos pos2) {
         return new StagingAreaConfigC2SPacket.AreaData(name,
@@ -169,13 +173,23 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     @Override
     public void deleteArea(int areaId)
     {
-        // A pending coordinate UPDATE for the area being deleted must not race the DELETE.
-        this.coordinateDebouncer.discard();
         List<String> names = new ArrayList<>(this.selection.getAllSubRegionNames());
         if (areaId >= 0 && areaId < names.size())
         {
             String name = names.get(areaId);
             Integer serverId = this.selection.getServerId(name);
+
+            // 被删目标的待发 UPDATE 必须先丢弃，不能与 DELETE 竞争；
+            // 其他目标的待发输入先补发，避免静默期输入被静默丢掉
+            if (this.pendingCoordinateServerId != null && !this.pendingCoordinateServerId.equals(serverId))
+            {
+                this.coordinateDebouncer.flushNow();
+            }
+            else
+            {
+                this.coordinateDebouncer.discard();
+                this.pendingCoordinateServerId = null;
+            }
 
             this.selection.removeSubRegionBox(name);
             this.selection.removeServerId(name);
@@ -185,6 +199,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 writeAreaConfig("DELETE", serverId, Optional.empty());
             }
         }
+        this.publishWorkingCopyPreview();
         this.refreshStagingList();
     }
 
@@ -276,7 +291,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             }
 
             this.refreshStagingList();
-            StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
+            this.publishWorkingCopyPreview();
         }
         else
         {
@@ -293,7 +308,19 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                     this.selection.setServerId(area.name(), area.areaId());
                 }
             }
-            StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
+            this.publishWorkingCopyPreview();
+        }
+    }
+
+    /**
+     * 编辑器工作副本只作为本地预览登记，绝不写进权威渲染事实
+     * （协议 5 权威线框来自 renderer 的不可变 ProjectAreasSnapshot）。
+     */
+    protected void publishWorkingCopyPreview()
+    {
+        if (this.schematicId != null && !this.schematicId.isEmpty())
+        {
+            StagingAreaRenderer.getInstance().setEditorPreview(this.schematicId, this.selection);
         }
     }
 
@@ -319,6 +346,8 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         if (this.schematicId != null && !this.schematicId.isEmpty()) {
             net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
                     session.openEditor(this.schematicId));
+            // 工作副本预览随界面重建重新登记（选区转场返回后同样生效）
+            this.publishWorkingCopyPreview();
         }
 
         if (this.selection != null)
@@ -347,6 +376,12 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             this.needsWarehouseRefLoad = false;
             readAreaConfig("LIST_WAREHOUSE_REFS");
         }
+        var coordinator = net.syncmaterial.syncmaterial.client.SyncMaterialClient.projectCoordinator();
+        if (coordinator != null && this.schematicId != null && !this.schematicId.isEmpty()) {
+            coordinator.subscribeConfigurations(this,
+                    net.syncmaterial.syncmaterial.core.ProjectViewScope.project(this.schematicId),
+                    this::applyProjectViewConfiguration);
+        }
     }
 
     /** 驱动去抖计时。GuiBase 继承自 Screen，每客户端 tick 调用一次 */
@@ -355,13 +390,24 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     {
         super.tick();
         this.coordinateDebouncer.tick();
+        // 推迟的列表刷新：等未落定意图结束（SAVED/IDLE）再重建，避免覆盖正在输入的文本框
+        if (this.needsListRefresh
+                && (saveTracker.state() == EditorSaveTracker.State.IDLE
+                    || saveTracker.state() == EditorSaveTracker.State.SAVED)) {
+            this.needsListRefresh = false;
+            this.refreshStagingList();
+        }
     }
 
     @Override
     public void closeGui(boolean showParent) {
+        // 正常退出固定顺序：先补发未发出的编辑意图，再释放 editor 兴趣与工作副本预览。
+        // 子区域页/准星选区等临时转场不经过 closeGui，工作副本与兴趣得以保留。
+        this.coordinateDebouncer.flushNow();
         if (this.schematicId != null && !this.schematicId.isEmpty()) {
             net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
                     session.setEditor(this.schematicId, false));
+            StagingAreaRenderer.getInstance().setEditorPreview(this.schematicId, null);
         }
         super.closeGui(showParent);
     }
@@ -747,6 +793,9 @@ public class GuiStagingAreaEditorNormal extends GuiBase
 
     public void onSelectionConfirmed(@Nullable String boxName, BlockPos pos1, BlockPos pos2)
     {
+        // 先补发已登记未发出的坐标输入（失效载荷会被去抖器丢弃），再应用本次选区结果
+        this.coordinateDebouncer.flushNow();
+
         // 新建模式由 pendingAreaName 标记：名称已在弹窗中拿到，这里只补范围。
         // 取完立即清空，避免下次改坐标时被误判成新建。
         String newAreaName = this.pendingAreaName;
@@ -788,9 +837,16 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                     writeAreaConfig("UPDATE", serverId, Optional.of(areaData));
                 }
             }
+            else
+            {
+                // 既有目标已删除（权威配置/引用列表里没有了）：
+                // 不得降级成 ADD 写回一个同名新区域
+                SyncMaterial.LOGGER.info(
+                        "[StagingArea] 选区确认的目标 {} 已不存在，丢弃结果且不降级为新建", boxName);
+            }
         }
 
-        StagingAreaRenderer.getInstance().updateSelection(this.schematicId, this.selection);
+        this.publishWorkingCopyPreview();
         this.refreshStagingList();
     }
 
@@ -934,15 +990,18 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         return null;
     }
 
-    protected void updatePosition(String numberString, Corner corner, CoordinateType type)
+    /** 应用一次坐标输入；返回 false 表示输入仍不合法（未产生编辑意图）。 */
+    protected boolean updatePosition(String numberString, Corner corner, CoordinateType type)
     {
         try
         {
             int value = Integer.parseInt(numberString);
             this.selection.setCoordinate(this.getBox(), corner, type, value);
+            return true;
         }
         catch (NumberFormatException e)
         {
+            return false;
         }
     }
 
@@ -983,9 +1042,13 @@ public class GuiStagingAreaEditorNormal extends GuiBase
             return;
         }
 
+        // 先补发已登记未发出的输入（上下文/版本失效的会被去抖器丢弃），再立即发送本次动作，
+        // 避免逐字符输入的旧值晚于按钮动作到达服务端
+        this.coordinateDebouncer.flushNow();
         BlockPos pos1 = box.getPos1();
         BlockPos pos2 = box.getPos2();
         AreaData areaData = toAreaData(box.getName(), pos1, pos2);
+        this.pendingCoordinateServerId = serverId;
         writeAreaConfig("UPDATE", serverId, Optional.of(areaData));
     }
 
@@ -1001,18 +1064,103 @@ public class GuiStagingAreaEditorNormal extends GuiBase
                 action, new StagingAreaConfigC2SPacket(schematicId, action, legacyId, Optional.empty()));
     }
 
-    /** Applies a matched protocol-5 configuration without reopening this editor. */
+    /**
+     * Merges an accepted protocol-5 configuration into this editor's independent working
+     * copy. The target of a pending/SAVING/FAILED/UNCONFIRMED intent keeps its local
+     * value (authoritative refreshes must not erase uncommitted input, including while
+     * this editor is hidden behind a child dialog); all other targets update immediately,
+     * and targets the server no longer has are removed. On-screen widget rebuild is
+     * deferred while an intent is outstanding so live text fields are not reset.
+     */
     public void applyProjectViewConfiguration(String action,
             java.util.List<net.syncmaterial.syncmaterial.core.AreaDefinition> definitions) {
-        var areas = definitions.stream().map(area -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
-                area.id(), area.name(), area.bounds().x1(), area.bounds().y1(), area.bounds().z1(),
-                area.bounds().x2(), area.bounds().y2(), area.bounds().z2(), area.world())).toList();
-        onServerResponse(new StagingAreaConfigResponseS2CPacket(action, schematicId, "", true, "", areas));
+        if (!"LIST".equals(action)) {
+            // LIST_WAREHOUSE_REFS 等列表响应维持既有整表替换路径
+            var areas = definitions.stream().map(area -> new StagingAreaConfigResponseS2CPacket.AreaInfo(
+                    area.id(), area.name(), area.bounds().x1(), area.bounds().y1(), area.bounds().z1(),
+                    area.bounds().x2(), area.bounds().y2(), area.bounds().z2(), area.world())).toList();
+            onServerResponse(new StagingAreaConfigResponseS2CPacket(action, schematicId, "", true, "", areas));
+            return;
+        }
+
+        // 协议 5 下首个权威 LIST 即完成初始装载（旧路径由 onServerResponse 复位该标记）
+        this.loadingFromServer = false;
+        boolean protecting = switch (saveTracker.state()) {
+            case IDLE, SAVED -> false;
+            default -> true;
+        };
+        boolean changed = false;
+        java.util.Set<String> serverNames = new java.util.HashSet<>();
+        for (var area : definitions) {
+            serverNames.add(area.name());
+            this.areaWorlds.put(area.name(), area.world());
+            if (protecting && this.pendingCoordinateServerId != null
+                    && this.pendingCoordinateServerId == area.id()) {
+                // 正在编辑（或刚提交未确认/失败）的目标保留本地值，等待协调
+                continue;
+            }
+            changed |= applyAuthoritativeTarget(area);
+        }
+        if (!protecting) {
+            for (String name : java.util.List.copyOf(this.selection.getAllSubRegionNames())) {
+                if (!serverNames.contains(name)) {
+                    this.selection.removeSubRegionBox(name);
+                    this.selection.removeServerId(name);
+                    this.areaWorlds.remove(name);
+                    changed = true;
+                }
+            }
+        }
+        this.publishWorkingCopyPreview();
+        // 只有工作副本真的变化时才重建列表：权威 store 会在每次状态更新时重复推送
+        // 相同 LIST，若无条件 refreshStagingList（initGui 重发 LIST_WAREHOUSE_REFS）
+        // 会形成"响应→合并→刷新→新请求"的无限循环（真实 GameTest 抓住的回归）
+        if (protecting) {
+            if (changed) {
+                // 有未落定意图时不重建控件，避免覆盖正在输入的文本框；列表稍后刷新
+                this.needsListRefresh = true;
+            }
+        } else if (changed) {
+            this.refreshStagingList();
+        }
+    }
+
+    /** 把一条权威配置合并进工作副本；返回是否发生了可见变化（需要重建列表）。 */
+    private boolean applyAuthoritativeTarget(net.syncmaterial.syncmaterial.core.AreaDefinition area) {
+        BlockPos pos1 = new BlockPos(area.bounds().x1(), area.bounds().y1(), area.bounds().z1());
+        BlockPos pos2 = new BlockPos(area.bounds().x2(), area.bounds().y2(), area.bounds().z2());
+        Box box = this.selection.getSubRegionBox(area.name());
+        Integer currentId = this.selection.getServerId(area.name());
+        if (box != null) {
+            boolean same = currentId != null && currentId == area.id()
+                    && box.getPos1() != null && box.getPos1().equals(pos1)
+                    && box.getPos2() != null && box.getPos2().equals(pos2)
+                    && java.util.Objects.equals(box.getWorld(), area.world());
+            if (same) {
+                return false;
+            }
+            box.setPos1(pos1);
+            box.setPos2(pos2);
+            box.setWorld(area.world());
+            if (currentId == null || currentId != area.id()) {
+                this.selection.setServerId(area.name(), area.id());
+            }
+            return true;
+        }
+        Box created = new Box(pos1, pos2, area.name());
+        created.setWorld(area.world());
+        this.selection.addSubRegionBox(created, true);
+        this.selection.setServerId(area.name(), area.id());
+        return true;
     }
 
     /**
      * 登记一次延迟发出的坐标更新，供文本框逐字符输入使用。
-     * 连续输入只会发出最后一次，中间态（"-"、"-2"、"-20"…）被丢弃。
+     *
+     * <p>合法输入在登记时就调用 {@link EditorSaveTracker#edit()} 产生版本；去抖载荷
+     * 携带该版本以及登记时刻的不可变目标（scope/areaId）与完整坐标快照，发送时
+     * 不再重新读取当前选中的 Box，也不重新制造版本。连续输入只会发出最后一次；
+     * 上下文失效或版本被更新动作取代时，载荷被丢弃而不是发到旧目标。</p>
      */
     protected void scheduleCoordinateUpdate(Corner corner)
     {
@@ -1020,10 +1168,38 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         {
             return;
         }
-        ProjectViewEditorSupport.EditFence fence = ProjectViewEditorSupport.captureFence(
-                net.syncmaterial.syncmaterial.core.ProjectViewScope.project(this.schematicId));
-        this.coordinateDebouncer.schedule(() -> this.sendCoordinateUpdate(corner),
-                () -> ProjectViewEditorSupport.isFenceCurrent(fence));
+        Box box = this.getBox();
+        if (box == null)
+        {
+            box = this.selection.getSelectedSubRegionBox();
+        }
+        if (box == null || box.getPos1() == null || box.getPos2() == null)
+        {
+            return;
+        }
+        Integer serverId = this.selection.getServerId(box.getName());
+        if (serverId == null)
+        {
+            return;
+        }
+
+        long version = this.saveTracker.edit();
+        net.syncmaterial.syncmaterial.core.ProjectViewScope scope =
+                net.syncmaterial.syncmaterial.core.ProjectViewScope.project(this.schematicId);
+        ProjectViewEditorSupport.EditFence fence = ProjectViewEditorSupport.captureFence(scope);
+        // 登记时刻的不可变载荷：目标主键 + 完整坐标（world 保持既有语义：文本编辑不改维度）
+        AreaData payload = toAreaData(box.getName(), box.getPos1(), box.getPos2());
+        int targetId = serverId;
+        String projectId = this.schematicId;
+        this.pendingCoordinateServerId = targetId;
+        this.coordinateDebouncer.schedule(() -> {
+                    this.pendingCoordinateServerId = null;
+                    ProjectViewEditorSupport.writePrepared(scope, targetId, "UPDATE",
+                            Optional.of(payload),
+                            new StagingAreaConfigC2SPacket(projectId, "UPDATE", targetId, Optional.of(payload)),
+                            this.saveTracker, version);
+                },
+                ProjectViewEditorSupport.intentValidity(fence, version, this.saveTracker));
     }
 
     // ========== 内部类 ==========
@@ -1151,9 +1327,10 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         @Override
         public boolean onTextChange(GuiTextFieldGeneric textField)
         {
-            this.parent.updatePosition(textField.getTextWrapper(), this.corner, this.type);
-            // 逐字符输入走去抖，避免每敲一个键都让服务端重扫并广播一遍
-            this.parent.scheduleCoordinateUpdate(this.corner);
+            // 只有合法坐标才登记编辑意图；非法中间态（空串、单负号）不产生版本
+            if (this.parent.updatePosition(textField.getTextWrapper(), this.corner, this.type)) {
+                this.parent.scheduleCoordinateUpdate(this.corner);
+            }
             return false;
         }
     }

@@ -132,6 +132,9 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         if (loading)
         {
             requestWarehouseList();
+            // 首次列表也必须经协调器订阅；不能等 loading=false 才建立数据入口。
+            this.subscribeToGlobalConfiguration();
+            applyLatestGlobalStoreConfiguration();
             return;
         }
 
@@ -143,6 +146,18 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         this.listWidget = new WarehouseListWidget(listX, listY, listWidth, listHeight);
         this.listWidget.setEntries(this.warehouses);
         this.listWidget.initGui();
+        this.subscribeToGlobalConfiguration();
+    }
+
+    private void subscribeToGlobalConfiguration() {
+        var coordinator = net.syncmaterial.syncmaterial.client.SyncMaterialClient.projectCoordinator();
+        if (coordinator != null) {
+            coordinator.subscribeConfigurations(this,
+                    net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
+                    (action, areas) -> {
+                        if ("LIST_WAREHOUSES".equals(action)) this.applyProjectViewConfiguration(areas);
+                    }, false);
+        }
     }
 
     /**
@@ -166,6 +181,19 @@ public class GuiWarehouseRefPopup extends GuiDialogBase
         ProjectViewEditorSupport.read(net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(),
                 "LIST_WAREHOUSES", new StagingAreaConfigC2SPacket(
                         this.schematicId, "LIST_WAREHOUSES", 0, Optional.empty()));
+    }
+
+    /**
+     * Replays the latest accepted global configuration from the session store; the popup
+     * must not depend on background updates arriving exactly while it is the visible screen.
+     */
+    void applyLatestGlobalStoreConfiguration()
+    {
+        ProjectViewClient.current()
+                .flatMap(ProjectViewClient::globalStore)
+                .filter(store -> store.valid())
+                .flatMap(store -> store.configuration("LIST_WAREHOUSES"))
+                .ifPresent(this::applyProjectViewConfiguration);
     }
 
     @Override

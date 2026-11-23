@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -187,5 +188,112 @@ class StagingAreaSelectorLifecycleTest {
         assertFalse(detached.isActive(), "无会话的断开空实例不得激活");
         assertEquals(0, calls.get());
         assertNull(detached.callbackForTesting());
+    }
+
+    // ========== beta.61 合同 4：显式目标、view 校验、回调重入 ==========
+
+    @Test
+    void scopedProtocolWithoutView_refusesSubmissionAndReleasesIntent() {
+        ClientSessionManager.join(new Object());
+        net.syncmaterial.syncmaterial.network.ClientProtocolState.onHandshakeResponse(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.CURRENT, "test", true);
+        try {
+            AtomicInteger calls = new AtomicInteger();
+            // 协议 5 生效但项目视图尚未建立：选区不得进入可提交状态
+            this.selector.start(counting(calls), null, "区域A", POS1, POS2,
+                    TargetType.STAGING_AREA, "project-1", -1);
+
+            this.selector.confirm();
+
+            assertEquals(0, calls.get(), "缺有效视图时确认必须被拒绝");
+            assertFalse(this.selector.isActive());
+            assertNull(this.selector.callbackForTesting(), "被拒绝的意图必须释放，不得复活");
+        } finally {
+            net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
+        }
+    }
+
+    @Test
+    void scopedProtocolLegacyOverloadWithoutExplicitProject_refusesSubmission() {
+        ClientSessionManager.join(new Object());
+        net.syncmaterial.syncmaterial.network.ClientProtocolState.onHandshakeResponse(
+                net.syncmaterial.syncmaterial.network.ProtocolVersion.CURRENT, "test", true);
+        try {
+            AtomicInteger calls = new AtomicInteger();
+            // 旧 5 参重载没有显式项目：协议 5 下不得默默取当前项目，也不得提交
+            this.selector.start(counting(calls), null, "区域A", POS1, POS2);
+            assertNull(this.selector.getScope(), "旧重载不得从当前项目视图猜测 scope");
+
+            this.selector.confirm();
+
+            assertEquals(0, calls.get(), "缺有效上下文不得提交");
+        } finally {
+            net.syncmaterial.syncmaterial.network.ClientProtocolState.reset();
+        }
+    }
+
+    @Test
+    void legacyProtocolOverloadWithoutExplicitProject_stillSubmits() {
+        // 协议 1—4（未握手）：旧重载没有视图概念，保持既有行为
+        AtomicInteger calls = new AtomicInteger();
+        this.selector.start(counting(calls), null, "区域A", POS1, POS2);
+        assertNull(this.selector.getScope());
+
+        this.selector.confirm();
+
+        assertEquals(1, calls.get(), "旧协议下兼容重载照常工作");
+    }
+
+    @Test
+    void callbackException_consumesIntentWithoutRestoringOldScreen() {
+        Screen returnScreen = mock(Screen.class);
+        this.selector.start((name, pos1, pos2) -> {
+            throw new IllegalStateException("回调炸了");
+        }, returnScreen, "区域A", POS1, POS2);
+
+        assertDoesNotThrow(this.selector::confirm, "回调异常不得外泄");
+
+        assertFalse(this.selector.isActive(), "意图已消费，不得复活");
+        assertNull(this.selector.callbackForTesting());
+        assertNull(this.selector.returnScreenForTesting(),
+                "回调异常时不得保留旧界面句柄等待恢复");
+    }
+
+    @Test
+    void callbackRapidRestart_keepsNewIntentAndDoesNotRestoreOldScreen() {
+        Screen oldReturn = mock(Screen.class);
+        Screen newReturn = mock(Screen.class);
+        // 回调里立刻重选（快速重选）：新意图必须完整保留
+        this.selector.start((name, pos1, pos2) ->
+                this.selector.start(counting(new AtomicInteger()), newReturn, "新目标", POS1, POS2,
+                        TargetType.STAGING_AREA, "project-1", -1),
+                oldReturn, "区域A", POS1, POS2);
+
+        this.selector.confirm();
+
+        assertTrue(this.selector.isActive(), "回调中启动的新选区必须保持激活");
+        assertEquals(SelectionScope.project("project-1"), this.selector.getScope(),
+                "新意图的 scope 不得被旧意图的收尾清掉");
+        assertSame(newReturn, this.selector.returnScreenForTesting(),
+                "旧 screen 不得覆盖回调中建立的新意图");
+        assertTrue(this.selector.isPendingScreenClose(), "新意图的界面关闭标记必须生效");
+    }
+
+    @Test
+    void restartAfterDimensionChange_restartsFromNewDimensionWithoutOldCorners() {
+        AtomicReference<String> dimension = new AtomicReference<>("minecraft:overworld");
+        this.selector.setDimensionSourceForTesting(dimension::get);
+        this.selector.start(counting(new AtomicInteger()), null, "区域A", POS1, POS2,
+                TargetType.STAGING_AREA, "project-1", -1);
+
+        dimension.set("minecraft:the_nether");
+        assertTrue(this.selector.discardIfDimensionChanged(), "换维度丢弃旧选区");
+
+        // 用户在新维度主动重选：新意图捕获新维度，且不带入旧维度角点
+        this.selector.start(counting(new AtomicInteger()), null, "区域A", null, null,
+                TargetType.STAGING_AREA, "project-1", -1);
+        assertEquals("minecraft:the_nether", this.selector.startDimensionForTesting());
+        assertNull(this.selector.getPos1(), "新维度重选不得把旧维度坐标当初始值");
+        assertNull(this.selector.getPos2());
     }
 }

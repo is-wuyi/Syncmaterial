@@ -127,7 +127,11 @@ public final class LegacyServerReopenClientGameTest implements FabricClientGameT
                     }
                 });
 
-                context.runOnClient(client -> ClientPlayNetworking.send(new MaterialStatsRequestC2SPacket(id)));
+                context.runOnClient(client -> {
+                    if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(id)) {
+                        throw new AssertionError("B 项目材料请求未建立");
+                    }
+                });
                 context.waitForScreen(GuiMaterialList.class);
                 boolean inventory = false;
                 for (int tick = 0; tick < 100 && !inventory; tick += 5) {
@@ -139,7 +143,13 @@ public final class LegacyServerReopenClientGameTest implements FabricClientGameT
                     });
                 }
                 if (!inventory) throw new AssertionError("B 真实材料／仓库库存未通过网络回流");
-                context.runOnClient(client -> ClientPlayNetworking.send(new WarehouseContainerRequestC2SPacket(id, true)));
+                context.runOnClient(client -> {
+                    if (ClientScreenAccess.currentScreen(client) instanceof GuiMaterialList gui) {
+                        gui.togglePickupMode();
+                    } else {
+                        throw new AssertionError("B 取货界面未打开");
+                    }
+                });
                 boolean detail = false;
                 for (int tick = 0; tick < 100 && !detail; tick += 5) {
                     context.waitTicks(5);

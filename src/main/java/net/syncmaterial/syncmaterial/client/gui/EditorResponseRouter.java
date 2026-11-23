@@ -12,12 +12,24 @@ import net.syncmaterial.syncmaterial.network.ProjectViewS2CPacket;
 public final class EditorResponseRouter {
     private static final int MAX_PENDING = 256;
     static final int RESPONSE_TIMEOUT_TICKS = 200;
-    private static final EditorResponseRouter DISCONNECTED = new EditorResponseRouter();
+
+    /**
+     * 无会话回退实例：只读——不存 pending、不完成、不超时回调。
+     * 会话实例（随 ClientConnectionSession 创建/关闭）行为不变。
+     */
+    private static final EditorResponseRouter DISCONNECTED = new EditorResponseRouter(true);
 
     private final Object lock = new Object();
     private final Map<Long, Pending> pending = new HashMap<>();
+    private final boolean noSessionFallback;
 
-    public EditorResponseRouter() {}
+    public EditorResponseRouter() {
+        this.noSessionFallback = false;
+    }
+
+    private EditorResponseRouter(boolean noSessionFallback) {
+        this.noSessionFallback = noSessionFallback;
+    }
 
     private static EditorResponseRouter current() {
         return ClientSessionManager.current().map(session -> session.editorResponses())
@@ -31,6 +43,7 @@ public final class EditorResponseRouter {
 
     public boolean registerInstance(long requestId, EditorSaveTracker tracker,
             ProjectViewClient.ViewToken target) {
+        if (noSessionFallback) return false;
         synchronized (lock) {
             if (requestId <= 0 || tracker == null || target == null
                     || pending.size() >= MAX_PENDING) return false;
@@ -44,6 +57,7 @@ public final class EditorResponseRouter {
     }
 
     public boolean completeInstance(ProjectViewS2CPacket packet) {
+        if (noSessionFallback) return false;
         synchronized (lock) {
             if (packet.requestId() <= 0) return false;
             if (packet.result() != ProjectViewS2CPacket.Result.OPERATION
@@ -65,6 +79,7 @@ public final class EditorResponseRouter {
     }
 
     public boolean timeoutInstance(long requestId) {
+        if (noSessionFallback) return false;
         synchronized (lock) {
             Pending entry = pending.remove(requestId);
             return entry != null && entry.tracker.timeout(requestId);
@@ -76,6 +91,7 @@ public final class EditorResponseRouter {
     }
 
     public void tickInstance() {
+        if (noSessionFallback) return;
         synchronized (lock) {
             Iterator<Map.Entry<Long, Pending>> iterator = pending.entrySet().iterator();
             while (iterator.hasNext()) {
@@ -92,6 +108,7 @@ public final class EditorResponseRouter {
     }
 
     public void clearInstance() {
+        if (noSessionFallback) return;
         synchronized (lock) {
             pending.values().forEach(entry -> entry.tracker.invalidate());
             pending.clear();

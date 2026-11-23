@@ -36,6 +36,20 @@ public class DisconnectCleanupClientGameTest implements FabricClientGameTest {
             try (var connection = server.connect()) {
                 ctx.waitTicks(20);
 
+                server.runOnServer(instance -> {
+                    try {
+                        var database = net.syncmaterial.syncmaterial.SyncMaterial.getSharedDatabase();
+                        database.executeUpdate(
+                                "INSERT INTO schematics (id, name, file_path, uploaded_by) VALUES (?, ?, ?, ?)",
+                                schematicId, "Disconnect Cleanup Test", "/disconnect-test.litematic", "Player0");
+                        database.executeUpdate(
+                                "INSERT INTO material_entries (schematic_id, item_id, count) VALUES (?, ?, ?)",
+                                schematicId, "minecraft:dirt", 64);
+                    } catch (java.sql.SQLException failure) {
+                        throw new RuntimeException("无法建立断线测试项目", failure);
+                    }
+                });
+
                 // 铺满所有按服务器隔离的状态，模拟"在服务器 A 用了一圈功能"
                 ctx.runOnClient(client -> {
                     SyncMaterialClient.openMaterialListScreen(

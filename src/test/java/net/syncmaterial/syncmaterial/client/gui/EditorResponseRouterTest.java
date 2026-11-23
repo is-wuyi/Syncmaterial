@@ -2,11 +2,13 @@ package net.syncmaterial.syncmaterial.client.gui;
 
 import java.util.List;
 import net.syncmaterial.syncmaterial.client.ProjectViewClient;
+import net.syncmaterial.syncmaterial.client.session.ClientSessionManager;
 import net.syncmaterial.syncmaterial.core.ProjectViewAction;
 import net.syncmaterial.syncmaterial.core.ProjectViewScope;
 import net.syncmaterial.syncmaterial.network.ProjectViewPackets;
 import net.syncmaterial.syncmaterial.network.ProjectViewS2CPacket;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -16,9 +18,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class EditorResponseRouterTest {
     private static final ProjectViewScope PROJECT = ProjectViewScope.project("project");
 
+    @BeforeEach
+    void setUp() {
+        // direct entry 仅供测试：显式建立会话后路由器才有可写状态
+        ClientSessionManager.resetForTesting();
+        ClientSessionManager.join(new Object());
+    }
+
     @AfterEach
     void tearDown() {
         EditorResponseRouter.clear();
+        ClientSessionManager.resetForTesting();
     }
 
     private static ProjectViewClient session() {
@@ -93,5 +103,27 @@ class EditorResponseRouterTest {
                 7, 3, 1, ProjectViewAction.AREA_CONFIG, true, "",
                 new ProjectViewS2CPacket.AreaConfigData("LIST", List.of()))));
         assertEquals(EditorSaveTracker.State.UNCONFIRMED, tracker.state());
+    }
+
+    @Test
+    void withoutSessionTheRouterStoresNothingAndCompletesNothing() {
+        ClientSessionManager.resetForTesting(); // 显式回到无会话状态
+        EditorSaveTracker tracker = new EditorSaveTracker();
+        long edit = tracker.edit();
+        assertTrue(tracker.sent(edit, 40));
+
+        assertFalse(EditorResponseRouter.register(40, tracker, token(session())),
+                "无会话不得存 pending");
+        assertEquals(0, EditorResponseRouter.pendingCount());
+        assertFalse(EditorResponseRouter.timeout(40), "无会话不得产生超时回调");
+        assertEquals(EditorSaveTracker.State.SAVING, tracker.state());
+
+        assertFalse(EditorResponseRouter.complete(ProjectViewPackets.configuration(PROJECT, 40,
+                7, 3, 1, ProjectViewAction.AREA_CONFIG, true, "",
+                new ProjectViewS2CPacket.AreaConfigData("LIST", List.of()))),
+                "无会话不得完成任何写入");
+        assertEquals(EditorSaveTracker.State.SAVING, tracker.state(),
+                "无会话完成不得改变保存状态");
+        assertEquals(0, EditorResponseRouter.pendingCount());
     }
 }

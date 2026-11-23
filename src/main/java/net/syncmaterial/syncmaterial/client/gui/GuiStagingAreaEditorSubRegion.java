@@ -28,6 +28,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket;
 import net.syncmaterial.syncmaterial.network.StagingAreaConfigC2SPacket.AreaData;
+import net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer;
 import net.syncmaterial.syncmaterial.selection.AreaSelection;
 import net.syncmaterial.syncmaterial.selection.Box;
 import fi.dy.masa.litematica.gui.Icons;
@@ -83,6 +84,8 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         if (this.schematicId != null && !this.schematicId.isEmpty()) {
             net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
                     session.openEditor(this.schematicId));
+            // 工作副本预览随界面重建重新登记；与父编辑器共用同一 AreaSelection
+            StagingAreaRenderer.getInstance().setEditorPreview(this.schematicId, this.selection);
         }
 
         int x = 12;
@@ -216,15 +219,18 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
 
     // ========== 坐标操作 ==========
 
-    protected void updatePosition(String numberString, Corner corner, CoordinateType type)
+    /** 应用一次坐标输入；返回 false 表示输入仍不合法（未产生编辑意图）。 */
+    protected boolean updatePosition(String numberString, Corner corner, CoordinateType type)
     {
         try
         {
             int value = Integer.parseInt(numberString);
             this.selection.setCoordinate(this.box, corner, type, value);
+            return true;
         }
         catch (NumberFormatException e)
         {
+            return false;
         }
     }
 
@@ -241,6 +247,8 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         Integer serverId = this.selection.getServerId(this.box.getName());
         if (serverId == null) return;
 
+        // 先补发已登记未发出的输入（失效载荷会被去抖器丢弃），再立即发送本次动作
+        this.coordinateDebouncer.flushNow();
         BlockPos pos1 = this.box.getPos1();
         BlockPos pos2 = this.box.getPos2();
         AreaData areaData = GuiStagingAreaEditorNormal.toAreaData(this.box.getName(), pos1, pos2);
@@ -255,7 +263,10 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
 
     /**
      * 登记一次延迟发出的坐标更新，供文本框逐字符输入使用。
-     * 连续输入只会发出最后一次，中间态被丢弃。
+     *
+     * <p>合法输入在登记时即产生 {@link EditorSaveTracker} 版本；去抖载荷携带该版本与
+     * 登记时刻的目标主键及完整坐标快照，发送时不再读取当前 Box，也不重新制造版本。
+     * 连续输入只发最后一次；上下文失效或被更新的动作取代时载荷被丢弃。</p>
      */
     protected void scheduleCoordinateUpdate(Corner corner)
     {
@@ -263,10 +274,26 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         {
             return;
         }
-        ProjectViewEditorSupport.EditFence fence = ProjectViewEditorSupport.captureFence(
-                net.syncmaterial.syncmaterial.core.ProjectViewScope.project(this.schematicId));
-        this.coordinateDebouncer.schedule(() -> this.sendCoordinateUpdate(corner),
-                () -> ProjectViewEditorSupport.isFenceCurrent(fence));
+        Integer serverId = this.selection.getServerId(this.box.getName());
+        if (serverId == null || this.box.getPos1() == null || this.box.getPos2() == null)
+        {
+            return;
+        }
+
+        long version = this.saveTracker.edit();
+        net.syncmaterial.syncmaterial.core.ProjectViewScope scope =
+                net.syncmaterial.syncmaterial.core.ProjectViewScope.project(this.schematicId);
+        ProjectViewEditorSupport.EditFence fence = ProjectViewEditorSupport.captureFence(scope);
+        AreaData payload = GuiStagingAreaEditorNormal.toAreaData(
+                this.box.getName(), this.box.getPos1(), this.box.getPos2());
+        int targetId = serverId;
+        String projectId = this.schematicId;
+        this.coordinateDebouncer.schedule(() ->
+                        ProjectViewEditorSupport.writePrepared(scope, targetId, "UPDATE",
+                                Optional.of(payload),
+                                new StagingAreaConfigC2SPacket(projectId, "UPDATE", targetId, Optional.of(payload)),
+                                this.saveTracker, version),
+                ProjectViewEditorSupport.intentValidity(fence, version, this.saveTracker));
     }
 
     /** 驱动去抖计时。GuiBase 继承自 Screen，每客户端 tick 调用一次 */
@@ -294,6 +321,8 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
 
     @Override
     public void closeGui(boolean showParent) {
+        // 正常退出固定顺序：先补发未发出的编辑意图，再释放 editor 兴趣
+        this.coordinateDebouncer.flushNow();
         if (this.schematicId != null && !this.schematicId.isEmpty()) {
             net.syncmaterial.syncmaterial.client.ProjectViewClient.current().ifPresent(session ->
                     session.setEditor(this.schematicId, false));
@@ -355,11 +384,15 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
             return;
         }
 
+        // 先补发已登记未发出的坐标输入（失效载荷会被去抖器丢弃），再应用本次选区结果
+        this.coordinateDebouncer.flushNow();
+
         this.box.setPos1(pos1);
         this.box.setPos2(pos2);
 
         if (this.schematicId != null && !this.schematicId.isEmpty())
         {
+            // 目标已被权威配置删除时 getServerId 返回 null：不降级为新建，只更新本地预览
             Integer serverId = this.selection.getServerId(this.box.getName());
             if (serverId != null)
             {
@@ -369,15 +402,30 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
                 writeAreaConfig("UPDATE", serverId, areaData);
             }
 
-            // updateSelection 要求 schematicId 非空，必须留在这个分支内
-            net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()
-                    .updateSelection(this.schematicId, this.selection);
+            // 工作副本只作为本地预览登记；权威投影由协议 5 快照负责
+            StagingAreaRenderer.getInstance().setEditorPreview(this.schematicId, this.selection);
         }
 
         this.initGui();
     }
 
     // ========== 内部类 ==========
+
+    /**
+     * 准星重选的初始角点：box 属于玩家当前维度时带入旧角点（就地改框）；
+     * box 属于其他维度（换维度后旧坐标）则不带初始值 —— 旧 world 坐标
+     * 不能被当作新维度的初始角点。
+     */
+    private BlockPos[] initialCornersForSelection()
+    {
+        String boxWorld = this.box.getWorld();
+        String currentWorld = GuiStagingAreaEditorNormal.currentWorldId();
+        if (boxWorld == null || boxWorld.isBlank() || boxWorld.equals(currentWorld))
+        {
+            return new BlockPos[] { this.box.getPos1(), this.box.getPos2() };
+        }
+        return new BlockPos[] { null, null };
+    }
 
     private static class SubRegionButtonListener implements IButtonActionListener
     {
@@ -428,8 +476,10 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
                     // 直接 start()：本界面不是 MaLiLib 弹窗，按钮回调里没有后续的 setScreen，
                     // 不存在 SubRegionCreator 那里的覆盖时序问题。
                     // 传入备货区上下文：正式渲染跳过这个 box，选区用备货区配色接手绘制
+                    // 若 box 属于其他维度（换维度后旧坐标），不把旧 world 坐标当初始角点
+                    BlockPos[] initial = this.parent.initialCornersForSelection();
                     StagingAreaSelector.getInstance().start(this.parent, this.parent,
-                            this.parent.box.getName(), this.parent.box.getPos1(), this.parent.box.getPos2(),
+                            this.parent.box.getName(), initial[0], initial[1],
                             StagingAreaSelector.TargetType.STAGING_AREA, this.parent.schematicId, -1);
                     return;
                 case BACK:
@@ -471,9 +521,10 @@ public class GuiStagingAreaEditorSubRegion extends GuiBase
         @Override
         public boolean onTextChange(GuiTextFieldGeneric textField)
         {
-            this.parent.updatePosition(textField.getTextWrapper(), this.corner, this.type);
-            // 逐字符输入走去抖，避免每敲一个键都让服务端重扫并广播一遍
-            this.parent.scheduleCoordinateUpdate(this.corner);
+            // 只有合法坐标才登记编辑意图；非法中间态（空串、单负号）不产生版本
+            if (this.parent.updatePosition(textField.getTextWrapper(), this.corner, this.type)) {
+                this.parent.scheduleCoordinateUpdate(this.corner);
+            }
             return false;
         }
     }

@@ -349,7 +349,11 @@
         "net.syncmaterial.syncmaterial.client.gui.StagingAreaSelectorLifecycleTest",
         "net.syncmaterial.syncmaterial.SelectorEditContextTest",
         "net.syncmaterial.syncmaterial.InventoryWhitelistTest",
-        "net.syncmaterial.syncmaterial.WarehouseDatabaseTest"
+        "net.syncmaterial.syncmaterial.WarehouseDatabaseTest",
+        "net.syncmaterial.syncmaterial.client.session.ClientProjectCoordinatorTest",
+        "net.syncmaterial.syncmaterial.client.ModNetworkHandlerClientRoutingTest",
+        "net.syncmaterial.syncmaterial.client.TeamManagementBoundedRequestTest",
+        "net.syncmaterial.syncmaterial.client.gui.EditorIntentProtectionTest"
       ]
     },
     "required_class_min_tests": {
@@ -388,14 +392,14 @@
         "net.syncmaterial.syncmaterial.client.ProjectViewClientTest": 22,
         "net.syncmaterial.syncmaterial.client.TeamManagementBatchSelectionTest": 5,
         "net.syncmaterial.syncmaterial.client.gui.AreaWarningLabelsTest": 2,
-        "net.syncmaterial.syncmaterial.client.gui.EditorResponseRouterTest": 3,
+        "net.syncmaterial.syncmaterial.client.gui.EditorResponseRouterTest": 4,
         "net.syncmaterial.syncmaterial.client.gui.GuiMaterialListBatchSelectionTest": 5,
         "net.syncmaterial.syncmaterial.client.gui.GuiStagingAreaEditorCloseTest": 1,
         "net.syncmaterial.syncmaterial.client.gui.MaterialHudProjectionTest": 9,
         "net.syncmaterial.syncmaterial.client.gui.MaterialListLayoutTest": 14,
         "net.syncmaterial.syncmaterial.client.gui.MaterialListProjectionTest": 6,
         "net.syncmaterial.syncmaterial.client.gui.MaterialRowStatusTest": 6,
-        "net.syncmaterial.syncmaterial.client.gui.ProjectViewGuiLifecycleTest": 4,
+        "net.syncmaterial.syncmaterial.client.gui.ProjectViewGuiLifecycleTest": 7,
         "net.syncmaterial.syncmaterial.network.FoundationProjectViewNetworkAdapterTest": 11,
         "net.syncmaterial.syncmaterial.network.LegacyProjectViewNetworkAdapterTest": 28,
         "net.syncmaterial.syncmaterial.network.ProjectViewCommandCodecTest": 8,
@@ -405,13 +409,17 @@
         "net.syncmaterial.syncmaterial.client.gui.ProjectViewEditorFenceTest": 6,
         "net.syncmaterial.syncmaterial.client.gui.CollaborationResultLabelsTest": 2,
         "net.syncmaterial.syncmaterial.FormatCountTest": 16,
-        "net.syncmaterial.syncmaterial.client.session.ClientSessionManagerTest": 4,
+        "net.syncmaterial.syncmaterial.client.session.ClientSessionManagerTest": 11,
         "net.syncmaterial.syncmaterial.client.gui.SyncMaterialListBindingTest": 2,
-        "net.syncmaterial.syncmaterial.client.render.StagingAreaRendererStateTest": 8,
-        "net.syncmaterial.syncmaterial.client.gui.StagingAreaSelectorLifecycleTest": 9,
+        "net.syncmaterial.syncmaterial.client.render.StagingAreaRendererStateTest": 15,
+        "net.syncmaterial.syncmaterial.client.gui.StagingAreaSelectorLifecycleTest": 15,
         "net.syncmaterial.syncmaterial.SelectorEditContextTest": 10,
         "net.syncmaterial.syncmaterial.InventoryWhitelistTest": 10,
-        "net.syncmaterial.syncmaterial.WarehouseDatabaseTest": 13
+        "net.syncmaterial.syncmaterial.WarehouseDatabaseTest": 13,
+        "net.syncmaterial.syncmaterial.client.session.ClientProjectCoordinatorTest": 9,
+        "net.syncmaterial.syncmaterial.client.ModNetworkHandlerClientRoutingTest": 8,
+        "net.syncmaterial.syncmaterial.client.TeamManagementBoundedRequestTest": 8,
+        "net.syncmaterial.syncmaterial.client.gui.EditorIntentProtectionTest": 7
       },
       "shared": {
         "net.syncmaterial.syncmaterial.client.DimensionChangeTrackerTest": 3,
@@ -460,8 +468,8 @@
     "foundation": 19
   },
   "client_entries_expected": {
-    "syncmaterial-test": 30,
-    "syncmaterial-foundation-test": 9,
+    "syncmaterial-test": 31,
+    "syncmaterial-foundation-test": 10,
     "syncmaterial-optional-test": 1
   },
   "test_mods": {
@@ -473,7 +481,7 @@
     "syncmaterial-foundation-test": {
       "resources": "src/foundationtest/resources/fabric.mod.json",
       "server_methods_min": 19,
-      "client_entries_min": 9
+      "client_entries_min": 10
     },
     "syncmaterial-optional-test": {
       "resources": "src/optionaltest/resources/fabric.mod.json",
@@ -586,6 +594,7 @@
       "syncmaterial.gui.button.warehouse_wireframe",
       "syncmaterial.gui.error.duplicate_area_name",
       "syncmaterial.gui.error.no_selection",
+      "syncmaterial.gui.error.warehouse_missing",
       "syncmaterial.gui.hint.assign_to_player",
       "syncmaterial.gui.hint.claim_materials",
       "syncmaterial.gui.hint.collect_complete",

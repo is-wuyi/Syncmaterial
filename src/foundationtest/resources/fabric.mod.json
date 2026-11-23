@@ -13,15 +13,46 @@
       "net.syncmaterial.syncmaterial.gametest.foundation.FoundationTeamServerGameTest"
     ],
     "fabric-client-gametest": [
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.MaterialResolverOracleClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationTeamOwnerClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationTeamAssignKickClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClaimIntentClosedLoopClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationActiveProjectBackgroundUpdateClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationCarriedItemHudHighlightClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationWarehouseRefPopupClientGameTest"},
-      {"adapter": "syncmaterial-foundation-test-report", "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClientSessionLifecycleClientGameTest"}
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.MaterialResolverOracleClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationTeamOwnerClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationTeamAssignKickClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClaimIntentClosedLoopClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationActiveProjectBackgroundUpdateClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationCarriedItemHudHighlightClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationWarehouseRefPopupClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationClientSessionLifecycleClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationStagingAreaDimensionChangeClientGameTest"
+      }
     ]
   },
   "depends": {

@@ -156,8 +156,11 @@ public class OwnerManagementClientGameTest implements FabricClientGameTest {
                 return null;
             });
             // 从真实请求重开，必须像生产一样绑定客户端项目／界面会话。
-            ctx.runOnClient(client -> net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(
-                    new net.syncmaterial.syncmaterial.network.MaterialStatsRequestC2SPacket(schematicId)));
+            ctx.runOnClient(client -> {
+                if (!net.syncmaterial.syncmaterial.client.SyncMaterialClient.requestMaterialList(schematicId)) {
+                    throw new AssertionError("真实项目材料请求未建立");
+                }
+            });
             ctx.waitForScreen(GuiMaterialList.class);
             ctx.waitTicks(10);
             GuiMaterialList freshList = ctx.computeOnClient(client ->

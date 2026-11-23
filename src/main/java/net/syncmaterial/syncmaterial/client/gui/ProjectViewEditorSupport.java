@@ -17,6 +17,22 @@ public final class ProjectViewEditorSupport {
             Optional<StagingAreaConfigC2SPacket.AreaData> data,
             StagingAreaConfigC2SPacket legacyPacket, EditorSaveTracker tracker) {
         long version = tracker.edit();
+        return writePrepared(scope, areaId, areaAction, data, legacyPacket, tracker, version);
+    }
+
+    /**
+     * Sends an already-registered edit intent: {@code version} was produced by
+     * {@link EditorSaveTracker#edit()} when the user made the change, and the caller's
+     * debounced payload carries the same immutable target/data that was captured then.
+     * This method never re-creates a version at send time; a version that has been
+     * superseded by a newer edit is refused (defense in depth) so a stale payload can
+     * never overwrite newer data on the wire and a stale ACK can never mark newer
+     * input as saved.
+     */
+    public static long writePrepared(ProjectViewScope scope, int areaId, String areaAction,
+            Optional<StagingAreaConfigC2SPacket.AreaData> data,
+            StagingAreaConfigC2SPacket legacyPacket, EditorSaveTracker tracker, long version) {
+        if (tracker.version() != version) return -1;
         if (ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS)) {
             ProjectViewClient session = ProjectViewClient.current().orElse(null);
             long request = session == null ? -1L
@@ -36,6 +52,21 @@ public final class ProjectViewEditorSupport {
     public static ProjectViewClient.ViewToken captureView(ProjectViewScope scope) {
         if (!ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS)) return null;
         return ProjectViewClient.current().map(session -> session.viewToken(scope)).orElse(null);
+    }
+
+    /**
+     * Validity check for a debounced editor intent. It passes only while the captured
+     * context (connection + view) is still current and no newer edit was registered.
+     * A failed check marks the intent unconfirmed — a dropped payload never poses as
+     * saved — while a superseded (older) version leaves the newer intent untouched.
+     */
+    public static java.util.function.BooleanSupplier intentValidity(
+            EditFence fence, long version, EditorSaveTracker tracker) {
+        return () -> {
+            if (isFenceCurrent(fence) && tracker.version() == version) return true;
+            tracker.unconfirmed(version);
+            return false;
+        };
     }
 
     /**

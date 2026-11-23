@@ -15,6 +15,7 @@ class AreaOverlapMessageTest {
     @AfterEach
     void resetProtocol() {
         ClientProtocolState.reset();
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.resetForTesting();
     }
 
     @Test
@@ -47,6 +48,7 @@ class AreaOverlapMessageTest {
     }
 
     private static void clientSupports(int version) {
+        net.syncmaterial.syncmaterial.client.session.ClientSessionManager.join(new Object());
         ClientProtocolState.onHandshakeResponse(version, "test", true);
     }
 

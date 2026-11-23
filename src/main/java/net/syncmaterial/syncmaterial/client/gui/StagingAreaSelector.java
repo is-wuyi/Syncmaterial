@@ -22,7 +22,6 @@ import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
 
 import net.syncmaterial.syncmaterial.SyncMaterial;
-import net.syncmaterial.syncmaterial.client.ProjectViewClient;
 import net.syncmaterial.syncmaterial.compat.McCompat;
 import net.syncmaterial.syncmaterial.client.config.Configs;
 import net.syncmaterial.syncmaterial.client.session.ClientConnectionSession;
@@ -131,6 +130,8 @@ public class StagingAreaSelector {
     @Nullable private SelectionScope scope = null;
     /** 启动时捕获的视图围栏；目标被删除/换视图后确认会被丢弃。 */
     private FenceCheck viewFence = ALWAYS_CURRENT;
+    /** 协议 5 下启动时没有有效视图令牌：本次选区拒绝进入可提交状态。 */
+    private boolean viewRequiredMissing = false;
     /** 启动时的维度；换维度后旧角点一律不提交。 */
     @Nullable private String startDimension = null;
     private DimensionSource dimensionSource = StagingAreaSelector::minecraftDimension;
@@ -222,6 +223,10 @@ public class StagingAreaSelector {
         this.editingWarehouseId = editingWarehouseId;
         this.scope = resolveScope(this.targetType, editingSchematicId);
         this.viewFence = captureViewFence(this.scope);
+        // 协议 5 下没有有效视图令牌（视图未建立/旧兼容调用没传目标）时，
+        // 本次选区不得进入可提交状态：confirm 会被拒绝并提示，不用 ALWAYS_CURRENT 回退
+        this.viewRequiredMissing = ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS)
+                && (this.scope == null || this.viewFence == ALWAYS_CURRENT);
         this.startDimension = this.dimensionSource.currentDimension();
 
         this.active = true;
@@ -231,6 +236,12 @@ public class StagingAreaSelector {
         this.pos1 = initialPos1;
         this.pos2 = initialPos2;
         this.posLookingAt = null;
+
+        if (this.viewRequiredMissing && Minecraft.getInstance() != null) {
+            fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                    fi.dy.masa.malilib.gui.Message.MessageType.ERROR,
+                    fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.result.project_missing"));
+        }
 
         Minecraft mc = Minecraft.getInstance();
         // 这里先关一次，随后由 onTick 每帧兜底，直到界面真正消失。
@@ -322,7 +333,8 @@ public class StagingAreaSelector {
 
     /**
      * 确认选区。无论成功、角点不足、维度已变还是视图失效，本次意图最多消费一次：
-     * callback、returnScreen、pendingScreenClose 在消费时立刻释放。
+     * callback、returnScreen、pendingScreenClose 在消费时立刻释放 —— 因此回调里
+     * 快速重选（start）建立的是全新意图，不会被旧意图的收尾清掉。
      */
     public void confirm() {
         if (this.detached || !this.active) {
@@ -345,24 +357,40 @@ public class StagingAreaSelector {
         SelectionCallback callback = this.callback;
         Screen screen = this.returnScreen;
         boolean fenceCurrent = this.viewFence.isCurrent();
+        boolean viewMissing = this.viewRequiredMissing;
 
         this.active = false;
         this.consumeIntent();
 
         SyncMaterial.LOGGER.info("[StagingAreaSelector] 确认选区: pos1={}, pos2={}", pos1, pos2);
 
-        if (!fenceCurrent) {
-            // 目标项目/仓库已被删除或视图已替换：不写回旧界面，也不回调旧 GUI
+        if (!fenceCurrent || viewMissing) {
+            // 协议 5 视图未建立/已换代，或目标项目/仓库已被删除，或旧兼容调用缺显式目标：
+            // 不写回旧界面，也不回调旧 GUI；缺视图/缺目标的情况给出明确提示
+            if (viewMissing && Minecraft.getInstance() != null) {
+                fi.dy.masa.malilib.util.InfoUtils.showGuiOrActionBarMessage(
+                        fi.dy.masa.malilib.gui.Message.MessageType.ERROR,
+                        fi.dy.masa.malilib.util.StringUtils.translate("syncmaterial.gui.result.project_missing"));
+            }
             SyncMaterial.LOGGER.info("[StagingAreaSelector] 目标视图已失效，丢弃选区结果且不恢复旧界面");
             return;
         }
 
-        if (callback != null) {
-            callback.onSelectionConfirmed(boxName, pos1, pos2);
+        try {
+            if (callback != null) {
+                callback.onSelectionConfirmed(boxName, pos1, pos2);
+            }
+        } catch (Exception e) {
+            // 回调异常：不恢复旧界面（回调可能已打开新界面/新选区），意图已消费不复活
+            SyncMaterial.LOGGER.error("[StagingAreaSelector] 选区确认回调异常", e);
+            return;
         }
 
-        // 回调之后再恢复界面：回调可能已经把新界面打开
-        restoreScreen(screen);
+        // 回调之后再恢复界面：回调可能已经把新界面打开；
+        // 回调中快速重选建立了新意图（active==true）时不得恢复旧 screen
+        if (!this.active) {
+            restoreScreen(screen);
+        }
     }
 
     /** MaLiLib keyboard entry; only an active selection consumes Enter/Escape. */
@@ -419,20 +447,8 @@ public class StagingAreaSelector {
             this.posLookingAt = null;
         }
 
-        //? if >=26.2 {
-        long windowHandle = mc.getWindow().handle();
-        //?} else {
-        /*long windowHandle = mc.getWindow().getWindow();
-        *///?}
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS) {
-            this.cancel();
-            return;
-        }
-
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS) {
-            this.confirm();
-            return;
-        }
+        // Enter/Esc 只走 MaLiLib 键盘事件入口（onKeyInput），不再轮询 GLFW：
+        // 两套独立确认逻辑会在同一按键上触发两次状态机（事件+轮询），事件路径是唯一事实。
 
         if (this.posLookingAt != null) {
             boolean attackDown = mc.options.keyAttack.isDown();
@@ -558,17 +574,10 @@ public class StagingAreaSelector {
         if (editingSchematicId != null && !editingSchematicId.isBlank()) {
             return SelectionScope.project(editingSchematicId);
         }
-        // 旧调用方（新建备货区）没有显式传项目：取当前项目视图的 scope
-        ProjectViewClient client = ProjectViewClient.current().orElse(null);
-        if (client == null) {
-            return null;
-        }
-        ProjectViewScope viewScope = client.projectStore()
-                .map(store -> store.scope())
-                .orElse(null);
-        return viewScope != null && viewScope.isProject()
-                ? SelectionScope.project(viewScope.projectId())
-                : null;
+        // 旧兼容重载没有显式目标：不得默默取当前项目视图的 scope。
+        // scope 保持未知（协议 1—4 无视图围栏，行为不变；协议 5 下该选区拒绝提交并提示），
+        // 生产调用必须传真实项目 ID / global scope（见 8 参 start 重载）。
+        return null;
     }
 
     private static FenceCheck captureViewFence(@Nullable SelectionScope scope) {
@@ -576,12 +585,9 @@ public class StagingAreaSelector {
         if (viewScope == null) {
             return ALWAYS_CURRENT;
         }
-        boolean scoped = ClientProtocolState.serverSupports(ProtocolVersion.SCOPED_PROJECT_VIEWS);
+        // 协议 5 视图缺失时不再用 ALWAYS_CURRENT 回退：围栏保持严格，
+        // isFenceCurrent 返回 false，confirm 拒绝提交并提示（见 start/confirm）
         ProjectViewEditorSupport.EditFence fence = ProjectViewEditorSupport.captureFence(viewScope);
-        if (scoped && fence.view() == null) {
-            // 协议 5 下视图尚未建立时无法捕获有效视图代次，不阻断本次选区
-            return ALWAYS_CURRENT;
-        }
         return () -> ProjectViewEditorSupport.isFenceCurrent(fence);
     }
 
@@ -620,6 +626,7 @@ public class StagingAreaSelector {
         this.targetType = TargetType.STAGING_AREA;
         this.scope = null;
         this.viewFence = ALWAYS_CURRENT;
+        this.viewRequiredMissing = false;
         this.leftClicked = false;
         this.rightClicked = false;
     }
