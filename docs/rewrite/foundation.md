@@ -62,6 +62,6 @@ JAVA_HOME=<Java25> ./gradlew :26.2:runFoundationClientGameTest
 
 ## 后续批次
 
-负责人／批量协作、完整团队收集／搬运、协议5项目视图和生产主清单已交付，详见 [统一进度](progress.md)。当前 beta.61 客户端项目协调、编辑意图与世界投影已完成本地完整验收，实现 `123fc69` 已提交推送，[精确SHA CI待完成](https://github.com/is-wuyi/Syncmaterial/actions/runs/45105447858)；随后收敛服务器兴趣／广播收件人及剩余WP9职责。功能对等核对后才进入旧结构退场和全仓终态验收。
+负责人／批量协作、完整团队收集／搬运、协议5项目视图和生产主清单已交付，详见 [统一进度](progress.md)。当前 beta.61 客户端项目协调、编辑意图与世界投影已完成本地完整验收，实现 `123fc69` 已提交推送，[CI全部8项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45105447858)；随后收敛服务器兴趣／广播收件人及剩余WP9职责。功能对等核对后才进入旧结构退场和全仓终态验收。
 
 区域扫描详见 [本批规则与验收](area-scanning.md)。分批实施不等于完整后端已完成，也不代表正式服可直接切换。
