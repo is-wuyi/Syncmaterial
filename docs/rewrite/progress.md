@@ -246,7 +246,7 @@
 - 最终同一冻结源码执行 clean／禁缓存 `buildAllVersions checkAllVersions testAllClients testOptionalDependencies`，46分22秒全部成功。严格守卫50项通过，0警告／0缺证据／0失败；守卫自测32项通过。
 - shared 539项；1.21.7／1.21.8各911项、26.2为908项单测，全部零失败／错误／跳过。每节点服务端41＋19、客户端31＋11，缺依赖双后端服务端2＋2及客户端1＋1通过；43个客户端测试类注册完整。
 - SpotBugs shared 0、平台各6且严格无新增；8语言196键一致，三节点各26张真实UI截图。三个 beta.62 jar 的 Minecraft范围、Java 21／25字节码、shared／SQLite单次嵌套与测试隔离均通过。487份受控源码在矩阵前后的摘要均为 `50d368bfc192a62aad0285f6eef0ff63608e1f7b6819c8e255d2912fce9aa6ca`。
-- 本批完成只代表上述服务器兴趣与广播合同闭合，不宣称WP9全仓完成、WP10可删除legacy或全仓零遗漏。实现提交与最终HEAD CI在推送后追加。
+- 本批完成只代表上述服务器兴趣与广播合同闭合，不宣称WP9全仓完成、WP10可删除legacy或全仓零遗漏。实现 `72fcc192d136cc88cd7350be28906b0de365e0f6` 已提交推送，[CI全部8项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45179288457)。
 
 ## 5. 已确认决策
 
