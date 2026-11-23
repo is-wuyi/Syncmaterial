@@ -1,8 +1,10 @@
 package net.syncmaterial.syncmaterial.network;
 
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BooleanSupplier;
@@ -269,6 +271,7 @@ public final class FoundationTeamNetworkAdapter {
     }
 
     private static void broadcastKnown(MinecraftServer server, ServerRuntime runtime, TeamState state, long sequence) {
+        Set<UUID> sent = new HashSet<>();
         for (UUID playerId : runtime.subscribers(state.projectId())) {
             long connection = runtime.connection(playerId);
             ServerPlayer player = FoundationNetworkAdapter.currentPlayer(server, runtime, playerId, connection);
@@ -276,10 +279,11 @@ public final class FoundationTeamNetworkAdapter {
             if (ProtocolHandshake.supports(player, ProtocolVersion.SCOPED_TEAM_MANAGEMENT)) {
                 FoundationNetworkAdapter.send(player, new TeamResponseS2CPacket(new TeamResponse(state.projectId(), 0,
                         TeamAction.TEAM_STATE, sequence, true, "", state, List.of(), 0, 0)));
+                sent.add(playerId);
             } else {
                 player.sendSystemMessage(net.minecraft.network.chat.Component.literal("负责人配置已更新，请重新打开材料清单"));
             }
         }
-        FoundationProjectViewNetworkAdapter.broadcastTeam(server, runtime, state.projectId(), state, sequence);
+        FoundationProjectViewNetworkAdapter.broadcastTeam(server, runtime, state.projectId(), state, sequence, sent);
     }
 }

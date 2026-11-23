@@ -2,9 +2,11 @@ package net.syncmaterial.syncmaterial.network;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
@@ -238,13 +240,20 @@ public final class FoundationNetworkAdapter {
     public static void broadcast(MinecraftServer server, String projectId) {
         ServerRuntime runtime = ServerRuntimeRegistry.get(server);
         if (runtime == null || !runtime.isOpen()) return;
+        Set<UUID> subscribers = runtime.subscribers(projectId);
+        if (subscribers.isEmpty()) return;
         Map<UUID, FoundationDeliveryTracker.ProjectToken> tokens = new HashMap<>();
-        for (UUID playerId : runtime.subscribers(projectId)) {
+        Set<UUID> offlineAtCapture = new HashSet<>();
+        for (UUID playerId : subscribers) {
             long connection = runtime.connection(playerId);
-            if (connection > 0) tokens.put(playerId, delivery(runtime).beginProject(playerId, connection, projectId, false));
+            if (connection > 0) {
+                tokens.put(playerId, delivery(runtime).beginProject(playerId, connection, projectId, false));
+            } else {
+                offlineAtCapture.add(playerId);
+            }
         }
-        if (tokens.isEmpty()) return;
         read(runtime, projectId).whenComplete((data, error) -> execute(server, runtime, () -> {
+            boolean deleted = error == null && data != null && data.isEmpty();
             for (var token : tokens.values()) {
                 ServerPlayer player = currentPlayer(server, runtime, token.playerId(), token.connection());
                 if (player == null || !runtime.subscribers(projectId).contains(token.playerId())
@@ -253,7 +262,7 @@ public final class FoundationNetworkAdapter {
                     failed(player, error);
                     continue;
                 }
-                if (data.isEmpty()) {
+                if (deleted) {
                     send(player, new StagingAreaConfigResponseS2CPacket("SCHEMATIC_DELETED", projectId, "", true, "", List.of()));
                     delivery(runtime).forgetProject(token.playerId(), token.connection(), projectId);
                     runtime.unsubscribe(token.playerId(), projectId);
@@ -268,6 +277,14 @@ public final class FoundationNetworkAdapter {
                     }
                 } catch (IllegalArgumentException | StaleMaterialSnapshotException limit) {
                     failed(player, limit);
+                }
+            }
+            if (deleted) {
+                // Only captured entries with no live connection may be tail-cleaned. A token
+                // that failed its checks may belong to a reconnect/new-token flow and must
+                // not have a late deletion clear that newer subscription.
+                for (UUID playerId : offlineAtCapture) {
+                    if (runtime.connection(playerId) <= 0) runtime.unsubscribe(playerId, projectId);
                 }
             }
         }));

@@ -242,7 +242,7 @@ public final class LegacyProjectViewNetworkAdapter implements AutoCloseable {
         // protocol view, but deletion must still succeed and clean legacy state.
         boolean representable = projectId.length() <= ProjectViewLimits.PROJECT_ID_LENGTH;
         List<ProjectViewTracker.View> targets = representable
-                ? views(ProjectViewScope.project(projectId)) : List.of();
+                ? owner.views().interestedViews(ProjectViewScope.project(projectId)) : List.of();
         synchronized (this) {
             if (closed) return;
             dirtyProjects.remove(projectId);
@@ -1034,28 +1034,13 @@ public final class LegacyProjectViewNetworkAdapter implements AutoCloseable {
     private void syncLegacySubscription(UUID playerId, long connection, ProjectViewScope scope,
                                         ServerPlayer player) {
         if (!scope.isProject() || player == null) return;
-        boolean subscribed = owner.views().views(scope, InterestKind.MATERIALS).stream()
-                .anyMatch(view -> view.playerId().equals(playerId) && view.connection() == connection)
-                || owner.views().views(scope, InterestKind.TEAM).stream()
-                .anyMatch(view -> view.playerId().equals(playerId) && view.connection() == connection)
-                || owner.views().views(scope, InterestKind.OUTLINES).stream()
-                .anyMatch(view -> view.playerId().equals(playerId) && view.connection() == connection);
+        boolean subscribed = owner.views().hasAnyInterest(playerId, connection, scope,
+                InterestKind.MATERIALS, InterestKind.TEAM, InterestKind.OUTLINES);
         if (subscribed) {
             owner.subscriptions().subscribeMaterials(player, scope.projectId());
         } else {
             owner.subscriptions().unsubscribeMaterials(player, scope.projectId());
         }
-    }
-
-    private List<ProjectViewTracker.View> views(ProjectViewScope scope) {
-        Map<ViewKey, ProjectViewTracker.View> views = new LinkedHashMap<>();
-        for (InterestKind kind : InterestKind.values()) {
-            for (ProjectViewTracker.View view : owner.views().views(scope, kind)) {
-                views.putIfAbsent(new ViewKey(view.playerId(), view.connection(), view.scope(), view.viewId(),
-                        view.generation()), view);
-            }
-        }
-        return List.copyOf(views.values());
     }
 
     private ServerPlayer player(ProjectViewTracker.View view) {

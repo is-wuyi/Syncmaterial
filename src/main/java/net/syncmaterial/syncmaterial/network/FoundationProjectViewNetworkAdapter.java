@@ -3,6 +3,7 @@ package net.syncmaterial.syncmaterial.network;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -70,7 +71,7 @@ final class FoundationProjectViewNetworkAdapter {
                 runtime.connection(player.getUUID()), request.scope(), request.viewId(),
                 request.generation(), request.interestMask());
         if (view == null || player(server, runtime, player.getUUID()) == null) return;
-        syncLegacySubscription(runtime, player, view);
+        syncLegacySubscription(runtime, view);
         FoundationNetworkAdapter.send(player, ProjectViewPackets.opened(request.scope(), request.requestId(),
                 request.viewId(), request.generation(), UUID.randomUUID()));
         sendContent(server, runtime, view, request.interestMask());
@@ -84,7 +85,7 @@ final class FoundationProjectViewNetworkAdapter {
         ProjectViewTracker.View updated = runtime.views().setInterests(player.getUUID(),
                 connection, request.scope(), request.viewId(), request.generation(), request.interestMask());
         if (updated == null) return;
-        syncLegacySubscription(runtime, player, updated);
+        syncLegacySubscription(runtime, updated);
         int added = request.interestMask() & ~previousMask;
         FoundationNetworkAdapter.send(player, ProjectViewPackets.operation(request.scope(), request.requestId(),
                 request.viewId(), request.generation(), ProjectViewAction.SET_INTERESTS, true,
@@ -94,12 +95,13 @@ final class FoundationProjectViewNetworkAdapter {
 
     private static void close(MinecraftServer server, ServerRuntime runtime, ServerPlayer player,
                               ProjectViewCommandC2SPacket request) {
-        boolean changed = runtime.views().close(player.getUUID(), runtime.connection(player.getUUID()),
+        UUID playerId = player.getUUID();
+        long connection = runtime.connection(playerId);
+        boolean changed = runtime.views().close(playerId, connection,
                 request.scope(), request.viewId(), request.generation());
         if (!changed) return;
-        syncLegacySubscription(runtime, player, new ProjectViewTracker.View(player.getUUID(),
-                runtime.connection(player.getUUID()), request.scope(), request.viewId(),
-                request.generation(), 0));
+        syncLegacySubscription(runtime, new ProjectViewTracker.View(playerId,
+                connection, request.scope(), request.viewId(), request.generation(), 0));
         FoundationNetworkAdapter.send(player, ProjectViewPackets.operation(request.scope(), request.requestId(),
                 request.viewId(), request.generation(), ProjectViewAction.CLOSE, true, true, "closed"));
     }
@@ -203,6 +205,30 @@ final class FoundationProjectViewNetworkAdapter {
         if ((addedMask & InterestKind.MATERIALS.bit()) != 0 && view.scope().isProject()) {
             broadcast(server, runtime, view.scope().projectId());
         }
+        int nonMaterials = addedMask & ~InterestKind.MATERIALS.bit();
+        if (nonMaterials == 0) return;
+        if (!view.scope().isProject()) {
+            sendNonMaterialContent(server, runtime, view, nonMaterials);
+            return;
+        }
+        runtime.readProgress(view.scope().projectId()).whenComplete((read, error) ->
+                FoundationNetworkAdapter.execute(server, runtime, () -> {
+            if (!runtime.views().matches(view.playerId(), view.connection(), view.scope(),
+                    view.viewId(), view.generation())) return;
+            if (error != null) {
+                sendError(server, runtime, view, "项目读取失败");
+                return;
+            }
+            if (read.isEmpty()) {
+                deleteProject(server, runtime, List.of(view));
+                return;
+            }
+            sendNonMaterialContent(server, runtime, view, nonMaterials);
+        }));
+    }
+
+    private static void sendNonMaterialContent(MinecraftServer server, ServerRuntime runtime,
+                                               ProjectViewTracker.View view, int addedMask) {
         if ((addedMask & InterestKind.TEAM.bit()) != 0 && view.scope().isProject()) {
             sendTeam(server, runtime, view);
         }
@@ -219,27 +245,41 @@ final class FoundationProjectViewNetworkAdapter {
     }
 
     static void broadcast(MinecraftServer server, ServerRuntime runtime, String projectId) {
-        List<ProjectViewTracker.View> targets = runtime.views().views(projectId, InterestKind.MATERIALS);
+        ProjectViewScope scope = ProjectViewScope.project(projectId);
+        List<ProjectViewTracker.View> targets = runtime.views().interestedViews(scope);
         if (targets.isEmpty()) return;
+        List<ProjectViewTracker.View> materialTargets = targets.stream()
+                .filter(view -> (view.mask() & InterestKind.MATERIALS.bit()) != 0)
+                .toList();
         runtime.readProgress(projectId).whenComplete((read, error) ->
                 FoundationNetworkAdapter.execute(server, runtime, () -> {
             if (error != null) {
-                for (var view : targets) sendError(server, runtime, view, "项目进度读取失败");
+                for (var view : materialTargets) sendError(server, runtime, view, "项目进度读取失败");
                 return;
             }
             if (read.isEmpty()) {
-                for (var view : targets) {
-                    ServerPlayer player = player(server, runtime, view);
-                    if (player == null) continue;
-                    FoundationNetworkAdapter.send(player, ProjectViewPackets.deleted(view.scope(),
-                            view.viewId(), view.generation()));
-                    runtime.views().close(view.playerId(), view.connection(), view.scope(),
-                            view.viewId(), view.generation());
-                }
+                deleteProject(server, runtime, targets);
                 return;
             }
-            deliverProgress(server, runtime, targets, read.get());
+            if (!materialTargets.isEmpty()) deliverProgress(server, runtime, materialTargets, read.get());
         }));
+    }
+
+    private static void deleteProject(MinecraftServer server, ServerRuntime runtime,
+                                      List<ProjectViewTracker.View> targets) {
+        for (var view : targets) {
+            ServerPlayer player = player(server, runtime, view);
+            if (player != null) {
+                FoundationNetworkAdapter.send(player, ProjectViewPackets.deleted(view.scope(),
+                        view.viewId(), view.generation()));
+            }
+        }
+        for (var view : targets) {
+            // Exact close also removes that connection's registry interests. A replacement
+            // view has its own existence check and must not be cleared by this older read.
+            runtime.views().close(view.playerId(), view.connection(), view.scope(),
+                    view.viewId(), view.generation());
+        }
     }
 
     private static void deliverProgress(MinecraftServer server, ServerRuntime runtime,
@@ -302,10 +342,12 @@ final class FoundationProjectViewNetworkAdapter {
     }
 
     static void broadcastTeam(MinecraftServer server, ServerRuntime runtime, String projectId,
-                              net.syncmaterial.syncmaterial.core.TeamState state, long sequence) {
+                              net.syncmaterial.syncmaterial.core.TeamState state, long sequence,
+                              Set<UUID> alreadySent) {
         List<ProjectViewTracker.View> targets = runtime.views().views(projectId, InterestKind.TEAM);
         if (targets.isEmpty()) return;
         for (var view : targets) {
+            if (alreadySent.contains(view.playerId())) continue;
             ServerPlayer player = player(server, runtime, view);
             if (player != null) FoundationTeamNetworkAdapter.sendInitialTeam(runtime, player, state, sequence);
         }
@@ -383,19 +425,15 @@ final class FoundationProjectViewNetworkAdapter {
                 || action.equals("LIST_WAREHOUSE_REFS");
     }
 
-    private static void syncLegacySubscription(ServerRuntime runtime, ServerPlayer player,
-                                               ProjectViewTracker.View view) {
-        if (!view.scope().isProject()) return;
-        String projectId = view.scope().projectId();
-        UUID playerId = player.getUUID();
-        boolean subscribed = runtime.views().views(view.scope(), InterestKind.MATERIALS).stream()
-                .anyMatch(candidate -> candidate.playerId().equals(playerId))
-                || runtime.views().views(view.scope(), InterestKind.TEAM).stream()
-                .anyMatch(candidate -> candidate.playerId().equals(playerId))
-                || runtime.views().views(view.scope(), InterestKind.OUTLINES).stream()
-                .anyMatch(candidate -> candidate.playerId().equals(playerId));
-        if (subscribed) runtime.subscribe(playerId, projectId);
-        else runtime.unsubscribe(playerId, projectId);
+    private static void syncLegacySubscription(ServerRuntime runtime, ProjectViewTracker.View view) {
+        if (!view.scope().isProject() || !runtime.isOpen()) return;
+        UUID playerId = view.playerId();
+        long connection = view.connection();
+        if (runtime.connection(playerId) != connection) return;
+        boolean subscribed = runtime.views().hasAnyInterest(playerId, connection, view.scope(),
+                InterestKind.MATERIALS, InterestKind.TEAM, InterestKind.OUTLINES);
+        if (subscribed) runtime.subscribe(playerId, view.scope().projectId());
+        else runtime.unsubscribe(playerId, view.scope().projectId());
     }
 
     private static ServerPlayer player(MinecraftServer server, ServerRuntime runtime,

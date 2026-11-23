@@ -384,7 +384,7 @@
         "net.syncmaterial.syncmaterial.client.TeamManagementClientTest": 30,
         "net.syncmaterial.syncmaterial.client.gui.PlayerSelectionModelTest": 6,
         "net.syncmaterial.syncmaterial.client.gui.GuiMaterialListRoleUpdateTest": 4,
-        "net.syncmaterial.syncmaterial.network.FoundationTeamNetworkAdapterTest": 6,
+        "net.syncmaterial.syncmaterial.network.FoundationTeamNetworkAdapterTest": 11,
         "net.syncmaterial.syncmaterial.network.FoundationTeamAdmissionTest": 6,
         "net.syncmaterial.syncmaterial.network.LegacyWireGoldenTest": 3,
         "net.syncmaterial.syncmaterial.InventoryWatcherDiffTest": 7,
@@ -400,7 +400,7 @@
         "net.syncmaterial.syncmaterial.client.gui.MaterialListProjectionTest": 6,
         "net.syncmaterial.syncmaterial.client.gui.MaterialRowStatusTest": 6,
         "net.syncmaterial.syncmaterial.client.gui.ProjectViewGuiLifecycleTest": 7,
-        "net.syncmaterial.syncmaterial.network.FoundationProjectViewNetworkAdapterTest": 11,
+        "net.syncmaterial.syncmaterial.network.FoundationProjectViewNetworkAdapterTest": 27,
         "net.syncmaterial.syncmaterial.network.LegacyProjectViewNetworkAdapterTest": 28,
         "net.syncmaterial.syncmaterial.network.ProjectViewCommandCodecTest": 8,
         "net.syncmaterial.syncmaterial.network.ProjectViewS2CAssemblerTest": 2,
@@ -457,7 +457,7 @@
         "net.syncmaterial.syncmaterial.server.runtime.ProgressPublicationOrderTest": 2,
         "net.syncmaterial.syncmaterial.server.runtime.ProjectInterestRegistryTest": 19,
         "net.syncmaterial.syncmaterial.server.runtime.ProjectProgressServiceTest": 13,
-        "net.syncmaterial.syncmaterial.server.runtime.ProjectViewTrackerTest": 5,
+        "net.syncmaterial.syncmaterial.server.runtime.ProjectViewTrackerTest": 11,
         "net.syncmaterial.syncmaterial.server.storage.ProjectProgressReadTest": 4,
         "net.syncmaterial.syncmaterial.UpdateDebouncerTest": 15
       }
@@ -469,7 +469,7 @@
   },
   "client_entries_expected": {
     "syncmaterial-test": 31,
-    "syncmaterial-foundation-test": 10,
+    "syncmaterial-foundation-test": 11,
     "syncmaterial-optional-test": 1
   },
   "test_mods": {
@@ -481,7 +481,7 @@
     "syncmaterial-foundation-test": {
       "resources": "src/foundationtest/resources/fabric.mod.json",
       "server_methods_min": 19,
-      "client_entries_min": 10
+      "client_entries_min": 11
     },
     "syncmaterial-optional-test": {
       "resources": "src/optionaltest/resources/fabric.mod.json",

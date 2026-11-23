@@ -6,6 +6,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -19,9 +21,11 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.server.players.PlayerList;
+import net.syncmaterial.syncmaterial.core.InterestKind;
 import net.syncmaterial.syncmaterial.core.MaterialCount;
 import net.syncmaterial.syncmaterial.core.PlayerIdentity;
 import net.syncmaterial.syncmaterial.core.ProjectSnapshot;
+import net.syncmaterial.syncmaterial.core.ProjectViewScope;
 import net.syncmaterial.syncmaterial.core.SchematicMetadata;
 import net.syncmaterial.syncmaterial.core.TeamAction;
 import net.syncmaterial.syncmaterial.core.TeamCommand;
@@ -29,6 +33,8 @@ import net.syncmaterial.syncmaterial.core.TeamOutcome;
 import net.syncmaterial.syncmaterial.core.TeamResponse;
 import net.syncmaterial.syncmaterial.core.TeamState;
 import net.syncmaterial.syncmaterial.server.runtime.MaterialCatalogTracker;
+import net.syncmaterial.syncmaterial.server.runtime.ProjectInterestRegistry;
+import net.syncmaterial.syncmaterial.server.runtime.ProjectViewTracker;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntime;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry;
 import net.syncmaterial.syncmaterial.server.runtime.TeamManagementService;
@@ -380,6 +386,114 @@ class FoundationTeamNetworkAdapterTest {
         assertTrue(outcome.success());
         assertTrue(runtime.takeTeamChanges().contains(projectId),
                 "已提交的角色变更必须与发起连接存活状态解耦");
+    }
+
+    @Test
+    void teamStateBroadcastSendsExactlyOneResponseToSubscriberWithTeamView() {
+        TeamState state = new TeamState(projectId, owner, List.of(), true);
+        BroadcastRuntime broadcast = installBroadcastRuntime(state, Set.of(playerId));
+        assertNotNull(broadcast.views().open(playerId, 1L, ProjectViewScope.project(projectId),
+                1L, 1L, InterestKind.TEAM.bit()));
+        packets.clear();
+
+        FoundationTeamNetworkAdapter.broadcast(server, broadcast.runtime(), projectId);
+        drainServerTasks();
+
+        List<TeamResponseS2CPacket> responses = teamStateResponses();
+        assertEquals(1, responses.size(),
+                "同一玩家同时持有旧订阅与协议5 TEAM视图时只能收到一份 TEAM_STATE");
+        assertEquals(broadcast.requests().currentSequence(projectId),
+                responses.getFirst().response().sequence());
+    }
+
+    @Test
+    void teamStateBroadcastStillReachesViewOnlyProtocolFivePlayer() {
+        TeamState state = new TeamState(projectId, owner, List.of(), true);
+        BroadcastRuntime broadcast = installBroadcastRuntime(state, Set.of());
+        assertNotNull(broadcast.views().open(playerId, 1L, ProjectViewScope.project(projectId),
+                1L, 1L, InterestKind.TEAM.bit()));
+        packets.clear();
+
+        FoundationTeamNetworkAdapter.broadcast(server, broadcast.runtime(), projectId);
+        drainServerTasks();
+
+        assertEquals(1, teamStateResponses().size(),
+                "视图收件人不能因为缺少旧订阅而被广播漏掉");
+    }
+
+    @Test
+    void teamStateBroadcastStillReachesProtocolFiveSubscriberWithoutView() {
+        TeamState state = new TeamState(projectId, owner, List.of(), true);
+        BroadcastRuntime broadcast = installBroadcastRuntime(state, Set.of(playerId));
+        packets.clear();
+
+        FoundationTeamNetworkAdapter.broadcast(server, broadcast.runtime(), projectId);
+        drainServerTasks();
+
+        assertEquals(1, teamStateResponses().size(),
+                "仅旧订阅的协议5玩家仍必须收到一份 TEAM_STATE");
+    }
+
+    @Test
+    void teamStateBroadcastKeepsProtocolFourSubscriberRouting() {
+        assertTrue(ProtocolHandshake.recordHandshake(server, player,
+                ProtocolVersion.SCOPED_TEAM_MANAGEMENT, "protocol-four"));
+        TeamState state = new TeamState(projectId, owner, List.of(), true);
+        BroadcastRuntime broadcast = installBroadcastRuntime(state, Set.of(playerId));
+        packets.clear();
+
+        FoundationTeamNetworkAdapter.broadcast(server, broadcast.runtime(), projectId);
+        drainServerTasks();
+
+        assertEquals(1, teamStateResponses().size(),
+                "协议4订阅者没有项目视图时也必须收到一份 TEAM_STATE");
+    }
+
+    @Test
+    void teamStateBroadcastKeepsProtocolThreeChatRouting() {
+        assertTrue(ProtocolHandshake.recordHandshake(server, player, 3, "protocol-three"));
+        TeamState state = new TeamState(projectId, owner, List.of(), true);
+        BroadcastRuntime broadcast = installBroadcastRuntime(state, Set.of(playerId));
+        packets.clear();
+
+        FoundationTeamNetworkAdapter.broadcast(server, broadcast.runtime(), projectId);
+        drainServerTasks();
+
+        assertTrue(teamStateResponses().isEmpty(), "协议3客户端不能收到协议4团队包");
+        verify(player).sendSystemMessage(argThat(message ->
+                message.getString().contains("负责人配置已更新")));
+    }
+
+    private BroadcastRuntime installBroadcastRuntime(TeamState state, Set<UUID> subscribers) {
+        ServerRuntime mockRuntime = mock(ServerRuntime.class);
+        TeamManagementService mockTeams = mock(TeamManagementService.class);
+        ProjectViewTracker views = new ProjectViewTracker(new ProjectInterestRegistry());
+        TeamRequestTracker tracker = new TeamRequestTracker();
+        when(mockRuntime.isOpen()).thenReturn(true);
+        when(mockRuntime.connection(playerId)).thenReturn(1L);
+        when(mockRuntime.subscribers(projectId)).thenReturn(subscribers);
+        when(mockRuntime.views()).thenReturn(views);
+        when(mockRuntime.teamRequests()).thenReturn(tracker);
+        when(mockRuntime.teams()).thenReturn(mockTeams);
+        when(mockTeams.state(projectId)).thenReturn(CompletableFuture.completedFuture(Optional.of(state)));
+        registry = mockStatic(ServerRuntimeRegistry.class);
+        registry.when(() -> ServerRuntimeRegistry.get(server)).thenReturn(mockRuntime);
+        return new BroadcastRuntime(mockRuntime, views, tracker);
+    }
+
+    private List<TeamResponseS2CPacket> teamStateResponses() {
+        synchronized (packets) {
+            return packets.stream()
+                    .filter(TeamResponseS2CPacket.class::isInstance)
+                    .map(TeamResponseS2CPacket.class::cast)
+                    .filter(packet -> packet.response().action() == TeamAction.TEAM_STATE
+                            && packet.response().requestId() == 0)
+                    .toList();
+        }
+    }
+
+    private record BroadcastRuntime(ServerRuntime runtime, ProjectViewTracker views,
+                                    TeamRequestTracker requests) {
     }
 
     // ==================================================================

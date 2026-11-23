@@ -3,6 +3,7 @@ package net.syncmaterial.syncmaterial.gametest.client;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -11,6 +12,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
+import net.syncmaterial.syncmaterial.client.ProjectViewClient;
 import net.syncmaterial.syncmaterial.SyncMaterial;
 import net.syncmaterial.syncmaterial.client.gui.GuiWarehouseEditor;
 import net.syncmaterial.syncmaterial.client.gui.GuiWarehouseManager;
@@ -39,6 +41,7 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
     @Override
     public void runTest(ClientGameTestContext ctx) {
         String schematicId = "client-wh-crud-" + System.nanoTime();
+        AtomicReference<ProjectViewClient.GlobalLease> globalLease = new AtomicReference<>();
 
         try (var server = ctx.worldBuilder().createServer();
              var connection = server.connect()) {
@@ -46,6 +49,18 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
             ctx.waitTicks(20);
 
             insertSchematic(server, schematicId);
+            ctx.runOnClient(client -> {
+                ProjectViewClient session = ProjectViewClient.current()
+                        .orElseThrow(() -> new AssertionError("仓库 CRUD 缺少项目视图会话"));
+                globalLease.set(session.acquireGlobalWarehouse(
+                        net.syncmaterial.syncmaterial.core.InterestKind.AREA_CONFIG.bit()));
+            });
+            if (!waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                    ProjectViewClient.current().flatMap(ProjectViewClient::globalStore)
+                            .flatMap(store -> store.configuration("LIST_WAREHOUSES"))
+                            .isPresent()))) {
+                throw new AssertionError("仓库 CRUD 初始 global 权威快照未建立");
+            }
 
             // ===== 1. 创建：打开管理界面，走选区确认回调（与真实新建路径一致）=====
             ctx.runOnClient(client -> ClientScreenAccess.showScreen(Minecraft.getInstance(),
@@ -65,6 +80,13 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
             });
             if (serverWarehouse == null) {
                 throw new AssertionError("创建回调发包后服务端未出现仓库 " + warehouseId);
+            }
+            if (!waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                    ProjectViewClient.current().flatMap(ProjectViewClient::globalStore)
+                            .flatMap(store -> store.configuration("LIST_WAREHOUSES"))
+                            .map(areas -> areas.stream().anyMatch(area -> area.id() == warehouseId))
+                            .orElse(false)))) {
+                throw new AssertionError("创建后 global 权威快照未出现新仓库");
             }
 
             // ===== 2. 编辑器：改名（按钮路径，立即发送）=====
@@ -91,6 +113,14 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
             });
             if (!"改名后的仓库".equals(serverName)) {
                 throw new AssertionError("编辑器改名后服务端名字应为「改名后的仓库」，实际为 " + serverName);
+            }
+            if (!waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                    ProjectViewClient.current().flatMap(ProjectViewClient::globalStore)
+                            .flatMap(store -> store.configuration("LIST_WAREHOUSES"))
+                            .map(areas -> areas.stream().anyMatch(area -> area.id() == warehouseId
+                                    && area.name().equals("改名后的仓库")))
+                            .orElse(false)))) {
+                throw new AssertionError("改名后 global 权威快照未更新");
             }
 
             // ===== 3. 编辑器：改坐标（文本框路径，走去抖，最终只发一次）=====
@@ -193,7 +223,20 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("取消引用后客户端项目投影仍保留旧引用");
             }
 
-            // ===== 5. 删除 =====
+            // ===== 5. 旧协议删除，同时保持协议5 global／项目观察者 =====
+            long readdReference = ctx.computeOnClient(client ->
+                    ProjectViewClient.current().map(view -> view.areaConfig(
+                            net.syncmaterial.syncmaterial.core.ProjectViewScope.project(schematicId),
+                            warehouseId, "ADD_WAREHOUSE_REF", Optional.empty())).orElse(-1L));
+            if (readdReference <= 0) throw new AssertionError("删除前重建仓库引用失败");
+            if (!waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                    ProjectViewClient.current().flatMap(ProjectViewClient::projectStore)
+                            .flatMap(store -> store.configuration("LIST_WAREHOUSE_REFS"))
+                            .map(areas -> areas.stream().anyMatch(area -> area.id() == warehouseId))
+                            .orElse(false)))) {
+                throw new AssertionError("旧协议删除前项目权威引用快照未建立");
+            }
+
             ctx.runOnClient(client -> ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
                 "", "DELETE_WAREHOUSE", warehouseId, Optional.empty())));
             ctx.waitTicks(10);
@@ -216,12 +259,31 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("删除仓库后引用未级联清理");
             }
 
+            boolean typedViewsCleared = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
+                ProjectViewClient session = ProjectViewClient.current().orElse(null);
+                if (session == null) return false;
+                boolean globalCleared = session.globalStore()
+                        .flatMap(store -> store.configuration("LIST_WAREHOUSES"))
+                        .map(areas -> areas.stream().noneMatch(area -> area.id() == warehouseId))
+                        .orElse(false);
+                boolean referencesCleared = session.projectStore()
+                        .flatMap(store -> store.configuration("LIST_WAREHOUSE_REFS"))
+                        .map(areas -> areas.stream().noneMatch(area -> area.id() == warehouseId))
+                        .orElse(false);
+                return globalCleared && referencesCleared;
+            }));
+            if (!typedViewsCleared) {
+                throw new AssertionError("旧协议删除后 global／项目协议5权威快照仍保留仓库");
+            }
+
             onDatabase(server, database -> {
                 database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
                 return null;
             });
         } finally {
             ctx.runOnClient(client -> {
+                ProjectViewClient.GlobalLease lease = globalLease.getAndSet(null);
+                if (lease != null) lease.close();
                 ClientScreenAccess.showScreen(Minecraft.getInstance(), null);
                 StagingAreaSelector.getInstance().reset();
                 net.syncmaterial.syncmaterial.client.render.StagingAreaRenderer.getInstance()

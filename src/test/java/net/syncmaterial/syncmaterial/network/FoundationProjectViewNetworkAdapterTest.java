@@ -5,8 +5,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.SharedConstants;
 import net.minecraft.network.chat.Component;
@@ -327,6 +329,94 @@ class FoundationProjectViewNetworkAdapterTest {
     }
 
     @Test
+    void areaConfigOnlyOpenDoesNotSubscribeAndOnlyIdempotentlyUnsubscribes() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.AREA_CONFIG.bit()));
+
+        verify(runtime, never()).subscribe(any(), any());
+        verify(runtime).unsubscribe(playerId, PROJECT);
+    }
+
+    @Test
+    void materialTeamAndOutlineInterestsAloneKeepTheLegacySubscription() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.MATERIALS.bit()));
+        verify(runtime).subscribe(playerId, PROJECT);
+        verify(runtime, never()).unsubscribe(any(), any());
+
+        clearInvocations(runtime);
+        receive(command(SCOPE, 100, 7, 3, ProjectViewAction.SET_INTERESTS,
+                InterestKind.TEAM.bit() | InterestKind.AREA_CONFIG.bit()));
+        verify(runtime, never()).unsubscribe(any(), any());
+
+        clearInvocations(runtime);
+        receive(command(SCOPE, 101, 7, 3, ProjectViewAction.SET_INTERESTS,
+                InterestKind.AREA_CONFIG.bit()));
+        verify(runtime).unsubscribe(playerId, PROJECT);
+        verify(runtime, never()).subscribe(any(), any());
+
+        clearInvocations(runtime);
+        receive(command(SCOPE, 102, 7, 3, ProjectViewAction.SET_INTERESTS,
+                InterestKind.TEAM.bit()));
+        verify(runtime).subscribe(playerId, PROJECT);
+        verify(runtime, never()).unsubscribe(any(), any());
+
+        clearInvocations(runtime);
+        receive(command(SCOPE, 103, 7, 3, ProjectViewAction.SET_INTERESTS,
+                InterestKind.AREA_CONFIG.bit()));
+        verify(runtime).unsubscribe(playerId, PROJECT);
+        verify(runtime, never()).subscribe(any(), any());
+
+        clearInvocations(runtime);
+        receive(command(SCOPE, 104, 7, 3, ProjectViewAction.SET_INTERESTS,
+                InterestKind.OUTLINES.bit()));
+        verify(runtime).subscribe(playerId, PROJECT);
+        verify(runtime, never()).unsubscribe(any(), any());
+
+        clearInvocations(runtime);
+        receive(command(SCOPE, 105, 7, 3, ProjectViewAction.CLOSE, 0));
+        verify(runtime).unsubscribe(playerId, PROJECT);
+        verify(runtime, never()).subscribe(any(), any());
+    }
+
+    @Test
+    void globalScopeNeverChangesTheProjectLegacySubscription() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.MATERIALS.bit()));
+        verify(runtime).subscribe(playerId, PROJECT);
+        clearInvocations(runtime);
+
+        receive(command(GLOBAL, 100, 8, 4, ProjectViewAction.OPEN,
+                InterestKind.AREA_CONFIG.bit() | InterestKind.OUTLINES.bit()));
+        receive(command(GLOBAL, 101, 8, 4, ProjectViewAction.SET_INTERESTS,
+                InterestKind.AREA_CONFIG.bit()));
+        receive(command(GLOBAL, 102, 8, 4, ProjectViewAction.CLOSE, 0));
+
+        verify(runtime, never()).subscribe(any(), any());
+        verify(runtime, never()).unsubscribe(any(), any());
+    }
+
+    @Test
+    void staleConnectionCannotChangeTheCurrentConnectionsLegacySubscription() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.MATERIALS.bit()));
+        verify(runtime).subscribe(playerId, PROJECT);
+        assertEquals(InterestKind.MATERIALS.bit(), views.mask(playerId, 1L, SCOPE, 7, 3));
+
+        when(runtime.connection(playerId)).thenReturn(2L);
+        clearInvocations(runtime);
+        packets.clear();
+        receive(command(SCOPE, 100, 7, 3, ProjectViewAction.SET_INTERESTS, InterestKind.TEAM.bit()));
+        receive(command(SCOPE, 101, 7, 3, ProjectViewAction.CLOSE, 0));
+
+        verify(runtime, never()).subscribe(any(), any());
+        verify(runtime, never()).unsubscribe(any(), any());
+        assertEquals(InterestKind.MATERIALS.bit(), views.mask(playerId, 1L, SCOPE, 7, 3),
+                "a stale connection must not edit the view that still belongs to the old generation");
+
+        receive(command(SCOPE, 102, 8, 4, ProjectViewAction.OPEN, InterestKind.TEAM.bit()));
+        verify(runtime).subscribe(playerId, PROJECT);
+        assertTrue(views.matches(playerId, 2L, SCOPE, 8, 4));
+        assertTrue(views.views(SCOPE, InterestKind.MATERIALS).isEmpty());
+    }
+
+    @Test
     void globalWarehouseViewReceivesTypedConfiguration() {
         var warehouse = new AreaDefinition(4, null, AreaKind.WAREHOUSE, "Warehouse",
                 "minecraft:overworld", new AreaBounds(0, 0, 0, 15, 15, 15), 1, 0);
@@ -375,6 +465,281 @@ class FoundationProjectViewNetworkAdapterTest {
         } finally {
             ProtocolHandshake.remove(observer);
         }
+    }
+
+    @Test
+    void deletingProjectNotifiesAndClosesTeamOnlyView() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.TEAM.bit()));
+        assertEquals(1, views.viewCount());
+        assertTrue(interests.interests(playerId).stream()
+                .anyMatch(interest -> interest.scope().equals(
+                        ProjectInterestRegistry.Scope.project(PROJECT))));
+
+        when(runtime.readProgress(PROJECT)).thenReturn(
+                CompletableFuture.completedFuture(Optional.empty()));
+        clearInvocations(runtime);
+        packets.clear();
+        recipients.clear();
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+
+        List<ProjectViewS2CPacket> deleted = packets.stream()
+                .filter(ProjectViewS2CPacket.class::isInstance)
+                .map(ProjectViewS2CPacket.class::cast)
+                .filter(packet -> packet.result() == ProjectViewS2CPacket.Result.DELETED)
+                .toList();
+        assertEquals(1, deleted.size());
+        assertEquals(SCOPE, deleted.getFirst().scope());
+        assertEquals(7L, deleted.getFirst().viewId());
+        assertEquals(3L, deleted.getFirst().generation());
+        assertEquals(0, views.viewCount());
+        assertEquals(0, interests.projectCount());
+        assertEquals(0, interests.interests(playerId).size());
+        verify(runtime, never()).unsubscribe(any(), any());
+    }
+
+    @Test
+    void deletingProjectNotifiesAndClosesConfigurationOutlineAndWarehouseViews() {
+        when(store.warehouseContainers(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+        int mask = InterestKind.AREA_CONFIG.bit() | InterestKind.OUTLINES.bit()
+                | InterestKind.WAREHOUSE_CONTENTS.bit();
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, mask));
+        assertEquals(1, views.viewCount());
+        assertEquals(3, interests.interests(playerId).size());
+
+        when(runtime.readProgress(PROJECT)).thenReturn(
+                CompletableFuture.completedFuture(Optional.empty()));
+        packets.clear();
+        recipients.clear();
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+
+        assertTrue(packets.stream().anyMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.DELETED));
+        assertEquals(0, views.viewCount());
+        assertEquals(0, interests.projectCount());
+        assertEquals(0, interests.interests(playerId).size());
+    }
+
+    @Test
+    void deletingProjectKeepsSameIdGlobalViewAndInterest() {
+        ProjectViewScope sameIdGlobal = ProjectViewScope.globalWarehouse();
+        String projectId = sameIdGlobal.id();
+        ProjectViewScope projectScope = ProjectViewScope.project(projectId);
+        assertNotNull(views.open(playerId, 1L, sameIdGlobal, 8L, 2L, InterestKind.AREA_CONFIG.bit()));
+        assertNotNull(views.open(playerId, 1L, projectScope, 7L, 3L, InterestKind.TEAM.bit()));
+        assertEquals(2, views.viewCount());
+        assertEquals(2, interests.interests(playerId).size());
+
+        when(runtime.readProgress(projectId)).thenReturn(
+                CompletableFuture.completedFuture(Optional.empty()));
+        packets.clear();
+        recipients.clear();
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, projectId);
+
+        List<ProjectViewS2CPacket> deleted = packets.stream()
+                .filter(ProjectViewS2CPacket.class::isInstance)
+                .map(ProjectViewS2CPacket.class::cast)
+                .filter(packet -> packet.result() == ProjectViewS2CPacket.Result.DELETED)
+                .toList();
+        assertEquals(1, deleted.size());
+        assertEquals(projectScope, deleted.getFirst().scope());
+        assertEquals(1, views.viewCount());
+        assertTrue(views.matches(playerId, 1L, sameIdGlobal, 8, 2));
+        assertEquals(0, interests.projectCount());
+        assertEquals(1, interests.globalScopeCount());
+        Set<ProjectInterestRegistry.Interest> remaining = interests.interests(playerId);
+        assertEquals(1, remaining.size());
+        ProjectInterestRegistry.Interest interest = remaining.iterator().next();
+        assertEquals(ProjectInterestRegistry.Scope.global(projectId), interest.scope());
+        assertEquals(InterestKind.AREA_CONFIG, interest.kind());
+    }
+
+    @Test
+    void existingProjectDoesNotSendDeletedToNonMaterialsView() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.TEAM.bit()));
+        packets.clear();
+        recipients.clear();
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+
+        assertTrue(packets.stream().noneMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.DELETED));
+        assertEquals(1, views.viewCount());
+        assertEquals(InterestKind.TEAM.bit(), views.mask(playerId, 1L, SCOPE, 7, 3));
+    }
+
+    @Test
+    void deletionReadCompletionLeavesReplacementViewToItsOwnExistenceCheck() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.TEAM.bit()));
+        CompletableFuture<Optional<ProjectProgressRead>> initialRead = new CompletableFuture<>();
+        CompletableFuture<Optional<ProjectProgressRead>> replacementRead = new CompletableFuture<>();
+        when(runtime.readProgress(PROJECT)).thenReturn(initialRead, replacementRead);
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        receive(command(SCOPE, 100, 8, 4, ProjectViewAction.OPEN, InterestKind.TEAM.bit()));
+        assertTrue(views.matches(playerId, 1L, SCOPE, 8, 4));
+        packets.clear();
+
+        initialRead.complete(Optional.empty());
+
+        assertTrue(packets.stream().noneMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.DELETED));
+        assertTrue(views.matches(playerId, 1L, SCOPE, 8, 4));
+        assertEquals(1, interests.projectCount());
+
+        replacementRead.complete(Optional.empty());
+        assertTrue(packets.stream().anyMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.DELETED
+                && result.viewId() == 8L && result.generation() == 4L));
+        assertEquals(0, views.viewCount());
+        assertEquals(0, interests.projectCount());
+    }
+
+    @Test
+    void deletionReadCompletionDoesNotCloseAReplacedConnection() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.TEAM.bit()));
+        CompletableFuture<Optional<ProjectProgressRead>> pending = new CompletableFuture<>();
+        when(runtime.readProgress(PROJECT)).thenReturn(pending);
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        when(runtime.connection(playerId)).thenReturn(2L);
+        assertNotNull(views.open(playerId, 2L, SCOPE, 8L, 4L, InterestKind.TEAM.bit()));
+        packets.clear();
+
+        pending.complete(Optional.empty());
+
+        assertTrue(packets.stream().noneMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.DELETED));
+        assertTrue(views.matches(playerId, 2L, SCOPE, 8, 4));
+        assertEquals(1, interests.projectCount());
+    }
+
+    @Test
+    void nonMaterialsOpenChecksThatTheProjectExists() {
+        when(runtime.readProgress(PROJECT)).thenReturn(
+                CompletableFuture.completedFuture(Optional.empty()));
+
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.TEAM.bit()));
+
+        assertTrue(packets.stream().anyMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.DELETED));
+        assertEquals(0, views.viewCount());
+        assertEquals(0, interests.projectCount());
+    }
+
+    @Test
+    void readFailureDoesNotSendProgressErrorToNonMaterialsView() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.TEAM.bit()));
+        when(runtime.readProgress(PROJECT)).thenReturn(
+                CompletableFuture.failedFuture(new IllegalStateException("read failed")));
+        packets.clear();
+
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+
+        assertTrue(packets.stream().noneMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && (result.result() == ProjectViewS2CPacket.Result.ERROR
+                || result.result() == ProjectViewS2CPacket.Result.DELETED)));
+        assertEquals(1, views.viewCount());
+    }
+
+    @Test
+    void legacyDeletionCompletingFirstKeepsBothDeletionNotifications() {
+        CompletableFuture<Optional<ProjectProgressRead>> legacyRead = new CompletableFuture<>();
+        CompletableFuture<Optional<ProjectProgressRead>> viewRead = new CompletableFuture<>();
+        when(runtime.readProgress(PROJECT)).thenReturn(legacyRead, viewRead);
+        // A real deletion cleanup removes the legacy subscriber; model that instead of
+        // pinning a constant set that would hide completion-order bugs.
+        AtomicBoolean subscribed = new AtomicBoolean(true);
+        when(runtime.subscribers(PROJECT)).thenAnswer(invocation ->
+                subscribed.get() ? Set.of(playerId) : Set.<UUID>of());
+        doAnswer(invocation -> {
+            subscribed.set(false);
+            return null;
+        }).when(runtime).unsubscribe(any(), any());
+        assertNotNull(views.open(playerId, 1L, SCOPE, 7L, 3L, InterestKind.TEAM.bit()));
+        packets.clear();
+        recipients.clear();
+
+        FoundationNetworkAdapter.broadcast(server, PROJECT);
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        legacyRead.complete(Optional.empty());
+
+        assertTrue(packets.stream().anyMatch(packet ->
+                packet instanceof StagingAreaConfigResponseS2CPacket response
+                        && response.action().equals("SCHEMATIC_DELETED")));
+        assertTrue(views.matches(playerId, 1L, SCOPE, 7, 3),
+                "the protocol-5 view must stay until its own broadcast completes");
+
+        viewRead.complete(Optional.empty());
+        assertTrue(packets.stream().anyMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.DELETED));
+        assertEquals(0, views.viewCount());
+    }
+
+    @Test
+    void projectViewDeletionCompletingFirstKeepsBothDeletionNotifications() {
+        CompletableFuture<Optional<ProjectProgressRead>> viewRead = new CompletableFuture<>();
+        CompletableFuture<Optional<ProjectProgressRead>> legacyRead = new CompletableFuture<>();
+        when(runtime.readProgress(PROJECT)).thenReturn(viewRead, legacyRead);
+        // Same player holds both memberships; whichever cleanup completes first must not
+        // starve the other deletion notification.
+        AtomicBoolean subscribed = new AtomicBoolean(true);
+        when(runtime.subscribers(PROJECT)).thenAnswer(invocation ->
+                subscribed.get() ? Set.of(playerId) : Set.<UUID>of());
+        doAnswer(invocation -> {
+            subscribed.set(false);
+            return null;
+        }).when(runtime).unsubscribe(any(), any());
+        assertNotNull(views.open(playerId, 1L, SCOPE, 7L, 3L, InterestKind.TEAM.bit()));
+        packets.clear();
+        recipients.clear();
+
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        FoundationNetworkAdapter.broadcast(server, PROJECT);
+        viewRead.complete(Optional.empty());
+
+        assertTrue(packets.stream().anyMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.DELETED));
+        assertEquals(0, views.viewCount());
+
+        legacyRead.complete(Optional.empty());
+        assertTrue(packets.stream().anyMatch(packet ->
+                        packet instanceof StagingAreaConfigResponseS2CPacket response
+                                && response.action().equals("SCHEMATIC_DELETED")),
+                "项目视图清理不得吞掉已经捕获的旧订阅删除通知");
+    }
+
+    @Test
+    void legacyBroadcastReadsAndTailCleansOfflineSnapshotsEvenWithoutTokens() {
+        UUID offline = UUID.randomUUID();
+        UUID reconnected = UUID.randomUUID();
+        when(runtime.subscribers(PROJECT)).thenReturn(Set.of(offline, reconnected));
+        when(runtime.connection(offline)).thenReturn(0L);
+        when(runtime.connection(reconnected)).thenReturn(0L);
+        CompletableFuture<Optional<ProjectProgressRead>> pending = new CompletableFuture<>();
+        when(runtime.readProgress(PROJECT)).thenReturn(pending);
+        packets.clear();
+        recipients.clear();
+
+        FoundationNetworkAdapter.broadcast(server, PROJECT);
+        when(runtime.connection(reconnected)).thenReturn(3L);
+        pending.complete(Optional.empty());
+
+        verify(runtime).unsubscribe(offline, PROJECT);
+        verify(runtime, never()).unsubscribe(reconnected, PROJECT);
+    }
+
+    @Test
+    void legacyBroadcastDoesNotClearAReconnectForAnInvalidatedToken() {
+        when(runtime.subscribers(PROJECT)).thenReturn(Set.of(playerId));
+        when(runtime.connection(playerId)).thenReturn(1L);
+        CompletableFuture<Optional<ProjectProgressRead>> pending = new CompletableFuture<>();
+        when(runtime.readProgress(PROJECT)).thenReturn(pending);
+        packets.clear();
+        recipients.clear();
+
+        FoundationNetworkAdapter.broadcast(server, PROJECT);
+        when(runtime.connection(playerId)).thenReturn(2L);
+        pending.complete(Optional.empty());
+
+        verify(runtime, never()).unsubscribe(any(), any());
     }
 
     private ServerPlayer player(UUID id, String name) {

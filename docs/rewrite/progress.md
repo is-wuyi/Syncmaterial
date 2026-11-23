@@ -228,9 +228,25 @@
 | 区域与扫描 | `StagingAreaManager`及旧dirty／初始化／容器缓存 | `AreaScanService`、`AreaScanStore`与只读已加载区块的平台端口 | 将跨区块、双箱、卸载、拆箱、几何变化、loot／pending BE和预算场景逐项映射，不能只比较测试数量；区域同名后缀与拒绝的差异需先定案 |
 | 发现与导入 | watcher、旧parser、旧Syncmatica接入 | 共享`IngestService`、材料pipeline、`PlacementsDiscovery`和可选适配器 | 实际上传、重命名、删除、同hash重启、缺失文件、无效JSON、上下文替换及可选模组存在时的测试 |
 | 网络与兼容 | 旧receiver、广播和协议5薄适配并存 | Foundation旧包适配＋同一协议5项目视图 | 协议1—4真实客户端闭环、冻结wire golden、能力门及迟到回包；不删包ID、不抬最低兼容、不用协议5测试代替旧协议 |
-| 兴趣与广播 | `LegacySubscriptions`、区域manager订阅、runtime订阅和registry并行 | `ProjectInterestRegistry`／`ProjectViewTracker`已共用核心，但旧广播仍有独立成员关系 | 下一批统一兴趣／收件人、断线／项目删除和global scope语义；两份`syncLegacySubscription`保留调用证据后收敛 |
+| 兴趣与广播 | `LegacySubscriptions`、区域manager订阅、runtime订阅和registry并行 | `ProjectInterestRegistry`／`ProjectViewTracker`已共用核心，但旧广播仍有独立成员关系 | beta.62已统一桥接代次、团队去重、删除与global发布；参与者、旧协议仓库ID并集及staging LIST仍需保留，旧引用增删混合入口刷新与退场前协议1—4证据继续核对 |
 
 单人持久`HiddenWarehouses`的`singleplayer`跨世界键另批评估，不在本批改格式或丢设置。正式服切换、默认后端变更、tag／release仍需单独明确批准。
+
+## 4C. 本批实施：服务器兴趣桥接、广播收件人与项目删除收敛（本地完整验收通过）
+
+2026-11-23 用户批准 beta.62 计划。本批只收敛能够共享的兴趣判定与投递规则，不把协议1—4材料页成员、从未打开视图的协作参与者、跨项目取货仓库 ID 并集或旧编辑器 LIST 订阅强行迁入 registry。协议5、最低兼容1、schema3、默认legacy及全部已发布包格式不变。
+
+- `ProjectViewTracker` 新增精确玩家／连接代次／scope／kind查询与全兴趣视图快照；双后端 `syncLegacySubscription` 共用该判定，仍分别写入 `LegacySubscriptions` 和 runtime 旧订阅。只有 `MATERIALS|TEAM|OUTLINES` 进入旧材料路由，global与同名project隔离。
+- Foundation 团队广播按本轮实际已发送 `TEAM_STATE` 的 UUID 去重，协议1—3通知、协议4旧订阅、协议5仅订阅及view-only接收者均保留，同轮只分配一个sequence。
+- Foundation 删除广播覆盖全部兴趣视图，非 MATERIALS OPEN／新增兴趣也先检查项目存在性。异步完成只关闭读取开始时捕获的精确view身份；换代／重连后的新视图由自己的存在性检查处理，不再用旧空读结果跨代次清空registry。旧包与协议5广播分别清理自己的状态，两种完成顺序都保留 `SCHEMATIC_DELETED` 与 DELETED；旧订阅尾清只处理捕获及完成时仍离线的项。
+- legacy 旧协议全局仓库 ADD／UPDATE／DELETE 通过既有脏标记和flush发布global及受影响项目的typed配置／内容，旧线框、材料状态与取货推送保持原路径。真实客户端场景在创建前保持global lease，分别核对新增、改名和旧协议删除后的权威快照，并检查项目引用级联清理。
+- 定向审查补掉删除读取期间同连接换代、连接替换和缺项目非MATERIALS OPEN三组边界；新增Foundation TEAM-only＋global真实删除场景，客户端视图失效、服务端兴趣清零且global保留。
+- 本批仍有明确后续项：legacy旧协议 `ADD_WAREHOUSE_REF`／`REMOVE_WAREHOUSE_REF` 对协议5观察者的typed配置／容器刷新需补齐；Foundation两条引用入口的typed `WAREHOUSE_CONTENTS` 也缺主动发布，普通扫描变化的刷新范围需与下一批一起核对。非法的非MATERIALS缺项目OPEN所派生的UUID旧订阅，在自身无旧广播收件人时仍依赖后续旧删除路径或断线清理。以上缺口不得据此宣称WP9全部成员关系已统一，WP10旧业务退场与WP11终态验收未开始。
+
+- 最终同一冻结源码执行 clean／禁缓存 `buildAllVersions checkAllVersions testAllClients testOptionalDependencies`，46分22秒全部成功。严格守卫50项通过，0警告／0缺证据／0失败；守卫自测32项通过。
+- shared 539项；1.21.7／1.21.8各911项、26.2为908项单测，全部零失败／错误／跳过。每节点服务端41＋19、客户端31＋11，缺依赖双后端服务端2＋2及客户端1＋1通过；43个客户端测试类注册完整。
+- SpotBugs shared 0、平台各6且严格无新增；8语言196键一致，三节点各26张真实UI截图。三个 beta.62 jar 的 Minecraft范围、Java 21／25字节码、shared／SQLite单次嵌套与测试隔离均通过。487份受控源码在矩阵前后的摘要均为 `50d368bfc192a62aad0285f6eef0ff63608e1f7b6819c8e255d2912fce9aa6ca`。
+- 本批完成只代表上述服务器兴趣与广播合同闭合，不宣称WP9全仓完成、WP10可删除legacy或全仓零遗漏。实现提交与最终HEAD CI在推送后追加。
 
 ## 5. 已确认决策
 

@@ -67,6 +67,36 @@ public final class ProjectViewTracker implements AutoCloseable {
         return matches(view, connection, viewId, generation) ? view.mask() : -1;
     }
 
+    /**
+     * @return whether the current view for exactly this player, connection and scope
+     *         holds any of {@code kinds}; never creates a session for an invalid connection
+     */
+    public synchronized boolean hasAnyInterest(UUID playerId, long connection, ProjectViewScope scope,
+                                               InterestKind... kinds) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(scope, "scope");
+        int requested = InterestKind.mask(Objects.requireNonNull(kinds, "kinds"));
+        if (closed || connection <= 0) return false;
+        Session session = sessions.get(playerId);
+        View view = session == null ? null : session.views.get(scope);
+        return view != null && view.connection() == connection
+                && (view.mask() & requested) != 0;
+    }
+
+    /**
+     * @return immutable snapshots of every nonzero-mask view in {@code scope}, at most one
+     *         per player
+     */
+    public synchronized List<View> interestedViews(ProjectViewScope scope) {
+        Objects.requireNonNull(scope, "scope");
+        if (closed) return List.of();
+        return sessions.values().stream()
+                .map(session -> session.views.get(scope))
+                .filter(view -> view != null && view.mask() != 0)
+                .map(View::immutableCopy)
+                .toList();
+    }
+
     public synchronized boolean close(UUID playerId, long connection, ProjectViewScope scope,
                                       long viewId, long generation) {
         if (closed) return false;

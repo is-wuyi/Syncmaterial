@@ -549,6 +549,43 @@ class ModNetworkHandlerBehaviorTest {
     }
 
     @Test
+    void warehouseConfig_globalMutations_publishTypedViews() {
+        LegacyProjectViewNetworkAdapter projectViews = mock(LegacyProjectViewNetworkAdapter.class);
+        when(owner.projectViews()).thenReturn(projectViews);
+        when(manager.addWarehouse(any(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+            .thenReturn(-1);
+        when(manager.getSchematicsReferencingWarehouse(9)).thenReturn(java.util.Set.of("s1"));
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+        var created = new StagingAreaConfigC2SPacket.AreaData(
+            "仓库", 0, 64, 0, 10, 70, 10, java.util.Optional.of("minecraft:overworld"));
+        var updated = new StagingAreaConfigC2SPacket.AreaData(
+            "新仓库", 1, 64, 1, 11, 70, 11, java.util.Optional.of("minecraft:overworld"));
+
+        ModNetworkHandler.handleStagingAreaConfig(owner,
+            new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0, java.util.Optional.of(created)),
+            player, server);
+        verifyNoInteractions(projectViews);
+        when(manager.addWarehouse(any(), any(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+            .thenReturn(9);
+
+        ModNetworkHandler.handleStagingAreaConfig(owner,
+            new StagingAreaConfigC2SPacket("", "ADD_WAREHOUSE", 0, java.util.Optional.of(created)),
+            player, server);
+        ModNetworkHandler.handleStagingAreaConfig(owner,
+            new StagingAreaConfigC2SPacket("", "UPDATE_WAREHOUSE", 9, java.util.Optional.of(updated)),
+            player, server);
+        ModNetworkHandler.handleStagingAreaConfig(owner,
+            new StagingAreaConfigC2SPacket("", "DELETE_WAREHOUSE", 9, java.util.Optional.empty()),
+            player, server);
+
+        verify(projectViews, times(3)).markConfigurationDirty(null);
+        verify(projectViews, times(2)).markDirty("s1");
+        verify(projectViews, times(2)).markConfigurationDirty("s1");
+        verify(projectViews, times(2)).markWarehouseDirty("s1");
+        verify(projectViews, times(3)).flush();
+    }
+
+    @Test
     void warehouseReference_add_broadcastsMaterialStatus() {
         when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of());
         when(cm.getAllMaterialIds("s1")).thenReturn(List.of());

@@ -675,6 +675,19 @@ public class ModNetworkHandler {
         }
     }
 
+    /** Publishes global definitions and only the projects affected by a warehouse mutation. */
+    private static void publishWarehouseViewChanges(LegacyServerContext owner, Set<String> affectedProjects) {
+        LegacyProjectViewNetworkAdapter projectViews = owner.projectViews();
+        if (projectViews == null) return;
+        projectViews.markConfigurationDirty(null);
+        for (String projectId : affectedProjects) {
+            // Phase4Handler.broadcastAllMaterialStatus already marks project progress.
+            projectViews.markConfigurationDirty(projectId);
+            projectViews.markWarehouseDirty(projectId);
+        }
+        projectViews.flush();
+    }
+
     /** 显式 server 兼容入口：只做同步上下文解析，排队后不再重新查注册表。 */
     public static void broadcastWarehouseAreas(MinecraftServer server) {
         LegacyServerContext owner = LegacyServerRegistry.get(server);
@@ -930,6 +943,7 @@ public class ModNetworkHandler {
                         manager.rescanWarehouseAndMarkChunks(id);
                         pushWarehouseContainerUpdate(owner);
                         broadcastWarehouseAreas(owner);
+                        publishWarehouseViewChanges(owner, Set.of());
                     }
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                             "ADD_WAREHOUSE", schematicId, "", id > 0,
@@ -945,13 +959,15 @@ public class ModNetworkHandler {
                     }
                     manager.updateWarehouse(payload.areaId(), data.name(), data.world().orElse(null),
                             data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
+                    var affectedSchematics = manager.getSchematicsReferencingWarehouse(payload.areaId());
                     // 范围可能变了：updateWarehouse 已重置初始化状态，这里按新范围立即重扫
                     manager.rescanWarehouseAndMarkChunks(payload.areaId());
                     pushWarehouseContainerUpdate(owner);
                     broadcastWarehouseAreas(owner);
-                    for (String affected : manager.getSchematicsReferencingWarehouse(payload.areaId())) {
+                    for (String affected : affectedSchematics) {
                         Phase4Handler.broadcastAllMaterialStatus(owner, affected);
                     }
+                    publishWarehouseViewChanges(owner, affectedSchematics);
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                             "UPDATE_WAREHOUSE", schematicId, "", true, "仓库已更新", List.of()));
                 }
@@ -964,6 +980,7 @@ public class ModNetworkHandler {
                     for (String affected : affectedSchematics) {
                         Phase4Handler.broadcastAllMaterialStatus(owner, affected);
                     }
+                    publishWarehouseViewChanges(owner, affectedSchematics);
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                             "DELETE_WAREHOUSE", schematicId, "", true, "仓库已删除", List.of()));
                 }
