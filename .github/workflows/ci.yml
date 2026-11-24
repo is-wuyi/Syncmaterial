@@ -137,9 +137,7 @@ jobs:
 
       - name: Snapshot shared summary
         if: always()
-        run: |
-          python3 -I .github/scripts/ci_guard.py snapshot --root . --suite shared \
-          --out shared/build/reports/ci-summary.json
+        run: python3 -I .github/scripts/ci_guard.py snapshot --root . --suite shared --out shared/build/reports/ci-summary.json
 
       - name: Upload shared reports
         if: always()
@@ -211,18 +209,11 @@ jobs:
       # 编译失败不再重复启动游戏；编译成功后，单测或某个后端失败仍不阻断其他后端。
       - name: Compile platform sources
         id: platform_compile
-        run: |
-          ./gradlew :${{ matrix.node }}:clean :${{ matrix.node }}:classes
-          :${{ matrix.node }}:gametestClasses :${{ matrix.node }}:foundationtestClasses
-          :${{ matrix.node }}:optionaltestClasses
-          --no-build-cache --stacktrace
+        run: ./gradlew :${{ matrix.node }}:clean :${{ matrix.node }}:classes :${{ matrix.node }}:gametestClasses :${{ matrix.node }}:foundationtestClasses :${{ matrix.node }}:optionaltestClasses --no-build-cache --stacktrace
 
       - name: Build, unit tests and SpotBugs
         id: platform_build
-        run: |
-          ./gradlew :${{ matrix.node }}:build
-          :${{ matrix.node }}:spotbugsMain :${{ matrix.node }}:test
-          --no-build-cache --stacktrace
+        run: ./gradlew :${{ matrix.node }}:build :${{ matrix.node }}:spotbugsMain :${{ matrix.node }}:test --no-build-cache --stacktrace
 
       # 四个服务端回归分开执行，任一失败后仍尝试其余后端，避免一条失败掩盖其它缺口。
       - name: Legacy server GameTest
@@ -329,9 +320,7 @@ jobs:
 
       - name: Snapshot platform summary
         if: always()
-        run: |
-          python3 -I .github/scripts/ci_guard.py snapshot --root . --suite platform \
-          --node "${{ matrix.node }}" --out "versions/${{ matrix.node }}/build/reports/ci-summary.json"
+        run: python3 -I .github/scripts/ci_guard.py snapshot --root . --suite platform --node "${{ matrix.node }}" --out "versions/${{ matrix.node }}/build/reports/ci-summary.json"
 
       - name: Upload jar
         if: success()
@@ -432,10 +421,7 @@ jobs:
       # 先统一编译客户端运行所需源集，失败时不重复启动四个游戏客户端。
       - name: Compile client test sources
         id: client_compile
-        run: |
-          ./gradlew :${{ matrix.node }}:classes :${{ matrix.node }}:gametestClasses
-          :${{ matrix.node }}:foundationtestClasses :${{ matrix.node }}:optionaltestClasses
-          --no-build-cache --stacktrace
+        run: ./gradlew :${{ matrix.node }}:classes :${{ matrix.node }}:gametestClasses :${{ matrix.node }}:foundationtestClasses :${{ matrix.node }}:optionaltestClasses --no-build-cache --stacktrace
 
       # 四个客户端任务分开执行，保证一个后端失败时其余入口仍被真实运行。
       # --no-build-cache 避免客户端测试任务被缓存结果顶替。
@@ -543,9 +529,7 @@ jobs:
 
       - name: Snapshot client summary
         if: always()
-        run: |
-          python3 -I .github/scripts/ci_guard.py snapshot --root . --suite client \
-          --node "${{ matrix.node }}" --out "versions/${{ matrix.node }}/build/reports/ci-summary.json"
+        run: python3 -I .github/scripts/ci_guard.py snapshot --root . --suite client --node "${{ matrix.node }}" --out "versions/${{ matrix.node }}/build/reports/ci-summary.json"
 
       - name: Upload client reports
         if: always()
@@ -595,20 +579,14 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --paginate --slurp \
-          "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=latest&per_page=100" \
-          > "$RUNNER_TEMP/ci-jobs.json"
+        run: gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=latest&per_page=100" > "$RUNNER_TEMP/ci-jobs.json"
 
       - name: Fetch run artifacts
         id: fetch_artifacts
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --paginate --slurp \
-          "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
-          > "$RUNNER_TEMP/ci-artifacts.json"
+        run: gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" > "$RUNNER_TEMP/ci-artifacts.json"
 
       - name: Render unified summary
         id: render_summary

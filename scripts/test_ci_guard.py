@@ -567,7 +567,7 @@ class WorkflowContractTest(unittest.TestCase):
                         "./gradlew :${{ matrix.node }}:clean",
                         "./gradlew :${{ matrix.node }}:build",
                         "./gradlew :${{ matrix.node }}:classes"):
-            self.assertIn(f"run: |\n          {command}", workflow)
+            self.assertIn(f"run: {command}", workflow)
         required = GUARD.PREFLIGHT_REQUIRED_STEPS + GUARD.PLATFORM_REQUIRED_STEPS \
             + GUARD.CLIENT_REQUIRED_STEPS + GUARD.SHARED_REQUIRED_STEPS
         for name in required:
