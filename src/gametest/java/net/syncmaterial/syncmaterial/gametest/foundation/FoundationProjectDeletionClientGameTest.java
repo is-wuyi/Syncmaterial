@@ -51,10 +51,11 @@ public final class FoundationProjectDeletionClientGameTest implements FabricClie
                     var team = runtime.views().views(projectId, InterestKind.TEAM);
                     return team.size() == 1 && team.get(0).mask() == InterestKind.TEAM.bit()
                             && runtime.views().views(projectId, InterestKind.MATERIALS).isEmpty()
-                            && runtime.subscribers(projectId).size() == 1
                             && runtime.views().views(ProjectViewScope.globalWarehouse(),
                             InterestKind.AREA_CONFIG).size() == 1;
                 }));
+                waitFor(context, () -> server.computeOnServer(instance ->
+                        ServerRuntimeRegistry.get(instance).subscribers(projectId).size() == 1));
 
                 server.computeOnServer(instance -> {
                     ServerRuntimeRegistry.get(instance).removeProject(projectId).join();
@@ -74,6 +75,28 @@ public final class FoundationProjectDeletionClientGameTest implements FabricClie
                         ProjectViewClient.current().map(view -> view.projectStore().isEmpty()
                                 && view.globalStore().map(store -> store.valid()).orElse(false))
                                 .orElse(false)));
+
+                var missingIds = new java.util.ArrayList<String>();
+                for (int mask : new int[]{InterestKind.MATERIALS.bit(), InterestKind.TEAM.bit()}) {
+                    String missingId = "foundation-missing-" + mask + "-" + UUID.randomUUID();
+                    missingIds.add(missingId);
+                    context.runOnClient(client -> {
+                        long request = ProjectViewClient.current().orElseThrow()
+                                .openProject(missingId, mask);
+                        if (request <= 0) throw new AssertionError("缺项目 OPEN 未发送: " + mask);
+                    });
+                    waitFor(context, () -> context.computeOnClient(client ->
+                            ProjectViewClient.current().map(view -> view.projectStore().isEmpty()
+                                    && view.globalStore().map(store -> store.valid()).orElse(false))
+                                    .orElse(false)));
+                }
+                waitFor(context, () -> server.computeOnServer(instance -> {
+                    var runtime = ServerRuntimeRegistry.get(instance);
+                    return missingIds.stream().allMatch(missingId -> runtime.subscribers(missingId).isEmpty()
+                            && runtime.views().interestedViews(ProjectViewScope.project(missingId)).isEmpty())
+                            && runtime.interests().projectCount() == 0
+                            && runtime.interests().globalScopeCount() == 1;
+                }));
             } finally {
                 context.runOnClient(client -> {
                     ProjectViewClient.GlobalLease lease = globalLease.getAndSet(null);

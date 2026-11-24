@@ -71,7 +71,6 @@ final class FoundationProjectViewNetworkAdapter {
                 runtime.connection(player.getUUID()), request.scope(), request.viewId(),
                 request.generation(), request.interestMask());
         if (view == null || player(server, runtime, player.getUUID()) == null) return;
-        syncLegacySubscription(runtime, view);
         FoundationNetworkAdapter.send(player, ProjectViewPackets.opened(request.scope(), request.requestId(),
                 request.viewId(), request.generation(), UUID.randomUUID()));
         sendContent(server, runtime, view, request.interestMask());
@@ -85,7 +84,6 @@ final class FoundationProjectViewNetworkAdapter {
         ProjectViewTracker.View updated = runtime.views().setInterests(player.getUUID(),
                 connection, request.scope(), request.viewId(), request.generation(), request.interestMask());
         if (updated == null) return;
-        syncLegacySubscription(runtime, updated);
         int added = request.interestMask() & ~previousMask;
         FoundationNetworkAdapter.send(player, ProjectViewPackets.operation(request.scope(), request.requestId(),
                 request.viewId(), request.generation(), ProjectViewAction.SET_INTERESTS, true,
@@ -202,13 +200,19 @@ final class FoundationProjectViewNetworkAdapter {
 
     private static void sendContent(MinecraftServer server, ServerRuntime runtime,
                                     ProjectViewTracker.View view, int addedMask) {
-        if ((addedMask & InterestKind.MATERIALS.bit()) != 0 && view.scope().isProject()) {
-            broadcast(server, runtime, view.scope().projectId());
+        boolean materials = (addedMask & InterestKind.MATERIALS.bit()) != 0 && view.scope().isProject();
+        if (materials) {
+            broadcast(server, runtime, view.scope().projectId(), view);
         }
         int nonMaterials = addedMask & ~InterestKind.MATERIALS.bit();
-        if (nonMaterials == 0) return;
+        if (nonMaterials == 0) {
+            if (!materials && view.scope().isProject()) {
+                syncLegacySubscriptionAfterRead(server, runtime, view);
+            }
+            return;
+        }
         if (!view.scope().isProject()) {
-            sendNonMaterialContent(server, runtime, view, nonMaterials);
+            sendNonMaterialContent(server, runtime, view, nonMaterials, 0);
             return;
         }
         runtime.readProgress(view.scope().projectId()).whenComplete((read, error) ->
@@ -223,12 +227,26 @@ final class FoundationProjectViewNetworkAdapter {
                 deleteProject(server, runtime, List.of(view));
                 return;
             }
-            sendNonMaterialContent(server, runtime, view, nonMaterials);
+            if (!materials) syncLegacySubscription(runtime, view);
+            sendNonMaterialContent(server, runtime, view, nonMaterials,
+                    read.get().state().inventory().revision());
+        }));
+    }
+
+    private static void syncLegacySubscriptionAfterRead(MinecraftServer server, ServerRuntime runtime,
+                                                        ProjectViewTracker.View view) {
+        runtime.readProgress(view.scope().projectId()).whenComplete((read, error) ->
+                FoundationNetworkAdapter.execute(server, runtime, () -> {
+            if (error == null && read.isPresent() && runtime.views().matches(view.playerId(),
+                    view.connection(), view.scope(), view.viewId(), view.generation())) {
+                syncLegacySubscription(runtime, view);
+            }
         }));
     }
 
     private static void sendNonMaterialContent(MinecraftServer server, ServerRuntime runtime,
-                                               ProjectViewTracker.View view, int addedMask) {
+                                               ProjectViewTracker.View view, int addedMask,
+                                               long inventoryRevision) {
         if ((addedMask & InterestKind.TEAM.bit()) != 0 && view.scope().isProject()) {
             sendTeam(server, runtime, view);
         }
@@ -240,11 +258,16 @@ final class FoundationProjectViewNetworkAdapter {
                     }));
         }
         if ((addedMask & InterestKind.WAREHOUSE_CONTENTS.bit()) != 0 && view.scope().isProject()) {
-            sendWarehouse(server, runtime, view);
+            sendWarehouse(server, runtime, view, inventoryRevision, true);
         }
     }
 
     static void broadcast(MinecraftServer server, ServerRuntime runtime, String projectId) {
+        broadcast(server, runtime, projectId, null);
+    }
+
+    private static void broadcast(MinecraftServer server, ServerRuntime runtime, String projectId,
+                                  ProjectViewTracker.View bridgeView) {
         ProjectViewScope scope = ProjectViewScope.project(projectId);
         List<ProjectViewTracker.View> targets = runtime.views().interestedViews(scope);
         if (targets.isEmpty()) return;
@@ -261,8 +284,21 @@ final class FoundationProjectViewNetworkAdapter {
                 deleteProject(server, runtime, targets);
                 return;
             }
+            if (bridgeView != null && runtime.views().matches(bridgeView.playerId(), bridgeView.connection(),
+                    bridgeView.scope(), bridgeView.viewId(), bridgeView.generation())) {
+                syncLegacySubscription(runtime, bridgeView);
+            }
+            long revision = read.get().state().inventory().revision();
+            publishWarehouseContents(server, runtime, projectId, revision);
             if (!materialTargets.isEmpty()) deliverProgress(server, runtime, materialTargets, read.get());
         }));
+    }
+
+    private static void publishWarehouseContents(MinecraftServer server, ServerRuntime runtime,
+                                                 String projectId, long revision) {
+        for (var view : runtime.views().views(projectId, InterestKind.WAREHOUSE_CONTENTS)) {
+            sendWarehouse(server, runtime, view, revision, false);
+        }
     }
 
     private static void deleteProject(MinecraftServer server, ServerRuntime runtime,
@@ -354,18 +390,26 @@ final class FoundationProjectViewNetworkAdapter {
     }
 
     private static void sendWarehouse(MinecraftServer server, ServerRuntime runtime,
-                                      ProjectViewTracker.View view) {
+                                      ProjectViewTracker.View view, long revision, boolean initial) {
         if (!view.scope().isProject()) return;
         ServerPlayer origin = player(server, runtime, view);
         if (origin == null || origin.level() == null) return;
         String world = McCompat.dimensionId(origin.level());
+        var delivery = FoundationNetworkAdapter.delivery(runtime);
+        var token = delivery.beginWarehouseRevision(view, revision, initial);
+        if (token == null) return;
         long sequence = runtime.nextPublicationSequence();
         runtime.store().warehouseContainers(view.scope().projectId(), world)
                 .whenComplete((observations, error) -> FoundationNetworkAdapter.execute(server, runtime, () -> {
+            if (!delivery.acceptWarehouseRevision(token)) return;
             ServerPlayer current = player(server, runtime, view);
             if (current == null || current.level() == null
-                    || !world.equals(McCompat.dimensionId(current.level()))) return;
+                    || !world.equals(McCompat.dimensionId(current.level()))) {
+                delivery.failWarehouseRevision(token);
+                return;
+            }
             if (error != null) {
+                delivery.failWarehouseRevision(token);
                 FoundationNetworkAdapter.send(current, ProjectViewPackets.error(view.scope(), 0,
                         view.viewId(), view.generation(), ProjectViewAction.NONE, "仓库内容读取失败"));
                 return;
@@ -377,6 +421,7 @@ final class FoundationProjectViewNetworkAdapter {
             }
             FoundationNetworkAdapter.send(current, ProjectViewPackets.warehouseComplete(view.scope(),
                     view.viewId(), view.generation(), sequence));
+            delivery.completeWarehouseRevision(token);
         }));
     }
 

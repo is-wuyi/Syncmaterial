@@ -311,6 +311,114 @@ class FoundationProjectViewNetworkAdapterTest {
     }
 
     @Test
+    void warehouseBroadcastSkipsSameRevisionAndPublishesNextRevision() {
+        when(store.warehouseContainers(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN,
+                InterestKind.WAREHOUSE_CONTENTS.bit()));
+        clearInvocations(store);
+        packets.clear();
+
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        verify(store, never()).warehouseContainers(anyString(), anyString());
+
+        ProjectProgressRead next = progressReadAtRevision(5);
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(next)));
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        verify(store).warehouseContainers(PROJECT, "minecraft:overworld");
+        assertEquals(1, packets.stream().filter(ProjectViewS2CPacket.class::isInstance)
+                .map(ProjectViewS2CPacket.class::cast)
+                .filter(packet -> packet.result() == ProjectViewS2CPacket.Result.WAREHOUSE
+                        && "COMPLETE".equals(packet.message())).count());
+
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        verify(store).warehouseContainers(PROJECT, "minecraft:overworld");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void warehouseReadFailureRetriesTheSameRevision() {
+        when(store.warehouseContainers(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("read failed")),
+                        CompletableFuture.completedFuture(List.of()));
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN,
+                InterestKind.WAREHOUSE_CONTENTS.bit()));
+        packets.clear();
+
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+
+        verify(store, times(2)).warehouseContainers(PROJECT, "minecraft:overworld");
+        assertTrue(packets.stream().anyMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.WAREHOUSE
+                && "COMPLETE".equals(result.message())));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void olderWarehouseCompletionCannotOverwriteNewerRevision() {
+        CompletableFuture<List<net.syncmaterial.syncmaterial.core.ContainerObservation>> first =
+                new CompletableFuture<>();
+        CompletableFuture<List<net.syncmaterial.syncmaterial.core.ContainerObservation>> second =
+                new CompletableFuture<>();
+        when(store.warehouseContainers(PROJECT, "minecraft:overworld")).thenReturn(first, second);
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN,
+                InterestKind.WAREHOUSE_CONTENTS.bit()));
+        ProjectProgressRead next = progressReadAtRevision(5);
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.of(next)));
+
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        second.complete(List.of());
+        packets.clear();
+        first.complete(List.of());
+
+        assertTrue(packets.stream().noneMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.WAREHOUSE));
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        verify(store, times(2)).warehouseContainers(PROJECT, "minecraft:overworld");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void oldConnectionWarehouseCompletionCannotSendAfterReconnect() {
+        CompletableFuture<List<net.syncmaterial.syncmaterial.core.ContainerObservation>> first =
+                new CompletableFuture<>();
+        CompletableFuture<List<net.syncmaterial.syncmaterial.core.ContainerObservation>> second =
+                new CompletableFuture<>();
+        when(store.warehouseContainers(PROJECT, "minecraft:overworld")).thenReturn(first, second);
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN,
+                InterestKind.WAREHOUSE_CONTENTS.bit()));
+        when(runtime.connection(playerId)).thenReturn(2L);
+        receive(command(SCOPE, 100, 8, 4, ProjectViewAction.OPEN,
+                InterestKind.WAREHOUSE_CONTENTS.bit()));
+        second.complete(List.of());
+        packets.clear();
+
+        first.complete(List.of());
+
+        assertTrue(packets.stream().noneMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.WAREHOUSE));
+    }
+
+    @Test
+    void deletedProjectDoesNotCompletePendingWarehouseRead() {
+        CompletableFuture<List<net.syncmaterial.syncmaterial.core.ContainerObservation>> pending =
+                new CompletableFuture<>();
+        when(store.warehouseContainers(PROJECT, "minecraft:overworld")).thenReturn(pending);
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN,
+                InterestKind.WAREHOUSE_CONTENTS.bit()));
+        when(runtime.readProgress(PROJECT)).thenReturn(
+                CompletableFuture.completedFuture(Optional.empty()));
+        FoundationProjectViewNetworkAdapter.broadcast(server, runtime, PROJECT);
+        assertEquals(0, views.viewCount());
+        packets.clear();
+
+        pending.complete(List.of());
+
+        assertTrue(packets.stream().noneMatch(packet -> packet instanceof ProjectViewS2CPacket result
+                && result.result() == ProjectViewS2CPacket.Result.WAREHOUSE));
+    }
+
+    @Test
     void staleSampleIsInvalidatedButMissingProjectIsDeleted() {
         receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.MATERIALS.bit()));
         packets.clear();
@@ -326,6 +434,59 @@ class FoundationProjectViewNetworkAdapterTest {
         assertTrue(packets.stream().anyMatch(packet -> packet instanceof ProjectViewS2CPacket result
                 && result.result() == ProjectViewS2CPacket.Result.DELETED));
         assertEquals(0, views.viewCount());
+    }
+
+    @Test
+    void missingProjectDoesNotCreateLegacySubscription() {
+        when(runtime.readProgress(PROJECT)).thenReturn(
+                CompletableFuture.completedFuture(Optional.empty()));
+        for (InterestKind kind : List.of(InterestKind.MATERIALS, InterestKind.TEAM, InterestKind.OUTLINES,
+                InterestKind.WAREHOUSE_CONTENTS, InterestKind.AREA_CONFIG)) {
+            receive(command(SCOPE, 99 + kind.ordinal(), 7 + kind.ordinal(), 3 + kind.ordinal(),
+                    ProjectViewAction.OPEN, kind.bit()));
+        }
+
+        verify(runtime, never()).subscribe(any(), any());
+        verify(store, never()).warehouseContainers(anyString(), anyString());
+        assertEquals(0, views.viewCount());
+    }
+
+    @Test
+    void presentProjectReadPrecedesLegacySubscription() {
+        clearInvocations(runtime);
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.MATERIALS.bit()));
+
+        var ordered = inOrder(runtime);
+        ordered.verify(runtime).readProgress(PROJECT);
+        ordered.verify(runtime).subscribe(playerId, PROJECT);
+    }
+
+    @Test
+    void missingSetDoesNotCreateLegacySubscription() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.AREA_CONFIG.bit()));
+        clearInvocations(runtime);
+        when(runtime.readProgress(PROJECT)).thenReturn(
+                CompletableFuture.completedFuture(Optional.empty()));
+
+        receive(command(SCOPE, 100, 7, 3, ProjectViewAction.SET_INTERESTS, InterestKind.TEAM.bit()));
+
+        verify(runtime, never()).subscribe(any(), any());
+        verify(runtime, never()).unsubscribe(any(), any());
+    }
+
+    @Test
+    void missingSetDoesNotClearPreexistingLegacySubscription() {
+        receive(command(SCOPE, 99, 7, 3, ProjectViewAction.OPEN, InterestKind.MATERIALS.bit()));
+        verify(runtime).subscribe(playerId, PROJECT);
+        clearInvocations(runtime);
+        when(runtime.readProgress(PROJECT)).thenReturn(
+                CompletableFuture.completedFuture(Optional.empty()));
+
+        receive(command(SCOPE, 100, 7, 3, ProjectViewAction.SET_INTERESTS,
+                InterestKind.AREA_CONFIG.bit()));
+
+        verify(runtime, never()).subscribe(any(), any());
+        verify(runtime, never()).unsubscribe(any(), any());
     }
 
     @Test
@@ -740,6 +901,14 @@ class FoundationProjectViewNetworkAdapterTest {
         pending.complete(Optional.empty());
 
         verify(runtime, never()).unsubscribe(any(), any());
+    }
+
+    private ProjectProgressRead progressReadAtRevision(long revision) {
+        var current = read.state();
+        var inventory = new AreaInventoryView(current.inventory().staging(), current.inventory().warehouse(),
+                current.inventory().freshness(), current.inventory().known(), current.inventory().overlap(), revision);
+        return new ProjectProgressRead(new ProjectState(current.project(), current.claims(), inventory),
+                read.observations(), read.publicationSequence());
     }
 
     private ServerPlayer player(UUID id, String name) {

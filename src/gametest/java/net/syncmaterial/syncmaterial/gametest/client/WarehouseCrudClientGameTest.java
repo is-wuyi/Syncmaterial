@@ -11,6 +11,10 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerCon
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.syncmaterial.syncmaterial.client.ClientScreenAccess;
 import net.syncmaterial.syncmaterial.client.ProjectViewClient;
 import net.syncmaterial.syncmaterial.SyncMaterial;
@@ -223,6 +227,92 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("取消引用后客户端项目投影仍保留旧引用");
             }
 
+            // ===== 4b. 旧协议引用增删驱动协议5项目权威快照（真实箱子 + 取货兴趣）=====
+            // 箱子放在仓库最终范围内（已加载区块），只能经真实扫描进入 container_inventory；
+            // 因此 warehouse() 快照能证明仓库内容来自本次发布，而不是旧响应或材料进度。
+            BlockPos warehouseChest = new BlockPos(6, -58, 2);
+            boolean chestPrepared = server.computeOnServer(instance -> {
+                var level = instance.overworld();
+                var chunk = level.getChunk(warehouseChest.getX() >> 4, warehouseChest.getZ() >> 4);
+                level.setBlock(warehouseChest, Blocks.CHEST.defaultBlockState(), 3);
+                if (!(level.getBlockEntity(warehouseChest) instanceof ChestBlockEntity chest)) {
+                    return false;
+                }
+                chest.setItem(0, new ItemStack(Items.STONE, 64));
+                chest.setChanged();
+                var manager = SyncMaterial.getServerStagingAreaManager();
+                if (manager == null) return false;
+                manager.rescanWarehouseAndMarkChunks(warehouseId);
+                // 与真实区块加载钩子同一路径：仓库未初始化时项目视图会拒绝发布容器明细
+                manager.scanChunkForContainerAreas(chunk, level);
+                return true;
+            });
+            if (!chestPrepared) {
+                throw new AssertionError("仓库真实箱子夹具创建失败");
+            }
+
+            // 开启取货兴趣（WAREHOUSE_CONTENTS），等待基线 COMPLETE 快照（引用为空）。
+            ctx.runOnClient(client -> ProjectViewClient.current()
+                .ifPresent(view -> view.setPickup(schematicId, true)));
+            boolean pickupBaseline = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                ProjectViewClient.current().flatMap(ProjectViewClient::projectStore)
+                    .map(store -> store.hasWarehouseSnapshot()
+                        && store.configuration("LIST_WAREHOUSE_REFS").isPresent()
+                        && store.warehouse().isEmpty())
+                    .orElse(false)));
+            if (!pickupBaseline) {
+                throw new AssertionError("取货兴趣的项目权威快照未建立");
+            }
+
+            ctx.runOnClient(client -> ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                schematicId, "ADD_WAREHOUSE_REF", warehouseId, Optional.empty())));
+            boolean legacyAddReferenced = waitForCondition(ctx, () -> server.computeOnServer(instance -> {
+                var manager = SyncMaterial.getServerStagingAreaManager();
+                return manager != null && manager.getWarehousesForSchematic(schematicId).stream()
+                    .anyMatch(w -> w.id() == warehouseId);
+            }));
+            if (!legacyAddReferenced) {
+                throw new AssertionError("旧协议 ADD_WAREHOUSE_REF 后服务端未建立引用关系");
+            }
+            boolean legacyAddPublished = waitForCondition(ctx, () -> ctx.computeOnClient(client ->
+                ProjectViewClient.current().flatMap(ProjectViewClient::projectStore)
+                    .map(store -> store.configuration("LIST_WAREHOUSE_REFS")
+                            .map(areas -> areas.stream().anyMatch(area -> area.id() == warehouseId))
+                            .orElse(false)
+                        && store.hasWarehouseSnapshot()
+                        && store.warehouse().stream().anyMatch(observation ->
+                            observation.key().x() == warehouseChest.getX()
+                                && observation.key().y() == warehouseChest.getY()
+                                && observation.key().z() == warehouseChest.getZ()
+                                && "minecraft:overworld".equals(observation.key().world())
+                                && observation.presentItemIds().contains("minecraft:stone")))
+                    .orElse(false)));
+            if (!legacyAddPublished) {
+                throw new AssertionError("旧协议 ADD_WAREHOUSE_REF 后项目权威 refs/warehouse 快照未出现");
+            }
+
+            ctx.runOnClient(client -> ClientPlayNetworking.send(new StagingAreaConfigC2SPacket(
+                schematicId, "REMOVE_WAREHOUSE_REF", warehouseId, Optional.empty())));
+            boolean legacyRemovePublished = waitForCondition(ctx, () -> ctx.computeOnClient(client -> {
+                var store = ProjectViewClient.current().flatMap(ProjectViewClient::projectStore).orElse(null);
+                if (store == null || !store.hasWarehouseSnapshot()) return false;
+                boolean refsCleared = store.configuration("LIST_WAREHOUSE_REFS")
+                    .map(areas -> areas.stream().noneMatch(area -> area.id() == warehouseId))
+                    .orElse(false);
+                return refsCleared && store.warehouse().isEmpty();
+            }));
+            if (!legacyRemovePublished) {
+                throw new AssertionError("旧协议 REMOVE_WAREHOUSE_REF 后项目权威 refs/warehouse 快照未清空");
+            }
+            boolean legacyRemoveReferenced = waitForCondition(ctx, () -> server.computeOnServer(instance -> {
+                var manager = SyncMaterial.getServerStagingAreaManager();
+                return manager != null && manager.getWarehousesForSchematic(schematicId).stream()
+                    .noneMatch(w -> w.id() == warehouseId);
+            }));
+            if (!legacyRemoveReferenced) {
+                throw new AssertionError("旧协议 REMOVE_WAREHOUSE_REF 后服务端引用关系仍然存在");
+            }
+
             // ===== 5. 旧协议删除，同时保持协议5 global／项目观察者 =====
             long readdReference = ctx.computeOnClient(client ->
                     ProjectViewClient.current().map(view -> view.areaConfig(
@@ -276,6 +366,11 @@ public class WarehouseCrudClientGameTest implements FabricClientGameTest {
                 throw new AssertionError("旧协议删除后 global／项目协议5权威快照仍保留仓库");
             }
 
+            // 清理测试世界里的真实箱子（仓库删除后 container_inventory 已随级联清空）
+            server.computeOnServer(instance -> {
+                instance.overworld().setBlock(warehouseChest, Blocks.AIR.defaultBlockState(), 3);
+                return null;
+            });
             onDatabase(server, database -> {
                 database.executeUpdate("DELETE FROM schematics WHERE id = ?", schematicId);
                 return null;

@@ -282,6 +282,48 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                 return screen.getMaterialList().isPreparationKnown() && entry.getStagingCount() == 0
                         && entry.getWarehouseCount() == 16 && entry.getCountMissing() == 112;
             }));
+
+            // typed 取货快照：真实被动扫描与引用修订都必须进入同一个 COMPLETE 投影。
+            context.runOnClient(client -> net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                    .orElseThrow().setPickup(projectId, true));
+            waitFor(context, () -> context.computeOnClient(client -> warehouseSnapshotCount(
+                    client, fixture.warehouseId(), 16)));
+            server.computeOnServer(instance -> {
+                var level = instance.getPlayerList().getPlayers().get(0).level();
+                ((Container) level.getBlockEntity(fixture.warehouse())).setItem(0, new ItemStack(Items.DIRT, 24));
+                net.syncmaterial.syncmaterial.adapter.minecraft.FoundationAreaEvents.containerChanged(
+                        level, fixture.warehouse());
+                return null;
+            });
+            waitFor(context, () -> context.computeOnClient(client -> warehouseSnapshotCount(
+                    client, fixture.warehouseId(), 24)));
+            waitFor(context, () -> context.computeOnClient(client -> {
+                var entry = screen.getMaterialList().getMaterialsAll().stream()
+                        .filter(value -> value.getDatabaseId() == materialId).findFirst().orElseThrow();
+                return entry.getWarehouseCount() == 24;
+            }));
+
+            long removeReference = context.computeOnClient(client ->
+                    net.syncmaterial.syncmaterial.client.ProjectViewClient.current().orElseThrow().areaConfig(
+                            net.syncmaterial.syncmaterial.core.ProjectViewScope.project(projectId),
+                            fixture.warehouseId(), "REMOVE_WAREHOUSE_REF", java.util.Optional.empty()));
+            if (removeReference <= 0) throw new AssertionError("Foundation typed 仓库引用移除未建立");
+            waitFor(context, () -> context.computeOnClient(client ->
+                    net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                            .flatMap(net.syncmaterial.syncmaterial.client.ProjectViewClient::projectStore)
+                            .map(store -> store.hasWarehouseSnapshot() && store.warehouse().isEmpty()
+                                    && store.configuration("LIST_WAREHOUSE_REFS")
+                                    .map(areas -> areas.stream().noneMatch(area -> area.id() == fixture.warehouseId()))
+                                    .orElse(false))
+                            .orElse(false)));
+
+            long addReference = context.computeOnClient(client ->
+                    net.syncmaterial.syncmaterial.client.ProjectViewClient.current().orElseThrow().areaConfig(
+                            net.syncmaterial.syncmaterial.core.ProjectViewScope.project(projectId),
+                            fixture.warehouseId(), "ADD_WAREHOUSE_REF", java.util.Optional.empty()));
+            if (addReference <= 0) throw new AssertionError("Foundation typed 仓库引用重建未建立");
+            waitFor(context, () -> context.computeOnClient(client -> warehouseSnapshotCount(
+                    client, fixture.warehouseId(), 24)));
         } finally {
             server.computeOnServer(instance -> {
                 var runtime = ServerRuntimeRegistry.get(instance);
@@ -303,6 +345,18 @@ public class FoundationClientGameTest implements FabricClientGameTest {
                     && screen.getMaterialList().getMaterialsAll().stream()
                     .allMatch(entry -> entry.getStagingCount() == 0 && entry.getWarehouseCount() == 0)));
         }
+    }
+
+    private static boolean warehouseSnapshotCount(net.minecraft.client.Minecraft client,
+                                                  int warehouseId, long expected) {
+        return net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                .flatMap(net.syncmaterial.syncmaterial.client.ProjectViewClient::projectStore)
+                .map(store -> store.hasWarehouseSnapshot() && store.warehouse().stream().anyMatch(
+                        observation -> observation.counts().getOrDefault("minecraft:dirt", 0L) == expected
+                                && store.configuration("LIST_WAREHOUSE_REFS")
+                                .map(areas -> areas.stream().anyMatch(area -> area.id() == warehouseId))
+                                .orElse(false)))
+                .orElse(false);
     }
 
     private record AreaFixture(String world, int stagingId, int warehouseId, BlockPos staging, BlockPos warehouse) {}

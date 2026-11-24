@@ -675,6 +675,23 @@ public class ModNetworkHandler {
         }
     }
 
+    /**
+     * 发布单个原理图的项目视图变更（旧协议仓库引用增删后调用）。
+     *
+     * <p>引用增删只改变该原理图的配置与仓库内容，全局仓库本体没有变化，
+     * 因此不能复用 {@link #publishWarehouseViewChanges}——它会连 global 配置一起刷新。
+     * 旧取货模式的仓库 ID 并集由订阅集合驱动，这里也不改动。</p>
+     */
+    private static void publishProjectWarehouseViewChanges(LegacyServerContext owner, String schematicId) {
+        if (owner == null || schematicId == null) return;
+        LegacyProjectViewNetworkAdapter projectViews = owner.projectViews();
+        if (projectViews == null) return;
+        projectViews.markDirty(schematicId);
+        projectViews.markConfigurationDirty(schematicId);
+        projectViews.markWarehouseDirty(schematicId);
+        projectViews.flush();
+    }
+
     /** Publishes global definitions and only the projects affected by a warehouse mutation. */
     private static void publishWarehouseViewChanges(LegacyServerContext owner, Set<String> affectedProjects) {
         LegacyProjectViewNetworkAdapter projectViews = owner.projectViews();
@@ -994,6 +1011,7 @@ public class ModNetworkHandler {
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                         "ADD_WAREHOUSE_REF", schematicId, "", true, "已添加仓库引用",
                         StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
+                    publishProjectWarehouseViewChanges(owner, schematicId);
                 }
                 case "REMOVE_WAREHOUSE_REF" -> {
                     manager.removeWarehouseReference(schematicId, payload.areaId());
@@ -1002,6 +1020,7 @@ public class ModNetworkHandler {
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                         "REMOVE_WAREHOUSE_REF", schematicId, "", true, "已移除仓库引用",
                         StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
+                    publishProjectWarehouseViewChanges(owner, schematicId);
                 }
                 case "LIST_WAREHOUSE_REFS" -> {
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(

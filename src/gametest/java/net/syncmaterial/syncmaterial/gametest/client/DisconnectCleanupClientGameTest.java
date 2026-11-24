@@ -64,17 +64,14 @@ public class DisconnectCleanupClientGameTest implements FabricClientGameTest {
                 });
                 ctx.waitForScreen(GuiMaterialList.class);
 
-                // 前置断言：状态确实被铺上了，否则后面的"已清空"是假绿
-                boolean allSet = ctx.computeOnClient(client ->
+                // 前置断言：等待状态确实全部铺上，否则后面的"已清空"是假绿。
+                // waitForScreen 只代表控件已显示，握手、监听与项目副作用可能仍在同 tick 排队。
+                ctx.waitFor(client ->
                     SyncMaterialClient.getActiveMaterialList() != null
                         && InventoryWatcher.isWatching()
                         && net.syncmaterial.syncmaterial.client.session.ClientSessionManager.pickup().isActive()
                         && !StagingAreaRenderer.getInstance().getWarehouseAreas().isEmpty()
                         && ClientProtocolState.isUsable());
-                if (!allSet) {
-                    throw new AssertionError("测试前置条件未满足：客户端状态未全部就绪，"
-                        + "无法验证断线清理（否则清空断言会假绿）");
-                }
             }
 
             // 连接在此处关闭，DISCONNECT 回调应已触发

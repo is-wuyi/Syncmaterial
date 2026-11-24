@@ -6,6 +6,8 @@ import static org.mockito.Mockito.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterEach;
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -586,16 +589,91 @@ class ModNetworkHandlerBehaviorTest {
     }
 
     @Test
-    void warehouseReference_add_broadcastsMaterialStatus() {
+    void warehouseReference_add_broadcastsMaterialStatusAndPublishesProjectViews() {
+        LegacyProjectViewNetworkAdapter projectViews = mock(LegacyProjectViewNetworkAdapter.class);
+        when(owner.projectViews()).thenReturn(projectViews);
         when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of());
-        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+        AtomicBoolean materialStatus = recordMaterialStatusBroadcast();
+        AtomicBoolean wireframe = recordWarehouseAreaBroadcast();
+        assertProjectViewsFlushAfterLegacyBroadcasts(projectViews, materialStatus, wireframe);
 
         ModNetworkHandler.handleStagingAreaConfig(owner,
-            new StagingAreaConfigC2SPacket("s1", "ADD_WAREHOUSE_REF", 9, java.util.Optional.empty()),
+            new StagingAreaConfigC2SPacket("s1", "ADD_WAREHOUSE_REF", 9, Optional.empty()),
             player, server);
 
         verify(manager).addWarehouseReference("s1", 9);
-        verify(cm).getAllMaterialIds("s1");
+        assertProjectViewsPublished(projectViews);
+        var response = lastPacketOfType(StagingAreaConfigResponseS2CPacket.class);
+        assertEquals("ADD_WAREHOUSE_REF", response.action());
+        assertTrue(response.success());
+        assertEquals("已添加仓库引用", response.message());
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player),
+            any(WarehouseAreaResponseS2CPacket.class)));
+    }
+
+    @Test
+    void warehouseReference_remove_broadcastsMaterialStatusAndPublishesProjectViews() {
+        LegacyProjectViewNetworkAdapter projectViews = mock(LegacyProjectViewNetworkAdapter.class);
+        when(owner.projectViews()).thenReturn(projectViews);
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of());
+        AtomicBoolean materialStatus = recordMaterialStatusBroadcast();
+        AtomicBoolean wireframe = recordWarehouseAreaBroadcast();
+        assertProjectViewsFlushAfterLegacyBroadcasts(projectViews, materialStatus, wireframe);
+
+        ModNetworkHandler.handleStagingAreaConfig(owner,
+            new StagingAreaConfigC2SPacket("s1", "REMOVE_WAREHOUSE_REF", 9, Optional.empty()),
+            player, server);
+
+        verify(manager).removeWarehouseReference("s1", 9);
+        assertProjectViewsPublished(projectViews);
+        var response = lastPacketOfType(StagingAreaConfigResponseS2CPacket.class);
+        assertEquals("REMOVE_WAREHOUSE_REF", response.action());
+        assertTrue(response.success());
+        assertEquals("已移除仓库引用", response.message());
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player),
+            any(WarehouseAreaResponseS2CPacket.class)));
+    }
+
+    private AtomicBoolean recordMaterialStatusBroadcast() {
+        AtomicBoolean seen = new AtomicBoolean();
+        when(cm.getAllMaterialIds("s1")).thenAnswer(invocation -> {
+            seen.set(true);
+            return List.of();
+        });
+        return seen;
+    }
+
+    private AtomicBoolean recordWarehouseAreaBroadcast() {
+        AtomicBoolean seen = new AtomicBoolean();
+        networkingMock.when(() -> ServerPlayNetworking.send(eq(player),
+            isA(WarehouseAreaResponseS2CPacket.class))).thenAnswer(invocation -> {
+                seen.set(true);
+                return null;
+            });
+        return seen;
+    }
+
+    private void assertProjectViewsFlushAfterLegacyBroadcasts(
+            LegacyProjectViewNetworkAdapter projectViews, AtomicBoolean materialStatus,
+            AtomicBoolean wireframe) {
+        doAnswer(invocation -> {
+            assertTrue(materialStatus.get(), "项目视图发布必须在材料状态广播之后");
+            assertTrue(wireframe.get(), "项目视图发布必须在线框广播之后");
+            return null;
+        }).when(projectViews).flush();
+    }
+
+    private void assertProjectViewsPublished(LegacyProjectViewNetworkAdapter projectViews) {
+        // broadcastAllMaterialStatus 先标一次，项目级 helper 再标一次
+        verify(projectViews, times(2)).markDirty("s1");
+        InOrder order = inOrder(projectViews);
+        order.verify(projectViews, times(2)).markDirty("s1");
+        order.verify(projectViews).markConfigurationDirty("s1");
+        order.verify(projectViews).markWarehouseDirty("s1");
+        order.verify(projectViews).flush();
+        // 引用增删不改变全局仓库本体，不得误刷 global 配置
+        verify(projectViews, never()).markConfigurationDirty(null);
+        verify(projectViews, never()).markAllWarehouseViewsDirty();
     }
 
     // ========== 材料清单请求（服务端核心读路径） ==========

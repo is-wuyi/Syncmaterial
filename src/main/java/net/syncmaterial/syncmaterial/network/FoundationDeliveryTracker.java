@@ -3,8 +3,10 @@ package net.syncmaterial.syncmaterial.network;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import net.syncmaterial.syncmaterial.server.runtime.ProjectViewTracker;
 
 /** Connection-scoped delivery fences for asynchronous Foundation snapshots. */
 final class FoundationDeliveryTracker {
@@ -65,6 +67,59 @@ final class FoundationDeliveryTracker {
                 && player.warehouses.equals(token.projects());
     }
 
+    /**
+     * Starts a project-view warehouse revision delivery. A null result means the revision is
+     * already delivered/pending, older than the pending revision, or the view was superseded.
+     */
+    synchronized WarehouseRevisionToken beginWarehouseRevision(ProjectViewTracker.View view,
+                                                               long revision, boolean initial) {
+        Objects.requireNonNull(view, "view");
+        if (revision < 0) throw new IllegalArgumentException("Warehouse revision must be >= 0");
+        if (!view.scope().isProject()) {
+            throw new IllegalArgumentException("Warehouse revisions require a project view");
+        }
+        PlayerDelivery player = player(view.playerId(), view.connection());
+        if (player == null) return null;
+        String projectId = view.scope().projectId();
+        WarehouseRevision state = player.warehouseRevisions.get(projectId);
+        if (state == null) {
+            state = new WarehouseRevision(view.viewId(), view.generation());
+            player.warehouseRevisions.put(projectId, state);
+        } else {
+            int comparison = state.compareView(view);
+            if (comparison > 0) return null;
+            if (comparison < 0) {
+                state = new WarehouseRevision(view.viewId(), view.generation());
+                player.warehouseRevisions.put(projectId, state);
+            }
+        }
+        if (state.pendingRevision >= 0 && revision <= state.pendingRevision) return null;
+        if (revision < state.deliveredRevision
+                || revision == state.deliveredRevision && !initial) return null;
+        state.pendingRevision = revision;
+        return new WarehouseRevisionToken(view.playerId(), view.connection(), projectId,
+                view.viewId(), view.generation(), revision);
+    }
+
+    /** True only while the token still matches the live connection, view and pending revision. */
+    synchronized boolean acceptWarehouseRevision(WarehouseRevisionToken token) {
+        return pendingRevision(token) != null;
+    }
+
+    /** Records success only for a currently accepted token; does not mutate rejected tokens. */
+    synchronized void completeWarehouseRevision(WarehouseRevisionToken token) {
+        WarehouseRevision state = pendingRevision(token);
+        if (state == null) return;
+        state.deliveredRevision = token.revision();
+        state.pendingRevision = -1;
+    }
+
+    /** Clears only a currently matching pending revision; the same revision may be retried. */
+    synchronized void failWarehouseRevision(WarehouseRevisionToken token) {
+        WarehouseRevision state = pendingRevision(token);
+        if (state != null) state.pendingRevision = -1;
+    }
+
     synchronized boolean hasWarehouseSubscription(UUID playerId, long connection, String projectId) {
         PlayerDelivery player = players.get(playerId);
         return player != null && player.connection == connection && player.warehouses.contains(projectId);
@@ -78,6 +133,7 @@ final class FoundationDeliveryTracker {
         player.projects.put(projectId, invalidated);
         player.configurations.remove("S:LIST:" + projectId);
         player.configurations.remove("S:LIST_WAREHOUSE_REFS:" + projectId);
+        player.warehouseRevisions.remove(projectId);
         if (player.warehouses.remove(projectId)) {
             player.warehouseGeneration = Math.incrementExact(player.warehouseGeneration);
         }
@@ -85,6 +141,17 @@ final class FoundationDeliveryTracker {
 
     synchronized void disconnected(UUID playerId) {
         players.remove(playerId);
+    }
+
+    private WarehouseRevision pendingRevision(WarehouseRevisionToken token) {
+        if (token == null || token.connection() <= 0 || token.viewId() <= 0
+                || token.viewGeneration() <= 0 || token.revision() < 0) return null;
+        PlayerDelivery player = players.get(token.playerId());
+        if (player == null || player.connection != token.connection()) return null;
+        WarehouseRevision state = player.warehouseRevisions.get(token.projectId());
+        if (state == null || state.viewId != token.viewId()
+                || state.viewGeneration != token.viewGeneration()) return null;
+        return state.pendingRevision == token.revision() ? state : null;
     }
 
     private PlayerDelivery player(UUID playerId, long connection) {
@@ -100,12 +167,33 @@ final class FoundationDeliveryTracker {
 
     record ProjectToken(UUID playerId, long connection, String projectId, long sequence, boolean opening) {}
     record WarehouseToken(UUID playerId, long connection, long generation, Set<String> projects, String world) {}
+    record WarehouseRevisionToken(UUID playerId, long connection, String projectId, long viewId,
+                                  long viewGeneration, long revision) {}
+
+    private static final class WarehouseRevision {
+        private final long viewId;
+        private final long viewGeneration;
+        private long deliveredRevision = -1;
+        private long pendingRevision = -1;
+
+        private WarehouseRevision(long viewId, long viewGeneration) {
+            this.viewId = viewId;
+            this.viewGeneration = viewGeneration;
+        }
+
+        /** Positive when this state belongs to a newer view than {@code view}. */
+        private int compareView(ProjectViewTracker.View view) {
+            int generation = Long.compare(viewGeneration, view.generation());
+            return generation != 0 ? generation : Long.compare(viewId, view.viewId());
+        }
+    }
 
     private static final class PlayerDelivery {
         private final long connection;
         private final Map<String, Long> projects = new HashMap<>();
         private final Map<String, Long> configurations = new HashMap<>();
         private final Set<String> warehouses = new HashSet<>();
+        private final Map<String, WarehouseRevision> warehouseRevisions = new HashMap<>();
         private long latestOpening;
         private long acceptedOpening;
         private long warehouseGeneration;

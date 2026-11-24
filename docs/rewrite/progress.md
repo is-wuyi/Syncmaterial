@@ -8,16 +8,16 @@
 
 | 项目 | 状态 |
 |---|---|
-| 最近核对日期 | 2026-11-23 |
-| 当前阶段 | beta.61客户端职责闭环及本批必要WP9已完成交付；实现 `123fc69` 的CI全部8项通过，WP11未开始 |
+| 最近核对日期 | 2026-11-24 |
+| 当前阶段 | CI汇总首页与编译门控已交付；beta.63仓库引用、容器投影与缺项目订阅修复已完成本地完整验收，最终提交与CI待完成，WP10／WP11未开始 |
 | 开发分支 | `rewrite/backend-foundation` |
-| 最新实现提交 | [`123fc69`](https://github.com/is-wuyi/Syncmaterial/commit/123fc6952c8f2928733f905ca6302bf48f6a109e)：客户端项目、编辑与连接生命周期闭环，本地与CI全部8项通过 |
-| 实现版本 | beta.61本地完整验收通过；协议5／最低兼容1／Foundation schema3不变 |
+| 最新实现提交 | [`8ad4ba6`](https://github.com/is-wuyi/Syncmaterial/commit/8ad4ba6825ee5484604e4b6a5bf17c9ef271e05b)：CI统一汇总首页与编译失败门控，实际9个job全部通过；beta.63产品实现待提交 |
+| 实现版本 | beta.63本地完整验收通过；协议5／最低兼容1／Foundation schema3不变 |
 | 运行时支持 | Minecraft 1.21.7、1.21.8、26.2；共享业务只维护一份，各节点分别构建和验收 |
 | 默认后端 | **仍为 legacy**；Foundation 需 `-Dsyncmaterial.backend=foundation` 显式启用 |
-| 下一批 | 完成beta.61客户端职责闭环后，收敛服务器兴趣／广播与剩余WP9；功能对等后才进入WP10 |
-| 当前阻塞 | 本批无已知验收阻塞；WP9全仓职责清理、WP10退场和WP11终态不在本批完成范围内 |
-| 发布状态 | beta.61 本地完整验收通过，实现 `123fc69` 的[CI全部8项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45105447858)；未打发布 tag，未切换正式服 |
+| 下一批 | 完成beta.63三节点验收后，定向复核剩余WP9职责与WP10功能对等条件，不自动进入旧实现退场 |
+| 当前阻塞 | beta.63最终提交和CI尚待完成；旧协议1—4取货引用变更语义需用户定案，不自动进入WP10 |
+| 发布状态 | beta.63未提交、未打发布 tag、未切换正式服；CI首页改造已提交推送并验证 |
 
 当前 Foundation 已接通材料导入／查询、基础认领与在线库存、区域配置／仓库引用、被动扫描、去重库存和新鲜度，以及负责人写操作、批量分配、按材料踢人、玩家目录。WP5 管理闭环及 WP6／WP7 的团队收集、订阅与生产主清单已交付；WP8剩余客户端状态迁移和旧结构退场不能混为一谈，不能据此宣称全项目重构完成。
 
@@ -247,6 +247,20 @@
 - shared 539项；1.21.7／1.21.8各911项、26.2为908项单测，全部零失败／错误／跳过。每节点服务端41＋19、客户端31＋11，缺依赖双后端服务端2＋2及客户端1＋1通过；43个客户端测试类注册完整。
 - SpotBugs shared 0、平台各6且严格无新增；8语言196键一致，三节点各26张真实UI截图。三个 beta.62 jar 的 Minecraft范围、Java 21／25字节码、shared／SQLite单次嵌套与测试隔离均通过。487份受控源码在矩阵前后的摘要均为 `50d368bfc192a62aad0285f6eef0ff63608e1f7b6819c8e255d2912fce9aa6ca`。
 - 本批完成只代表上述服务器兴趣与广播合同闭合，不宣称WP9全仓完成、WP10可删除legacy或全仓零遗漏。实现 `72fcc192d136cc88cd7350be28906b0de365e0f6` 已提交推送，[CI全部8项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45179288457)。
+
+## 4D. 本批实施：CI可视化、仓库引用与容器投影闭环（本地完整验收通过）
+
+2026-11-24 用户批准连续实施计划。先独立优化CI，再完成 beta.63 产品修复；不新增上游jar构建阶段，不改三节点并行矩阵、协议、最低兼容版本、schema或默认后端。
+
+- CI新增第9个 `summary` job，按 `versions/versions.json` 动态展示节点、Java、实际单测、双后端、缺依赖、SpotBugs和产物／报告链接。`platform_compile`／`client_compile` 在编译失败时阻止重复游戏启动，单个后端失败仍不阻断其他后端；实现 `8ad4ba6825ee5484604e4b6a5bf17c9ef271e05b` 已提交推送，[实际9个job全部通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45302650669)。
+- legacy旧协议 `ADD_WAREHOUSE_REF`／`REMOVE_WAREHOUSE_REF` 经项目级 dirty＋flush发布 `LIST_WAREHOUSE_REFS` 与容器快照，不误刷global，不改旧取货仓库ID并集。
+- Foundation复用项目 `requestBroadcast → broadcast` 和区域 `inventory_revision` 发布 typed `WAREHOUSE_CONTENTS`。连接／视图级token阻止旧revision、旧view与旧连接的异步结果覆盖；只在 COMPLETE 实际投递后记录delivered，失败可重试，同revision不重复读取仓库。
+- OPEN／SET在项目读取确认存在后才建立旧订阅桥接，覆盖MATERIALS、TEAM、OUTLINES、AREA_CONFIG、WAREHOUSE_CONTENTS及组合；缺项目不新订阅，既有订阅不被迟到SET误清，删除通知顺序不变。
+- 定向测试覆盖 revision前进／去重、失败重试、乱序完成、重连、删除后的在途读取和订阅建立顺序。1.21.8双后端客户端分项通过：legacy真实箱子＋旧协议引用增删、Foundation被动扫描数量更新与引用移除／重建、两类缺项目OPEN均先收DELETED再检查服务端无订阅／兴趣。以上不代替三节点完整矩阵。
+- 最终同一冻结源码执行 clean／禁缓存 `buildAllVersions checkAllVersions testAllClients testOptionalDependencies`，27分05秒全部成功。严格守卫50项通过，0警告／0缺证据／0失败；守卫自测32项通过。shared 539项；1.21.7／1.21.8各928项、26.2为925项单测，全部零失败／错误／跳过。每节点服务端41＋19、客户端31＋11，缺依赖双后端服务端2＋2及客户端1＋1通过；43个客户端测试类注册完整。
+- SpotBugs shared 0、平台各6且严格无新增；8语言196键一致，三节点各26张真实UI截图。三个 beta.63 jar 的 Minecraft范围、Java 21／25字节码、shared／SQLite单次嵌套与测试隔离均通过。488份受控源码在矩阵前后的摘要均为 `c53f9a67a0860bc57324451bf7a111ded9e608260fc831db1ef1af3ea027ca32`。
+- 验收过程中，1.21.8断线清理前置状态曾在 `waitForScreen` 后立即读取而未齐备，改为等待同一组完整条件；1.21.7 Foundation 删除场景初始等待拆为“先视图、再旧订阅”，避免负载下的复合条件时序歧义。随后分别完成1.21.8 legacy 31个、1.21.7 Foundation 11个客户端分项，并以同一冻结源码重跑完整矩阵通过；没有改变生产行为或放宽断言。
+- 本批完成只代表上述CI、引用、容器与订阅合同闭合，不宣称WP9全仓完成、WP10可删除legacy或全仓零遗漏。旧协议1—4取货引用变更后是保留重开／换维度生效还是主动刷新，需用户定案；多观察者容器读取合并暂不作为放行条件，WP10功能对等核对后才进入旧结构退场。最终实现提交与最终HEAD CI在推送后追加。
 
 ## 5. 已确认决策
 
