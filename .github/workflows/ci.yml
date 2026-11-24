@@ -40,6 +40,9 @@ jobs:
       - name: Verify acceptance guard regressions
         run: python3 -I scripts/test_verify_multiversion.py
 
+      - name: Verify ci_guard regressions
+        run: python3 -I scripts/test_ci_guard.py
+
       - name: Multiversion static guard
         run: |
           test -f scripts/verify_multiversion.py \
@@ -132,6 +135,12 @@ jobs:
           python3 -I .github/scripts/ci_guard.py aggregates --root . \
             --log "$RUNNER_TEMP/aggregates.log" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Snapshot shared summary
+        if: always()
+        run: >
+          python3 -I .github/scripts/ci_guard.py snapshot --root . --suite shared \
+          --out shared/build/reports/ci-summary.json
+
       - name: Upload shared reports
         if: always()
         uses: actions/upload-artifact@v6
@@ -142,6 +151,7 @@ jobs:
             shared/build/test-results/
             shared/build/reports/jacoco/
             shared/build/reports/spotbugs/
+            shared/build/reports/ci-summary.json
           retention-days: 7
           if-no-files-found: ignore
 
@@ -198,28 +208,37 @@ jobs:
       - name: Start platform summary
         run: echo "## 平台回归 ${{ matrix.node }}（Java ${{ matrix.java }}）" >> "$GITHUB_STEP_SUMMARY"
 
-      # 先 clean + 禁用构建缓存，强制 Stonecutter 重新生成节点源并使单测真实执行。
-      - name: Build, unit tests and SpotBugs
+      # 编译失败不再重复启动游戏；编译成功后，单测或某个后端失败仍不阻断其他后端。
+      - name: Compile platform sources
+        id: platform_compile
         run: >
-          ./gradlew :${{ matrix.node }}:clean :${{ matrix.node }}:build
+          ./gradlew :${{ matrix.node }}:clean :${{ matrix.node }}:classes
+          :${{ matrix.node }}:gametestClasses :${{ matrix.node }}:foundationtestClasses
+          :${{ matrix.node }}:optionaltestClasses
+          --no-build-cache --stacktrace
+
+      - name: Build, unit tests and SpotBugs
+        id: platform_build
+        run: >
+          ./gradlew :${{ matrix.node }}:build
           :${{ matrix.node }}:spotbugsMain :${{ matrix.node }}:test
           --no-build-cache --stacktrace
 
       # 四个服务端回归分开执行，任一失败后仍尝试其余后端，避免一条失败掩盖其它缺口。
       - name: Legacy server GameTest
-        if: always()
+        if: ${{ always() && steps.platform_compile.outcome == 'success' }}
         run: ./gradlew :${{ matrix.node }}:runGameTest --no-build-cache --stacktrace
 
       - name: Foundation server GameTest
-        if: always()
+        if: ${{ always() && steps.platform_compile.outcome == 'success' }}
         run: ./gradlew :${{ matrix.node }}:runFoundationGameTest --no-build-cache --stacktrace
 
       - name: Optional dependency legacy server GameTest
-        if: always()
+        if: ${{ always() && steps.platform_compile.outcome == 'success' }}
         run: ./gradlew :${{ matrix.node }}:runOptionalGameTest --no-build-cache --stacktrace
 
       - name: Optional dependency foundation server GameTest
-        if: always()
+        if: ${{ always() && steps.platform_compile.outcome == 'success' }}
         run: ./gradlew :${{ matrix.node }}:runOptionalFoundationGameTest --no-build-cache --stacktrace
 
       - name: Verify source hash unchanged
@@ -293,7 +312,7 @@ jobs:
             | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Distributable jar guard
-        if: always()
+        if: ${{ always() && steps.platform_build.outcome == 'success' }}
         run: |
           set -o pipefail
           python3 -I .github/scripts/ci_guard.py artifact --root . --node "${{ matrix.node }}" \
@@ -307,6 +326,12 @@ jobs:
           else
             echo "- 结论: 失败，详见本 job 日志与上传的报告/运行目录" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Snapshot platform summary
+        if: always()
+        run: >
+          python3 -I .github/scripts/ci_guard.py snapshot --root . --suite platform \
+          --node "${{ matrix.node }}" --out "versions/${{ matrix.node }}/build/reports/ci-summary.json"
 
       - name: Upload jar
         if: success()
@@ -328,6 +353,7 @@ jobs:
             versions/${{ matrix.node }}/build/test-results/
             versions/${{ matrix.node }}/build/reports/jacoco/
             versions/${{ matrix.node }}/build/reports/spotbugs/
+            versions/${{ matrix.node }}/build/reports/ci-summary.json
           retention-days: 7
           if-no-files-found: ignore
 
@@ -403,9 +429,18 @@ jobs:
       - name: Start client summary
         run: echo "## 客户端回归 ${{ matrix.node }}（Java ${{ matrix.java }}）" >> "$GITHUB_STEP_SUMMARY"
 
+      # 先统一编译客户端运行所需源集，失败时不重复启动四个游戏客户端。
+      - name: Compile client test sources
+        id: client_compile
+        run: >
+          ./gradlew :${{ matrix.node }}:classes :${{ matrix.node }}:gametestClasses
+          :${{ matrix.node }}:foundationtestClasses :${{ matrix.node }}:optionaltestClasses
+          --no-build-cache --stacktrace
+
       # 四个客户端任务分开执行，保证一个后端失败时其余入口仍被真实运行。
       # --no-build-cache 避免客户端测试任务被缓存结果顶替。
       - name: Legacy client GameTest
+        if: ${{ always() && steps.client_compile.outcome == 'success' }}
         env:
           LIBGL_ALWAYS_SOFTWARE: 1
           MESA_GL_VERSION_OVERRIDE: 4.6
@@ -415,7 +450,7 @@ jobs:
             ./gradlew :${{ matrix.node }}:runClientGameTest --no-build-cache --stacktrace
 
       - name: Foundation client GameTest
-        if: always()
+        if: ${{ always() && steps.client_compile.outcome == 'success' }}
         env:
           LIBGL_ALWAYS_SOFTWARE: 1
           MESA_GL_VERSION_OVERRIDE: 4.6
@@ -425,7 +460,7 @@ jobs:
             ./gradlew :${{ matrix.node }}:runFoundationClientGameTest --no-build-cache --stacktrace
 
       - name: Optional dependency legacy client GameTest
-        if: always()
+        if: ${{ always() && steps.client_compile.outcome == 'success' }}
         env:
           LIBGL_ALWAYS_SOFTWARE: 1
           MESA_GL_VERSION_OVERRIDE: 4.6
@@ -435,7 +470,7 @@ jobs:
             ./gradlew :${{ matrix.node }}:runOptionalClientGameTest --no-build-cache --stacktrace
 
       - name: Optional dependency foundation client GameTest
-        if: always()
+        if: ${{ always() && steps.client_compile.outcome == 'success' }}
         env:
           LIBGL_ALWAYS_SOFTWARE: 1
           MESA_GL_VERSION_OVERRIDE: 4.6
@@ -506,6 +541,21 @@ jobs:
             echo "- 结论: 失败，详见本 job 日志与上传的客户端运行目录" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Snapshot client summary
+        if: always()
+        run: >
+          python3 -I .github/scripts/ci_guard.py snapshot --root . --suite client \
+          --node "${{ matrix.node }}" --out "versions/${{ matrix.node }}/build/reports/ci-summary.json"
+
+      - name: Upload client reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: client-reports-${{ matrix.node }}
+          path: versions/${{ matrix.node }}/build/reports/ci-summary.json
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Upload client run artifacts
         if: failure()
         uses: actions/upload-artifact@v6
@@ -517,3 +567,61 @@ jobs:
             .runs/${{ matrix.node }}/*-client/screenshots/
           retention-days: 7
           if-no-files-found: ignore
+
+  # 首页只汇总真实步骤状态和小型快照；新 job 必须加入 needs，不能提前结束或漏记失败。
+  summary:
+    needs: [preflight, shared, platform, client]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download platform and shared reports
+        id: download_reports
+        if: always()
+        uses: actions/download-artifact@v6
+        with:
+          pattern: '*reports*'
+          path: ${{ runner.temp }}/ci-artifacts
+          merge-multiple: false
+
+      - name: Fetch run jobs
+        id: fetch_jobs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh api --paginate --slurp \
+          "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=latest&per_page=100" \
+          > "$RUNNER_TEMP/ci-jobs.json"
+
+      - name: Fetch run artifacts
+        id: fetch_artifacts
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh api --paginate --slurp \
+          "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
+          > "$RUNNER_TEMP/ci-artifacts.json"
+
+      - name: Render unified summary
+        id: render_summary
+        if: always()
+        run: |
+          set -o pipefail
+          python3 -I .github/scripts/ci_guard.py summary --root . \
+            --jobs "$RUNNER_TEMP/ci-jobs.json" \
+            --artifacts "$RUNNER_TEMP/ci-artifacts.json" \
+            --downloads "${{ runner.temp }}/ci-artifacts" \
+            --repo "${{ github.repository }}" --run-id "${{ github.run_id }}" \
+            --upstream "preflight=${{ needs.preflight.result }}" \
+            --upstream "shared=${{ needs.shared.result }}" \
+            --upstream "platform=${{ needs.platform.result }}" \
+            --upstream "client=${{ needs.client.result }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

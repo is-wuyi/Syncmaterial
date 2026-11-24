@@ -4,8 +4,9 @@
 This file intentionally does not re-implement architecture, package, unit,
 server, client or SpotBugs gates. ``scripts/verify_multiversion.py`` is the
 single authority for those; the commands here produce matrix values, source
-hashes, job summaries, task-graph checks and release artifact-set checks.
-Invoke with ``python3 -I`` from the repository root.
+hashes, evidence snapshots, unified job summaries, task-graph checks and
+release artifact-set checks. Invoke with ``python3 -I`` from the repository
+root.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import re
 import zipfile
 from collections import Counter
 from pathlib import Path
+from urllib.parse import quote
 from xml.etree import ElementTree
 
 ADAPTER = "syncmaterial-test-report"
@@ -29,6 +31,60 @@ OPTIONAL_RUNS = (
     "optionalFoundationClientGameTest",
 )
 CLIENT_REPORT = re.compile(r"SYNCMATERIAL_CLIENT_TEST_(START|PASS|FAIL)\s+(\S+)\s+(\S+)")
+
+SNAPSHOT_SCHEMA = 1
+SUITES = ("shared", "platform", "client")
+SERVER_BACKENDS = ("legacy", "foundation", "optional-legacy", "optional-foundation")
+CLIENT_MODS = {
+    "legacy": ("src/gametest/resources/fabric.mod.json", "syncmaterial-test"),
+    "foundation": ("src/foundationtest/resources/fabric.mod.json", "syncmaterial-foundation-test"),
+    "optional-legacy": ("src/optionaltest/resources/fabric.mod.json", "syncmaterial-optional-test"),
+    "optional-foundation": ("src/optionaltest/resources/fabric.mod.json", "syncmaterial-optional-test"),
+}
+# Step names mirror .github/workflows/ci.yml.  The compile steps are detected but
+# never required, so an older workflow keeps producing a usable summary.
+PREFLIGHT_REQUIRED_STEPS = (
+    "Verify acceptance guard regressions",
+    "Verify ci_guard regressions",
+    "Multiversion static guard",
+    "Build matrix from versions/versions.json",
+)
+PLATFORM_REQUIRED_STEPS = (
+    "Build, unit tests and SpotBugs",
+    "Legacy server GameTest",
+    "Foundation server GameTest",
+    "Optional dependency legacy server GameTest",
+    "Optional dependency foundation server GameTest",
+    "Node guard scopes",
+    "Unit test summary",
+    "Server GameTest summary",
+    "SpotBugs summary",
+    "JaCoCo summary",
+    "Distributable jar guard",
+)
+CLIENT_REQUIRED_STEPS = (
+    "Legacy client GameTest",
+    "Foundation client GameTest",
+    "Optional dependency legacy client GameTest",
+    "Optional dependency foundation client GameTest",
+    "Legacy client test summary",
+    "Foundation client test summary",
+    "Optional legacy client test summary",
+    "Optional foundation client test summary",
+    "Client guard scopes",
+)
+SHARED_REQUIRED_STEPS = (
+    "Shared pure tests, jar, JaCoCo and SpotBugs",
+    "Multiversion shared guard",
+    "Shared unit test summary",
+    "Shared SpotBugs summary",
+    "Shared JaCoCo summary",
+)
+COMPILE_STEPS = {
+    "platform": "Compile platform sources",
+    "client": "Compile client test sources",
+}
+STATUS_ORDER = {"PASS": 0, "SKIP": 1, "UNKNOWN": 2, "FAIL": 3}
 
 
 def fail(message: str) -> None:
@@ -177,43 +233,87 @@ def command_source_compare(args: argparse.Namespace) -> None:
     note(f"- 根 {args.path} 哈希未改写: {current}")
 
 
-def junit_totals(results: Path) -> tuple[int, int, int, int, int]:
+def scan_junit(results: Path) -> tuple[int, int, int, int, int, int]:
+    """Return totals plus the number of existing and parseable result files."""
     files = sorted(results.glob("*.xml"))
-    total = failures = errors = skipped = 0
+    total = failures = errors = skipped = parsed = 0
     for file in files:
         try:
             document = ElementTree.parse(file).getroot()
-        except ElementTree.ParseError:
+            suites = [document] if document.tag == "testsuite" else list(document.iter("testsuite"))
+            file_total = file_failures = file_errors = file_skipped = 0
+            for suite in suites:
+                file_total += int(suite.get("tests", len(suite.findall("testcase"))))
+                file_failures += int(suite.get("failures", 0))
+                file_errors += int(suite.get("errors", 0))
+                file_skipped += int(suite.get("skipped", suite.get("disabled", 0)))
+        except (ElementTree.ParseError, OSError, ValueError):
             continue
-        suites = [document] if document.tag == "testsuite" else list(document.iter("testsuite"))
-        for suite in suites:
-            total += int(suite.get("tests", len(suite.findall("testcase"))))
-            failures += int(suite.get("failures", 0))
-            errors += int(suite.get("errors", 0))
-            skipped += int(suite.get("skipped", suite.get("disabled", 0)))
-    return total, failures, errors, skipped, len(files)
+        parsed += 1
+        total += file_total
+        failures += file_failures
+        errors += file_errors
+        skipped += file_skipped
+    return total, failures, errors, skipped, len(files), parsed
+
+
+def junit_totals(results: Path) -> tuple[int, int, int, int, int]:
+    return scan_junit(results)[:5]
+
+
+def unit_observation(results: Path) -> dict | None:
+    total, failures, errors, skipped, files, parsed = scan_junit(results)
+    if not files or not parsed:
+        return None
+    return {
+        "tests": total,
+        "failures": failures,
+        "errors": errors,
+        "skipped": skipped,
+        "files": files,
+    }
 
 
 def command_unit(args: argparse.Namespace) -> None:
-    total, failures, errors, skipped, files = junit_totals(Path(args.results))
+    results = Path(args.results)
+    observation = unit_observation(results)
     label = args.suite + (f" {args.node}" if args.node else "")
-    if not files:
-        note(f"- 单元测试（{label}）: 未找到 JUnit 结果（实质判定由 verify_multiversion unit scope 负责）")
+    if observation is None:
+        problem = "结果文件无法解析" if any(results.glob("*.xml")) else "未找到 JUnit 结果"
+        note(f"- 单元测试（{label}）: {problem}（实质判定由 verify_multiversion unit scope 负责）")
         return
-    note(f"- 单元测试（{label}）: {total} 个，失败 {failures}，错误 {errors}，"
-         f"跳过 {skipped}（{files} 个结果文件；精确基线由 verify_multiversion 负责）")
+    note(f"- 单元测试（{label}）: {observation['tests']} 个，失败 {observation['failures']}，"
+         f"错误 {observation['errors']}，跳过 {observation['skipped']}"
+         f"（{observation['files']} 个结果文件；精确基线由 verify_multiversion 负责）")
+
+
+SERVER_PASSED = re.compile(r"All (\d+) required tests passed")
+SERVER_FAILED = re.compile(r"(\d+) required tests failed")
+
+
+def server_observation(run_dir: Path) -> dict | None:
+    log = run_dir / "logs" / "latest.log"
+    if not log.is_file():
+        return None
+    text = log.read_text(encoding="utf-8", errors="replace")
+    passed = SERVER_PASSED.findall(text)
+    failed = SERVER_FAILED.findall(text)
+    return {
+        "passed": int(passed[-1]) if passed else None,
+        "failed": int(failed[-1]) if failed else None,
+        "log": "logs/latest.log",
+    }
 
 
 def command_server(args: argparse.Namespace) -> None:
-    log = Path(args.run_dir) / "logs" / "latest.log"
-    if not log.is_file():
+    observation = server_observation(Path(args.run_dir))
+    if observation is None:
         note(f"- 服务端 GameTest（{args.backend}）: 未找到日志（实质判定由 verify_multiversion server scope 负责）")
         return
-    matches = re.findall(r"All (\d+) required tests passed", log.read_text(encoding="utf-8", errors="replace"))
-    if not matches:
+    if observation["passed"] is None:
         note(f"- 服务端 GameTest（{args.backend}）: 未出现通过标记（实质判定由 verify_multiversion server scope 负责）")
         return
-    note(f"- 服务端 GameTest（{args.backend}）: 最近一次报告 {matches[-1]} 个通过"
+    note(f"- 服务端 GameTest（{args.backend}）: 最近一次报告 {observation['passed']} 个通过"
          f"（精确基线由 verify_multiversion 负责）")
 
 
@@ -227,15 +327,12 @@ def read_client_log(run_dir: Path) -> tuple[Path | None, str]:
     return None, ""
 
 
-def command_client(args: argparse.Namespace) -> None:
-    metadata = load_json(Path(args.metadata))
-    classes = {value for value, _ in entrypoints(metadata, "fabric-client-gametest")}
-    log, text = read_client_log(Path(args.run_dir))
+def client_counts(text: str, mod: str) -> tuple[Counter[str], Counter[str], int]:
     starts: Counter[str] = Counter()
     passes: Counter[str] = Counter()
     failures = 0
     for kind, mod_id, class_name in CLIENT_REPORT.findall(text):
-        if mod_id != args.mod:
+        if mod_id != mod:
             continue
         if kind == "START":
             starts[class_name] += 1
@@ -243,56 +340,115 @@ def command_client(args: argparse.Namespace) -> None:
             passes[class_name] += 1
         else:
             failures += 1
-    label = args.mod + (f" {args.node}" if args.node else "")
+    return starts, passes, failures
+
+
+def client_observation(metadata_path: Path, run_dir: Path, mod: str) -> dict | None:
+    metadata = load_json(metadata_path)
+    classes = ({value for value, _ in entrypoints(metadata, "fabric-client-gametest")}
+               if metadata is not None else None)
+    log, text = read_client_log(run_dir)
     if log is None:
+        return None
+    starts, passes, failures = client_counts(text, mod)
+    return {
+        "expected": len(classes) if classes is not None else None,
+        "started": len(starts),
+        "passed": len(passes),
+        "failed": failures,
+        "missing": sorted(classes - set(passes)) if classes is not None else None,
+        "unexpected": sorted(set(passes) - classes) if classes is not None else None,
+        "log": log.name,
+    }
+
+
+def command_client(args: argparse.Namespace) -> None:
+    observation = client_observation(Path(args.metadata), Path(args.run_dir), args.mod)
+    label = args.mod + (f" {args.node}" if args.node else "")
+    if observation is None:
         note(f"- 客户端测试（{label}）: 未找到真实上报标签"
              f"（实质判定由 verify_multiversion client scope 负责）")
         return
-    missing = sorted(classes - set(passes))
-    unexpected = sorted(set(passes) - classes)
-    note(f"- 客户端测试（{label}）: metadata {len(classes)} 类，START {len(starts)}，"
-         f"PASS {len(passes)}，FAIL {failures}，missing {len(missing)}，unexpected {len(unexpected)}"
-         f"（精确逐类判定由 verify_multiversion client scope 负责，{log.name}）")
+    expected = observation["expected"] or 0
+    missing = observation["missing"] or []
+    unexpected = observation["unexpected"] or []
+    note(f"- 客户端测试（{label}）: metadata {expected} 类，START {observation['started']}，"
+         f"PASS {observation['passed']}，FAIL {observation['failed']}，"
+         f"missing {len(missing)}，unexpected {len(unexpected)}"
+         f"（精确逐类判定由 verify_multiversion client scope 负责，{observation['log']}）")
+
+
+def spotbugs_observation(report: Path) -> dict | None:
+    if not report.is_file():
+        return None
+    try:
+        document = ElementTree.parse(report).getroot()
+    except (ElementTree.ParseError, OSError):
+        return None
+    bugs = document.findall("BugInstance")
+    priorities = Counter(bug.get("priority") for bug in bugs)
+    return {
+        "total": len(bugs),
+        "high": priorities.get("1", 0),
+        "medium": priorities.get("2", 0),
+        "low": priorities.get("3", 0),
+    }
 
 
 def command_spotbugs(args: argparse.Namespace) -> None:
-    report = Path(args.report)
-    if not report.is_file():
-        note(f"- SpotBugs（{args.suite}{' ' + args.node if args.node else ''}）: 报告未生成"
-             f"（实质判定由 verify_multiversion spotbugs scope 负责）")
+    observation = spotbugs_observation(Path(args.report))
+    label = args.suite + (f" {args.node}" if args.node else "")
+    if observation is None:
+        if not Path(args.report).is_file():
+            note(f"- SpotBugs（{label}）: 报告未生成（实质判定由 verify_multiversion spotbugs scope 负责）")
+        else:
+            note(f"- SpotBugs（{label}）: 报告无法解析")
         return
-    try:
-        document = ElementTree.parse(report).getroot()
-    except ElementTree.ParseError:
-        note(f"- SpotBugs（{args.suite}{' ' + args.node if args.node else ''}）: 报告无法解析")
-        return
-    bugs = document.findall("BugInstance")
-    priorities = Counter(bug.get("priority") for bug in bugs)
-    names = {"1": "高", "2": "中", "3": "低"}
-    parts = [f"{names.get(key, key)} {priorities[key]}" for key in ("1", "2", "3") if priorities[key]]
-    note(f"- SpotBugs（{args.suite}{' ' + args.node if args.node else ''}）: 共 {len(bugs)} 条"
+    names = (("high", "高"), ("medium", "中"), ("low", "低"))
+    parts = [f"{name} {observation[key]}" for key, name in names if observation[key]]
+    note(f"- SpotBugs（{label}）: 共 {observation['total']} 条"
          f"（{'，'.join(parts) if parts else '无'}；基线由 verify_multiversion 负责）")
 
 
-def command_jacoco(args: argparse.Namespace) -> None:
-    report = Path(args.report)
+def jacoco_observation(report: Path) -> tuple[dict | None, str | None]:
     if not report.is_file():
-        note(f"- 覆盖率（{args.suite}{' ' + args.node if args.node else ''}）: 报告未生成")
-        return
+        return None, "missing"
     try:
         document = ElementTree.parse(report).getroot()
-    except ElementTree.ParseError:
+    except (ElementTree.ParseError, OSError):
+        return None, "unparseable"
+    instruction = next((item for item in document.findall("counter")
+                        if item.get("type") == "INSTRUCTION"), None)
+    if instruction is None:
+        return None, "no-counter"
+    try:
+        missed = int(instruction.get("missed", 0))
+        covered = int(instruction.get("covered", 0))
+    except (TypeError, ValueError):
+        return None, "unparseable"
+    total = missed + covered
+    return {
+        "covered": covered,
+        "missed": missed,
+        "percent": covered * 100 // total if total else None,
+    }, None
+
+
+def command_jacoco(args: argparse.Namespace) -> None:
+    label = args.suite + (f" {args.node}" if args.node else "")
+    observation, problem = jacoco_observation(Path(args.report))
+    if problem == "missing":
+        note(f"- 覆盖率（{label}）: 报告未生成")
+        return
+    if problem == "unparseable":
         note("- 覆盖率: 报告无法解析")
         return
-    instruction = next((item for item in document.findall("counter") if item.get("type") == "INSTRUCTION"), None)
-    if instruction is None:
+    if problem == "no-counter" or observation is None:
         note("- 覆盖率: 报告缺少 INSTRUCTION counter")
         return
-    missed = int(instruction.get("missed", 0))
-    covered = int(instruction.get("covered", 0))
-    percent = covered * 100 // (missed + covered) if (missed + covered) else 0
-    note(f"- 覆盖率（{args.suite}{' ' + args.node if args.node else ''}，JaCoCo 指令级）: "
-         f"{percent}%（覆盖 {covered} / 未覆盖 {missed}）")
+    percent = observation["percent"] if observation["percent"] is not None else 0
+    note(f"- 覆盖率（{label}，JaCoCo 指令级）: "
+         f"{percent}%（覆盖 {observation['covered']} / 未覆盖 {observation['missed']}）")
 
 
 def command_artifact(args: argparse.Namespace) -> None:
@@ -326,6 +482,92 @@ def command_artifact(args: argparse.Namespace) -> None:
         fail(f"{jar.name} 的 minecraft 依赖未包含 {args.node}: {minecraft}")
     note(f"- 产物（{args.node}）: {jar.name}，{jar.stat().st_size} 字节，"
          f"sha256 {hashlib.sha256(jar.read_bytes()).hexdigest()}")
+
+
+def select_jar(directory: Path, exact: str | None, pattern: str) -> Path | None:
+    if exact and (directory / exact).is_file():
+        return directory / exact
+    if not directory.is_dir():
+        return None
+    candidates = sorted(path for path in directory.glob(pattern)
+                        if not path.name.endswith(("-sources.jar", "-javadoc.jar")))
+    return candidates[0] if candidates else None
+
+
+def jar_observation(jar: Path | None) -> dict | None:
+    if jar is None or not jar.is_file():
+        return None
+    return {
+        "name": jar.name,
+        "size": jar.stat().st_size,
+        "sha256": hashlib.sha256(jar.read_bytes()).hexdigest(),
+    }
+
+
+def backend_value(section: object, backend: str) -> object | None:
+    if not isinstance(section, dict):
+        return None
+    for key in (backend, backend.replace("-", "_")):
+        if key in section:
+            return section[key]
+    return None
+
+
+def build_snapshot(root: Path, suite: str, node: str | None) -> dict:
+    snapshot = {
+        "schema": SNAPSHOT_SCHEMA,
+        "suite": suite,
+        "node": node,
+        "unit": None,
+        "server": None,
+        "client": None,
+        "spotbugs": None,
+        "jacoco": None,
+        "jar": None,
+    }
+    mod_version = read_properties(root / "gradle.properties").get("mod_version")
+    if suite == "shared":
+        base = root / "shared" / "build"
+        snapshot["unit"] = unit_observation(base / "test-results" / "test")
+        snapshot["spotbugs"] = spotbugs_observation(base / "reports" / "spotbugs" / "main.xml")
+        snapshot["jacoco"] = jacoco_observation(
+            base / "reports" / "jacoco" / "test" / "jacocoTestReport.xml")[0]
+        exact = f"shared-{mod_version}.jar" if mod_version else None
+        snapshot["jar"] = jar_observation(select_jar(base / "libs", exact, "shared-*.jar"))
+    elif suite == "platform":
+        base = root / "versions" / str(node) / "build"
+        snapshot["unit"] = unit_observation(base / "test-results" / "test")
+        snapshot["server"] = {
+            backend: server_observation(root / ".runs" / str(node) / f"{backend}-server")
+            for backend in SERVER_BACKENDS
+        }
+        snapshot["spotbugs"] = spotbugs_observation(base / "reports" / "spotbugs" / "main.xml")
+        snapshot["jacoco"] = jacoco_observation(
+            base / "reports" / "jacoco" / "test" / "jacocoTestReport.xml")[0]
+        exact = f"SyncMaterial-{node}-{mod_version}.jar" if mod_version else None
+        snapshot["jar"] = jar_observation(
+            select_jar(base / "libs", exact, f"SyncMaterial-{node}-*.jar"))
+    elif suite == "client":
+        snapshot["client"] = {}
+        for backend, (metadata, mod) in CLIENT_MODS.items():
+            snapshot["client"][backend] = client_observation(
+                root / metadata, root / ".runs" / str(node) / f"{backend}-client", mod)
+    return snapshot
+
+
+def command_snapshot(args: argparse.Namespace) -> None:
+    suite = args.suite
+    node = args.node
+    if suite in ("platform", "client") and not node:
+        fail(f"snapshot --suite {suite} 需要 --node")
+    if node and ("/" in node or "\\" in node or ".." in node):
+        fail(f"snapshot 节点非法: {node}")
+    snapshot = build_snapshot(repository_root(args.root), suite, node)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    label = suite + (f" {node}" if node else "")
+    note(f"- 证据快照（{label}）: {out}")
 
 
 def command_generated(args: argparse.Namespace) -> None:
@@ -372,6 +614,577 @@ def command_release_set(args: argparse.Namespace) -> None:
     if missing or unexpected:
         fail(f"发布产物集合与 versions.json 不一致: missing={missing} unexpected={unexpected}")
     note(f"- 发布产物集合: {len(expected)} 个 jar 与 versions.json + mod_version 完全一致")
+
+
+def md_cell(value: object) -> str:
+    text = "" if value is None else str(value)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = " ".join(line.strip() for line in text.split("\n") if line.strip())
+    if not text:
+        return "—"
+    text = text.replace("\\", "\\\\")
+    text = text.replace("|", "\\|")
+    text = text.replace("<", "&lt;").replace(">", "&gt;")
+    return text
+
+
+def status_token(status: object, conclusion: object) -> str:
+    conclusion = str(conclusion) if conclusion else None
+    if conclusion == "success":
+        return "PASS"
+    if conclusion == "skipped":
+        return "SKIP"
+    if conclusion in ("failure", "cancelled", "timed_out", "action_required", "startup_failure"):
+        return "FAIL"
+    if status and status != "completed":
+        return "UNKNOWN"
+    return conclusion.upper() if conclusion else "UNKNOWN"
+
+
+def job_token(job: dict | None) -> str:
+    if not isinstance(job, dict):
+        return "UNKNOWN"
+    return status_token(job.get("status"), job.get("conclusion"))
+
+
+def step_token(step: dict | None) -> str:
+    if not isinstance(step, dict):
+        return "UNKNOWN"
+    return status_token(step.get("status"), step.get("conclusion"))
+
+
+def flatten_api(data: object, key: str) -> list[dict] | None:
+    """Accept ``gh api --paginate --slurp`` page arrays and single objects."""
+    if isinstance(data, dict):
+        if isinstance(data.get(key), list):
+            return [item for item in data[key] if isinstance(item, dict)]
+        if key == "jobs" and ("steps" in data or "name" in data):
+            return [data]
+        if key == "artifacts" and ("name" in data or "id" in data):
+            return [data]
+        return None
+    if isinstance(data, list):
+        if any(isinstance(item, dict) and isinstance(item.get(key), list) for item in data):
+            entries: list[dict] = []
+            for item in data:
+                if isinstance(item, dict) and isinstance(item.get(key), list):
+                    entries.extend(entry for entry in item[key] if isinstance(entry, dict))
+            return entries
+        return [item for item in data if isinstance(item, dict)]
+    return None
+
+
+def read_api(path_value: str, key: str) -> tuple[list[dict], bool, str | None]:
+    path = Path(path_value)
+    if not path.is_file():
+        return [], False, f"文件不存在: {path}"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return [], False, f"JSON 无效: {error}"
+    entries = flatten_api(data, key)
+    if entries is None:
+        return [], False, "响应结构无法识别"
+    return entries, True, None
+
+
+def dedupe_jobs(entries: list[dict]) -> list[dict]:
+    chosen: dict[object, dict] = {}
+    for job in entries:
+        identity = job.get("id")
+        if identity is None:
+            identity = (job.get("name"), job.get("started_at"), job.get("completed_at"))
+        chosen[identity] = job
+    return list(chosen.values())
+
+
+def job_group(name: str) -> str | None:
+    for group in ("preflight", "platform", "client", "shared"):
+        if re.match(rf"^{re.escape(group)}(?:\s|$|\()", name):
+            return group
+    return None
+
+
+def node_token_match(name: str, node: str) -> bool:
+    return re.search(rf"(?<![0-9A-Za-z.]){re.escape(node)}(?![0-9A-Za-z.])", name) is not None
+
+
+def select_job(jobs: list[dict], group: str, node: str | None = None) -> dict | None:
+    candidates = []
+    for job in jobs:
+        name = str(job.get("name") or "").strip()
+        if job_group(name) != group:
+            continue
+        if group in ("platform", "client") and (not node or not node_token_match(name, node)):
+            continue
+        candidates.append(job)
+    if not candidates:
+        return None
+
+    def rank(job: dict) -> tuple:
+        try:
+            identity = int(job.get("id") or 0)
+        except (TypeError, ValueError):
+            identity = 0
+        return (1 if job.get("status") == "completed" else 0,
+                1 if job.get("conclusion") else 0,
+                str(job.get("started_at") or ""), identity)
+
+    return max(candidates, key=rank)
+
+
+def step_lookup(job: dict | None, name: str | None) -> dict | None:
+    if not isinstance(job, dict) or not name:
+        return None
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return None
+    for step in reversed(steps):
+        if isinstance(step, dict) and str(step.get("name") or "").strip() == name:
+            return step
+    return None
+
+
+def required_steps(group: str) -> tuple[str, ...]:
+    return {
+        "preflight": PREFLIGHT_REQUIRED_STEPS,
+        "platform": PLATFORM_REQUIRED_STEPS,
+        "client": CLIENT_REQUIRED_STEPS,
+        "shared": SHARED_REQUIRED_STEPS,
+    }.get(group, ())
+
+
+def missing_required_steps(job: dict | None, group: str) -> list[str]:
+    if job is None:
+        return list(required_steps(group))
+    return [name for name in required_steps(group) if step_lookup(job, name) is None]
+
+
+def skipped_required_steps(job: dict | None, group: str) -> list[str]:
+    if job is None:
+        return []
+    skipped = []
+    for name in required_steps(group):
+        step = step_lookup(job, name)
+        if step is not None and step_token(step) == "SKIP":
+            skipped.append(name)
+    return skipped
+
+
+def compile_succeeded(job: dict | None, group: str) -> bool:
+    step = step_lookup(job, COMPILE_STEPS.get(group))
+    return step is not None and step_token(step) == "PASS"
+
+
+def snapshot_score(snapshot: dict) -> int:
+    score = sum(1 for section in ("unit", "spotbugs", "jacoco", "jar")
+                if snapshot.get(section) is not None)
+    for section in ("server", "client"):
+        value = snapshot.get(section)
+        if isinstance(value, dict):
+            score += sum(1 for item in value.values() if item is not None)
+    return score
+
+
+def load_snapshots(downloads: Path) -> dict[tuple[str, str | None], dict]:
+    index: dict[tuple[str, str | None], dict] = {}
+    if not downloads.is_dir():
+        return index
+    for path in sorted(downloads.rglob("*.json")):
+        snapshot = load_json(path)
+        if not isinstance(snapshot, dict) or snapshot.get("schema") != SNAPSHOT_SCHEMA:
+            continue
+        suite = snapshot.get("suite")
+        if suite not in SUITES:
+            continue
+        node = snapshot.get("node")
+        if suite == "shared":
+            node = None
+        elif not isinstance(node, str) or not node:
+            continue
+        key = (suite, node)
+        current = index.get(key)
+        if current is None or snapshot_score(snapshot) > snapshot_score(current):
+            index[key] = snapshot
+    return index
+
+
+def artifact_index(entries: list[dict]) -> dict[str, dict]:
+    chosen: dict[str, tuple[tuple, dict]] = {}
+    for artifact in entries:
+        name = artifact.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        try:
+            identity = int(artifact.get("id") or 0)
+        except (TypeError, ValueError):
+            identity = 0
+        rank = (1 if not artifact.get("expired") else 0,
+                str(artifact.get("created_at") or ""), identity)
+        current = chosen.get(name)
+        if current is None or rank > current[0]:
+            chosen[name] = (rank, artifact)
+    return {name: artifact for name, (_, artifact) in chosen.items()}
+
+
+def artifact_url(repo: str, run_id: str, artifact: dict) -> str:
+    return (f"https://github.com/{quote(str(repo), safe='/')}/actions/runs/"
+            f"{quote(str(run_id), safe='')}/artifacts/{quote(str(artifact.get('id')), safe='')}")
+
+
+def artifact_cell(artifacts: dict[str, dict], labels: list[tuple[str, str]],
+                  repo: str, run_id: str) -> str:
+    parts = []
+    for label, name in labels:
+        artifact = artifacts.get(name)
+        if artifact is None:
+            continue
+        if artifact.get("expired"):
+            parts.append(f"{md_cell(label)}（已过期）")
+        else:
+            parts.append(f"[{md_cell(label)}]({artifact_url(repo, run_id, artifact)})")
+    return " · ".join(parts) if parts else "—"
+
+
+def integer(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def integer_fields(observation: object, names: tuple[str, ...]) -> list[int] | None:
+    if not isinstance(observation, dict):
+        return None
+    values = [integer(observation.get(name)) for name in names]
+    return None if any(value is None for value in values) else values
+
+
+def format_unit(observation: object) -> str | None:
+    fields = integer_fields(observation, ("tests", "failures", "errors", "skipped"))
+    if fields is None:
+        return None
+    tests, failures, errors, skipped = fields
+    return f"{tests}（失败 {failures} / 错误 {errors} / 跳过 {skipped}）"
+
+
+def format_server(observation: object) -> str | None:
+    if not isinstance(observation, dict):
+        return None
+    passed = observation.get("passed")
+    failed = observation.get("failed")
+    if passed is None and failed is None:
+        return None
+    if failed:
+        return f"{passed if passed is not None else '—'}/{failed}（失败）"
+    return str(passed) if passed is not None else f"失败 {failed}"
+
+
+def format_client(observation: object) -> str | None:
+    if not isinstance(observation, dict):
+        return None
+    passed = observation.get("passed")
+    expected = observation.get("expected")
+    failed = observation.get("failed")
+    if passed is None and expected is None and failed is None:
+        return None
+    if expected is not None:
+        text = f"{passed if passed is not None else '—'}/{expected}"
+    else:
+        text = f"{passed if passed is not None else '—'} 类"
+    if failed:
+        text += f"（失败 {failed}）"
+    return text
+
+
+def format_spotbugs(observation: object) -> str | None:
+    fields = integer_fields(observation, ("total", "high", "medium", "low"))
+    if fields is None:
+        return None
+    total, high, medium, low = fields
+    return f"{total}（高 {high} / 中 {medium} / 低 {low}）"
+
+
+def format_jacoco(observation: object) -> str | None:
+    fields = integer_fields(observation, ("covered", "missed"))
+    if fields is None:
+        return None
+    covered, missed = fields
+    percent = integer(observation.get("percent")) if isinstance(observation, dict) else None
+    percent_text = f"{percent}%" if percent is not None else "—"
+    return f"{percent_text}（覆盖 {covered} / 未覆盖 {missed}）"
+
+
+def evidence_cell(token: str, value: str | None) -> str:
+    if value is not None:
+        return f"{token} {value}"
+    if token == "PASS":
+        return "MISSING"
+    if token == "—":
+        return "—"
+    return f"{token} / MISSING"
+
+
+def optional_token(tokens: list[str]) -> str:
+    if not tokens:
+        return "UNKNOWN"
+    return max(tokens, key=lambda value: STATUS_ORDER.get(value, STATUS_ORDER["UNKNOWN"]))
+
+
+def parse_upstreams(values: list[str] | None) -> tuple[list[tuple[str, str]], list[str]]:
+    entries: list[tuple[str, str]] = []
+    issues: list[str] = []
+    for raw in values or []:
+        text = str(raw)
+        if "=" not in text:
+            issues.append(f"上游参数非法（应为 name=result）：{text}")
+            entries.append((text, "unknown"))
+            continue
+        name, result = text.split("=", 1)
+        name = name.strip()
+        result = result.strip()
+        if not name:
+            issues.append(f"上游参数缺少名称：{text}")
+            entries.append(("—", result or "unknown"))
+            continue
+        if not result:
+            issues.append(f"上游参数缺少结果：{text}")
+            result = "unknown"
+        entries.append((name, result))
+    return entries, issues
+
+
+def server_evidence(value: object) -> bool:
+    return isinstance(value, dict) and value.get("passed") is not None
+
+
+def client_evidence(value: object) -> bool:
+    return isinstance(value, dict) and (value.get("passed") is not None
+                                        or value.get("expected") is not None
+                                        or value.get("failed") is not None)
+
+
+def missing_snapshot_evidence(snapshot: object, suite: str) -> list[str]:
+    if not isinstance(snapshot, dict):
+        return ["snapshot"]
+    missing: list[str] = []
+    if suite in ("platform", "shared"):
+        if integer_fields(snapshot.get("unit"),
+                          ("tests", "failures", "errors", "skipped")) is None:
+            missing.append("unit")
+        if integer_fields(snapshot.get("spotbugs"),
+                          ("total", "high", "medium", "low")) is None:
+            missing.append("spotbugs")
+        if integer_fields(snapshot.get("jacoco"), ("covered", "missed")) is None:
+            missing.append("jacoco")
+        jar = snapshot.get("jar")
+        if not isinstance(jar, dict) or not jar.get("name"):
+            missing.append("jar")
+    if suite == "platform":
+        server = snapshot.get("server")
+        for backend in SERVER_BACKENDS:
+            if not server_evidence(backend_value(server, backend)):
+                missing.append(f"server.{backend}")
+    if suite == "client":
+        client = snapshot.get("client")
+        for backend in SERVER_BACKENDS:
+            if not client_evidence(backend_value(client, backend)):
+                missing.append(f"client.{backend}")
+    return missing
+
+
+def snapshot_section(snapshot: dict | None, section: str) -> object:
+    return snapshot.get(section) if isinstance(snapshot, dict) else None
+
+
+def evaluate_job(job: dict | None, group: str, label: str, issues: list[str]) -> str:
+    token = job_token(job)
+    if job is None:
+        issues.append(f"jobs API 缺少{label}")
+        return token
+    if token != "PASS":
+        issues.append(f"{label} 结论为 {token}")
+    missing = missing_required_steps(job, group)
+    skipped = skipped_required_steps(job, group)
+    if token == "PASS":
+        if missing:
+            issues.append(f"成功{label} 缺少必要步骤: {', '.join(missing)}")
+        if skipped:
+            issues.append(f"成功{label} 的必要步骤被跳过: {', '.join(skipped)}")
+    elif compile_succeeded(job, group) and skipped:
+        issues.append(f"编译成功后{label} 的必需步骤被跳过: {', '.join(skipped)}")
+    return token
+
+
+def evaluate_snapshot(snapshot: dict | None, suite: str, token: str,
+                      label: str, issues: list[str]) -> None:
+    if token != "PASS":
+        return
+    if snapshot is None:
+        issues.append(f"成功{label} 缺少证据快照")
+        return
+    missing = missing_snapshot_evidence(snapshot, suite)
+    if missing:
+        issues.append(f"成功{label} 的证据快照缺少: {', '.join(missing)}")
+
+
+def command_summary(args: argparse.Namespace) -> None:
+    root = repository_root(args.root)
+    nodes = load_versions(root)
+    mod_version = read_properties(root / "gradle.properties").get("mod_version", "?")
+    jobs, jobs_ok, jobs_error = read_api(args.jobs, "jobs")
+    jobs = dedupe_jobs(jobs) if jobs_ok else []
+    artifacts_raw, artifacts_ok, artifacts_error = read_api(args.artifacts, "artifacts")
+    artifacts = artifact_index(artifacts_raw) if artifacts_ok else {}
+    snapshots = load_snapshots(Path(args.downloads))
+    upstreams, issues = parse_upstreams(args.upstream)
+    if not jobs_ok:
+        issues.append(f"jobs API 不可用：{jobs_error}")
+    elif not jobs:
+        issues.append("jobs API 未返回任何 job")
+    if not artifacts_ok:
+        issues.append(f"artifacts API 不可用：{artifacts_error}")
+    for name, result in upstreams:
+        if result != "success":
+            issues.append(f"上游 {name} 结论为 {result}")
+
+    preflight_job = select_job(jobs, "preflight") if jobs else None
+    if jobs:
+        evaluate_job(preflight_job, "preflight", "preflight 任务", issues)
+    shared_job = select_job(jobs, "shared") if jobs else None
+    shared_token = (evaluate_job(shared_job, "shared", "shared 任务", issues)
+                    if jobs else "UNKNOWN")
+    shared_snapshot = snapshots.get(("shared", None))
+    evaluate_snapshot(shared_snapshot, "shared", shared_token, "shared 任务", issues)
+    shared_build = step_token(step_lookup(shared_job, "Shared pure tests, jar, JaCoCo and SpotBugs"))
+    shared_jar = snapshot_section(shared_snapshot, "jar")
+    shared_jar_name = shared_jar.get("name") if isinstance(shared_jar, dict) else None
+    shared_cells = [
+        shared_build,
+        evidence_cell(step_token(step_lookup(shared_job, "Shared unit test summary")),
+                      format_unit(snapshot_section(shared_snapshot, "unit"))),
+        evidence_cell(step_token(step_lookup(shared_job, "Shared SpotBugs summary")),
+                      format_spotbugs(snapshot_section(shared_snapshot, "spotbugs"))),
+        evidence_cell(step_token(step_lookup(shared_job, "Shared JaCoCo summary")),
+                      format_jacoco(snapshot_section(shared_snapshot, "jacoco"))),
+        evidence_cell(shared_build, shared_jar_name),
+        artifact_cell(artifacts, [("reports", "shared-reports")], args.repo, args.run_id),
+    ]
+
+    rows = []
+    compile_notes = []
+    for node in nodes:
+        platform_job = select_job(jobs, "platform", node) if jobs else None
+        client_job = select_job(jobs, "client", node) if jobs else None
+        platform_token = (evaluate_job(platform_job, "platform", f"平台任务 {node}", issues)
+                          if jobs else "UNKNOWN")
+        client_token = (evaluate_job(client_job, "client", f"客户端任务 {node}", issues)
+                        if jobs else "UNKNOWN")
+        platform_snapshot = snapshots.get(("platform", node))
+        client_snapshot = snapshots.get(("client", node))
+        evaluate_snapshot(platform_snapshot, "platform", platform_token, f"平台任务 {node}", issues)
+        evaluate_snapshot(client_snapshot, "client", client_token, f"客户端任务 {node}", issues)
+
+        build_token = step_token(step_lookup(platform_job, "Build, unit tests and SpotBugs"))
+        unit_value = format_unit(snapshot_section(platform_snapshot, "unit"))
+        server_values = {
+            backend: format_server(backend_value(
+                snapshot_section(platform_snapshot, "server"), backend))
+            for backend in SERVER_BACKENDS
+        }
+        client_values = {
+            backend: format_client(backend_value(
+                snapshot_section(client_snapshot, "client"), backend))
+            for backend in SERVER_BACKENDS
+        }
+        optional_tokens = [
+            step_token(step_lookup(platform_job, "Optional dependency legacy server GameTest")),
+            step_token(step_lookup(platform_job, "Optional dependency foundation server GameTest")),
+            step_token(step_lookup(client_job, "Optional dependency legacy client GameTest")),
+            step_token(step_lookup(client_job, "Optional dependency foundation client GameTest")),
+        ]
+        jar = snapshot_section(platform_snapshot, "jar")
+        links = artifact_cell(artifacts, [
+            ("jar", f"SyncMaterial-{node}"),
+            ("reports", f"reports-{node}"),
+            ("server logs", f"server-gametest-{node}"),
+            ("client logs", f"client-gametest-{node}"),
+        ], args.repo, args.run_id)
+        if links == "—" and isinstance(jar, dict) and jar.get("name"):
+            links = f"{md_cell(jar['name'])}（无链接）"
+
+        platform_compile = step_lookup(platform_job, COMPILE_STEPS["platform"])
+        client_compile = step_lookup(client_job, COMPILE_STEPS["client"])
+        if platform_compile is not None or client_compile is not None:
+            compile_notes.append(
+                f"- {md_cell(node)}: 平台 "
+                f"{step_token(platform_compile) if platform_compile is not None else '—'}"
+                f" / 客户端 {step_token(client_compile) if client_compile is not None else '—'}")
+
+        java = read_properties(root / "versions" / node / "gradle.properties").get("java_version", "?")
+        rows.append("| " + " | ".join([
+            f"{md_cell(node)}<br>Java {md_cell(java)}",
+            build_token,
+            evidence_cell(build_token, unit_value),
+            evidence_cell(step_token(step_lookup(platform_job, "Legacy server GameTest")),
+                          server_values["legacy"]),
+            evidence_cell(step_token(step_lookup(platform_job, "Foundation server GameTest")),
+                          server_values["foundation"]),
+            evidence_cell(step_token(step_lookup(client_job, "Legacy client GameTest")),
+                          client_values["legacy"]),
+            evidence_cell(step_token(step_lookup(client_job, "Foundation client GameTest")),
+                          client_values["foundation"]),
+            optional_token(optional_tokens),
+            evidence_cell(step_token(step_lookup(platform_job, "SpotBugs summary")),
+                          format_spotbugs(snapshot_section(platform_snapshot, "spotbugs"))),
+            links,
+        ]) + " |")
+
+    status = "❌ FAIL" if issues else "✅ PASS"
+    api_status = f"jobs {'正常' if jobs_ok else '不可用'} · artifacts {'正常' if artifacts_ok else '不可用'}"
+    lines = [
+        "# SyncMaterial CI 汇总",
+        "",
+        "| 项目 | 值 |",
+        "| --- | --- |",
+        f"| 总状态 | **{status}** |",
+        f"| mod_version | {md_cell(mod_version)} |",
+        f"| 版本节点 | {' / '.join(md_cell(node) for node in nodes)} |",
+        f"| Run | [#{md_cell(args.run_id)}](https://github.com/"
+        f"{quote(str(args.repo), safe='/')}/actions/runs/{quote(str(args.run_id), safe='')}) |",
+        f"| 证据 API | {api_status} |",
+        "",
+        "## 守卫 / 上游",
+        "",
+        "| 名称 | 结论 |",
+        "| --- | --- |",
+    ]
+    if upstreams:
+        for name, result in upstreams:
+            lines.append(f"| {md_cell(name)} | "
+                         f"{'PASS' if result == 'success' else md_cell(result.upper() or 'UNKNOWN')} |")
+    else:
+        lines.append("| — | — |")
+    lines.extend([
+        "",
+        "## 共享模块",
+        "",
+        "| 构建 | 单测 | SpotBugs | JaCoCo | jar | 报告 |",
+        "| --- | --- | --- | --- | --- | --- |",
+        "| " + " | ".join(shared_cells) + " |",
+        "",
+        "## 平台节点",
+        "",
+        "| 节点 | 构建 | 单测 | Legacy 服务端 | Foundation 服务端 | Legacy 客户端 | "
+        "Foundation 客户端 | 缺依赖 | SpotBugs | 产物 / 报告 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ])
+    lines.extend(rows)
+    if compile_notes:
+        lines.extend(["", "### 编译步骤", "", *compile_notes])
+    if issues:
+        lines.extend(["", "## 问题", "", *[f"- {md_cell(issue)}" for issue in issues]])
+    print("\n".join(lines))
+    if issues:
+        print(f"::error::CI 汇总未通过：{len(issues)} 个问题")
+        raise SystemExit(1)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -447,6 +1260,23 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--root", default=".")
     release.add_argument("--dist", required=True)
     release.set_defaults(func=command_release_set)
+
+    snapshot = sub.add_parser("snapshot", help="记录实际测试、静态检查与产物证据")
+    snapshot.add_argument("--root", default=".")
+    snapshot.add_argument("--suite", required=True, choices=SUITES)
+    snapshot.add_argument("--node")
+    snapshot.add_argument("--out", required=True)
+    snapshot.set_defaults(func=command_snapshot)
+
+    summary = sub.add_parser("summary", help="汇总 jobs/artifacts API 与下载的证据快照")
+    summary.add_argument("--root", default=".")
+    summary.add_argument("--jobs", required=True)
+    summary.add_argument("--artifacts", required=True)
+    summary.add_argument("--downloads", required=True)
+    summary.add_argument("--repo", required=True)
+    summary.add_argument("--run-id", required=True)
+    summary.add_argument("--upstream", action="append", default=[])
+    summary.set_defaults(func=command_summary)
     return parser
 
 
