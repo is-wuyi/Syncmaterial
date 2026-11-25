@@ -610,8 +610,12 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("useXvfb.set(false)", build)
         self.assertIn('env["SYNCMATERIAL_EXTERNAL_XVFB"] = "1"', recorder)
         self.assertIn("blackdetect", recorder)
-        summary = workflow[workflow.index("  summary:\n"):]
+        summary = workflow[workflow.index("  summary:\n"):workflow.index("  demo-pages:\n")]
         self.assertNotIn("environment:\n      name: github-pages", summary)
+        pages = workflow[workflow.index("  demo-pages:\n"):]
+        self.assertIn("environment:\n      name: github-pages", pages)
+        self.assertIn("github.ref == 'refs/heads/rewrite/backend-foundation'", pages)
+        self.assertIn("github.ref == 'refs/heads/dev'", pages)
 
     def test_unit_command_invalid_xml_does_not_report_zero(self):
         harness = LegacyReleaseTest()

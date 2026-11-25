@@ -633,12 +633,15 @@ jobs:
   # 所有步骤均非门禁；真实测试仍由上面的9个job决定。
   demo-pages:
     needs: summary
-    if: ${{ github.event_name == 'push' && needs.summary.result == 'success' }}
+    if: ${{ github.event_name == 'push' && needs.summary.result == 'success' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/rewrite/backend-foundation') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
       group: syncmaterial-pages
       cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy_demo_pages.outputs.page_url }}
     permissions:
       contents: read
       actions: read
