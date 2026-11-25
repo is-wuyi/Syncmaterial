@@ -587,6 +587,8 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("id-token: write", workflow)
         self.assertIn("name: syncmaterial-demo-pages", workflow)
         self.assertIn("artifact_name: syncmaterial-demo-pages", workflow)
+        self.assertIn("uses: actions/upload-pages-artifact@v5", workflow)
+        self.assertIn("uses: actions/deploy-pages@v5", workflow)
         self.assertIn("Verify deployed demo page", workflow)
         self.assertIn("--keep 20", workflow)
         # 5 definitions expand to 9 jobs through the two three-node matrices.
