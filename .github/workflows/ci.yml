@@ -686,6 +686,14 @@ jobs:
         if: ${{ success() && github.event_name == 'push' && steps.upload_demo_pages.outcome == 'success' }}
         continue-on-error: true
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: syncmaterial-demo-pages
+
+      - name: Verify deployed demo page
+        id: verify_demo_pages
+        if: ${{ success() && github.event_name == 'push' && steps.deploy_demo_pages.outcome == 'success' }}
+        continue-on-error: true
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 2 --output /dev/null "https://is-wuyi.github.io/Syncmaterial/demos/${{ github.run_id }}/"
 
       - name: Append demo summary
         if: ${{ always() && github.event_name == 'push' }}
@@ -699,7 +707,7 @@ jobs:
           fi
           if [ -f "$RUNNER_TEMP/demo-site/demos/${{ github.run_id }}/summary.md" ]; then
             cat "$RUNNER_TEMP/demo-site/demos/${{ github.run_id }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
-            if [ "${{ steps.deploy_demo_pages.outcome }}" != "success" ]; then
+            if [ "${{ steps.deploy_demo_pages.outcome }}" != "success" ] || [ "${{ steps.verify_demo_pages.outcome }}" != "success" ]; then
               echo "Pages 暂未发布；可先下载本次 run 的 demo-media artifact，真实测试结论不受影响。" >> "$GITHUB_STEP_SUMMARY"
             fi
           else
