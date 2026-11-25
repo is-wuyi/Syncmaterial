@@ -504,7 +504,7 @@ public class StagingAreaManager implements AutoCloseable {
      * 推送更新给取货模式玩家
      */
     private void pushDirtyUpdateWithCooldown() {
-        if (owner != null) net.syncmaterial.syncmaterial.network.ModNetworkHandler.pushWarehouseContainerUpdate(owner);
+        if (owner != null) owner.warehouseProjection().publishContainers();
     }
 
 

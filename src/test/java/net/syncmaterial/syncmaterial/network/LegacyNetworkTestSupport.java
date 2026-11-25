@@ -53,6 +53,7 @@ final class LegacyNetworkTestSupport implements AutoCloseable {
     final OnlineInventoryTracker onlineInventories = new OnlineInventoryTracker(
             inventoryClock::get, Duration.ofSeconds(10));
     final LegacyProjectViewNetworkAdapter projectViews;
+    final LegacyWarehouseNetworkAdapter warehouseProjection;
     final net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker teamRequests =
             new net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker();
     final Map<String, String> placementNames = new ConcurrentHashMap<>();
@@ -175,7 +176,9 @@ final class LegacyNetworkTestSupport implements AutoCloseable {
                     ? player : null;
         });
         projectViews = new LegacyProjectViewNetworkAdapter(owner);
+        warehouseProjection = new LegacyWarehouseNetworkAdapter(owner);
         when(owner.projectViews()).thenReturn(projectViews);
+        when(owner.warehouseProjection()).thenReturn(warehouseProjection);
         when(owner.isOpen()).thenAnswer(inv -> open.get());
         when(owner.isCurrent()).thenAnswer(inv -> open.get() && installed.get() == owner);
         when(owner.isConnected(any(ServerPlayer.class))).thenAnswer(inv -> {

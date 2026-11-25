@@ -259,6 +259,17 @@ class ModNetworkHandlerBehaviorTest {
     }
 
     @Test
+    void warehouseSubscribe_invalidSchematicIdDoesNotCreateSubscriptionOrSend() {
+        ModNetworkHandler.handleWarehouseContainerRequest(owner,
+            new WarehouseContainerRequestC2SPacket("", true), player);
+        ModNetworkHandler.handleWarehouseContainerRequest(owner,
+            new WarehouseContainerRequestC2SPacket("x".repeat(101), true), player);
+
+        assertTrue(owner.subscriptions().warehouseSubscribers().isEmpty());
+        networkingMock.verify(() -> ServerPlayNetworking.send(any(), any()), never());
+    }
+
+    @Test
     void warehouseSubscribe_managerMissing_noop() {
         when(owner.staging()).thenReturn(null);
 

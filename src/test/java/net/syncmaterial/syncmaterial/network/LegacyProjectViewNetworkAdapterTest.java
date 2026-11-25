@@ -331,6 +331,40 @@ class LegacyProjectViewNetworkAdapterTest {
     }
 
     @Test
+    void protocolFiveReferenceChangesRefreshLegacyPickupAndWireframes() throws Exception {
+        database.executeUpdate("INSERT INTO warehouses "
+                + "(id, name, world, x1, y1, z1, x2, y2, z2) "
+                + "VALUES (1, 'Warehouse', 'minecraft:overworld', 0, 0, 0, 4, 4, 4)");
+        staging.loadWarehousesFromDb();
+        support.subscriptions.subscribeWarehouses(support.player, PROJECT, Set.of());
+        ProjectViewScope scope = ProjectViewScope.project(PROJECT);
+        handle(open(PROJECT, 1, VIEW, GENERATION, InterestKind.AREA_CONFIG.bit()));
+        support.subscriptions.subscribeMaterials(support.player, PROJECT);
+        sent.clear();
+
+        handle(new ProjectViewCommandC2SPacket(scope, 2, VIEW, GENERATION,
+                ProjectViewAction.AREA_CONFIG, "ADD_WAREHOUSE_REF", 0, 1, 0,
+                Optional.empty(), List.of()));
+
+        assertTrue(last(ProjectViewS2CPacket.Result.CONFIG).success());
+        assertEquals(Set.of(1), support.subscriptions.warehouseIds(support.player));
+        assertEquals(1, packets(WarehouseContainerResponseS2CPacket.class).size());
+        assertEquals(List.of(1), first(WarehouseAreaResponseS2CPacket.class).referencedIds());
+
+        sent.clear();
+        handle(new ProjectViewCommandC2SPacket(scope, 3, VIEW, GENERATION,
+                ProjectViewAction.AREA_CONFIG, "REMOVE_WAREHOUSE_REF", 0, 1, 0,
+                Optional.empty(), List.of()));
+
+        assertTrue(last(ProjectViewS2CPacket.Result.CONFIG).success());
+        assertTrue(support.subscriptions.warehouseIds(support.player).isEmpty());
+        WarehouseContainerResponseS2CPacket cleared = first(WarehouseContainerResponseS2CPacket.class);
+        assertTrue(cleared.containers().isEmpty());
+        assertTrue(first(WarehouseAreaResponseS2CPacket.class).referencedIds().isEmpty());
+        assertEquals(Set.of(support.player), support.subscriptions.warehouseSubscribers().keySet());
+    }
+
+    @Test
     void emptyListIsSuccessWhileReadErrorIsError() throws Exception {
         insertProject("empty", "Empty", "Owner", true);
         ProjectViewScope scope = ProjectViewScope.project("empty");

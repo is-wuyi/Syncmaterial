@@ -19,6 +19,7 @@ import net.syncmaterial.syncmaterial.engine.LitematicaParser;
 import net.syncmaterial.syncmaterial.engine.impl.DefaultLitematicaParser;
 import net.syncmaterial.syncmaterial.engine.internal.ParsingThreadPool;
 import net.syncmaterial.syncmaterial.network.LegacyProjectViewNetworkAdapter;
+import net.syncmaterial.syncmaterial.network.LegacyWarehouseNetworkAdapter;
 import net.syncmaterial.syncmaterial.network.ModNetworkHandler;
 import net.syncmaterial.syncmaterial.network.Phase4Handler;
 import net.syncmaterial.syncmaterial.network.ProtocolHandshake;
@@ -57,6 +58,7 @@ public final class LegacyServerContext implements AutoCloseable {
     private final ProjectViewTracker views = new ProjectViewTracker(interests);
     private final OnlineInventoryTracker onlineInventories = new OnlineInventoryTracker();
     private final LegacyProjectViewNetworkAdapter projectViews = new LegacyProjectViewNetworkAdapter(this);
+    private final LegacyWarehouseNetworkAdapter warehouseProjection = new LegacyWarehouseNetworkAdapter(this);
     private final net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker teamRequests =
             new net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker();
     private final Map<String, String> placementNames = new ConcurrentHashMap<>();
@@ -162,6 +164,7 @@ public final class LegacyServerContext implements AutoCloseable {
     public ProjectViewTracker views() { return views; }
     public OnlineInventoryTracker onlineInventories() { return onlineInventories; }
     public LegacyProjectViewNetworkAdapter projectViews() { return projectViews; }
+    public LegacyWarehouseNetworkAdapter warehouseProjection() { return warehouseProjection; }
     public net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker teamRequests() { return teamRequests; }
     public State state() { return state.get(); }
 
@@ -364,8 +367,8 @@ public final class LegacyServerContext implements AutoCloseable {
             Phase4Handler.broadcastAllMaterialStatus(this, schematicId);
         }
         projectViews.markAllWarehouseViewsDirty();
-        ModNetworkHandler.pushWarehouseContainerUpdate(this);
-        ModNetworkHandler.broadcastWarehouseAreas(this);
+        warehouseProjection.publishContainers();
+        warehouseProjection.broadcastAreas();
         SyncMaterial.LOGGER.info("启动时区域扫描完成: {} 个备货区、{} 个仓库", areas, staging.getAllWarehouses().size());
     }
 
@@ -393,8 +396,8 @@ public final class LegacyServerContext implements AutoCloseable {
             ingest.publishIfCurrent(currentIntent, () -> {
                 Phase4Handler.broadcastAllMaterialStatus(this, schematicId);
                 staging.broadcastUpdate(schematicId);
-                ModNetworkHandler.pushWarehouseContainerUpdate(this);
-                ModNetworkHandler.broadcastWarehouseAreas(this);
+                warehouseProjection.publishContainers();
+                warehouseProjection.broadcastAreas();
                 projectViews.markDirty(schematicId);
                 projectViews.markWarehouseDirty(schematicId);
             });

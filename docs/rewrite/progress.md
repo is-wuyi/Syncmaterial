@@ -9,15 +9,15 @@
 | 项目 | 状态 |
 |---|---|
 | 最近核对日期 | 2026-11-25 |
-| 当前阶段 | beta.64与完整回归视频已交付；WP9收尾审查与WP10准入核对中，寻找有测试保护的直接重构目标，WP10／WP11未开始 |
+| 当前阶段 | beta.65 legacy仓库投影组件化与混合版本刷新本地完整矩阵通过，提交推送与线上CI待验收；WP10／WP11未开始 |
 | 开发分支 | `rewrite/backend-foundation` |
 | 最新实现提交 | [`4b8e1f2`](https://github.com/is-wuyi/Syncmaterial/commit/4b8e1f26a38acee98f6f3cdc4f23d04945bdc927)：beta.64旧取货主动刷新与完整回归，[CI 45600632682](https://github.com/is-wuyi/Syncmaterial/actions/runs/45600632682)全部10项通过 |
 | CI演示试点 | [`08e7d39`](https://github.com/is-wuyi/Syncmaterial/commit/08e7d39f7f73ced932d36f38d026455d9758178b)：真实录制、GIF／MP4、独立Pages发布，[CI 45549278491](https://github.com/is-wuyi/Syncmaterial/actions/runs/45549278491)全部10项通过 |
-| 实现版本 | beta.64本地完整矩阵与线上CI通过；协议5／最低兼容1／Foundation schema3不变 |
+| 实现版本 | beta.65本地完整矩阵通过；协议5／最低兼容1／Foundation schema3不变 |
 | 运行时支持 | Minecraft 1.21.7、1.21.8、26.2；共享业务只维护一份，各节点分别构建和验收 |
 | 默认后端 | **仍为 legacy**；Foundation 需 `-Dsyncmaterial.backend=foundation` 显式启用 |
-| 下一批 | 先形成WP9剩余行为／职责清单，再实施一个有测试保护的直接重构批次；不自动进入旧实现退场 |
-| 当前阻塞 | 正在核对剩余行为缺口和WP10功能对等条件；登录态Actions视频已由用户确认显示正常 |
+| 下一批 | beta.65完成后优先处理Foundation旧材料清单降级与旧订阅生命周期；WP10仍须另行评估，不自动进入旧实现退场 |
+| 当前阻塞 | beta.65提交推送与线上CI尚待验收；WP10仍有材料清单降级、旧订阅和删除／团队语义定案欠账 |
 | 发布状态 | beta.64实现与完整回归已提交推送且CI通过，未打发布 tag、未切换正式服 |
 
 当前 Foundation 已接通材料导入／查询、基础认领与在线库存、区域配置／仓库引用、被动扫描、去重库存和新鲜度，以及负责人写操作、批量分配、按材料踢人、玩家目录。WP5 管理闭环及 WP6／WP7 的团队收集、订阅与生产主清单已交付；WP8剩余客户端状态迁移和旧结构退场不能混为一谈，不能据此宣称全项目重构完成。
@@ -293,6 +293,19 @@
 - 完整原始MP4与带标注MP4保留同一全程内容；summary GIF仅作播放入口。左上角标注完整回归／节点／后端／mod版本，右上角标注run／commit／离线环境，底部标注当前中文测试名、完成／通过／失败计数与耗时。播放页列出每项测试及状态；历史保留调整为最近8次run，控制全程视频空间。本批完成不代表WP9全部清理或WP10旧实现退场。
 - 实现`4b8e1f2`的[CI 45600632682](https://github.com/is-wuyi/Syncmaterial/actions/runs/45600632682)全部10项通过。完整[播放页](https://is-wuyi.github.io/Syncmaterial/demos/45600632682/)返回200，视频222.8秒、854×480、32／32全部PASS；原始与带标注MP4均6684帧。前／中／后段真实截图已核对中文角标、当前测试和进度；20秒GIF约4.55MiB，素材SHA-256一致，历史run仍可访问。浏览器实际seek至120秒并继续播放，媒体无错误。
 - 最终收尾仅移除完整回归summary中遗留的旧场景名，不改变已验证的视频、业务行为或测试门禁；该元数据与文档提交仍以对应CI结果为准。用户随后已在登录状态确认Actions GIF显示正常，完整回归展示验收闭环完成。
+
+## 4G. 本批实施：Legacy仓库投影组件化与混合版本刷新（本地完整矩阵通过，CI待验收）
+
+2026-11-25用户批准beta.65直接重构计划。WP9审查发现三份容器投影逻辑重复、业务层反向依赖`ModNetworkHandler`，以及协议5修改引用不会刷新其他旧客户端的实际缺口。本批用有测试保护的组件化修复，不再次全仓重写，不进入WP10。
+
+- 新增由`LegacyServerContext`持有的`LegacyWarehouseNetworkAdapter`，统一订阅初始、脏容器、引用刷新与旧线框投影；`LegacySubscriptions`继续作为纯状态容器。订阅初始即使为空也发包，脏扫描跳过空并集，引用刷新必须发送最后空快照，三种策略不得合并。
+- 旧包与协议5引用增删共用组件，协议5成功写入后也广播旧线框并刷新旧客户端容器；现代客户端继续忽略旧包。`StagingAreaManager`与`LegacyServerContext`改调组件，消除重复投影的静态反向依赖，保持材料状态→线框→容器／响应→typed flush顺序。
+- 取货receiver与handler补`schematicId`校验。组件无静态状态、额外线程或独立关闭步骤，owner失效、断线及未握手玩家不投递；线框引用仍来自材料清单订阅，不与取货订阅混用。
+- 定向1.21.8共88项测试通过：组件6项、旧网络行为53项、项目视图29项，覆盖空集、跨项目、维度、断线、线框来源和真实协议5混合刷新。
+- 同一冻结源码完整执行 `buildAllVersions checkAllVersions testAllClients testOptionalDependencies`，25分01秒成功；严格守卫50项通过，0警告／0缺证据／0失败。shared 539项、1.21.7／1.21.8各945项、26.2为942项；每节点服务端41＋19、客户端32＋12，缺依赖双后端全部通过，SpotBugs shared 0、平台各6且无新增。497份受控源码前后哈希均为 `3f302306cf43dea4dffcd3caf7c0d735365aefa7179cd7df47926758a56f2e98`。
+- 首轮矩阵在`ClaimIntentClosedLoopClientGameTest`创建专服时发生Fabric启动超时，未进入认领或仓库逻辑；按原配置重跑1.21.8双后端通过后，再以同一冻结源码重跑完整矩阵通过，未修改生产代码、超时或过滤场景。
+- 线上提交推送、CI和完整回归视频尚待验收；本批完成不代表WP9全部清理或WP10旧实现退场。
+- 后续P1／WP10欠账单独保留：Foundation旧材料清单缺项目无响应的产品语义、旧协议缺项目订阅与兴趣上限、删除通知与团队推送范围、`MaterialListClose`和缺项目OPEN差异，以及真实旧版本客户端证据和默认后端切换。未经定案不得在本批顺手统一。
 
 ## 5. 已确认决策
 

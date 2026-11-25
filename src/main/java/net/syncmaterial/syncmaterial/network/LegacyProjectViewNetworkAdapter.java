@@ -529,7 +529,11 @@ public final class LegacyProjectViewNetworkAdapter implements AutoCloseable {
                         .readReferencedWarehouses(owner, projectId), areaId) != null;
                 changed = success && !existed;
                 message = success ? (changed ? "已添加仓库引用" : "仓库引用已存在") : "添加仓库引用失败";
-                if (success) Phase4Handler.broadcastAllMaterialStatus(owner, projectId);
+                if (success) {
+                    Phase4Handler.broadcastAllMaterialStatus(owner, projectId);
+                    owner.warehouseProjection().broadcastAreas();
+                    owner.warehouseProjection().refreshProjectReferences(projectId);
+                }
                 return new AreaOutcome(true, success, changed, message, List.of(projectId));
             }
             case "REMOVE_WAREHOUSE_REF" -> {
@@ -540,7 +544,11 @@ public final class LegacyProjectViewNetworkAdapter implements AutoCloseable {
                         .readReferencedWarehouses(owner, projectId), areaId) == null;
                 changed = success && existed;
                 message = success ? (changed ? "已移除仓库引用" : "仓库引用不存在") : "移除仓库引用失败";
-                if (success) Phase4Handler.broadcastAllMaterialStatus(owner, projectId);
+                if (success) {
+                    Phase4Handler.broadcastAllMaterialStatus(owner, projectId);
+                    owner.warehouseProjection().broadcastAreas();
+                    owner.warehouseProjection().refreshProjectReferences(projectId);
+                }
                 return new AreaOutcome(true, success, changed, message,
                         changed ? List.of(projectId) : List.of());
             }
@@ -576,8 +584,8 @@ public final class LegacyProjectViewNetworkAdapter implements AutoCloseable {
                         data.x1(), data.y1(), data.z1(), data.x2(), data.y2(), data.z2());
                 if (added <= 0) return AreaOutcome.failure("创建仓库失败");
                 manager.rescanWarehouseAndMarkChunks(added);
-                ModNetworkHandler.pushWarehouseContainerUpdate(owner);
-                ModNetworkHandler.broadcastWarehouseAreas(owner);
+                owner.warehouseProjection().publishContainers();
+                owner.warehouseProjection().broadcastAreas();
                 changed = true;
                 message = "仓库已创建";
             }
@@ -594,8 +602,8 @@ public final class LegacyProjectViewNetworkAdapter implements AutoCloseable {
                 changed = success && !sameWarehouse(current, data);
                 if (success) {
                     manager.rescanWarehouseAndMarkChunks(areaId);
-                    ModNetworkHandler.pushWarehouseContainerUpdate(owner);
-                    ModNetworkHandler.broadcastWarehouseAreas(owner);
+                    owner.warehouseProjection().publishContainers();
+                    owner.warehouseProjection().broadcastAreas();
                     for (String project : affected) {
                         Phase4Handler.broadcastAllMaterialStatus(owner, project);
                     }
@@ -612,8 +620,8 @@ public final class LegacyProjectViewNetworkAdapter implements AutoCloseable {
                 success = after == null;
                 changed = success && current != null;
                 if (success) {
-                    ModNetworkHandler.pushWarehouseContainerUpdate(owner);
-                    ModNetworkHandler.broadcastWarehouseAreas(owner);
+                    owner.warehouseProjection().publishContainers();
+                    owner.warehouseProjection().broadcastAreas();
                     for (String project : affected) {
                         Phase4Handler.broadcastAllMaterialStatus(owner, project);
                     }

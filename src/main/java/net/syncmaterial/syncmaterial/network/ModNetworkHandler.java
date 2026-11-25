@@ -15,7 +15,6 @@ import net.syncmaterial.syncmaterial.server.runtime.BackendMode;
 import net.syncmaterial.syncmaterial.server.runtime.ServerRuntimeRegistry;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -387,7 +386,7 @@ public class ModNetworkHandler {
         // Phase 5: 取货模式容器数据订阅
         ServerPlayNetworking.registerGlobalReceiver(WarehouseContainerRequestC2SPacket.ID, (payload, context) -> {
             ServerPlayer player = context.player();
-            if (!validateHandshakedPlayer(player)) return;
+            if (!validateHandshakedPlayer(player) || !validateSchematicId(payload.schematicId())) return;
 
             LegacyNetworkDispatch.dispatch(context, owner ->
                     handleWarehouseContainerRequest(owner, payload, player));
@@ -590,36 +589,12 @@ public class ModNetworkHandler {
     // Phase 5: 取货模式订阅管理（状态由上下文持有的 LegacySubscriptions 隔离）
     static void handleWarehouseContainerRequest(LegacyServerContext owner, WarehouseContainerRequestC2SPacket payload,
                                                 ServerPlayer player) {
-        if (!LegacyNetworkDispatch.accepts(owner, player)) return;
-
-        String schematicId = payload.schematicId();
-        StagingAreaManager manager = owner.staging();
-        if (manager == null) return;
+        if (!LegacyNetworkDispatch.accepts(owner, player) || !validateSchematicId(payload.schematicId())) return;
 
         if (payload.subscribe()) {
-            // 订阅：获取该原理图引用的仓库 ID 集合
-            var warehouses = manager.getWarehousesForSchematic(schematicId);
-            Set<Integer> warehouseIds = warehouses.stream()
-                    .map(StagingAreaManager.Warehouse::id)
-                    .collect(java.util.stream.Collectors.toSet());
-
-            owner.subscriptions().subscribeWarehouses(player, schematicId, warehouseIds);
-
-            // 计算该玩家所有活跃原理图的仓库并集
-            Set<Integer> allWarehouseIds = owner.subscriptions().warehouseIds(player);
-
-            // 查询所有仓库的容器数据
-            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers =
-                    manager.getContainerEntriesForWarehouses(allWarehouseIds,
-                    net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(player.level()));
-            sendToPlayers(owner, Set.of(player), new WarehouseContainerResponseS2CPacket(containers));
-            SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 订阅取货模式: 原理图 {}, 仓库 {}",
-                    player.getName().getString(), schematicId, warehouseIds);
+            owner.warehouseProjection().subscribe(player, payload.schematicId());
         } else {
-            // 取消订阅
-            owner.subscriptions().unsubscribeWarehouses(player, schematicId);
-            SyncMaterial.LOGGER.info("[Phase5] 玩家 {} 取消订阅取货模式: 原理图 {}",
-                    player.getName().getString(), schematicId);
+            owner.warehouseProjection().unsubscribe(player, payload.schematicId());
         }
     }
 
@@ -627,23 +602,7 @@ public class ModNetworkHandler {
      * 供上下文/区域管理器调用：容器数据变化后推送给取货模式中的玩家。
      */
     public static void pushWarehouseContainerUpdate(LegacyServerContext owner) {
-        if (owner == null || !owner.isCurrent()) return;
-
-        StagingAreaManager manager = owner.staging();
-        if (manager == null) return;
-
-        Map<ServerPlayer, Set<Integer>> subscribers = owner.subscriptions().warehouseSubscribers();
-        for (var playerEntry : subscribers.entrySet()) {
-            ServerPlayer player = playerEntry.getKey();
-            Set<Integer> allWarehouseIds = playerEntry.getValue();
-            if (allWarehouseIds.isEmpty() || !owner.isConnected(player)) {
-                continue;
-            }
-            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers =
-                    manager.getContainerEntriesForWarehouses(allWarehouseIds,
-                    net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(player.level()));
-            sendToPlayers(owner, Set.of(player), new WarehouseContainerResponseS2CPacket(containers));
-        }
+        if (owner != null) owner.warehouseProjection().publishContainers();
     }
 
     /**
@@ -654,46 +613,13 @@ public class ModNetworkHandler {
      * 因此逐玩家单独组包。</p>
      */
     public static void broadcastWarehouseAreas(LegacyServerContext owner) {
-        if (owner == null || !owner.isCurrent()) return;
-
-        StagingAreaManager manager = owner.staging();
-        if (manager == null) return;
-
-        // 线框广播是纯展示功能，不能因为它出错而中断调用方的业务流程
-        try {
-            var server = owner.server();
-            var playerList = server == null || server.getPlayerList() == null
-                ? null : server.getPlayerList().getPlayers();
-            if (playerList == null) return;
-
-            var warehouseInfos = StagingAreaManager.buildWarehouseInfos(manager.getAllWarehouses());
-            for (var player : playerList) {
-                sendWarehouseAreas(owner, player, manager, warehouseInfos);
-            }
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("[Phase5] 广播仓库区域数据失败", e);
-        }
+        if (owner != null) owner.warehouseProjection().broadcastAreas();
     }
 
     /** Refreshes legacy pickup projections without creating subscriptions for other projects. */
     private static List<StagingAreaConfigResponseS2CPacket.AreaInfo> refreshPickupWarehouseReferences(
             LegacyServerContext owner, String schematicId) {
-        StagingAreaManager manager = owner.staging();
-        var warehouses = manager.getWarehousesForSchematic(schematicId);
-        Set<Integer> warehouseIds = warehouses.stream()
-                .map(StagingAreaManager.Warehouse::id)
-                .collect(java.util.stream.Collectors.toSet());
-        Set<ServerPlayer> affected = owner.subscriptions().refreshWarehouses(schematicId, warehouseIds);
-        for (ServerPlayer subscriber : affected) {
-            if (!owner.isConnected(subscriber)) continue;
-            Set<Integer> allWarehouseIds = owner.subscriptions().warehouseIds(subscriber);
-            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers =
-                    manager.getContainerEntriesForWarehouses(allWarehouseIds,
-                            net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(subscriber.level()));
-            // Empty snapshots are required to clear the last legacy highlight.
-            sendToPlayers(owner, Set.of(subscriber), new WarehouseContainerResponseS2CPacket(containers));
-        }
-        return StagingAreaManager.buildWarehouseInfos(warehouses);
+        return owner.warehouseProjection().refreshProjectReferences(schematicId);
     }
 
     /**
@@ -726,52 +652,11 @@ public class ModNetworkHandler {
         projectViews.flush();
     }
 
-    /** 显式 server 兼容入口：只做同步上下文解析，排队后不再重新查注册表。 */
-    public static void broadcastWarehouseAreas(MinecraftServer server) {
-        LegacyServerContext owner = LegacyServerRegistry.get(server);
-        if (owner != null) {
-            broadcastWarehouseAreas(owner);
-        }
-    }
-
     /**
      * 向单个玩家推送仓库区域数据（玩家加入时的初始同步）。
      */
     public static void sendWarehouseAreasTo(LegacyServerContext owner, ServerPlayer player) {
-        if (owner == null || !owner.isCurrent()) return;
-
-        StagingAreaManager manager = owner.staging();
-        if (manager == null) return;
-
-        try {
-            sendWarehouseAreas(owner, player, manager,
-                StagingAreaManager.buildWarehouseInfos(manager.getAllWarehouses()));
-        } catch (Exception e) {
-            SyncMaterial.LOGGER.error("[Phase5] 推送仓库区域数据失败", e);
-        }
-    }
-
-    private static void sendWarehouseAreas(LegacyServerContext owner, ServerPlayer player,
-                                           StagingAreaManager manager,
-                                           List<StagingAreaConfigResponseS2CPacket.AreaInfo> warehouseInfos) {
-        if (player == null || !owner.isConnected(player)) {
-            return;
-        }
-
-        // 这是全员广播的共同出口：没握手过说明对方没装本 mod（或版本被拒），不必白发
-        if (!ProtocolHandshake.hasHandshaked(player)) {
-            return;
-        }
-
-        Set<Integer> referenced = new HashSet<>();
-        for (String schematicId : owner.subscriptions().projects(player)) {
-            for (var wh : manager.getWarehousesForSchematic(schematicId)) {
-                referenced.add(wh.id());
-            }
-        }
-
-        ServerPlayNetworking.send(player,
-            new WarehouseAreaResponseS2CPacket(warehouseInfos, List.copyOf(referenced)));
+        if (owner != null) owner.warehouseProjection().sendAreas(player);
     }
 
     /**
