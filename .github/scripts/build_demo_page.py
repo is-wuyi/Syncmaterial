@@ -108,6 +108,7 @@ class DemoData:
     mod_version: str | None = None
     scenario: str | None = None
     title: str | None = None
+    recording_mode: str | None = None
 
 
 def esc(value) -> str:
@@ -539,6 +540,9 @@ def load_demo_data(media_dir: Path) -> DemoData:
             manifest, ("scenario", "scenario_id", "scenarioId"), "scenario"
         ),
         title=_optional_manifest_text(manifest, ("title",), "title"),
+        recording_mode=_optional_manifest_text(
+            manifest, ("recordingMode", "recording_mode", "mode"), "recordingMode"
+        ),
     )
 
 
@@ -833,11 +837,14 @@ footer p { margin: 0; overflow-wrap: anywhere; }
 
 
 def render_index(data: DemoData, repo: str, run_id: str) -> str:
-    lede = (
-        data.title
-        if data.title and data.title != TITLE
-        else "仓库选择、项目引用保存与移除的客户端闭环演示。"
-    )
+    suite = data.recording_mode == "suite"
+    page_title = data.title if suite and data.title else TITLE
+    lede = ("完整记录真实客户端测试过程，展示当前测试、完成进度、结果与运行信息。"
+            if suite else (
+                data.title
+                if data.title and data.title != TITLE
+                else "仓库选择、项目引用保存与移除的客户端闭环演示。"
+            ))
     steps_html = _render_steps(data.steps)
     facts_html = _render_facts(data, run_id)
     return f"""<!DOCTYPE html>
@@ -846,7 +853,7 @@ def render_index(data: DemoData, repo: str, run_id: str) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>{TITLE}</title>
+<title>{esc(page_title)}</title>
 <style>
 {STYLE}
 </style>
@@ -855,7 +862,7 @@ def render_index(data: DemoData, repo: str, run_id: str) -> str:
 <main class="page">
   <header class="hero">
     <p class="eyebrow">{esc(repo)} · CI 客户端演示</p>
-    <h1>{TITLE}</h1>
+    <h1>{esc(page_title)}</h1>
     <p class="lede">{esc(lede)}</p>
     <div class="pills">
       <span class="pill {status_class(data.result)}">结果 {esc(data.result)}</span>
@@ -873,7 +880,7 @@ def render_index(data: DemoData, repo: str, run_id: str) -> str:
       </div>
     </div>
     <video src="demo.mp4" controls playsinline preload="metadata" poster="poster.png"
-           width="1280" height="720" aria-label="仓库引用操作演示视频">
+           width="1280" height="720" aria-label="{esc(page_title)}视频">
       <source src="demo.mp4" type="video/mp4">
       您的浏览器不支持 HTML5 视频，请<a href="demo.mp4">下载演示 MP4</a>。
     </video>
@@ -899,7 +906,7 @@ def render_index(data: DemoData, repo: str, run_id: str) -> str:
   <section class="card preview-card" aria-labelledby="preview-title">
     <h2 id="preview-title">GIF 预览</h2>
     <figure>
-      <img src="preview.gif" alt="仓库引用操作演示预览" class="preview-image"
+      <img src="preview.gif" alt="{esc(page_title)}预览" class="preview-image"
            width="800" decoding="async">
       <figcaption>GIF 预览 · 完整过程请观看上方视频。</figcaption>
     </figure>
@@ -925,10 +932,11 @@ def render_summary(data: DemoData, base_url: str, run_id: str) -> str:
     base = base_url.rstrip("/")
     run_url = f"{base}/demos/{quote(run_id, safe='')}/"
     preview_url = f"{run_url}preview.gif?v={quote(run_id, safe='')}"
+    title = data.title if data.recording_mode == "suite" and data.title else TITLE
     lines = [
-        f"[![{TITLE}]({preview_url})]({run_url})",
+        f"[![{title}]({preview_url})]({run_url})",
         "",
-        f"**{TITLE}**",
+        f"**{title}**",
         "",
         (
             f"结果：{_code_span(data.result)} · "

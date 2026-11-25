@@ -181,7 +181,7 @@ class FakeDisplay:
 class Harness:
     def __init__(self, directory, log_text, gradle_polls=(0,), fail_gradle=False,
                  fail_media=False, timeout_media=False,
-                 xwininfo_output=XWININFO_OUTPUT, timeout=30.0, black_media=False):
+                 xwininfo_output=XWININFO_OUTPUT, timeout=30.0, black_media=False, mode="scenario"):
         self.tmp = Path(directory)
         self.run_dir = self.tmp / "run"
         self.out = self.tmp / "out"
@@ -212,6 +212,7 @@ class Harness:
             sleep=self.clock.sleep,
             environ={"GITHUB_RUN_ID": "12345"},
             display_factory=lambda **_: self.display,
+            mode=mode,
         )
 
     def manifest(self):
@@ -417,6 +418,23 @@ class ManifestAndMediaTest(unittest.TestCase):
         source = overlay[overlay.index("-i") + 1]
         self.assertTrue(source.endswith("raw.mp4"))
         self.assertTrue(overlay[-1].endswith("demo.mp4"))
+        filters = overlay[overlay.index("-vf") + 1]
+        self.assertIn("setpts=1*PTS", filters)
+        self.assertIn("explanation.txt", filters)
+        self.assertEqual(1.0, harness.manifest()["playback"]["demoTimeScale"])
+
+    def test_manifest_distinguishes_demo_and_raw_timestamps(self):
+        log = "\n".join([tag("START"), step("open-popup", 1000), tag("PASS")]) + "\n"
+        harness = make_harness(self, log)
+        self.assertEqual(0, harness.recorder.run())
+        entry = harness.manifest()["steps"][0]
+        self.assertEqual(1.0, entry["videoSeconds"])
+        self.assertEqual(1.0, entry["rawVideoSeconds"])
+        events = (harness.out / "events.tsv").read_text(encoding="utf-8").splitlines()
+        self.assertEqual("type\tstep_id\ttitle\tepoch_ms\tvideo_seconds\traw_video_seconds", events[0])
+        step_row = next(row for row in events if row.startswith("STEP\t"))
+        self.assertEqual("1.000", step_row.split("\t")[-1])
+        self.assertEqual("1.000", step_row.split("\t")[-2])
 
     def test_gif_commands_match_duration_size_and_rate(self):
         palette_cmd, gif_cmd = DEMO.build_gif_commands(
@@ -424,6 +442,7 @@ class ManifestAndMediaTest(unittest.TestCase):
         self.assertIn("-t", palette_cmd)
         self.assertEqual("15.000", palette_cmd[palette_cmd.index("-t") + 1])
         palette_filter = palette_cmd[palette_cmd.index("-vf") + 1]
+        self.assertIn("setpts=1.000000*PTS", palette_filter)
         self.assertIn("fps=10", palette_filter)
         self.assertIn("scale=800:-2", palette_filter)
         self.assertIn("palettegen", palette_filter)
@@ -432,6 +451,8 @@ class ManifestAndMediaTest(unittest.TestCase):
         self.assertIn("paletteuse", gif_cmd[gif_cmd.index("-lavfi") + 1])
         self.assertEqual(20.0, DEMO.preview_clip(60.0))
         self.assertEqual(8.0, DEMO.preview_clip(2.0))
+        self.assertEqual(10.0, DEMO.preview_clip(60.0, 2.0))
+        self.assertEqual(4.0, DEMO.preview_clip(2.0, 2.0))
 
     def test_media_failure_only_warns_and_keeps_zero_exit(self):
         harness = make_harness(self, tag("START") + "\n" + tag("PASS") + "\n",
@@ -470,6 +491,48 @@ class ManifestAndMediaTest(unittest.TestCase):
                             for warning in manifest["media"]["warnings"]))
 
 
+class SuiteRecordingTest(unittest.TestCase):
+    def test_registered_legacy_tests_have_chinese_titles(self):
+        classes, titles = DEMO.load_suite_tests(ROOT, "legacy")
+        self.assertEqual(32, len(classes))
+        for class_name in classes:
+            self.assertNotEqual(class_name.rsplit(".", 1)[-1], titles[class_name], class_name)
+
+    def test_suite_keeps_recording_after_individual_pass(self):
+        smoke = "net.syncmaterial.syncmaterial.gametest.client.SmokeTestClientGameTest"
+        inventory = "net.syncmaterial.syncmaterial.gametest.client.InventorySyncClientGameTest"
+        log = "\n".join([tag("START", smoke), tag("PASS", smoke),
+                         tag("START", inventory), tag("PASS", inventory)]) + "\n"
+        harness = make_harness(self, log, mode="suite")
+        self.assertEqual(0, harness.recorder.run())
+        self.assertEqual([signal.SIGINT], harness.spawn.capture_process.signals)
+        manifest = harness.manifest()
+        self.assertEqual("suite", manifest["recordingMode"])
+        self.assertEqual("FAIL", manifest["result"], "部分套件不得冒充整体PASS")
+        self.assertEqual({"expected": 32, "started": 2, "completed": 2,
+                          "passed": 2, "failed": 0}, manifest["suite"])
+        self.assertEqual([smoke, inventory], [step["id"] for step in manifest["steps"]])
+        self.assertTrue(all(step["status"] == "PASS" for step in manifest["steps"]))
+        overlay = next(call["command"] for call in harness.run.calls
+                       if call["command"][-1].endswith("demo.mp4"))
+        filters = overlay[overlay.index("-vf") + 1]
+        self.assertIn("suite-header.txt", filters)
+        self.assertIn("suite-progress-2.txt", filters)
+        self.assertIn("x=w-text_w-16", filters)
+        self.assertIn("setpts=1*PTS", filters)
+
+    def test_suite_finish_requires_every_registered_test(self):
+        timeline = DEMO.SuiteTimeline(["a.A", "b.B"], {"a.A": "测试A", "b.B": "测试B"})
+        self.assertEqual("start", timeline.consume(tag("START", "a.A"), 1000))
+        self.assertEqual("test-start", timeline.consume(tag("START", "b.B"), 2000))
+        self.assertEqual("test-result", timeline.consume(tag("PASS", "a.A"), 3000))
+        self.assertEqual("test-result", timeline.consume(tag("PASS", "b.B"), 4000))
+        timeline.finish(0, 5000)
+        self.assertEqual("PASS", timeline.result)
+        self.assertEqual((1, 0), timeline.progress_before(2))
+        self.assertEqual(2, timeline.stats()["completed"])
+
+
 class PureHelperTest(unittest.TestCase):
     def test_parse_xwininfo_tree_uses_absolute_minecraft_geometry(self):
         text = (
@@ -499,6 +562,9 @@ class PureHelperTest(unittest.TestCase):
                 "--backend", "legacy"]
         args = parser.parse_args(base + ["--gradle-arg=:1.21.8:runClientGameTest",
                                          "--gradle-arg=--no-build-cache"])
+        self.assertEqual("scenario", args.mode)
+        suite_args = parser.parse_args(base + ["--mode", "suite"])
+        self.assertEqual("suite", suite_args.mode)
         self.assertEqual([":1.21.8:runClientGameTest", "--no-build-cache"],
                          DEMO.collect_gradle_args(args))
         args = parser.parse_args(DEMO.normalize_argv(
@@ -516,6 +582,17 @@ class PureHelperTest(unittest.TestCase):
         args = parser.parse_args(base)
         self.assertEqual([":1.21.8:runClientGameTest", "--no-build-cache", "--stacktrace"],
                          DEMO.collect_gradle_args(args))
+
+    def test_pickup_scenario_targets_real_legacy_refresh_test(self):
+        scenario = DEMO.load_scenario("legacy-pickup-ref-refresh")
+        self.assertTrue(scenario.target_class.endswith("LegacyPickupRefRefreshClientGameTest"))
+        self.assertEqual("旧客户端取货引用即时刷新", scenario.title)
+        self.assertEqual(["pickup-baseline", "add-shared-reference", "shared-reference-added",
+                          "remove-project-a-reference", "shared-reference-preserved",
+                          "remove-last-shared-reference", "shared-reference-removed",
+                          "open-project-a", "project-a-wireframe", "remove-final-reference",
+                          "pickup-cleared", "demo-complete"],
+                         list(scenario.step_titles))
 
     def test_unknown_scenario_is_rejected(self):
         with self.assertRaises(DEMO.DemoError):

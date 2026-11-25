@@ -579,6 +579,7 @@ class WorkflowContractTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('if [ "${{ matrix.node }}" = "1.21.8" ]; then', workflow)
         self.assertIn('--run-dir ".runs/${{ matrix.node }}/legacy-client"', workflow)
+        self.assertIn('--mode suite', workflow)
         self.assertIn('--gradle-arg=":${{ matrix.node }}:runClientGameTest"', workflow)
         self.assertIn("group: syncmaterial-pages", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
@@ -592,7 +593,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("Wait for Pages artifact propagation", workflow)
         self.assertIn("run: sleep 10", workflow)
         self.assertIn("Verify deployed demo page", workflow)
-        self.assertIn("--keep 20", workflow)
+        self.assertIn("--keep 8", workflow)
         # Six definitions: nine test/summary jobs plus one optional Pages publisher.
         self.assertEqual(6, workflow.count("runs-on: ubuntu-latest"))
         self.assertIn("  demo-pages:\n    needs: summary", workflow)

@@ -64,6 +64,10 @@
       },
       {
         "adapter": "syncmaterial-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.client.LegacyPickupRefRefreshClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-test-report",
         "value": "net.syncmaterial.syncmaterial.gametest.client.LeaveAndUnsubscribeClientGameTest"
       },
       {

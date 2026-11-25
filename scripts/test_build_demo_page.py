@@ -265,6 +265,21 @@ class BuildDemoPageTest(unittest.TestCase):
         self.assertIn("拒绝发布", stderr)
         self.assertFalse(out.exists())
 
+    def test_suite_page_uses_full_regression_title_and_description(self):
+        manifest = manifest_copy()
+        manifest["recordingMode"] = "suite"
+        manifest["title"] = "CI 客户端完整回归 · 1.21.8 legacy"
+        manifest["suite"] = {"expected": 32, "completed": 32, "passed": 32, "failed": 0}
+        media, out = write_bundle(self.root / "suite", manifest=manifest)
+        code, stdout, stderr = invoke(media, out)
+        self.assertEqual(0, code, stderr)
+        page = (out / "demos/4242/index.html").read_text(encoding="utf-8")
+        summary = (out / "demos/4242/summary.md").read_text(encoding="utf-8")
+        self.assertIn("CI 客户端完整回归 · 1.21.8 legacy", page)
+        self.assertIn("完整记录真实客户端测试过程", page)
+        self.assertIn("CI 客户端完整回归 · 1.21.8 legacy", summary)
+        self.assertNotIn("仓库引用操作演示</title>", page)
+
     def test_missing_media_file_errors(self):
         for name in PAGE.REQUIRED_MEDIA:
             with self.subTest(missing=name):

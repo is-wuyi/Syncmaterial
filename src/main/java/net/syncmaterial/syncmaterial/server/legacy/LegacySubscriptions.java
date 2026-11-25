@@ -42,6 +42,20 @@ public final class LegacySubscriptions implements AutoCloseable {
         warehouses.computeIfAbsent(player, ignored -> new ConcurrentHashMap<>()).put(schematicId, Set.copyOf(ids));
     }
 
+    /** Refreshes only existing per-project pickup subscriptions and returns their owners. */
+    public synchronized Set<ServerPlayer> refreshWarehouses(String schematicId, Set<Integer> ids) {
+        if (closed) return Set.of();
+        Set<Integer> snapshot = Set.copyOf(ids);
+        Set<ServerPlayer> affected = new HashSet<>();
+        warehouses.forEach((player, projects) -> {
+            if (projects.containsKey(schematicId)) {
+                projects.put(schematicId, snapshot);
+                affected.add(player);
+            }
+        });
+        return Set.copyOf(affected);
+    }
+
     public synchronized void unsubscribeWarehouses(ServerPlayer player, String schematicId) {
         Map<String, Set<Integer>> projects = warehouses.get(player);
         if (projects == null) return;

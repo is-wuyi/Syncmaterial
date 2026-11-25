@@ -85,6 +85,40 @@ class LegacySubscriptionsTest {
     }
 
     @Test
+    void refreshOnlyUpdatesExistingProjectAndPreservesOtherProjectUnion() {
+        LegacySubscriptions subscriptions = new LegacySubscriptions();
+        ServerPlayer player = mock(ServerPlayer.class);
+        ServerPlayer unrelated = mock(ServerPlayer.class);
+        subscriptions.subscribeWarehouses(player, "a", Set.of(1));
+        subscriptions.subscribeWarehouses(player, "b", Set.of(2));
+        subscriptions.subscribeWarehouses(unrelated, "b", Set.of(3));
+
+        Set<ServerPlayer> affected = subscriptions.refreshWarehouses("a", Set.of(4));
+
+        assertEquals(Set.of(player), affected);
+        assertEquals(Set.of(2, 4), subscriptions.warehouseIds(player));
+        assertEquals(Set.of(3), subscriptions.warehouseIds(unrelated));
+        subscriptions.refreshWarehouses("missing", Set.of(5));
+        assertEquals(Set.of(2, 4), subscriptions.warehouseIds(player));
+        assertEquals(Set.of(3), subscriptions.warehouseIds(unrelated));
+    }
+
+    @Test
+    void refreshEmptySetKeepsPickupProjectForClearSnapshot() {
+        LegacySubscriptions subscriptions = new LegacySubscriptions();
+        ServerPlayer player = mock(ServerPlayer.class);
+        subscriptions.subscribeWarehouses(player, "a", Set.of(1));
+
+        assertEquals(Set.of(player), subscriptions.refreshWarehouses("a", Set.of()));
+        assertTrue(subscriptions.warehouseIds(player).isEmpty());
+        assertEquals(Set.of(player), subscriptions.warehouseSubscribers().keySet());
+
+        subscriptions.close();
+        assertTrue(subscriptions.refreshWarehouses("a", Set.of(2)).isEmpty());
+        assertTrue(subscriptions.warehouseSubscribers().isEmpty());
+    }
+
+    @Test
     void snapshotsCannotBeMutatedExternally() {
         LegacySubscriptions subscriptions = new LegacySubscriptions();
         ServerPlayer player = mock(ServerPlayer.class);

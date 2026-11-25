@@ -444,7 +444,7 @@ jobs:
           MESA_GLSL_VERSION_OVERRIDE: 460
         run: |
           if [ "${{ matrix.node }}" = "1.21.8" ]; then
-            .github/scripts/record_client_demo.sh --run-dir ".runs/${{ matrix.node }}/legacy-client" --out "$RUNNER_TEMP/demo-media" --node "${{ matrix.node }}" --backend legacy --scenario warehouse-ref-popup --timeout-seconds 1200 --gradle-arg=":${{ matrix.node }}:runClientGameTest" --gradle-arg=--no-build-cache --gradle-arg=--stacktrace
+            .github/scripts/record_client_demo.sh --run-dir ".runs/${{ matrix.node }}/legacy-client" --out "$RUNNER_TEMP/demo-media" --node "${{ matrix.node }}" --backend legacy --mode suite --timeout-seconds 1200 --gradle-arg=":${{ matrix.node }}:runClientGameTest" --gradle-arg=--no-build-cache --gradle-arg=--stacktrace
           else
             xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' ./gradlew :${{ matrix.node }}:runClientGameTest --no-build-cache --stacktrace
           fi
@@ -652,7 +652,7 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@v5
 
-      # 只发布已通过统一汇总且来自 push 的离线测试素材；保留最近20次run，旧链接不互相覆盖。
+      # 只发布已通过统一汇总且来自 push 的离线完整回归素材；保留最近8次run，旧链接不互相覆盖。
       - name: Download demo media
         id: demo_media
         if: ${{ success() && github.event_name == 'push' }}
@@ -681,7 +681,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 -I .github/scripts/build_demo_page.py --media "$RUNNER_TEMP/demo-media" --out "$RUNNER_TEMP/demo-site" --run-id "${{ github.run_id }}" --repo "${{ github.repository }}" --base-url "https://is-wuyi.github.io/Syncmaterial"
-          python3 -I .github/scripts/demo_site_history.py prune --site "$RUNNER_TEMP/demo-site" --keep 20 --protect "${{ github.run_id }}"
+          python3 -I .github/scripts/demo_site_history.py prune --site "$RUNNER_TEMP/demo-site" --keep 8 --protect "${{ github.run_id }}"
 
       - name: Configure GitHub Pages
         if: ${{ success() && github.event_name == 'push' && steps.build_demo_page.outcome == 'success' }}

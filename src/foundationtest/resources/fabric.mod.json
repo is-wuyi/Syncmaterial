@@ -19,6 +19,10 @@
       },
       {
         "adapter": "syncmaterial-foundation-test-report",
+        "value": "net.syncmaterial.syncmaterial.gametest.foundation.FoundationPickupRefRefreshClientGameTest"
+      },
+      {
+        "adapter": "syncmaterial-foundation-test-report",
         "value": "net.syncmaterial.syncmaterial.gametest.foundation.MaterialResolverOracleClientGameTest"
       },
       {

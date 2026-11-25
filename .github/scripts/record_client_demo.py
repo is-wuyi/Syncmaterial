@@ -5,8 +5,8 @@ The script owns the CI demo pipeline:
 
 1. starts an Xvfb display (or reuses ``DISPLAY`` when Xvfb is unavailable),
 2. runs ``./gradlew`` with that display in the environment,
-3. tails ``<run-dir>/logs/latest.log`` for the target Fabric client GameTest,
-4. captures the Minecraft window with ``ffmpeg`` x11grab between START and PASS/FAIL,
+3. tails ``<run-dir>/logs/latest.log`` for one scenario or the complete client suite,
+4. captures the Minecraft window with ``ffmpeg`` x11grab; suite mode keeps recording through Gradle exit,
 5. remuxes the recording and produces ``raw.mp4``, ``demo.mp4``, ``preview.gif``,
    ``poster.png``, ``events.tsv`` and ``manifest.json``.
 
@@ -50,6 +50,9 @@ GIF_MAX_SECONDS = 20.0
 GIF_MAX_BYTES = 5 * 1024 * 1024
 GIF_WIDTH = 800
 GIF_FPS = 10
+DEMO_TIME_SCALE = 1.0
+GIF_PLAYBACK_SCALE = 1.0
+GIF_TIME_SCALE = GIF_PLAYBACK_SCALE / DEMO_TIME_SCALE
 
 DEFAULT_SCENARIO = "warehouse-ref-popup"
 FONT_FAMILY = "Noto Sans CJK SC"
@@ -67,6 +70,7 @@ SCENARIOS = {
         "target": "net.syncmaterial.syncmaterial.gametest.client."
                   "WarehouseRefPopupClientGameTest",
         "title": "仓库引用弹窗闭环演示",
+        "explanation": "在编辑器中选择仓库，保存或移除项目引用",
         "steps": {
             "editor-open": "打开备货区编辑器",
             "open-editor": "打开备货区编辑器",
@@ -86,6 +90,26 @@ SCENARIOS = {
             "demo-complete": "仓库引用弹窗闭环完成",
         },
     },
+    "legacy-pickup-ref-refresh": {
+        "target": "net.syncmaterial.syncmaterial.gametest.client."
+                  "LegacyPickupRefRefreshClientGameTest",
+        "title": "旧客户端取货引用即时刷新",
+        "explanation": "旧客户端无需重开取货，仓库引用增删后立即同步高亮",
+        "steps": {
+            "pickup-baseline": "旧客户端取货基线：两个项目的容器已高亮",
+            "add-shared-reference": "项目A新增共享仓库引用",
+            "shared-reference-added": "新增引用已生效，容器无需重开即可高亮",
+            "remove-project-a-reference": "项目A移除共享引用，项目B继续保留",
+            "shared-reference-preserved": "跨项目共享仓库与容器继续保留",
+            "remove-last-shared-reference": "项目B移除最后一个共享引用",
+            "shared-reference-removed": "共享引用消失，只保留项目A的容器",
+            "open-project-a": "打开项目A材料清单并核对线框",
+            "project-a-wireframe": "项目A线框与取货容器一致",
+            "remove-final-reference": "移除项目A最后一个仓库引用",
+            "pickup-cleared": "空快照已到达，旧高亮全部清除",
+            "demo-complete": "断线重连后旧订阅与高亮均未复活",
+        },
+    },
 }
 
 BACKEND_TASKS = {
@@ -93,6 +117,48 @@ BACKEND_TASKS = {
     "foundation": "runFoundationClientGameTest",
     "optional-legacy": "runOptionalClientGameTest",
     "optional-foundation": "runOptionalFoundationClientGameTest",
+}
+
+SUITE_TEST_TITLES = {
+    "SmokeTestClientGameTest": "客户端启动与基础连接",
+    "InventorySyncClientGameTest": "背包库存同步",
+    "DisconnectCleanupClientGameTest": "断线后的客户端状态清理",
+    "HudToggleDataFlowClientGameTest": "HUD开关与后台数据流",
+    "StagingAreaSelectionClientGameTest": "准星选区操作",
+    "PickupHighlightClientGameTest": "取货高亮显示",
+    "WarehouseCrudClientGameTest": "仓库创建、编辑、引用与删除",
+    "OwnerManagementClientGameTest": "负责人与副负责人管理",
+    "MultiplayerClaimBroadcastClientGameTest": "多人认领状态广播",
+    "MaterialListOpenClientGameTest": "材料清单打开与数据加载",
+    "BatchAssignKickClientGameTest": "批量分配与按材料踢人",
+    "RefreshPickupClientGameTest": "手动刷新与取货开关",
+    "LeaveAndUnsubscribeClientGameTest": "退出认领与取消订阅",
+    "WarehousePickupIndicatorClientGameTest": "仓库取货指示器",
+    "WarehouseContainerPushClientGameTest": "容器变化主动推送",
+    "MaterialListSortClientGameTest": "材料清单排序与筛选",
+    "ConfigPersistenceClientGameTest": "配置保存与重载",
+    "ConcurrencyClaimsClientGameTest": "多人并发认领",
+    "OwnerActionConflictClientGameTest": "负责人操作冲突处理",
+    "StressContainerPushClientGameTest": "大量容器推送压力测试",
+    "StagingAreaScanPerfClientGameTest": "备货区扫描性能",
+    "StagingAreaSnapshotClientGameTest": "备货区库存快照",
+    "StagingAreaEditorClientGameTest": "备货区编辑器操作",
+    "LegacyServerReopenClientGameTest": "旧服务端关闭与重开",
+    "ProductionUiClientGameTest": "生产界面与多语言布局",
+    "ClaimIntentClosedLoopClientGameTest": "认领意图完整闭环",
+    "ActiveProjectBackgroundUpdateClientGameTest": "后台项目数据持续更新",
+    "CarriedItemHudHighlightClientGameTest": "手持物品HUD与高亮",
+    "WarehouseRefPopupClientGameTest": "仓库引用弹窗操作",
+    "ClientSessionLifecycleClientGameTest": "客户端会话生命周期",
+    "StagingAreaDimensionChangeClientGameTest": "换维度后的区域状态",
+    "LegacyPickupRefRefreshClientGameTest": "旧客户端引用变化即时刷新",
+}
+
+SUITE_METADATA = {
+    "legacy": "src/gametest/resources/fabric.mod.json",
+    "foundation": "src/foundationtest/resources/fabric.mod.json",
+    "optional-legacy": "src/optionaltest/resources/fabric.mod.json",
+    "optional-foundation": "src/optionaltest/resources/fabric.mod.json",
 }
 
 REPORT_RE = re.compile(r"SYNCMATERIAL_CLIENT_TEST_(START|PASS|FAIL)\s+(\S+)\s+(\S+)")
@@ -109,6 +175,7 @@ class Scenario:
     target_class: str
     title: str
     step_titles: dict
+    explanation: str = ""
 
 
 @dataclass
@@ -184,6 +251,98 @@ class DemoTimeline:
         self.events.append(DemoEvent(status, detected_epoch_ms,
                                      max(0.0, (detected_epoch_ms - self.start_epoch_ms) / 1000.0)))
         return "pass" if status == "PASS" else "fail"
+
+
+class SuiteTimeline:
+    """Tracks every client test while keeping the whole suite on one timeline."""
+
+    def __init__(self, test_classes, test_titles):
+        self.test_classes = list(test_classes)
+        self.test_titles = dict(test_titles)
+        self.expected = len(self.test_classes)
+        self.start_epoch_ms = None
+        self.result = None
+        self.result_epoch_ms = None
+        self.steps = []
+        self.events = []
+        self.statuses = {}
+        self.completed_statuses = []
+
+    def title_for(self, class_name):
+        short = class_name.rsplit(".", 1)[-1]
+        return self.test_titles.get(class_name, self.test_titles.get(short, short))
+
+    def consume(self, line, detected_epoch_ms):
+        report = REPORT_RE.search(line)
+        if not report:
+            return None
+        status, _mod, class_name = report.groups()
+        if class_name not in self.test_classes:
+            return None
+        seconds = (0.0 if self.start_epoch_ms is None
+                   else max(0.0, (detected_epoch_ms - self.start_epoch_ms) / 1000.0))
+        if status == "START":
+            step = StepMark(len(self.steps) + 1, class_name, self.title_for(class_name),
+                            detected_epoch_ms, seconds)
+            self.steps.append(step)
+            self.events.append(DemoEvent("START", detected_epoch_ms, seconds,
+                                         step_id=class_name, title=step.title))
+            if self.start_epoch_ms is None:
+                self.start_epoch_ms = detected_epoch_ms
+                return "start"
+            return "test-start"
+        self.statuses[class_name] = status
+        self.completed_statuses.append(status)
+        self.events.append(DemoEvent(status, detected_epoch_ms, seconds,
+                                     step_id=class_name, title=self.title_for(class_name)))
+        return "test-result"
+
+    def finish(self, exit_code, detected_epoch_ms):
+        self.result_epoch_ms = detected_epoch_ms
+        passed = self.completed_statuses.count("PASS")
+        failed = self.completed_statuses.count("FAIL")
+        if exit_code == 124:
+            self.result = "TIMEOUT"
+        elif exit_code == 0 and failed == 0 and passed == self.expected:
+            self.result = "PASS"
+        else:
+            self.result = "FAIL"
+
+    def status_for(self, step):
+        return self.statuses.get(step.step_id, "RUNNING")
+
+    def progress_before(self, index):
+        previous = self.completed_statuses[:max(0, index - 1)]
+        return previous.count("PASS"), previous.count("FAIL")
+
+    def stats(self):
+        return {
+            "expected": self.expected,
+            "started": len(self.steps),
+            "completed": len(self.completed_statuses),
+            "passed": self.completed_statuses.count("PASS"),
+            "failed": self.completed_statuses.count("FAIL"),
+        }
+
+
+def load_suite_tests(repo_root, backend):
+    relative = SUITE_METADATA.get(backend)
+    if relative is None:
+        raise DemoError(f"完整客户端录制不支持 backend {backend!r}")
+    path = Path(repo_root) / relative
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        entries = metadata["entrypoints"]["fabric-client-gametest"]
+        classes = [entry["value"] for entry in entries]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise DemoError(f"无法读取客户端测试清单 {relative}: {error}") from error
+    if not classes or len(classes) != len(set(classes)):
+        raise DemoError(f"客户端测试清单为空或含重复入口: {relative}")
+    titles = {}
+    for class_name in classes:
+        short = class_name.rsplit(".", 1)[-1]
+        titles[class_name] = SUITE_TEST_TITLES.get(short, short)
+    return classes, titles
 
 
 class LogTail:
@@ -380,10 +539,11 @@ def build_poster_command(ffmpeg, source, output, at_seconds):
 
 
 def build_gif_commands(ffmpeg, source, palette, gif, start, duration,
-                       width=GIF_WIDTH, fps=GIF_FPS, colors=256):
+                       width=GIF_WIDTH, fps=GIF_FPS, colors=256, pts_scale=GIF_TIME_SCALE):
     scale = f"scale={width}:-2:flags=lanczos"
-    palette_filter = f"fps={fps},{scale},palettegen=max_colors={colors}:stats_mode=diff"
-    gif_filter = (f"fps={fps},{scale}[x];"
+    speed = f"setpts={pts_scale:.6f}*PTS"
+    palette_filter = f"{speed},fps={fps},{scale},palettegen=max_colors={colors}:stats_mode=diff"
+    gif_filter = (f"{speed},fps={fps},{scale}[x];"
                   f"[x][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle")
     common = ["-y", "-nostdin", "-loglevel", "error",
               "-ss", f"{max(0.0, start):.3f}", "-t", f"{duration:.3f}",
@@ -394,10 +554,10 @@ def build_gif_commands(ffmpeg, source, palette, gif, start, duration,
     return palette_cmd, gif_cmd
 
 
-def preview_clip(duration):
+def preview_clip(duration, pts_scale=GIF_TIME_SCALE):
     if duration <= 0:
-        return GIF_MIN_SECONDS
-    return min(GIF_MAX_SECONDS, max(GIF_MIN_SECONDS, duration))
+        return GIF_MIN_SECONDS / pts_scale
+    return min(GIF_MAX_SECONDS / pts_scale, max(GIF_MIN_SECONDS / pts_scale, duration))
 
 
 def _filter_quote(value):
@@ -405,7 +565,7 @@ def _filter_quote(value):
 
 
 def drawtext_filter(textfile, *, fontfile=None, fontsize=28, y="h-text_h-40",
-                    fontcolor="white", boxborderw=12, enable=None):
+                    fontcolor="white", boxborderw=12, enable=None, x="(w-text_w)/2"):
     options = []
     if fontfile:
         options.append(f"fontfile={_filter_quote(fontfile)}")
@@ -419,7 +579,7 @@ def drawtext_filter(textfile, *, fontfile=None, fontsize=28, y="h-text_h-40",
         "boxcolor=black@0.55",
         f"boxborderw={boxborderw}",
         "expansion=none",
-        "x=(w-text_w)/2",
+        f"x={x}",
         f"y={y}",
     ])
     if enable is not None:
@@ -565,13 +725,14 @@ class ClientDemoRecorder:
     def __init__(self, *, run_dir, out, node, backend, scenario, title, gradle_args,
                  timeout_seconds=None, repo_root=REPO_ROOT, poll_interval=POLL_INTERVAL_SECONDS,
                  spawn=None, run=None, which=None, clock=None, wall_clock=None, sleep=None,
-                 environ=None, display_factory=None):
+                 environ=None, display_factory=None, mode="scenario"):
         self.run_dir = Path(run_dir).resolve()
         self.out_dir = Path(out).resolve()
         self.node = node
         self.backend = backend
         self.scenario = scenario
         self.title = title
+        self.mode = mode
         self.gradle_args = list(gradle_args)
         self.timeout_seconds = (DEFAULT_TIMEOUT_SECONDS if timeout_seconds is None
                                 else float(timeout_seconds))
@@ -591,7 +752,13 @@ class ClientDemoRecorder:
         self.ffmpeg = self.which("ffmpeg")
         self.log_path = self.run_dir / "logs" / "latest.log"
         self.log_tail = LogTail(self.log_path)
-        self.timeline = DemoTimeline(scenario.target_class, dict(scenario.step_titles))
+        if self.mode == "suite":
+            classes, titles = load_suite_tests(self.repo_root, backend)
+            self.timeline = SuiteTimeline(classes, titles)
+        elif self.mode == "scenario":
+            self.timeline = DemoTimeline(scenario.target_class, dict(scenario.step_titles))
+        else:
+            raise DemoError(f"未知录制模式 {self.mode!r}")
         self.warnings = []
         self.display = None
         self.gradle = None
@@ -601,6 +768,7 @@ class ClientDemoRecorder:
         self.capture_allowed = True
         self.capture_started_epoch_ms = None
         self.capture_ended_epoch_ms = None
+        self.demo_time_scale = 1.0
         self.geometry = None
         self.geometry_fallback = False
         self.content_valid = None
@@ -712,6 +880,7 @@ class ClientDemoRecorder:
                 self.capture_allowed = False
                 for line in tail.read(final=True):
                     self._handle_line(line)
+                self._finish_timeline(code)
                 self._stop_capture()
                 return
             if self.clock() >= deadline:
@@ -723,14 +892,20 @@ class ClientDemoRecorder:
                 self.gradle_exit = 124
                 for line in tail.read(final=True):
                     self._handle_line(line)
+                self._finish_timeline(124)
                 return
             self.sleep(self.poll_interval)
+
+    def _finish_timeline(self, exit_code):
+        finish = getattr(self.timeline, "finish", None)
+        if finish is not None:
+            finish(exit_code, int(self.wall_clock() * 1000))
 
     def _handle_line(self, line):
         action = self.timeline.consume(line, int(self.wall_clock() * 1000))
         if action == "start" and self.capture_allowed:
             self._start_capture()
-        elif action in ("pass", "fail"):
+        elif self.mode == "scenario" and action in ("pass", "fail"):
             self._stop_capture()
 
     # -- capture -----------------------------------------------------------
@@ -842,18 +1017,21 @@ class ClientDemoRecorder:
             return 0.0
         return max(0.0, (epoch_ms - origin) / 1000.0)
 
+    def demo_seconds_for(self, epoch_ms):
+        return self.video_seconds_for(epoch_ms) * self.demo_time_scale
+
     def _result_video_seconds(self):
         if self.timeline.result_epoch_ms is None:
             return None
-        return self.video_seconds_for(self.timeline.result_epoch_ms)
+        return self.demo_seconds_for(self.timeline.result_epoch_ms)
 
     def _step_windows(self, duration):
         windows = []
         steps = self.timeline.steps
         for index, step in enumerate(steps):
-            start = self.video_seconds_for(step.epoch_ms)
+            start = self.demo_seconds_for(step.epoch_ms)
             if index + 1 < len(steps):
-                end = max(start, self.video_seconds_for(steps[index + 1].epoch_ms))
+                end = max(start, self.demo_seconds_for(steps[index + 1].epoch_ms))
             else:
                 end = max(start + 2.0, duration)
             windows.append((step, start, end))
@@ -880,12 +1058,74 @@ class ClientDemoRecorder:
             return False
         return True
 
+    def _render_suite_demo(self, source, output, duration, result):
+        """Annotate the complete client suite without changing real-time footage."""
+        self.demo_time_scale = 1.0
+        font = resolve_font(self.which, self.run_command, self.environ)
+        with tempfile.TemporaryDirectory(prefix=".demo-suite-overlay-", dir=str(self.out_dir)) as tmp:
+            work = Path(tmp)
+            filters = ["setpts=1*PTS"]
+
+            def text(name, value, *, size, y, x="16", enable=None, color="white"):
+                (work / name).write_text(value, encoding="utf-8")
+                filters.append(drawtext_filter(name, fontfile=font, fontsize=size, y=y, x=x,
+                                               fontcolor=color, boxborderw=8, enable=enable))
+
+            text("suite-header.txt", "SyncMaterial CI · 客户端完整回归", size=22, y="14")
+            mod_version = read_mod_version(self.repo_root) or "unknown"
+            text("suite-node.txt", f"{self.node} · {self.backend} · mod {mod_version}", size=14, y="48")
+            run_id = self.environ.get("GITHUB_RUN_ID", "local")
+            commit = resolve_commit(self.repo_root, self.run_command, self.which)
+            text("suite-run.txt", f"run {run_id} · commit {commit[:12]}",
+                 size=14, y="14", x="w-text_w-16")
+            text("suite-env.txt", "离线 Player0 · 真实客户端操作",
+                 size=14, y="48", x="w-text_w-16")
+
+            total = self.timeline.expected
+            for index, (step, start, end) in enumerate(self._step_windows(duration), 1):
+                enable = f"between(t,{start:.3f},{end:.3f})"
+                text(f"suite-test-{index}.txt", f"{index:02d}/{total:02d} · {step.title}",
+                     size=20, y="h-text_h-68", enable=enable)
+                passed, failed = self.timeline.progress_before(index)
+                text(f"suite-progress-{index}.txt",
+                     f"已完成 {index - 1}/{total} · 通过 {passed} · 失败 {failed}",
+                     size=16, y="h-text_h-34", enable=enable)
+                elapsed = f"{int(start // 60):02d}:{int(start % 60):02d}"
+                text(f"suite-time-{index}.txt", f"进行中 · {elapsed}",
+                     size=16, y="h-text_h-34", x="w-text_w-16", enable=enable)
+
+            if result in ("PASS", "FAIL", "TIMEOUT"):
+                result_at = self._result_video_seconds()
+                if result_at is None:
+                    result_at = max(0.0, duration - 2.0)
+                result_start = max(0.0, min(result_at, duration - 2.0))
+                color = "0x3DDC84" if result == "PASS" else "0xE53935"
+                text("suite-result.txt", result, size=30, y="82", x="w-text_w-16",
+                     enable=f"between(t,{result_start:.3f},{max(duration, result_start + 2.0):.3f})",
+                     color=color)
+            command = build_overlay_command(self.ffmpeg, source, output, filters)
+            if self._run_media(command, cwd=work):
+                return True
+            try:
+                output.unlink()
+            except OSError:
+                pass
+            return False
+
     def _render_demo(self, source, output, duration, result):
+        if self.mode == "suite":
+            return self._render_suite_demo(source, output, duration, result)
+        self.demo_time_scale = DEMO_TIME_SCALE
+        duration *= self.demo_time_scale
         font = resolve_font(self.which, self.run_command, self.environ)
         with tempfile.TemporaryDirectory(prefix=".demo-overlay-", dir=str(self.out_dir)) as tmp:
             work = Path(tmp)
             (work / "title.txt").write_text(self.title, encoding="utf-8")
-            filters = [drawtext_filter("title.txt", fontfile=font, fontsize=34, y="28")]
+            filters = [f"setpts={DEMO_TIME_SCALE:g}*PTS",
+                       drawtext_filter("title.txt", fontfile=font, fontsize=34, y="28")]
+            if self.scenario.explanation:
+                (work / "explanation.txt").write_text(self.scenario.explanation, encoding="utf-8")
+                filters.append(drawtext_filter("explanation.txt", fontfile=font, fontsize=20, y="72"))
             windows = self._step_windows(duration)
             for index, (step, start, end) in enumerate(windows, 1):
                 name = f"step-{index}.txt"
@@ -920,7 +1160,7 @@ class ClientDemoRecorder:
     def _write_poster(self, source, duration):
         at = max(0.0, duration / 2.0)
         if self.timeline.steps:
-            at = max(0.0, self.video_seconds_for(self.timeline.steps[0].epoch_ms) + 0.5)
+            at = max(0.0, self.demo_seconds_for(self.timeline.steps[0].epoch_ms) + 0.5)
         at = min(at, max(0.0, duration - 0.05))
         output = self.out_dir / "poster.png"
         if not self._run_media(build_poster_command(self.ffmpeg, source, output, at)):
@@ -930,7 +1170,8 @@ class ClientDemoRecorder:
                 pass
 
     def _write_gif(self, source, duration):
-        clip = preview_clip(duration)
+        pts_scale = GIF_PLAYBACK_SCALE / self.demo_time_scale
+        clip = preview_clip(duration, pts_scale)
         start = max(0.0, duration - clip)
         palette = self.out_dir / "preview-palette.png"
         attempts = ((GIF_WIDTH, GIF_FPS, 256),
@@ -943,7 +1184,7 @@ class ClientDemoRecorder:
                 gif = self.out_dir / "preview.gif"
                 palette_cmd, gif_cmd = build_gif_commands(
                     self.ffmpeg, source, palette, gif, start, clip,
-                    width=width, fps=fps, colors=colors)
+                    width=width, fps=fps, colors=colors, pts_scale=pts_scale)
                 if not self._run_media(palette_cmd):
                     break
                 if not self._run_media(gif_cmd):
@@ -971,15 +1212,20 @@ class ClientDemoRecorder:
     # -- reports -----------------------------------------------------------
 
     def _write_events(self):
-        lines = ["type\tstep_id\ttitle\tepoch_ms\tvideo_seconds"]
+        lines = ["type\tstep_id\ttitle\tepoch_ms\tvideo_seconds\traw_video_seconds"]
         for event in self.timeline.events:
             lines.append("\t".join([
                 tsv_cell(event.kind), tsv_cell(event.step_id), tsv_cell(event.title),
-                str(event.epoch_ms), f"{self.video_seconds_for(event.epoch_ms):.3f}",
+                str(event.epoch_ms), f"{self.demo_seconds_for(event.epoch_ms):.3f}",
+                f"{self.video_seconds_for(event.epoch_ms):.3f}",
             ]))
         (self.out_dir / "events.tsv").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _write_manifest(self, exit_code, result, duration):
+        try:
+            self._write_events()
+        except OSError as error:
+            self._warn(f"无法写入 events.tsv: {error}")
         files = {}
         for name in ("raw.mkv", "raw.mp4", "demo.mp4", "preview.gif",
                      "poster.png", "events.tsv"):
@@ -1010,6 +1256,8 @@ class ClientDemoRecorder:
             "backend": self.backend,
             "modVersion": read_mod_version(self.repo_root),
             "scenario": self.scenario.key,
+            "recordingMode": self.mode,
+            "suite": self.timeline.stats() if self.mode == "suite" else None,
             "title": self.title,
             "targetClass": self.scenario.target_class,
             "result": result,
@@ -1017,7 +1265,12 @@ class ClientDemoRecorder:
             "gradleExitCode": exit_code,
             "startedAt": self.started_at or iso_timestamp(self.wall_clock()),
             "finishedAt": iso_timestamp(self.wall_clock()),
-            "durationSeconds": round(duration, 3),
+            "durationSeconds": round(duration * self.demo_time_scale, 3),
+            "rawDurationSeconds": round(duration, 3),
+            "playback": {
+                "demoTimeScale": self.demo_time_scale,
+                "gifTimeScale": GIF_PLAYBACK_SCALE / self.demo_time_scale,
+            },
             "capture": {
                 "started": self.capture_started_epoch_ms is not None,
                 "geometry": list(self.geometry) if self.geometry else None,
@@ -1030,7 +1283,9 @@ class ClientDemoRecorder:
             "steps": [
                 {"index": step.index, "id": step.step_id, "title": step.title,
                  "epochMs": step.epoch_ms,
-                 "videoSeconds": round(self.video_seconds_for(step.epoch_ms), 3)}
+                 "videoSeconds": round(self.demo_seconds_for(step.epoch_ms), 3),
+                 "rawVideoSeconds": round(self.video_seconds_for(step.epoch_ms), 3),
+                 **({"status": self.timeline.status_for(step)} if self.mode == "suite" else {})}
                 for step in self.timeline.steps
             ],
             "files": files,
@@ -1051,10 +1306,6 @@ class ClientDemoRecorder:
         duration = self.capture_duration()
         if self.timeline.start_epoch_ms is None and forced_result is None:
             self._warn("日志中未出现目标用例 START，本次未录制")
-        try:
-            self._write_events()
-        except OSError as error:
-            self._warn(f"无法写入 events.tsv: {error}")
         raw_mkv = self.out_dir / "raw.mkv"
         raw_mp4 = self.out_dir / "raw.mp4"
         demo_mp4 = self.out_dir / "demo.mp4"
@@ -1083,6 +1334,7 @@ class ClientDemoRecorder:
             self._write_manifest(exit_code, result, duration)
             return
         if not self._render_demo(raw_mp4, demo_mp4, duration, result):
+            self.demo_time_scale = 1.0
             self._warn("demo.mp4 文本叠加失败，回退为原始画面")
             if not self._run_media(build_copy_command(self.ffmpeg, raw_mp4, demo_mp4)):
                 self._warn("demo.mp4 回退复制失败")
@@ -1091,8 +1343,9 @@ class ClientDemoRecorder:
                 except OSError:
                     pass
         source = demo_mp4 if demo_mp4.is_file() and demo_mp4.stat().st_size > 0 else raw_mp4
-        self._write_poster(source, duration)
-        self._write_gif(source, duration)
+        output_duration = duration * self.demo_time_scale
+        self._write_poster(source, output_duration)
+        self._write_gif(source, output_duration)
         self._write_manifest(exit_code, result, duration)
 
 
@@ -1122,6 +1375,8 @@ def build_parser():
     parser.add_argument("--node", required=True, help="Minecraft 节点，如 1.21.8")
     parser.add_argument("--backend", required=True,
                         help="后端标识；默认 Gradle 任务由它推导（legacy/foundation/...）")
+    parser.add_argument("--mode", choices=("scenario", "suite"), default="scenario",
+                        help="scenario只录目标场景；suite记录整个客户端测试套件")
     parser.add_argument("--scenario", default=DEFAULT_SCENARIO,
                         help=f"场景标识，默认 {DEFAULT_SCENARIO}")
     parser.add_argument("--title", default=None, help="演示标题；缺省使用场景默认标题")
@@ -1142,7 +1397,8 @@ def load_scenario(key, title_override=None):
         raise DemoError(f"未知场景 {key!r}；可用场景: {known}")
     return Scenario(key=key, target_class=data["target"],
                     title=title_override or data["title"],
-                    step_titles=dict(data["steps"]))
+                    step_titles=dict(data["steps"]),
+                    explanation=data.get("explanation", ""))
 
 
 def collect_gradle_args(args):
@@ -1196,10 +1452,12 @@ def main(argv=None):
     gradle_args = collect_gradle_args(args)
     if gradle_args is None:
         parser.error(f"未知 backend {args.backend!r}，请显式提供 --gradle-arg")
+    title = args.title or (f"CI 客户端完整回归 · {args.node} {args.backend}"
+                           if args.mode == "suite" else scenario.title)
     recorder = ClientDemoRecorder(
         run_dir=args.run_dir, out=args.out, node=args.node, backend=args.backend,
-        scenario=scenario, title=scenario.title, gradle_args=gradle_args,
-        timeout_seconds=args.timeout_seconds)
+        scenario=scenario, title=title, gradle_args=gradle_args,
+        timeout_seconds=args.timeout_seconds, mode=args.mode)
     return recorder.run()
 
 

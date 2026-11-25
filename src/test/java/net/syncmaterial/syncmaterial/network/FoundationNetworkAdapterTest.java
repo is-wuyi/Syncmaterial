@@ -518,6 +518,118 @@ class FoundationNetworkAdapterTest {
     }
 
     @Test
+    void warehouseReferenceAddPushesContainerSnapshotToExistingLegacySubscription() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        var warehouse = area(1, AreaKind.WAREHOUSE, "Global", 0, 4);
+        var before = new AreaCatalog(List.of(warehouse), Map.of(), Map.of(PROJECT, "Original"), 1);
+        var after = new AreaCatalog(List.of(warehouse), Map.of(PROJECT, Set.of(1)),
+                Map.of(PROJECT, "Original"), 2);
+        when(store.addWarehouseReference(PROJECT, 1)).thenReturn(CompletableFuture.completedFuture(true));
+        when(store.areaCatalog()).thenReturn(CompletableFuture.completedFuture(before))
+                .thenReturn(CompletableFuture.completedFuture(after));
+        var observation = new ContainerObservation(new ContainerKey("minecraft:overworld", 1, 64, 1),
+                Map.of("minecraft:stone", 32L), "");
+        when(store.warehouseContainers(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(List.of()))
+                .thenReturn(CompletableFuture.completedFuture(List.of(observation)));
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        packets.clear();
+
+        receive(StagingAreaConfigC2SPacket.ID, new StagingAreaConfigC2SPacket(PROJECT, "ADD_WAREHOUSE_REF", 1,
+                Optional.empty()));
+
+        var pushed = packets.stream().filter(WarehouseContainerResponseS2CPacket.class::isInstance)
+                .map(WarehouseContainerResponseS2CPacket.class::cast).toList();
+        assertEquals(1, pushed.size());
+        var entry = pushed.get(0).containers().get(0);
+        assertEquals(1, entry.posX());
+        assertEquals(64, entry.posY());
+        assertEquals(1, entry.posZ());
+        assertEquals(List.of("minecraft:stone"), entry.itemIds());
+    }
+
+    @Test
+    void warehouseReferenceRemovalPushesEmptySnapshotWhileAnotherProjectStillReferencesIt() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        String other = "other-foundation";
+        var warehouse = area(1, AreaKind.WAREHOUSE, "Global", 0, 4);
+        var before = new AreaCatalog(List.of(warehouse), Map.of(PROJECT, Set.of(1), other, Set.of(1)),
+                Map.of(PROJECT, "Original", other, "Other"), 1);
+        var after = new AreaCatalog(List.of(warehouse), Map.of(other, Set.of(1)),
+                Map.of(PROJECT, "Original", other, "Other"), 2);
+        when(store.removeWarehouseReference(PROJECT, 1)).thenReturn(CompletableFuture.completedFuture(true));
+        when(store.areaCatalog()).thenReturn(CompletableFuture.completedFuture(before))
+                .thenReturn(CompletableFuture.completedFuture(after));
+        when(store.warehouseContainers(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(List.of(new ContainerObservation(
+                        new ContainerKey("minecraft:overworld", 1, 64, 1),
+                        Map.of("minecraft:stone", 32L), ""))))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(runtime.subscribers(other)).thenReturn(Set.of());
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        assertFalse(((WarehouseContainerResponseS2CPacket) packets.get(0)).containers().isEmpty());
+        packets.clear();
+
+        receive(StagingAreaConfigC2SPacket.ID, new StagingAreaConfigC2SPacket(PROJECT, "REMOVE_WAREHOUSE_REF", 1,
+                Optional.empty()));
+
+        var pushed = packets.stream().filter(WarehouseContainerResponseS2CPacket.class::isInstance)
+                .map(WarehouseContainerResponseS2CPacket.class::cast).toList();
+        assertEquals(1, pushed.size());
+        assertTrue(pushed.get(0).containers().isEmpty());
+    }
+
+    @Test
+    void warehouseReferenceChangeInAnotherProjectDoesNotPushToProjectSubscriber() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        String other = "other-foundation";
+        var warehouse = area(1, AreaKind.WAREHOUSE, "Global", 0, 4);
+        var before = new AreaCatalog(List.of(warehouse), Map.of(),
+                Map.of(PROJECT, "Original", other, "Other"), 1);
+        var after = new AreaCatalog(List.of(warehouse), Map.of(other, Set.of(1)),
+                Map.of(PROJECT, "Original", other, "Other"), 2);
+        when(store.addWarehouseReference(other, 1)).thenReturn(CompletableFuture.completedFuture(true));
+        when(store.areaCatalog()).thenReturn(CompletableFuture.completedFuture(before))
+                .thenReturn(CompletableFuture.completedFuture(after));
+        when(store.warehouseContainers(anyString(), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(runtime.subscribers(other)).thenReturn(Set.of());
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        packets.clear();
+
+        receive(StagingAreaConfigC2SPacket.ID, new StagingAreaConfigC2SPacket(other, "ADD_WAREHOUSE_REF", 1,
+                Optional.empty()));
+
+        assertTrue(packets.stream().noneMatch(WarehouseContainerResponseS2CPacket.class::isInstance));
+    }
+
+    @Test
+    void deletingSharedWarehousePushesOneCombinedSnapshotPerSubscribedPlayer() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        String other = "other-foundation";
+        var warehouse = area(1, AreaKind.WAREHOUSE, "Global", 0, 4);
+        var before = new AreaCatalog(List.of(warehouse), Map.of(PROJECT, Set.of(1), other, Set.of(1)),
+                Map.of(PROJECT, "Original", other, "Other"), 1);
+        var after = new AreaCatalog(List.of(), Map.of(),
+                Map.of(PROJECT, "Original", other, "Other"), 2);
+        when(store.removeArea(null, AreaKind.WAREHOUSE, 1)).thenReturn(CompletableFuture.completedFuture(true));
+        when(store.areaCatalog()).thenReturn(CompletableFuture.completedFuture(before))
+                .thenReturn(CompletableFuture.completedFuture(after));
+        when(store.warehouseContainers(anyString(), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(runtime.subscribers(other)).thenReturn(Set.of());
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(other, true));
+        packets.clear();
+
+        receive(StagingAreaConfigC2SPacket.ID, new StagingAreaConfigC2SPacket("", "DELETE_WAREHOUSE", 1,
+                Optional.empty()));
+
+        var pushed = packets.stream().filter(WarehouseContainerResponseS2CPacket.class::isInstance).toList();
+        assertEquals(1, pushed.size());
+    }
+
+    @Test
     void warehouseResultFromPreviousDimensionIsNotDelivered() {
         ServerLevel overworld = mock(ServerLevel.class);
         when(overworld.dimension()).thenReturn(net.minecraft.world.level.Level.OVERWORLD);

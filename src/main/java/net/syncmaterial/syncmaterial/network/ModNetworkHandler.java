@@ -675,12 +675,33 @@ public class ModNetworkHandler {
         }
     }
 
+    /** Refreshes legacy pickup projections without creating subscriptions for other projects. */
+    private static List<StagingAreaConfigResponseS2CPacket.AreaInfo> refreshPickupWarehouseReferences(
+            LegacyServerContext owner, String schematicId) {
+        StagingAreaManager manager = owner.staging();
+        var warehouses = manager.getWarehousesForSchematic(schematicId);
+        Set<Integer> warehouseIds = warehouses.stream()
+                .map(StagingAreaManager.Warehouse::id)
+                .collect(java.util.stream.Collectors.toSet());
+        Set<ServerPlayer> affected = owner.subscriptions().refreshWarehouses(schematicId, warehouseIds);
+        for (ServerPlayer subscriber : affected) {
+            if (!owner.isConnected(subscriber)) continue;
+            Set<Integer> allWarehouseIds = owner.subscriptions().warehouseIds(subscriber);
+            List<WarehouseContainerResponseS2CPacket.ContainerEntry> containers =
+                    manager.getContainerEntriesForWarehouses(allWarehouseIds,
+                            net.syncmaterial.syncmaterial.compat.McCompat.dimensionId(subscriber.level()));
+            // Empty snapshots are required to clear the last legacy highlight.
+            sendToPlayers(owner, Set.of(subscriber), new WarehouseContainerResponseS2CPacket(containers));
+        }
+        return StagingAreaManager.buildWarehouseInfos(warehouses);
+    }
+
     /**
      * 发布单个原理图的项目视图变更（旧协议仓库引用增删后调用）。
      *
      * <p>引用增删只改变该原理图的配置与仓库内容，全局仓库本体没有变化，
      * 因此不能复用 {@link #publishWarehouseViewChanges}——它会连 global 配置一起刷新。
-     * 旧取货模式的仓库 ID 并集由订阅集合驱动，这里也不改动。</p>
+     * 旧取货模式由 {@link #refreshPickupWarehouseReferences} 单独刷新，不走协议5投递。</p>
      */
     private static void publishProjectWarehouseViewChanges(LegacyServerContext owner, String schematicId) {
         if (owner == null || schematicId == null) return;
@@ -1010,7 +1031,7 @@ public class ModNetworkHandler {
                     broadcastWarehouseAreas(owner);
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                         "ADD_WAREHOUSE_REF", schematicId, "", true, "已添加仓库引用",
-                        StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
+                        refreshPickupWarehouseReferences(owner, schematicId)));
                     publishProjectWarehouseViewChanges(owner, schematicId);
                 }
                 case "REMOVE_WAREHOUSE_REF" -> {
@@ -1019,7 +1040,7 @@ public class ModNetworkHandler {
                     broadcastWarehouseAreas(owner);
                     ServerPlayNetworking.send(player, new StagingAreaConfigResponseS2CPacket(
                         "REMOVE_WAREHOUSE_REF", schematicId, "", true, "已移除仓库引用",
-                        StagingAreaManager.buildWarehouseInfos(manager.getWarehousesForSchematic(schematicId))));
+                        refreshPickupWarehouseReferences(owner, schematicId)));
                     publishProjectWarehouseViewChanges(owner, schematicId);
                 }
                 case "LIST_WAREHOUSE_REFS" -> {

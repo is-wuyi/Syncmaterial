@@ -234,12 +234,43 @@ final class FoundationAreaNetworkAdapter {
             }
         }
         for (ServerPlayer player : server.getPlayerList().getPlayers()) sendWarehouseAreas(runtime, player, after);
+        publishWarehouseContainers(server, runtime, before, after);
         for (String projectId : projects) {
             FoundationProjectViewNetworkAdapter.publishConfiguration(server, runtime,
                     net.syncmaterial.syncmaterial.core.ProjectViewScope.project(projectId), after);
         }
         FoundationProjectViewNetworkAdapter.publishConfiguration(server, runtime,
                 net.syncmaterial.syncmaterial.core.ProjectViewScope.globalWarehouse(), after);
+    }
+
+    /**
+     * Legacy clients cache warehouse contents for their subscribed projects. Reference edits
+     * change that projection even though the warehouse definitions themselves may not move, so
+     * resend the existing snapshot once per affected player. Ordinary area edits leave the
+     * reference sets untouched and must not add a push.
+     */
+    private static void publishWarehouseContainers(MinecraftServer server, ServerRuntime runtime,
+                                                   AreaCatalog before, AreaCatalog after) {
+        Set<String> changed = changedWarehouseReferences(before, after);
+        if (changed.isEmpty()) return;
+        FoundationDeliveryTracker delivery = FoundationNetworkAdapter.delivery(runtime);
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            UUID playerId = player.getUUID();
+            long connection = runtime.connection(playerId);
+            for (String projectId : changed) {
+                if (!delivery.hasWarehouseSubscription(playerId, connection, projectId)) continue;
+                sendWarehouseContainers(server, runtime, player);
+                break;
+            }
+        }
+    }
+
+    private static Set<String> changedWarehouseReferences(AreaCatalog before, AreaCatalog after) {
+        Set<String> projects = new HashSet<>(before.warehouseReferences().keySet());
+        projects.addAll(after.warehouseReferences().keySet());
+        projects.removeIf(projectId -> before.referencedWarehouseIds(projectId)
+                .equals(after.referencedWarehouseIds(projectId)));
+        return projects;
     }
 
     private static void sendList(ServerRuntime runtime, ServerPlayer player, AreaCatalog catalog,

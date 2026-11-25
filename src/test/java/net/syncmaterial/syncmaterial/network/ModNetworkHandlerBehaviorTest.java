@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -632,6 +633,59 @@ class ModNetworkHandlerBehaviorTest {
         assertEquals("已移除仓库引用", response.message());
         networkingMock.verify(() -> ServerPlayNetworking.send(eq(player),
             any(WarehouseAreaResponseS2CPacket.class)));
+    }
+
+    @Test
+    void warehouseReference_add_refreshesExistingPickupAndPushesNewContainer() {
+        owner.subscriptions().subscribeWarehouses(player, "s1", Set.of(8));
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of(
+            new StagingAreaManager.Warehouse(9, "w9", "minecraft:overworld", 0, 0, 0, 5, 5, 5)));
+        when(manager.getContainerEntriesForWarehouses(eq(Set.of(9)), anyString())).thenReturn(List.of(
+            new WarehouseContainerResponseS2CPacket.ContainerEntry(9, 64, 9, List.of("minecraft:stone"))));
+
+        ModNetworkHandler.handleStagingAreaConfig(owner,
+            new StagingAreaConfigC2SPacket("s1", "ADD_WAREHOUSE_REF", 9, Optional.empty()), player, server);
+
+        assertEquals(Set.of(9), owner.subscriptions().warehouseIds(player));
+        var response = lastPacketOfType(WarehouseContainerResponseS2CPacket.class);
+        assertEquals(1, response.containers().size());
+        assertEquals(9, response.containers().get(0).posX());
+        verify(manager).getContainerEntriesForWarehouses(eq(Set.of(9)), anyString());
+    }
+
+    @Test
+    void warehouseReference_remove_lastReferencePushesEmptyContainerSnapshot() {
+        owner.subscriptions().subscribeWarehouses(player, "s1", Set.of(9));
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of());
+
+        ModNetworkHandler.handleStagingAreaConfig(owner,
+            new StagingAreaConfigC2SPacket("s1", "REMOVE_WAREHOUSE_REF", 9, Optional.empty()), player, server);
+
+        assertTrue(owner.subscriptions().warehouseIds(player).isEmpty());
+        assertEquals(Set.of(player), owner.subscriptions().warehouseSubscribers().keySet());
+        assertTrue(lastPacketOfType(WarehouseContainerResponseS2CPacket.class).containers().isEmpty());
+        verify(manager).getContainerEntriesForWarehouses(eq(Set.of()), anyString());
+    }
+
+    @Test
+    void warehouseReference_remove_preservesOtherProjectUnion() {
+        owner.subscriptions().subscribeWarehouses(player, "s1", Set.of(9));
+        owner.subscriptions().subscribeWarehouses(player, "s2", Set.of(7));
+        when(cm.getAllMaterialIds("s1")).thenReturn(List.of());
+        when(manager.getWarehousesForSchematic("s1")).thenReturn(List.of());
+        when(manager.getContainerEntriesForWarehouses(eq(Set.of(7)), anyString())).thenReturn(List.of(
+            new WarehouseContainerResponseS2CPacket.ContainerEntry(7, 64, 7, List.of("minecraft:dirt"))));
+
+        ModNetworkHandler.handleStagingAreaConfig(owner,
+            new StagingAreaConfigC2SPacket("s1", "REMOVE_WAREHOUSE_REF", 9, Optional.empty()), player, server);
+
+        assertEquals(Set.of(7), owner.subscriptions().warehouseIds(player));
+        var response = lastPacketOfType(WarehouseContainerResponseS2CPacket.class);
+        assertEquals(1, response.containers().size());
+        assertEquals(7, response.containers().get(0).posX());
+        verify(manager).getContainerEntriesForWarehouses(eq(Set.of(7)), anyString());
     }
 
     private AtomicBoolean recordMaterialStatusBroadcast() {
