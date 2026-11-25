@@ -43,6 +43,12 @@ jobs:
       - name: Verify ci_guard regressions
         run: python3 -I scripts/test_ci_guard.py
 
+      - name: Verify demo helper regressions
+        run: |
+          python3 -I scripts/test_record_client_demo.py
+          python3 -I scripts/test_build_demo_page.py
+          python3 -I scripts/test_demo_site_history.py
+
       - name: Multiversion static guard
         run: |
           test -f scripts/verify_multiversion.py \
@@ -400,6 +406,11 @@ jobs:
             xvfb libgl1 libglx-mesa0 libgl1-mesa-dri mesa-vulkan-drivers \
             libxi6 libxcursor1 libxrandr2 libxinerama1 libxxf86vm1
 
+      - name: Install demo recording tools
+        if: matrix.node == '1.21.8'
+        continue-on-error: true
+        run: sudo apt-get install -y --no-install-recommends ffmpeg x11-utils fonts-noto-cjk
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
@@ -432,8 +443,11 @@ jobs:
           MESA_GL_VERSION_OVERRIDE: 4.6
           MESA_GLSL_VERSION_OVERRIDE: 460
         run: |
-          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
-            ./gradlew :${{ matrix.node }}:runClientGameTest --no-build-cache --stacktrace
+          if [ "${{ matrix.node }}" = "1.21.8" ]; then
+            .github/scripts/record_client_demo.sh --run-dir ".runs/${{ matrix.node }}/legacy-client" --out "$RUNNER_TEMP/demo-media" --node "${{ matrix.node }}" --backend legacy --scenario warehouse-ref-popup --timeout-seconds 1200 --gradle-arg=":${{ matrix.node }}:runClientGameTest" --gradle-arg=--no-build-cache --gradle-arg=--stacktrace
+          else
+            xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' ./gradlew :${{ matrix.node }}:runClientGameTest --no-build-cache --stacktrace
+          fi
 
       - name: Foundation client GameTest
         if: ${{ always() && steps.client_compile.outcome == 'success' }}
@@ -540,6 +554,17 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # 录制沿用上面的正式 legacy 测试；转码或上传失败不改变真实测试结论。
+      - name: Upload demo media
+        if: ${{ always() && matrix.node == '1.21.8' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: demo-media
+          path: ${{ runner.temp }}/demo-media/
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Upload client run artifacts
         if: failure()
         uses: actions/upload-artifact@v6
@@ -558,9 +583,17 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    concurrency:
+      group: syncmaterial-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy_demo_pages.outputs.page_url }}
     permissions:
       contents: read
       actions: read
+      pages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -603,3 +636,74 @@ jobs:
             --upstream "platform=${{ needs.platform.result }}" \
             --upstream "client=${{ needs.client.result }}" \
             | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # 只发布已通过统一汇总且来自 push 的离线测试素材；保留最近20次run，旧链接不互相覆盖。
+      - name: Download demo media
+        id: demo_media
+        if: ${{ success() && github.event_name == 'push' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v6
+        with:
+          name: demo-media
+          path: ${{ runner.temp }}/demo-media
+
+      - name: Restore previous demo pages
+        id: restore_demo_pages
+        if: ${{ success() && github.event_name == 'push' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_id=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=syncmaterial-demo-pages&per_page=100" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
+          if [ -n "$artifact_id" ]; then
+            gh api "repos/${{ github.repository }}/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/demo-pages.zip"
+            python3 -I .github/scripts/demo_site_history.py restore --archive "$RUNNER_TEMP/demo-pages.zip" --out "$RUNNER_TEMP/demo-site"
+          fi
+
+      - name: Build demo playback page
+        id: build_demo_page
+        if: ${{ success() && github.event_name == 'push' && steps.demo_media.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          python3 -I .github/scripts/build_demo_page.py --media "$RUNNER_TEMP/demo-media" --out "$RUNNER_TEMP/demo-site" --run-id "${{ github.run_id }}" --repo "${{ github.repository }}" --base-url "https://is-wuyi.github.io/Syncmaterial"
+          python3 -I .github/scripts/demo_site_history.py prune --site "$RUNNER_TEMP/demo-site" --keep 20 --protect "${{ github.run_id }}"
+
+      - name: Configure GitHub Pages
+        if: ${{ success() && github.event_name == 'push' && steps.build_demo_page.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+
+      - name: Upload demo Pages artifact
+        id: upload_demo_pages
+        if: ${{ success() && github.event_name == 'push' && steps.build_demo_page.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-pages-artifact@v4
+        with:
+          name: syncmaterial-demo-pages
+          path: ${{ runner.temp }}/demo-site
+          retention-days: 30
+
+      - name: Deploy demo Pages
+        id: deploy_demo_pages
+        if: ${{ success() && github.event_name == 'push' && steps.upload_demo_pages.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Append demo summary
+        if: ${{ always() && github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "## 本次功能演示" >> "$GITHUB_STEP_SUMMARY"
+          media_id=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" --jq '.artifacts[] | select(.name == "demo-media" and .expired == false) | .id' | head -n 1)
+          if [ -n "$media_id" ]; then
+            echo "[下载本次原始演示素材](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$media_id)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$RUNNER_TEMP/demo-site/demos/${{ github.run_id }}/summary.md" ]; then
+            cat "$RUNNER_TEMP/demo-site/demos/${{ github.run_id }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${{ steps.deploy_demo_pages.outcome }}" != "success" ]; then
+              echo "Pages 暂未发布；可先下载本次 run 的 demo-media artifact，真实测试结论不受影响。" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "本次暂无已生成的演示媒体；请查看 demo-media artifact 状态，真实测试结论不受影响。" >> "$GITHUB_STEP_SUMMARY"
+          fi

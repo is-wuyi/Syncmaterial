@@ -43,6 +43,7 @@ CLIENT_STEPS = (
 PREFLIGHT_STEPS = (
     "Verify acceptance guard regressions",
     "Verify ci_guard regressions",
+    "Verify demo helper regressions",
     "Multiversion static guard",
     "Build matrix from versions/versions.json",
 )
@@ -573,6 +574,30 @@ class WorkflowContractTest(unittest.TestCase):
         for name in required:
             self.assertIn(f"- name: {name}", workflow)
         self.assertIn("needs: [preflight, shared, platform, client]", workflow)
+
+    def test_demo_records_formal_run_and_deploys_only_successful_pushes(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn('if [ "${{ matrix.node }}" = "1.21.8" ]; then', workflow)
+        self.assertIn('--run-dir ".runs/${{ matrix.node }}/legacy-client"', workflow)
+        self.assertIn('--gradle-arg=":${{ matrix.node }}:runClientGameTest"', workflow)
+        self.assertIn("group: syncmaterial-pages", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
+        self.assertIn("actions/runs/${{ github.run_id }}/artifacts/$media_id", workflow)
+        self.assertIn("pages: write", workflow)
+        self.assertIn("id-token: write", workflow)
+        self.assertIn("name: syncmaterial-demo-pages", workflow)
+        self.assertIn("--keep 20", workflow)
+        # 5 definitions expand to 9 jobs through the two three-node matrices.
+        self.assertEqual(5, workflow.count("runs-on: ubuntu-latest"))
+        for step in ("Download demo media", "Restore previous demo pages",
+                     "Build demo playback page", "Upload demo Pages artifact",
+                     "Deploy demo Pages"):
+            start = workflow.index(f"      - name: {step}\n")
+            end = workflow.find("\n      - name:", start + 1)
+            block = workflow[start:end if end >= 0 else None]
+            self.assertIn("github.event_name == 'push'", block)
+            self.assertIn("continue-on-error: true", block)
+        self.assertNotIn("runDemoClientGameTest", workflow)
 
     def test_unit_command_invalid_xml_does_not_report_zero(self):
         harness = LegacyReleaseTest()

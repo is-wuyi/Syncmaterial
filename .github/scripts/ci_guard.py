@@ -46,6 +46,7 @@ CLIENT_MODS = {
 PREFLIGHT_REQUIRED_STEPS = (
     "Verify acceptance guard regressions",
     "Verify ci_guard regressions",
+    "Verify demo helper regressions",
     "Multiversion static guard",
     "Build matrix from versions/versions.json",
 )

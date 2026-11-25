@@ -107,6 +107,7 @@ public final class WarehouseRefPopupLifecycleScenario {
                 ProjectViewClient.current().orElseThrow().desiredMask());
 
         // ===== 2. Popup open: global OPEN must precede one LIST; resize must not duplicate =====
+        DemoStepLogger.mark("open-popup");
         Observation baseline = ctx.computeOnClient(client -> observe());
         requireNoPending(baseline, "弹窗打开前");
         GuiWarehouseRefPopup popup = ctx.computeOnClient(client -> {
@@ -141,6 +142,7 @@ public final class WarehouseRefPopupLifecycleScenario {
                         && popupHasWarehouse(popup, warehouseId)))) {
             throw new AssertionError("弹窗未收到 LIST_WAREHOUSES 或缺少 fixture 仓库");
         }
+        DemoStepLogger.mark("select-warehouse");
         clickPopupSelect(ctx, popup, warehouseId);
         if (!waitFor(ctx, () -> ctx.computeOnClient(client ->
                 popup.getSaveState() == EditorSaveTracker.State.SAVED))) {
@@ -153,6 +155,7 @@ public final class WarehouseRefPopupLifecycleScenario {
         if (!waitFor(ctx, () -> backend.projectReferences(server, projectId, warehouseId))) {
             throw new AssertionError("服务端权威仓库关联未包含 " + warehouseId);
         }
+        DemoStepLogger.mark("reference-added");
 
         // Popup's own global lease closes, but the parent editor's project/editor lease must remain.
         if (!waitFor(ctx, () -> ctx.computeOnClient(client -> {
@@ -171,6 +174,7 @@ public final class WarehouseRefPopupLifecycleScenario {
                         && editorHasRef(editor, warehouseId)))) {
             throw new AssertionError("父编辑器仓库引用列表未回填 " + warehouseId);
         }
+        DemoStepLogger.mark("remove-reference");
         clickRefRemove(ctx, editor, warehouseId);
         if (!waitFor(ctx, () -> ctx.computeOnClient(client -> !clientReferences(warehouseId)))) {
             throw new AssertionError("移除引用后客户端权威 refs 仍包含 " + warehouseId);
@@ -179,6 +183,7 @@ public final class WarehouseRefPopupLifecycleScenario {
                 && backend.warehouseExists(server, warehouseId))) {
             throw new AssertionError("移除引用必须只取消项目关联，不能删除全局仓库");
         }
+        DemoStepLogger.mark("reference-removed");
 
         // ===== 5. Manager resize: still one LIST for this global view =====
         ctx.runOnClient(client -> {
@@ -252,6 +257,7 @@ public final class WarehouseRefPopupLifecycleScenario {
                         && ProjectViewClient.current().flatMap(ProjectViewClient::globalStore).isEmpty()))) {
             throw new AssertionError("仓库管理器关闭后全局 lease 未释放");
         }
+        DemoStepLogger.mark("demo-complete");
     }
 
     private static boolean clientReferences(int warehouseId) {
