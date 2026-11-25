@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import sys
 import tempfile
 import unittest
 from html.parser import HTMLParser
@@ -18,6 +19,7 @@ SPEC = importlib.util.spec_from_file_location(
     "build_demo_page", ROOT / ".github/scripts/build_demo_page.py"
 )
 PAGE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = PAGE
 SPEC.loader.exec_module(PAGE)
 
 DEFAULT_MANIFEST = {

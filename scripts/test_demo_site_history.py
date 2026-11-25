@@ -3,6 +3,7 @@
 
 import importlib.util
 import io
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
     "demo_site_history", ROOT / ".github/scripts/demo_site_history.py")
 HISTORY = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = HISTORY
 SPEC.loader.exec_module(HISTORY)
 
 

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
     "record_client_demo", ROOT / ".github/scripts/record_client_demo.py")
 DEMO = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = DEMO
 SPEC.loader.exec_module(DEMO)
 
 SCENARIO = DEMO.load_scenario("warehouse-ref-popup")
