@@ -698,6 +698,11 @@ jobs:
           path: ${{ runner.temp }}/demo-site
           retention-days: 30
 
+      - name: Wait for Pages artifact propagation
+        if: ${{ success() && github.event_name == 'push' && steps.upload_demo_pages.outcome == 'success' }}
+        continue-on-error: true
+        run: sleep 10
+
       - name: Deploy demo Pages
         id: deploy_demo_pages
         if: ${{ success() && github.event_name == 'push' && steps.upload_demo_pages.outcome == 'success' }}

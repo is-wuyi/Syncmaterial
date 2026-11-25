@@ -589,6 +589,8 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("artifact_name: syncmaterial-demo-pages", workflow)
         self.assertIn("uses: actions/upload-pages-artifact@v5", workflow)
         self.assertIn("uses: actions/deploy-pages@v5", workflow)
+        self.assertIn("Wait for Pages artifact propagation", workflow)
+        self.assertIn("run: sleep 10", workflow)
         self.assertIn("Verify deployed demo page", workflow)
         self.assertIn("--keep 20", workflow)
         # Six definitions: nine test/summary jobs plus one optional Pages publisher.
