@@ -256,6 +256,15 @@ class BuildDemoPageTest(unittest.TestCase):
         self.assertNotIn("SECRET_RAW_LOG", summary)
         self.assertFalse((run_dir / "events.tsv").exists())
 
+    def test_invalid_capture_media_is_not_published(self):
+        manifest = manifest_copy()
+        manifest["media"] = {"status": "invalid", "warnings": ["原始画面为全黑"]}
+        media, out = write_bundle(self.root / "invalid", manifest=manifest)
+        code, stdout, stderr = invoke(media, out)
+        self.assertEqual(2, code)
+        self.assertIn("拒绝发布", stderr)
+        self.assertFalse(out.exists())
+
     def test_missing_media_file_errors(self):
         for name in PAGE.REQUIRED_MEDIA:
             with self.subTest(missing=name):

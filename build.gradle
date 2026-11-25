@@ -214,6 +214,12 @@ afterEvaluate {
     }
     tasks.named('runFoundationClientGameTest') { mustRunAfter tasks.named('runClientGameTest') }
     tasks.named('runFoundationGameTest') { mustRunAfter tasks.named('runGameTest') }
+    // The demo recorder owns its display; avoid Loom nesting a second xvfb-run on Linux CI.
+    if (System.getenv('SYNCMATERIAL_EXTERNAL_XVFB') == '1') {
+        tasks.named('runClientGameTest') {
+            useXvfb.set(false)
+        }
+    }
     Map<String, String> standardRuns = [runGameTest: 'legacy-server',
             runClientGameTest: 'legacy-client', runFoundationGameTest: 'foundation-server',
             runFoundationClientGameTest: 'foundation-client']

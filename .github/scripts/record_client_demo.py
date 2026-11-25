@@ -441,6 +441,23 @@ def parse_signed_number(value):
     return sign * int(value)
 
 
+def window_candidates(text):
+    """Retain bounded window metadata, never the raw process/game log."""
+    candidates = []
+    geometry = re.compile(r"(\d+x\d+[+-]-?\d+[+-]-?\d+)")
+    for line in text.splitlines():
+        if '"' not in line:
+            continue
+        match = geometry.search(line)
+        if not match:
+            continue
+        title = line.split('"', 2)[1]
+        candidates.append({"title": title[:120], "geometry": match.group(1)})
+        if len(candidates) >= 32:
+            break
+    return candidates
+
+
 def parse_xwininfo_tree(text):
     """Return ``(x, y, width, height)`` for the largest Minecraft window."""
     geometry = re.compile(r"(\d+)x(\d+)([+-]-?\d+)([+-]-?\d+)(?:\s+([+-]-?\d+)([+-]-?\d+))?")
@@ -586,6 +603,8 @@ class ClientDemoRecorder:
         self.capture_ended_epoch_ms = None
         self.geometry = None
         self.geometry_fallback = False
+        self.content_valid = None
+        self.window_candidates = []
         self.timed_out = False
         self.started_at = None
         self.gif_attempts = []
@@ -626,6 +645,7 @@ class ClientDemoRecorder:
             command = [gradle, *self.gradle_args]
         env = dict(self.environ)
         env["DISPLAY"] = self.display.name
+        env["SYNCMATERIAL_EXTERNAL_XVFB"] = "1"
         env.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
         env.setdefault("MESA_GL_VERSION_OVERRIDE", "4.6")
         env.setdefault("MESA_GLSL_VERSION_OVERRIDE", "460")
@@ -735,7 +755,9 @@ class ClientDemoRecorder:
         if xwininfo:
             completed = self._run_tool([xwininfo, "-root", "-tree"], timeout=10)
             if completed is not None and completed.returncode == 0:
-                geometry = parse_xwininfo_tree(completed.stdout or "")
+                window_tree = completed.stdout or ""
+                self.window_candidates = window_candidates(window_tree)
+                geometry = parse_xwininfo_tree(window_tree)
             if geometry is None:
                 self._warn("xwininfo 未定位到 Minecraft 窗口，回退整个 DISPLAY")
         else:
@@ -836,6 +858,27 @@ class ClientDemoRecorder:
                 end = max(start + 2.0, duration)
             windows.append((step, start, end))
         return windows
+
+    def _check_raw_content(self, source, duration):
+        """Reject an entirely black capture without affecting the GameTest result."""
+        command = [self.ffmpeg, "-hide_banner", "-nostdin", "-i", str(source),
+                   "-vf", "blackdetect=d=0.1:pix_th=0.02:pic_th=0.98",
+                   "-an", "-f", "null", "-"]
+        completed = self._run_tool(command, timeout=60)
+        if completed is None or completed.returncode != 0:
+            self._warn("无法检查原始视频是否为全黑，停止发布该媒体")
+            self.content_valid = False
+            return False
+        output = (completed.stdout or "") + "\n" + (completed.stderr or "")
+        matches = re.findall(r"black_start:([0-9.]+)\s+black_end:([0-9.]+)", output)
+        entirely_black = any(float(start) <= 0.1
+                             and float(end) >= max(0.1, duration - 0.2)
+                             for start, end in matches)
+        self.content_valid = not entirely_black
+        if entirely_black:
+            self._warn("原始画面为全黑，拒绝生成可发布的演示媒体")
+            return False
+        return True
 
     def _render_demo(self, source, output, duration, result):
         font = resolve_font(self.which, self.run_command, self.environ)
@@ -947,7 +990,9 @@ class ClientDemoRecorder:
                                    "sha256": sha256_file(path)}
                 except OSError as error:
                     self._warn(f"无法计算 {name} 的 hash: {error}")
-        if self.timeline.start_epoch_ms is None:
+        if self.content_valid is False:
+            media_status = "invalid"
+        elif self.timeline.start_epoch_ms is None:
             media_status = "skipped"
         elif self.warnings:
             media_status = "warnings"
@@ -977,6 +1022,9 @@ class ClientDemoRecorder:
                 "started": self.capture_started_epoch_ms is not None,
                 "geometry": list(self.geometry) if self.geometry else None,
                 "fallbackDisplay": self.geometry_fallback,
+                "contentCheck": ("passed" if self.content_valid is True else
+                                 "failed" if self.content_valid is False else "unavailable"),
+                "windowCandidates": self.window_candidates,
                 "seconds": round(duration, 3),
             },
             "steps": [
@@ -1029,6 +1077,9 @@ class ClientDemoRecorder:
                 raw_mp4.unlink()
             except OSError:
                 pass
+            self._write_manifest(exit_code, result, duration)
+            return
+        if not self._check_raw_content(raw_mp4, duration):
             self._write_manifest(exit_code, result, duration)
             return
         if not self._render_demo(raw_mp4, demo_mp4, duration, result):

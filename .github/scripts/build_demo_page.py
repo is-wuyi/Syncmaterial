@@ -475,6 +475,9 @@ def validate_media_dir(media_dir: Path) -> None:
 
 def load_demo_data(media_dir: Path) -> DemoData:
     manifest = load_manifest(media_dir / "manifest.json")
+    media = manifest.get("media")
+    if isinstance(media, dict) and str(media.get("status", "")).lower() in ("invalid", "error"):
+        raise DemoPageError("原始录制未通过画面检查，拒绝发布演示页")
 
     values: dict[str, str] = {}
     missing: list[str] = []

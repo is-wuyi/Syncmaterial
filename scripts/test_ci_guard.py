@@ -598,6 +598,14 @@ class WorkflowContractTest(unittest.TestCase):
             self.assertIn("github.event_name == 'push'", block)
             self.assertIn("continue-on-error: true", block)
         self.assertNotIn("runDemoClientGameTest", workflow)
+        build = (ROOT / "build.gradle").read_text(encoding="utf-8")
+        recorder = (ROOT / ".github/scripts/record_client_demo.py").read_text(encoding="utf-8")
+        self.assertIn("System.getenv('SYNCMATERIAL_EXTERNAL_XVFB') == '1'", build)
+        self.assertIn("useXvfb.set(false)", build)
+        self.assertIn('env["SYNCMATERIAL_EXTERNAL_XVFB"] = "1"', recorder)
+        self.assertIn("blackdetect", recorder)
+        summary = workflow[workflow.index("  summary:\n"):]
+        self.assertNotIn("environment:\n      name: github-pages", summary)
 
     def test_unit_command_invalid_xml_does_not_report_zero(self):
         harness = LegacyReleaseTest()

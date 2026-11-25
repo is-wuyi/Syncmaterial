@@ -108,11 +108,12 @@ class FakeSpawn:
 
 class FakeRun:
     def __init__(self, xwininfo_output=XWININFO_OUTPUT, fail_media=False,
-                 timeout_media=False, commit="deadbeefcafebabe"):
+                 timeout_media=False, commit="deadbeefcafebabe", black_media=False):
         self.xwininfo_output = xwininfo_output
         self.fail_media = fail_media
         self.timeout_media = timeout_media
         self.commit = commit
+        self.black_media = black_media
         self.calls = []
 
     def __call__(self, command, **kwargs):
@@ -124,6 +125,8 @@ class FakeRun:
         if name == "git":
             return Completed(0, stdout=self.commit + "\n")
         if name == "ffmpeg":
+            if self.black_media and any("blackdetect" in argument for argument in command):
+                return Completed(0, stderr="black_start:0 black_end:7.5 black_duration:7.5")
             if self.timeout_media:
                 raise subprocess.TimeoutExpired(command, 300)
             if self.fail_media:
@@ -178,7 +181,7 @@ class FakeDisplay:
 class Harness:
     def __init__(self, directory, log_text, gradle_polls=(0,), fail_gradle=False,
                  fail_media=False, timeout_media=False,
-                 xwininfo_output=XWININFO_OUTPUT, timeout=30.0):
+                 xwininfo_output=XWININFO_OUTPUT, timeout=30.0, black_media=False):
         self.tmp = Path(directory)
         self.run_dir = self.tmp / "run"
         self.out = self.tmp / "out"
@@ -188,7 +191,7 @@ class Harness:
         self.spawn = FakeSpawn(self.log_path, log_text, self.tmp,
                                gradle_polls=gradle_polls, fail_gradle=fail_gradle)
         self.run = FakeRun(xwininfo_output=xwininfo_output, fail_media=fail_media,
-                           timeout_media=timeout_media)
+                           timeout_media=timeout_media, black_media=black_media)
         self.recorder = DEMO.ClientDemoRecorder(
             run_dir=self.run_dir,
             out=self.out,
@@ -253,6 +256,9 @@ class CaptureLifecycleTest(unittest.TestCase):
         self.assertIn("gradlew", names)
         self.assertIn("ffmpeg", names)
         self.assertLess(names.index("gradlew"), names.index("ffmpeg"))
+        gradle_call = next(call for call in harness.spawn.calls
+                           if Path(call["command"][0]).name == "gradlew")
+        self.assertEqual("1", gradle_call["kwargs"]["env"]["SYNCMATERIAL_EXTERNAL_XVFB"])
         capture = next(call["command"] for call in harness.spawn.calls
                        if Path(call["command"][0]).name == "ffmpeg")
         self.assertIn("x11grab", capture)
@@ -335,6 +341,14 @@ class CaptureLifecycleTest(unittest.TestCase):
         self.assertEqual("1920x1080", capture[capture.index("-video_size") + 1])
         self.assertEqual(":99", capture[capture.index("-i") + 1])
         self.assertTrue(harness.manifest()["capture"]["fallbackDisplay"])
+        self.assertEqual("passed", harness.manifest()["capture"]["contentCheck"])
+
+    def test_window_diagnostics_are_bounded_and_contain_no_raw_log(self):
+        harness = make_harness(self, tag("START") + "\n")
+        self.assertEqual(0, harness.recorder.run())
+        candidates = harness.manifest()["capture"]["windowCandidates"]
+        self.assertIn("Minecraft 1.21.8", [entry["title"] for entry in candidates])
+        self.assertNotIn("latest.log", (harness.out / "manifest.json").read_text())
 
 
 class ManifestAndMediaTest(unittest.TestCase):
@@ -378,6 +392,17 @@ class ManifestAndMediaTest(unittest.TestCase):
         for entry in manifest["files"].values():
             self.assertGreater(entry["bytes"], 0)
             self.assertEqual(64, len(entry["sha256"]))
+
+    def test_black_capture_is_kept_for_diagnosis_but_not_publishable(self):
+        harness = make_harness(self, tag("START") + "\n" + tag("PASS") + "\n",
+                               timeout=7.5, black_media=True)
+        self.assertEqual(0, harness.recorder.run())
+        manifest = harness.manifest()
+        self.assertEqual("invalid", manifest["media"]["status"])
+        self.assertEqual("failed", manifest["capture"]["contentCheck"])
+        self.assertTrue((harness.out / "raw.mp4").is_file())
+        self.assertFalse((harness.out / "demo.mp4").exists())
+        self.assertFalse((harness.out / "preview.gif").exists())
 
     def test_raw_mp4_is_not_overwritten_by_overlay(self):
         harness = make_harness(self, tag("START") + "\n" + tag("PASS") + "\n")

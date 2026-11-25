@@ -586,9 +586,7 @@ jobs:
     concurrency:
       group: syncmaterial-pages
       cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy_demo_pages.outputs.page_url }}
+    # 不让github-pages环境的分支策略阻塞统一测试汇总；部署权限仅用于下面的离线素材步骤。
     permissions:
       contents: read
       actions: read
