@@ -43,6 +43,9 @@ JAVA_HOME=<Java25> ./gradlew :1.21.8:runServer        # 单节点专服调试
 - 数据库测试通过生产仓储创建 schema；迁移夹具使用明确的历史版本构建方式，不能手写影子 DDL 随意替代当前 schema。
 - 本机外置／网络文件系统不直接运行 Gradle；复制受控源码到本地持久目录的独立工程，测试目录在副本 `.runs/<Minecraft>/`，不能跨工作区共用。未提交源码不得只放 `/tmp`；临时产物可重建。
 - CI 每个节点显式跑平台单测、旧后端／Foundation 服务端与客户端回归。共享测试仅统计一次；构建成功不能当客户端已测。
+- 统一 summary 后才可进入独立的非门禁 `demo-pages` 发布。使用 `--mode suite` 原速记录 1.21.8 legacy 已注册的完整客户端套件，不按新功能裁剪，不为展示专门编排鼠标操作或拖慢测试。
+- 视频角标展示当前中文测试、完成／通过／失败、节点／后端、mod、commit、run 与耗时；保留完整原始 MP4、带标注 MP4 和 GIF 播放入口。历史只保留最近 8 次 run。
+- 公开素材仅限离线 Player0／测试世界，不含原始日志、凭据、真实玩家或正式服数据；仅在允许的 push 分支且统一 summary 成功后发布。录制、转码、上传和部署失败不得改变真实测试结论。
 
 ## 架构要点
 
@@ -148,6 +151,9 @@ PayloadType 注册必须在 `onInitialize()` 中完成，不能延迟到 `SERVER
 - legacy 资源、订阅与时钟任务由 `LegacyServerContext` 拥有；STOPPING 先封闭，STOPPED 有界回收并最后关库，详见 `docs/rewrite/legacy-lifecycle.md`。
 - Foundation 团队权限与材料写入同 writer 事务；分配不生成背包量，踢人清持久／在线观测；身份与目标解析不依赖截断的可见目录。详见 `docs/rewrite/team-management.md`。
 - 管理回包按项目／请求／连接代次／原界面匹配；`requestId=0` 的团队状态推送不重开 GUI、不重置材料目录／区域快照。旧匿名响应不得跨订阅扇出。
+- 协议 1—4 取货按玩家所有已订阅项目的仓库 ID 并集推送。legacy 引用增删只刷新已有项目条目并主动推送当前并集，最后一个引用移除也必须发空快照；不得给无关项目创建订阅或要求玩家重开取货。
+- Foundation 旧取货在引用集合变化后，只让相关旧订阅者经现有连接／generation 围栏重建快照；普通区域编辑不额外推送，同一玩家一次合并投递。线框订阅与取货订阅是不同职责，不能混为同一集合。
+- 直接重构必须以查明的职责纠缠和可验证回归为依据，不是再次全仓重写。保持协议 5／最低兼容 1、schema 3、默认 legacy、旧库隔离、连接代次及服务器关闭生命周期；WP9 收尾不能自动视为 WP10 已获删除或切换授权。
 
 ### 数据库表
 
@@ -158,7 +164,7 @@ SQLite（`SchematicDatabase.java`，AutoCloseable）：
 
 - **StagingAreaSelector** — 准星选区模式：进入后关闭 GUI，左键设 pos1（红），右键设 pos2（蓝），Enter 确认，Esc 取消，HUD 显示操作提示和准星坐标
 - **StagingAreaRenderer** — 备货区游戏内渲染（绿色/黄色线框 + 选区预览 + 名称标注），实现 MaLiLib IRenderer 接口
-- **GuiMaterialList** — 材料清单 GUI（7 列布局 + 进度条 + 悬停详情 + 搜索 + 管理弹窗），含刷新、显示/隐藏线框、HUD 开关
+- **GuiMaterialList** — 材料清单 GUI（8 列布局 + 进度条 + 悬停详情 + 搜索 + 管理弹窗），含刷新、显示/隐藏线框、HUD 开关
 - **GuiStagingAreaEditorNormal** — 备货区编辑器，含准星选区按钮（带悬浮提示说明两种模式）
 - **GuiStagingAreaEditorSubRegion** — 子区域编辑器（坐标编辑 + 准星选角点）
 - **InventoryWatcher** — 背包监控，含潜影盒扫描，通过白名单过滤只上报相关材料
