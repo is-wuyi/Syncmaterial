@@ -621,7 +621,7 @@ def _render_facts(data: DemoData, run_id: str) -> str:
     ]
     if data.mod_version:
         facts.append(("Mod 版本", f"<code>{esc(data.mod_version)}</code>"))
-    if data.scenario:
+    if data.scenario and data.recording_mode != "suite":
         facts.append(("场景", f"<code>{esc(data.scenario)}</code>"))
     facts.append(("运行 ID", f"<code>{esc(run_id)}</code>"))
     return "\n".join(
@@ -947,7 +947,7 @@ def render_summary(data: DemoData, base_url: str, run_id: str) -> str:
     ]
     if data.mod_version:
         lines.append(f"mod 版本：{_code_span(data.mod_version)}")
-    if data.scenario:
+    if data.scenario and data.recording_mode != "suite":
         lines.append(f"场景：{_code_span(data.scenario)}")
     lines.extend([
         "",

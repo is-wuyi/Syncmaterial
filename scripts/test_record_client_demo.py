@@ -508,6 +508,7 @@ class SuiteRecordingTest(unittest.TestCase):
         self.assertEqual([signal.SIGINT], harness.spawn.capture_process.signals)
         manifest = harness.manifest()
         self.assertEqual("suite", manifest["recordingMode"])
+        self.assertEqual("client-regression", manifest["scenario"])
         self.assertEqual("FAIL", manifest["result"], "部分套件不得冒充整体PASS")
         self.assertEqual({"expected": 32, "started": 2, "completed": 2,
                           "passed": 2, "failed": 0}, manifest["suite"])

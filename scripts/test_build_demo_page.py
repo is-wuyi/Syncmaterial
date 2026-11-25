@@ -278,6 +278,8 @@ class BuildDemoPageTest(unittest.TestCase):
         self.assertIn("CI 客户端完整回归 · 1.21.8 legacy", page)
         self.assertIn("完整记录真实客户端测试过程", page)
         self.assertIn("CI 客户端完整回归 · 1.21.8 legacy", summary)
+        self.assertNotIn("warehouse-ref-popup", summary)
+        self.assertNotIn("warehouse-ref-popup", page)
         self.assertNotIn("仓库引用操作演示</title>", page)
 
     def test_missing_media_file_errors(self):

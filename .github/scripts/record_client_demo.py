@@ -1255,7 +1255,7 @@ class ClientDemoRecorder:
             "node": self.node,
             "backend": self.backend,
             "modVersion": read_mod_version(self.repo_root),
-            "scenario": self.scenario.key,
+            "scenario": "client-regression" if self.mode == "suite" else self.scenario.key,
             "recordingMode": self.mode,
             "suite": self.timeline.stats() if self.mode == "suite" else None,
             "title": self.title,
