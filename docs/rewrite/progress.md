@@ -9,15 +9,16 @@
 | 项目 | 状态 |
 |---|---|
 | 最近核对日期 | 2026-11-25 |
-| 当前阶段 | beta.63及CI汇总首页已提交推送且CI全部9项通过；真实客户端GIF＋MP4演示试点正在验收，WP10／WP11未开始 |
+| 当前阶段 | beta.63及真实客户端GIF＋MP4演示试点已交付，公开Pages播放验收通过；9项测试／汇总＋1项发布通过，WP10／WP11未开始 |
 | 开发分支 | `rewrite/backend-foundation` |
 | 最新实现提交 | [`0f3d6a6`](https://github.com/is-wuyi/Syncmaterial/commit/0f3d6a6ae327dca94de25f4b524cb63124c1b07e)：beta.63仓库引用、容器投影与缺项目订阅修复，本地与CI全部9项通过 |
+| CI演示试点 | [`08e7d39`](https://github.com/is-wuyi/Syncmaterial/commit/08e7d39f7f73ced932d36f38d026455d9758178b)：真实录制、GIF／MP4、独立Pages发布，[CI 45549278491](https://github.com/is-wuyi/Syncmaterial/actions/runs/45549278491)全部10项通过 |
 | 实现版本 | beta.63；CI演示试点不升版本，协议5／最低兼容1／Foundation schema3不变 |
 | 运行时支持 | Minecraft 1.21.7、1.21.8、26.2；共享业务只维护一份，各节点分别构建和验收 |
 | 默认后端 | **仍为 legacy**；Foundation 需 `-Dsyncmaterial.backend=foundation` 显式启用 |
-| 下一批 | 完成真实录制与Pages验收后，实施已定案的旧取货引用变化主动刷新，继续WP9，不自动进入旧实现退场 |
-| 当前阻塞 | 真实X11视频尚待Ubuntu CI核验；本批不以此替代产品测试，也不将其计为WP9／WP10完成 |
-| 发布状态 | beta.63实现已提交推送且CI全部9项通过，未打发布 tag、未切换正式服 |
+| 下一批 | 实施已定案的旧取货引用变化主动刷新，继续WP9，不自动进入旧实现退场 |
+| 当前阻塞 | 无代码阻塞；当前未登录浏览器不能目视核验Actions登录态GIF，摘要Markdown及实际媒体URL已验证，公开Pages播放已实测 |
+| 发布状态 | beta.63实现与CI试点已提交推送，未打发布 tag、未切换正式服 |
 
 当前 Foundation 已接通材料导入／查询、基础认领与在线库存、区域配置／仓库引用、被动扫描、去重库存和新鲜度，以及负责人写操作、批量分配、按材料踢人、玩家目录。WP5 管理闭环及 WP6／WP7 的团队收集、订阅与生产主清单已交付；WP8剩余客户端状态迁移和旧结构退场不能混为一谈，不能据此宣称全项目重构完成。
 
@@ -262,17 +263,19 @@
 - 验收过程中，1.21.8断线清理前置状态曾在 `waitForScreen` 后立即读取而未齐备，改为等待同一组完整条件；1.21.7 Foundation 删除场景初始等待拆为“先视图、再旧订阅”，避免负载下的复合条件时序歧义。随后分别完成1.21.8 legacy 31个、1.21.7 Foundation 11个客户端分项，并以同一冻结源码重跑完整矩阵通过；没有改变生产行为或放宽断言。
 - 本批完成只代表上述CI、引用、容器与订阅合同闭合，不宣称WP9全仓完成、WP10可删除legacy或全仓零遗漏。旧协议1—4取货引用变更后是保留重开／换维度生效还是主动刷新，需用户定案；多观察者容器读取合并暂不作为放行条件，WP10功能对等核对后才进入旧结构退场。实现 `0f3d6a6ae327dca94de25f4b524cb63124c1b07e` 已提交推送，[CI全部9项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45398103776)。
 
-## 4E. 本批实施：真实客户端GIF＋MP4演示试点（验收中）
+## 4E. 本批实施：真实客户端GIF＋MP4演示试点（公开播放验收通过）
 
 2026-11-25 用户批准在Actions summary内嵌自动播放GIF，点击进入本次run的完整MP4播放页，并选择GitHub Pages托管。首个场景复用真实1.21.8 legacy仓库引用弹窗测试，不修改业务实现、协议、默认后端或mod版本。
 
 - `record_client_demo.py`包住现有正式legacy客户端任务，按既有START／PASS／FAIL日志只截取目标场景，不额外重跑31项客户端测试。只增加test-only步骤日志；原始运行目录、测试统计和失败判定保持原入口。
 - 生成无字幕`raw.mp4`、带场景／步骤／结果的`demo.mp4`、GIF、poster、事件和SHA-256 manifest。ffmpeg、转码、上传和Pages均为非门禁；正式Gradle退出码仍决定测试结论。Xvfb与ffmpeg清理不得向录制器所在进程组发信号。
 - 仅在push且统一summary成功后发布离线Player0／测试世界素材。Pages恢复上一份站点并加入当前run，最多保留最近20次，避免历史链接互相覆盖；PR不部署。公开页面不携带原始日志、绝对路径、真实玩家或正式服数据。
-- 试点脚本合同已通过：CI汇总21项、录制23项、播放页21项、历史归档6项。真实X11画面、中文字幕、MP4拖动、GIF体积与Actions／Pages线上链接仍待本次实际CI核验，不能提前写成已完成。
+- 试点脚本合同已通过：CI汇总21项、录制25项、播放页22项、历史归档6项；覆盖Python 3.14动态模块加载、进程组隔离、黑屏拒绝和Pages历史归档安全路径。
 - 本地完整聚合任务32分01秒成功；严格守卫50项通过，0警告／0缺证据／0失败。shared 539项、1.21.7／1.21.8各928项、26.2为925项；每节点服务端41＋19、客户端31＋11及缺依赖双后端全部通过，SpotBugs无新增。回归期间仅录制脚本和其合同测试继续变化，游戏与GameTest源码哈希不变；最终冻结源码仍以对应CI结果为准。
 - 首轮线上`8935ec1`在preflight暴露Python 3.14动态模块加载问题，补登记`sys.modules`后修复。`5115090`三节点正式测试全部通过并产生7.5秒视频，但原始帧全黑；Loom 1.19.4在Linux CI自动再包一层`xvfb-run`，与录制器DISPLAY分离。录制专用`SYNCMATERIAL_EXTERNAL_XVFB`关闭该内层Xvfb，复用同一DISPLAY；`media.status=invalid`和全黑检测拒绝发布，不改变真实测试门禁。summary不再声明受dev白名单限制的`github-pages`环境，真实汇总与媒体部署解耦。上述两项修复仍待下一次真实CI验证。
-- 真实视频已在`45528051568`确认：854×480窗口、六步中文标记、7.6秒MP4和约2.1MiB GIF，`contentCheck=passed`且manifest无警告。Pages曾因同job上传后artifact立即可见性与旧action版本反复失败，已改独立非门禁发布job、官方v5动作及上传后10秒有界等待。2026-11-25用户明确批准将当前`rewrite/backend-foundation`加入`github-pages`环境白名单，仅该分支与dev发布，其他分支不自动放开。实际公开页面仍待下一次部署验证。
+- 真实视频已在`45528051568`确认：854×480窗口、六步中文标记、7.6秒MP4和约2.1MiB GIF，`contentCheck=passed`且manifest无警告。Pages曾因同job上传后artifact立即可见性与旧action版本反复失败，最终采用独立非门禁发布job、官方v5动作及上传后10秒有界等待。2026-11-25用户明确批准将当前`rewrite/backend-foundation`加入`github-pages`环境白名单，仅该分支与dev发布，其他分支不自动放开。
+- 最终实现`08e7d39`的[CI 45549278491](https://github.com/is-wuyi/Syncmaterial/actions/runs/45549278491)全部10项通过，其中9项为原有测试／汇总，第10项为非门禁`demo-pages`发布。公开[播放页](https://is-wuyi.github.io/Syncmaterial/demos/45549278491/)返回200，MP4分段读取206、GIF 200；浏览器实际播放至0.39秒、无错误seek到5.5秒，真实仓库界面可见。线上raw／demo MP4及GIF与artifact SHA-256全部一致，上一份历史run页面仍可访问。
+- summary已写入内嵌GIF、点击播放页、完整MP4及原始素材链接，生成Markdown和URL均已核验。当前内置浏览器未登录GitHub，公开页面不渲染登录态step summary，因此没有将“登录态GIF实际可见”写成已自动目视验收；这不影响公开Pages播放与素材下载结论。
 - 后续功能已单独定案：旧协议取货订阅在仓库引用增删后主动刷新服务端仓库ID快照并立即推送旧格式容器数据，新增引用及时显示高亮、移除及时消失；不改变包格式或协议版本。该功能尚未在本批实施，完成试点后继续WP9，不自动进入WP10。
 
 ## 5. 已确认决策
