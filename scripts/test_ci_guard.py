@@ -591,8 +591,10 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("uses: actions/deploy-pages@v5", workflow)
         self.assertIn("Verify deployed demo page", workflow)
         self.assertIn("--keep 20", workflow)
-        # 5 definitions expand to 9 jobs through the two three-node matrices.
-        self.assertEqual(5, workflow.count("runs-on: ubuntu-latest"))
+        # Six definitions: nine test/summary jobs plus one optional Pages publisher.
+        self.assertEqual(6, workflow.count("runs-on: ubuntu-latest"))
+        self.assertIn("  demo-pages:\n    needs: summary", workflow)
+        self.assertIn("needs.summary.result == 'success'", workflow)
         for step in ("Download demo media", "Restore previous demo pages",
                      "Build demo playback page", "Upload demo Pages artifact",
                      "Deploy demo Pages"):

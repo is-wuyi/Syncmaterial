@@ -583,15 +583,9 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    concurrency:
-      group: syncmaterial-pages
-      cancel-in-progress: false
-    # 不让github-pages环境的分支策略阻塞统一测试汇总；部署权限仅用于下面的离线素材步骤。
     permissions:
       contents: read
       actions: read
-      pages: write
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -634,6 +628,26 @@ jobs:
             --upstream "platform=${{ needs.platform.result }}" \
             --upstream "client=${{ needs.client.result }}" \
             | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # 独立发布job等待summary完成，避免同job刚上传的artifact尚未出现在部署查询中。
+  # 所有步骤均非门禁；真实测试仍由上面的9个job决定。
+  demo-pages:
+    needs: summary
+    if: ${{ github.event_name == 'push' && needs.summary.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: syncmaterial-pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        continue-on-error: true
+        uses: actions/checkout@v5
 
       # 只发布已通过统一汇总且来自 push 的离线测试素材；保留最近20次run，旧链接不互相覆盖。
       - name: Download demo media
@@ -697,6 +711,7 @@ jobs:
 
       - name: Append demo summary
         if: ${{ always() && github.event_name == 'push' }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
