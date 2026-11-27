@@ -54,7 +54,8 @@ public final class FoundationNetworkAdapter {
                     return;
                 }
                 if (snapshot.isEmpty()) {
-                    current.sendSystemMessage(net.minecraft.network.chat.Component.literal("原理图尚未就绪，请稍后重试"));
+                    current.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "项目不存在或尚未就绪，请确认项目仍然存在，并稍后重试"));
                     return;
                 }
                 try {
@@ -190,7 +191,7 @@ public final class FoundationNetworkAdapter {
         for (MaterialSnapshot material : project.materials()) {
             var key = McCompat.tryParseId(material.itemId());
             if (key == null || !BuiltInRegistries.ITEM.containsKey(key)) {
-                throw new IllegalArgumentException("Unknown material: " + material.itemId());
+                throw new UnknownMaterialException(material.itemId());
             }
             result.add(new MaterialEntry(material.id(), new ItemStack(BuiltInRegistries.ITEM.getValue(key)), material.required()));
         }
@@ -240,14 +241,17 @@ public final class FoundationNetworkAdapter {
     public static void broadcast(MinecraftServer server, String projectId) {
         ServerRuntime runtime = ServerRuntimeRegistry.get(server);
         if (runtime == null || !runtime.isOpen()) return;
+        FoundationDeliveryTracker tracker = delivery(runtime);
         Set<UUID> subscribers = runtime.subscribers(projectId);
-        if (subscribers.isEmpty()) return;
+        Set<FoundationDeliveryTracker.WarehouseSubscription> warehouseSubscriptions =
+                tracker.warehouseSubscriptions(projectId);
+        if (subscribers.isEmpty() && warehouseSubscriptions.isEmpty()) return;
         Map<UUID, FoundationDeliveryTracker.ProjectToken> tokens = new HashMap<>();
         Set<UUID> offlineAtCapture = new HashSet<>();
         for (UUID playerId : subscribers) {
             long connection = runtime.connection(playerId);
             if (connection > 0) {
-                tokens.put(playerId, delivery(runtime).beginProject(playerId, connection, projectId, false));
+                tokens.put(playerId, tracker.beginProject(playerId, connection, projectId, false));
             } else {
                 offlineAtCapture.add(playerId);
             }
@@ -257,14 +261,14 @@ public final class FoundationNetworkAdapter {
             for (var token : tokens.values()) {
                 ServerPlayer player = currentPlayer(server, runtime, token.playerId(), token.connection());
                 if (player == null || !runtime.subscribers(projectId).contains(token.playerId())
-                        || !delivery(runtime).acceptProject(token)) continue;
+                        || !tracker.acceptProject(token)) continue;
                 if (error != null) {
                     failed(player, error);
                     continue;
                 }
                 if (deleted) {
                     send(player, new StagingAreaConfigResponseS2CPacket("SCHEMATIC_DELETED", projectId, "", true, "", List.of()));
-                    delivery(runtime).forgetProject(token.playerId(), token.connection(), projectId);
+                    tracker.forgetProject(token.playerId(), token.connection(), projectId);
                     runtime.unsubscribe(token.playerId(), projectId);
                     FoundationAreaNetworkAdapter.sendWarehouseContainers(server, runtime, player);
                     FoundationAreaNetworkAdapter.refreshWarehouseAreas(server, runtime, player);
@@ -272,7 +276,7 @@ public final class FoundationNetworkAdapter {
                 }
                 try {
                     deliverUpdate(runtime, player, data.get(), token);
-                    if (delivery(runtime).hasWarehouseSubscription(token.playerId(), token.connection(), projectId)) {
+                    if (tracker.hasWarehouseSubscription(token.playerId(), token.connection(), projectId)) {
                         FoundationAreaNetworkAdapter.sendWarehouseContainers(server, runtime, player);
                     }
                 } catch (IllegalArgumentException | StaleMaterialSnapshotException limit) {
@@ -280,6 +284,13 @@ public final class FoundationNetworkAdapter {
                 }
             }
             if (deleted) {
+                for (var subscription : warehouseSubscriptions) {
+                    if (!tracker.forgetWarehouseProject(subscription, projectId)) continue;
+                    ServerPlayer player = currentPlayer(server, runtime, subscription.playerId(), subscription.connection());
+                    if (player == null) continue;
+                    FoundationAreaNetworkAdapter.sendWarehouseContainers(server, runtime, player);
+                    FoundationAreaNetworkAdapter.refreshWarehouseAreas(server, runtime, player);
+                }
                 // Only captured entries with no live connection may be tail-cleaned. A token
                 // that failed its checks may belong to a reconnect/new-token flow and must
                 // not have a late deletion clear that newer subscription.
@@ -367,7 +378,7 @@ public final class FoundationNetworkAdapter {
     }
 
     private static int checkedCount(long count) {
-        if (count < 0 || count > Integer.MAX_VALUE) throw new IllegalArgumentException("Legacy client cannot represent this material count");
+        if (count < 0 || count > Integer.MAX_VALUE) throw new MaterialCountRepresentationException(count);
         return (int) count;
     }
 
@@ -383,8 +394,42 @@ public final class FoundationNetworkAdapter {
                     "该原理图的材料统计已过期，服务端正在重新解析，请稍后重新打开材料清单"));
             return;
         }
+        if (cause instanceof UnknownMaterialException unknown) {
+            SyncMaterial.LOGGER.warn("实验后端材料清单包含未知材料: {}", unknown.itemId());
+            if (player.connection != null) player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    "该原理图包含当前服务端无法识别的物品，材料清单未生成"));
+            return;
+        }
+        if (cause instanceof MaterialCountRepresentationException unrepresentable) {
+            SyncMaterial.LOGGER.warn("实验后端材料数量超出旧客户端可表示范围: {}", unrepresentable.count());
+            if (player.connection != null) player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    "该原理图的材料数量超出旧客户端可表示范围，材料清单未生成"));
+            return;
+        }
         SyncMaterial.LOGGER.warn("实验后端请求失败", error);
         if (player.connection != null) player.sendSystemMessage(net.minecraft.network.chat.Component.literal("实验后端请求失败，请查看服务端日志"));
+    }
+
+    private static final class UnknownMaterialException extends IllegalArgumentException {
+        private final String itemId;
+
+        UnknownMaterialException(String itemId) {
+            super("Unknown material: " + itemId);
+            this.itemId = itemId;
+        }
+
+        String itemId() { return itemId; }
+    }
+
+    private static final class MaterialCountRepresentationException extends IllegalArgumentException {
+        private final long count;
+
+        MaterialCountRepresentationException(long count) {
+            super("Legacy client cannot represent material count: " + count);
+            this.count = count;
+        }
+
+        long count() { return count; }
     }
 
     /** 已提交材料快照与当前内容或解释不一致；旧数据不能冒充当前统计。 */

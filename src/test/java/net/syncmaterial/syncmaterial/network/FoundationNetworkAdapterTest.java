@@ -139,6 +139,7 @@ class FoundationNetworkAdapterTest {
 
     @AfterEach
     void tearDown() {
+        FoundationNetworkAdapter.close(runtime);
         networking.close();
         registry.close();
         ProtocolHandshake.clear(server);
@@ -180,6 +181,7 @@ class FoundationNetworkAdapterTest {
 
     @Test
     void unknownMaterialFailsWholeRequestRatherThanDroppingRequirements() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
         var project = new ProjectSnapshot(PROJECT, "Unknown", "hash", owner(), true, List.of(),
                 List.of(new MaterialSnapshot(1, "missing:item", 64)), 1);
         when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(
@@ -187,7 +189,43 @@ class FoundationNetworkAdapterTest {
         requestMaterials();
         assertTrue(packets.isEmpty());
         verify(runtime, never()).subscribe(any(), any());
-        verify(player).sendSystemMessage(argThat(message -> message.getString().contains("请求失败")));
+        verify(player, times(1)).sendSystemMessage(argThat(message -> message.getString().contains("无法识别")));
+    }
+
+    @Test
+    void missingProjectFailsWithoutPacketsOrSubscriptionAndExplainsUncertainty() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        requestMaterials();
+        assertTrue(packets.isEmpty());
+        verify(runtime, never()).subscribe(any(), any());
+        verify(player, times(1)).sendSystemMessage(argThat(message ->
+                message.getString().contains("项目不存在或尚未就绪")));
+    }
+
+    @Test
+    void missingTeamStateUsesTheSameTruthfulFailureFeedback() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        when(teams.state(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        requestMaterials();
+        assertTrue(packets.isEmpty());
+        verify(runtime, never()).subscribe(any(), any());
+        verify(player, times(1)).sendSystemMessage(argThat(message ->
+                message.getString().contains("项目不存在或尚未就绪")));
+    }
+
+    @Test
+    void unrepresentableMaterialCountFailsBeforeSubscribing() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        var project = new ProjectSnapshot(PROJECT, "Overflow", "hash", owner(), true, List.of(),
+                List.of(new MaterialSnapshot(1, "minecraft:stone", (long) Integer.MAX_VALUE + 1)), 1);
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(
+                Optional.of(progressRead(new ProjectState(project, List.of())))));
+        requestMaterials();
+        assertTrue(packets.isEmpty());
+        verify(runtime, never()).subscribe(any(), any());
+        verify(player, times(1)).sendSystemMessage(argThat(message ->
+                message.getString().contains("超出旧客户端可表示范围")));
     }
 
     @Test
@@ -206,11 +244,12 @@ class FoundationNetworkAdapterTest {
 
     @Test
     void staleSnapshotIsRejectedBeforeSendingOrSubscribing() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
         when(runtime.isMaterialSnapshotCurrent(any(ProjectSnapshot.class))).thenReturn(false);
         requestMaterials();
         assertTrue(packets.isEmpty());
         verify(runtime, never()).subscribe(any(), any());
-        verify(player).sendSystemMessage(argThat(message -> message.getString().contains("统计已过期")));
+        verify(player, times(1)).sendSystemMessage(argThat(message -> message.getString().contains("统计已过期")));
     }
 
     @Test
@@ -503,11 +542,12 @@ class FoundationNetworkAdapterTest {
         when(overworld.getServer()).thenReturn(server);
         when(player.level()).thenReturn(overworld);
         var key = new ContainerKey("minecraft:overworld", 1, 64, 1);
-        when(store.warehouseContainers(PROJECT, "minecraft:overworld")).thenReturn(CompletableFuture.completedFuture(List.of(
-                new ContainerObservation(key, Map.of("minecraft:stone", 32L), ""),
-                new ContainerObservation(key, Map.of("minecraft:dirt", 16L), ""),
-                new ContainerObservation(new ContainerKey("minecraft:the_nether", 1, 64, 1), Map.of("minecraft:diamond", 8L), ""),
-                new ContainerObservation(new ContainerKey("minecraft:overworld", 2, 64, 2), Map.of(), "未打开的战利品容器"))));
+        when(store.warehouseContainersIfPresent(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of(
+                        new ContainerObservation(key, Map.of("minecraft:stone", 32L), ""),
+                        new ContainerObservation(key, Map.of("minecraft:dirt", 16L), ""),
+                        new ContainerObservation(new ContainerKey("minecraft:the_nether", 1, 64, 1), Map.of("minecraft:diamond", 8L), ""),
+                        new ContainerObservation(new ContainerKey("minecraft:overworld", 2, 64, 2), Map.of(), "未打开的战利品容器")))));
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
         var response = (WarehouseContainerResponseS2CPacket) packets.get(0);
         assertEquals(1, response.containers().size());
@@ -515,6 +555,105 @@ class FoundationNetworkAdapterTest {
         packets.clear();
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, false));
         assertTrue(((WarehouseContainerResponseS2CPacket) packets.get(0)).containers().isEmpty());
+    }
+
+    @Test
+    void missingWarehouseProjectSendsInitialEmptySnapshotThenForgetsSubscription() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        String missing = "missing-project";
+        when(store.warehouseContainersIfPresent(missing, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(missing, true));
+
+        var responses = packets.stream().filter(WarehouseContainerResponseS2CPacket.class::isInstance)
+                .map(WarehouseContainerResponseS2CPacket.class::cast).toList();
+        assertEquals(1, responses.size());
+        assertTrue(responses.get(0).containers().isEmpty());
+        assertFalse(FoundationNetworkAdapter.delivery(runtime).hasWarehouseSubscription(playerId, 1, missing));
+    }
+
+    @Test
+    void missingWarehouseProjectDoesNotClearValidUnionAndIsForgotten() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        String missing = "missing-project";
+        var observation = new ContainerObservation(new ContainerKey("minecraft:overworld", 3, 64, 3),
+                Map.of("minecraft:stone", 32L), "");
+        when(store.warehouseContainersIfPresent(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of(observation))));
+        when(store.warehouseContainersIfPresent(missing, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        packets.clear();
+
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(missing, true));
+
+        var responses = packets.stream().filter(WarehouseContainerResponseS2CPacket.class::isInstance)
+                .map(WarehouseContainerResponseS2CPacket.class::cast).toList();
+        assertEquals(1, responses.size());
+        assertEquals(1, responses.get(0).containers().size());
+        assertEquals(3, responses.get(0).containers().get(0).posX());
+        assertTrue(FoundationNetworkAdapter.delivery(runtime).hasWarehouseSubscription(playerId, 1, PROJECT));
+        assertFalse(FoundationNetworkAdapter.delivery(runtime).hasWarehouseSubscription(playerId, 1, missing));
+    }
+
+    @Test
+    void temporaryWarehouseReadFailureDoesNotUnsubscribeAnyProject() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        String failing = "temporarily-failing";
+        when(store.warehouseContainersIfPresent(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of())));
+        when(store.warehouseContainersIfPresent(failing, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("database unavailable")));
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        packets.clear();
+
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(failing, true));
+
+        var responses = packets.stream().filter(WarehouseContainerResponseS2CPacket.class::isInstance)
+                .map(WarehouseContainerResponseS2CPacket.class::cast).toList();
+        assertEquals(1, responses.size());
+        assertTrue(responses.get(0).containers().isEmpty());
+        assertTrue(FoundationNetworkAdapter.delivery(runtime).hasWarehouseSubscription(playerId, 1, PROJECT));
+        assertTrue(FoundationNetworkAdapter.delivery(runtime).hasWarehouseSubscription(playerId, 1, failing));
+    }
+
+    @Test
+    void deletingPickupOnlyProjectClearsSubscriptionAndPushesEmptySnapshot() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        when(runtime.subscribers(PROJECT)).thenReturn(Set.of());
+        when(store.warehouseContainersIfPresent(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of())));
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        packets.clear();
+        when(runtime.readProgress(PROJECT)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+
+        FoundationNetworkAdapter.broadcast(server, PROJECT);
+
+        assertFalse(FoundationNetworkAdapter.delivery(runtime).hasWarehouseSubscription(playerId, 1, PROJECT));
+        var responses = packets.stream().filter(WarehouseContainerResponseS2CPacket.class::isInstance)
+                .map(WarehouseContainerResponseS2CPacket.class::cast).toList();
+        assertEquals(1, responses.size());
+        assertTrue(responses.get(0).containers().isEmpty());
+    }
+
+    @Test
+    void lateDeletionCannotClearANewerPickupSubscription() {
+        ProtocolHandshake.recordHandshake(server, player, 1, "old-client");
+        when(runtime.subscribers(PROJECT)).thenReturn(Set.of());
+        when(store.warehouseContainersIfPresent(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of())));
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        var deletionRead = new CompletableFuture<Optional<ProjectProgressRead>>();
+        when(runtime.readProgress(PROJECT)).thenReturn(deletionRead);
+        FoundationNetworkAdapter.broadcast(server, PROJECT);
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, false));
+        receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
+        packets.clear();
+
+        deletionRead.complete(Optional.empty());
+
+        assertTrue(FoundationNetworkAdapter.delivery(runtime).hasWarehouseSubscription(playerId, 1, PROJECT));
+        assertTrue(packets.stream().noneMatch(WarehouseContainerResponseS2CPacket.class::isInstance));
     }
 
     @Test
@@ -529,9 +668,9 @@ class FoundationNetworkAdapterTest {
                 .thenReturn(CompletableFuture.completedFuture(after));
         var observation = new ContainerObservation(new ContainerKey("minecraft:overworld", 1, 64, 1),
                 Map.of("minecraft:stone", 32L), "");
-        when(store.warehouseContainers(PROJECT, "minecraft:overworld"))
-                .thenReturn(CompletableFuture.completedFuture(List.of()))
-                .thenReturn(CompletableFuture.completedFuture(List.of(observation)));
+        when(store.warehouseContainersIfPresent(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of())))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of(observation))));
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
         packets.clear();
 
@@ -560,11 +699,11 @@ class FoundationNetworkAdapterTest {
         when(store.removeWarehouseReference(PROJECT, 1)).thenReturn(CompletableFuture.completedFuture(true));
         when(store.areaCatalog()).thenReturn(CompletableFuture.completedFuture(before))
                 .thenReturn(CompletableFuture.completedFuture(after));
-        when(store.warehouseContainers(PROJECT, "minecraft:overworld"))
-                .thenReturn(CompletableFuture.completedFuture(List.of(new ContainerObservation(
+        when(store.warehouseContainersIfPresent(PROJECT, "minecraft:overworld"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of(new ContainerObservation(
                         new ContainerKey("minecraft:overworld", 1, 64, 1),
-                        Map.of("minecraft:stone", 32L), ""))))
-                .thenReturn(CompletableFuture.completedFuture(List.of()));
+                        Map.of("minecraft:stone", 32L), "")))))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of())));
         when(runtime.subscribers(other)).thenReturn(Set.of());
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
         assertFalse(((WarehouseContainerResponseS2CPacket) packets.get(0)).containers().isEmpty());
@@ -591,8 +730,8 @@ class FoundationNetworkAdapterTest {
         when(store.addWarehouseReference(other, 1)).thenReturn(CompletableFuture.completedFuture(true));
         when(store.areaCatalog()).thenReturn(CompletableFuture.completedFuture(before))
                 .thenReturn(CompletableFuture.completedFuture(after));
-        when(store.warehouseContainers(anyString(), anyString()))
-                .thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(store.warehouseContainersIfPresent(anyString(), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of())));
         when(runtime.subscribers(other)).thenReturn(Set.of());
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
         packets.clear();
@@ -615,8 +754,8 @@ class FoundationNetworkAdapterTest {
         when(store.removeArea(null, AreaKind.WAREHOUSE, 1)).thenReturn(CompletableFuture.completedFuture(true));
         when(store.areaCatalog()).thenReturn(CompletableFuture.completedFuture(before))
                 .thenReturn(CompletableFuture.completedFuture(after));
-        when(store.warehouseContainers(anyString(), anyString()))
-                .thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(store.warehouseContainersIfPresent(anyString(), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(List.of())));
         when(runtime.subscribers(other)).thenReturn(Set.of());
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(other, true));
@@ -635,14 +774,15 @@ class FoundationNetworkAdapterTest {
         when(overworld.dimension()).thenReturn(net.minecraft.world.level.Level.OVERWORLD);
         when(overworld.getServer()).thenReturn(server);
         when(player.level()).thenReturn(overworld);
-        var pending = new CompletableFuture<List<ContainerObservation>>();
-        when(store.warehouseContainers(PROJECT, "minecraft:overworld")).thenReturn(pending);
+        var pending = new CompletableFuture<Optional<List<ContainerObservation>>>();
+        when(store.warehouseContainersIfPresent(PROJECT, "minecraft:overworld")).thenReturn(pending);
         receive(WarehouseContainerRequestC2SPacket.ID, new WarehouseContainerRequestC2SPacket(PROJECT, true));
         ServerLevel nether = mock(ServerLevel.class);
         when(nether.dimension()).thenReturn(net.minecraft.world.level.Level.NETHER);
         when(nether.getServer()).thenReturn(server);
         when(player.level()).thenReturn(nether);
-        pending.complete(List.of(new ContainerObservation(new ContainerKey("minecraft:overworld", 1, 64, 1), Map.of("minecraft:stone", 32L), "")));
+        pending.complete(Optional.of(List.of(new ContainerObservation(
+                new ContainerKey("minecraft:overworld", 1, 64, 1), Map.of("minecraft:stone", 32L), ""))));
         assertTrue(packets.isEmpty());
     }
 

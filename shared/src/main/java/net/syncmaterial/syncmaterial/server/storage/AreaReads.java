@@ -189,7 +189,18 @@ final class AreaReads {
     static List<ContainerObservation> warehouseContainers(Connection connection, String projectId, String world)
             throws SQLException {
         requireProject(connection, projectId);
+        return warehouseContainersForExistingProject(connection, projectId, world);
+    }
 
+    /** Distinguishes a missing project from an existing project with no visible containers. */
+    static Optional<List<ContainerObservation>> warehouseContainersIfPresent(
+            Connection connection, String projectId, String world) throws SQLException {
+        if (!projectExists(connection, projectId)) return Optional.empty();
+        return Optional.of(warehouseContainersForExistingProject(connection, projectId, world));
+    }
+
+    private static List<ContainerObservation> warehouseContainersForExistingProject(
+            Connection connection, String projectId, String world) throws SQLException {
         List<AreaDefinition> staging = stagingAreas(connection, projectId).stream()
                 .filter(area -> area.world().equals(world))
                 .toList();

@@ -76,6 +76,35 @@ class FoundationDeliveryTrackerTest {
     }
 
     @Test
+    void warehouseProjectCleanupRequiresCurrentGenerationAndKeepsOtherProjects() {
+        tracker.subscribeWarehouse(player, 1, PROJECT, true);
+        tracker.subscribeWarehouse(player, 1, "other", true);
+        var stale = tracker.warehouseSubscriptions(PROJECT).iterator().next();
+        tracker.subscribeWarehouse(player, 1, "unrelated", true);
+        var pending = tracker.beginWarehouse(player, 1, "minecraft:overworld");
+
+        assertFalse(tracker.forgetWarehouseProject(stale, PROJECT));
+        assertTrue(tracker.hasWarehouseSubscription(player, 1, PROJECT));
+        var current = tracker.warehouseSubscriptions(PROJECT).iterator().next();
+        assertTrue(tracker.forgetWarehouseProject(current, PROJECT));
+        assertFalse(tracker.hasWarehouseSubscription(player, 1, PROJECT));
+        assertTrue(tracker.hasWarehouseSubscription(player, 1, "other"));
+        assertTrue(tracker.hasWarehouseSubscription(player, 1, "unrelated"));
+        assertFalse(tracker.acceptWarehouse(pending));
+    }
+
+    @Test
+    void warehouseProjectCleanupRejectsPreviousConnection() {
+        tracker.subscribeWarehouse(player, 1, PROJECT, true);
+        var captured = tracker.warehouseSubscriptions(PROJECT).iterator().next();
+        tracker.disconnected(player);
+        tracker.subscribeWarehouse(player, 2, PROJECT, true);
+
+        assertFalse(tracker.forgetWarehouseProject(captured, PROJECT));
+        assertTrue(tracker.hasWarehouseSubscription(player, 2, PROJECT));
+    }
+
+    @Test
     void warehouseUnsubscribeInvalidatesPendingHighlights() {
         tracker.subscribeWarehouse(player, 1, "project", true);
         var pending = tracker.beginWarehouse(player, 1, "minecraft:overworld");

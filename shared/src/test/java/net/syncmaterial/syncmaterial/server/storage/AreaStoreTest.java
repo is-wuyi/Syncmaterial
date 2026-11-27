@@ -376,6 +376,13 @@ class AreaStoreTest {
         assertTrue(await(store.warehouseContainers("p1", "minecraft:the_end")).isEmpty());
         assertInstanceOf(StorageException.class, failureOf(
                 store.warehouseContainers("missing", WORLD)));
+
+        assertEquals(containers, await(store.warehouseContainersIfPresent("p1", WORLD)).orElseThrow());
+        Optional<List<ContainerObservation>> emptyWorld = await(
+                store.warehouseContainersIfPresent("p1", "minecraft:the_end"));
+        assertTrue(emptyWorld.isPresent());
+        assertTrue(emptyWorld.get().isEmpty());
+        assertTrue(await(store.warehouseContainersIfPresent("missing", WORLD)).isEmpty());
     }
 
     @Test

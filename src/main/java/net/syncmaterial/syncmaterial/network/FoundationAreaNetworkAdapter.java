@@ -324,12 +324,18 @@ final class FoundationAreaNetworkAdapter {
         var token = FoundationNetworkAdapter.delivery(runtime).beginWarehouse(player.getUUID(), connection,
                 McCompat.dimensionId(player.level()));
         CompletableFuture<List<ContainerObservation>> observations = CompletableFuture.completedFuture(List.of());
+        Set<String> missingProjects = new HashSet<>();
         for (String projectId : token.projects()) {
-            observations = observations.thenCombine(runtime.store().warehouseContainers(projectId, token.world()), (left, right) -> {
-                List<ContainerObservation> combined = new ArrayList<>(left);
-                combined.addAll(right);
-                return List.copyOf(combined);
-            });
+            observations = observations.thenCombine(
+                    runtime.store().warehouseContainersIfPresent(projectId, token.world()), (left, right) -> {
+                        if (right.isEmpty()) {
+                            missingProjects.add(projectId);
+                            return left;
+                        }
+                        List<ContainerObservation> combined = new ArrayList<>(left);
+                        combined.addAll(right.orElseThrow());
+                        return List.copyOf(combined);
+                    });
         }
         observations.whenComplete((snapshot, error) -> FoundationNetworkAdapter.execute(server, runtime, () -> {
             ServerPlayer current = FoundationNetworkAdapter.currentPlayer(server, runtime, token.playerId(), token.connection());
@@ -352,6 +358,10 @@ final class FoundationAreaNetworkAdapter {
                         entry.getKey().x(), entry.getKey().y(), entry.getKey().z(), entry.getValue().stream().sorted().toList()));
             }
             FoundationNetworkAdapter.send(current, new WarehouseContainerResponseS2CPacket(List.copyOf(entries)));
+            for (String projectId : missingProjects) {
+                FoundationNetworkAdapter.delivery(runtime).subscribeWarehouse(
+                        token.playerId(), token.connection(), projectId, false);
+            }
         }));
     }
 

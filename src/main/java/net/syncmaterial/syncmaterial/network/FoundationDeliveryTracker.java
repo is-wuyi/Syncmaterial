@@ -125,6 +125,28 @@ final class FoundationDeliveryTracker {
         return player != null && player.connection == connection && player.warehouses.contains(projectId);
     }
 
+    /** Captures legacy pickup subscribers without exposing the mutable delivery maps. */
+    synchronized Set<WarehouseSubscription> warehouseSubscriptions(String projectId) {
+        Set<WarehouseSubscription> result = new HashSet<>();
+        players.forEach((playerId, player) -> {
+            if (player.warehouses.contains(projectId)) {
+                result.add(new WarehouseSubscription(playerId, player.connection, player.warehouseGeneration));
+            }
+        });
+        return Set.copyOf(result);
+    }
+
+    /** Removes a deleted pickup project only while its captured connection and generation remain current. */
+    synchronized boolean forgetWarehouseProject(WarehouseSubscription subscription, String projectId) {
+        PlayerDelivery player = players.get(subscription.playerId());
+        if (player == null || player.connection != subscription.connection()
+                || player.warehouseGeneration != subscription.generation()
+                || !player.warehouses.contains(projectId)) return false;
+        player.warehouses.remove(projectId);
+        player.warehouseGeneration = Math.incrementExact(player.warehouseGeneration);
+        return true;
+    }
+
     synchronized void forgetProject(UUID playerId, long connection, String projectId) {
         PlayerDelivery player = players.get(playerId);
         if (player == null || player.connection != connection) return;
@@ -166,6 +188,7 @@ final class FoundationDeliveryTracker {
     }
 
     record ProjectToken(UUID playerId, long connection, String projectId, long sequence, boolean opening) {}
+    record WarehouseSubscription(UUID playerId, long connection, long generation) {}
     record WarehouseToken(UUID playerId, long connection, long generation, Set<String> projects, String world) {}
     record WarehouseRevisionToken(UUID playerId, long connection, String projectId, long viewId,
                                   long viewGeneration, long revision) {}

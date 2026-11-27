@@ -676,6 +676,19 @@ public final class SqliteProjectStore implements AutoCloseable {
         }
     }
 
+    /** Empty means missing; a present empty list means an existing project with no visible containers. */
+    public CompletableFuture<Optional<List<ContainerObservation>>> warehouseContainersIfPresent(
+            String projectId, String world) {
+        try {
+            requireProjectId(projectId);
+            requireNonBlank(world, "world");
+            return readOnWriter("warehouseContainersIfPresent", connection ->
+                    AreaReads.warehouseContainersIfPresent(connection, projectId, world));
+        } catch (Throwable failure) {
+            return failedFuture(failure);
+        }
+    }
+
     /** Internal scanner-facing store; see {@link AreaScanStore} for the token and CAS contract. */
     public AreaScanStore areaScanStore() {
         return scanStore;
