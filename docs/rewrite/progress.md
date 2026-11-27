@@ -9,16 +9,16 @@
 | 项目 | 状态 |
 |---|---|
 | 最近核对日期 | 2026-11-27 |
-| 当前阶段 | 0.4.0-beta.1 Foundation旧协议缺失项目与失败反馈修复已通过本地完整验收，提交推送与线上CI待完成；WP9仍部分完成，WP10／WP11未开始 |
+| 当前阶段 | 0.4.0-beta.1 Foundation旧协议缺失项目与失败反馈修复已完成本地及线上验收；WP9仍部分完成，WP10／WP11未开始 |
 | 开发分支 | `rewrite/backend-foundation` |
-| 最新实现提交 | [`cf88542`](https://github.com/is-wuyi/Syncmaterial/commit/cf885429c0821f47e3d0c7cb3f4483df8f965bc7)：beta.65仓库投影组件化与混合版本刷新，[CI 45652134454](https://github.com/is-wuyi/Syncmaterial/actions/runs/45652134454)全部10项通过 |
+| 最新实现提交 | [`3d10918`](https://github.com/is-wuyi/Syncmaterial/commit/3d10918044ff582a34f0272ddf70228d3824c744)：0.4.0-beta.1旧协议缺失项目与失败反馈，[CI 45953574470](https://github.com/is-wuyi/Syncmaterial/actions/runs/45953574470)全部10项通过 |
 | CI演示试点 | [`08e7d39`](https://github.com/is-wuyi/Syncmaterial/commit/08e7d39f7f73ced932d36f38d026455d9758178b)：真实录制、GIF／MP4、独立Pages发布，[CI 45549278491](https://github.com/is-wuyi/Syncmaterial/actions/runs/45549278491)全部10项通过 |
-| 实现版本 | 0.4.0-beta.1本地完整验收通过；协议5／最低兼容1／Foundation schema3不变 |
+| 实现版本 | 0.4.0-beta.1本地完整矩阵及线上CI通过；协议5／最低兼容1／Foundation schema3不变 |
 | 运行时支持 | Minecraft 1.21.7、1.21.8、26.2；共享业务只维护一份，各节点分别构建和验收 |
 | 默认后端 | **仍为 legacy**；Foundation 需 `-Dsyncmaterial.backend=foundation` 显式启用 |
-| 下一批 | 先完成0.4.0-beta.1完整验收与交付，再自动调研下一批具体任务；不自动进入WP10 |
-| 当前阻塞 | 当前批提交推送与线上CI尚待验收；项目切换／关闭界面的取货语义、旧订阅上限和真实历史客户端证据仍须分开评估 |
-| 发布状态 | beta.65实现与完整回归已提交推送且CI通过；未打tag、未release、未部署正式服、未切换默认后端 |
+| 下一批 | 自动调研下一批WP9，优先评估仅取货删除读取的轻量化、剩余旧订阅策略与功能对等欠账；不自动进入WP10 |
+| 当前阻塞 | 当前批无交付阻塞；项目切换／关闭界面的取货语义、旧订阅上限和真实历史客户端证据仍须分开评估 |
+| 发布状态 | 0.4.0-beta.1实现与完整回归已提交推送且CI通过；未打tag、未release、未部署正式服、未切换默认后端 |
 
 当前 Foundation 已接通材料导入／查询、基础认领与在线库存、区域配置／仓库引用、被动扫描、去重库存和新鲜度，以及负责人写操作、批量分配、按材料踢人、玩家目录。WP5 管理闭环及 WP6／WP7 的团队收集、订阅与生产主清单已交付；WP8剩余客户端状态迁移和旧结构退场不能混为一谈，不能据此宣称全项目重构完成。
 
@@ -309,7 +309,7 @@
 - 本批完成不代表WP9全部清理或WP10旧实现退场。
 - 后续P1／WP10欠账单独保留：Foundation旧材料清单失败反馈与旧取货缺失项目由0.4.0-beta.1处理；其余旧协议缺项目订阅与兴趣上限、删除通知与团队推送范围、`MaterialListClose`和缺项目OPEN差异，以及真实旧版本客户端证据和默认后端切换仍需分别评估。未经定案不得顺手统一。
 
-## 4H. 本批实施：Foundation旧协议缺失项目与失败反馈（本地完整验收通过，CI待验收）
+## 4H. 本批实施：Foundation旧协议缺失项目与失败反馈（本地与CI验收通过）
 
 2026-11-26完成两路只读代码审查并由主线程核对关键调用链，随后用户批准以 **0.4.0-beta.1** 实施本批修复。前期结论来自当前源码和既有测试的静态阅读；真实历史客户端二进制运行证据仍缺失，本批不把当前客户端模拟旧协议当成历史版本实测。
 
@@ -322,6 +322,7 @@
 - **已批准并实施的0.4.0-beta.1边界**：①材料清单失败分类与真实聊天反馈；②缺项目取货读取隔离，以及没有材料订阅者时的删除清理。存储在同一读事务以`Optional`区分“项目缺失”和“项目存在但无容器”，不匹配异常字符串；只对确认不存在的项目退订，数据库暂时失败不得被当成删除或误退订。删除清理由带连接／generation的取货快照保护，不改成功包顺序、跨项目并集、线框／取货订阅分工或legacy业务语义。
 - 定向1.21.8验收已通过：真实SQLite区域存储测试，以及Foundation网络42项、delivery 19项，后两者合计61项、0失败／0错误／0跳过。覆盖未知项目与有效项目共存、初始缺失空快照、暂态故障不退订、仅取货删除清理、迟到删除不得误清重新订阅，以及协议1缺项目／未就绪、未知材料、数量超限和过期反馈。首轮51项既有测试仅有未知材料旧文案断言按批准行为更新。
 - 同一冻结源码clean后，非客户端聚合 `buildAllVersions checkAllVersions testOptionalDependencies` 以17分20秒通过，`testAllClients` 以27分31秒通过；每个节点服务端41＋19、客户端32＋12，完整客户端合计132项。严格守卫50项通过，0警告／0缺证据／0失败；shared 539项、1.21.7／1.21.8各955项、26.2为952项，SpotBugs shared 0、平台各6且无新增。三个0.4.0-beta.1 jar的Minecraft范围、Java字节码、shared／SQLite嵌套和测试隔离均通过，497份受控源码前后哈希均为 `a19a46d722fd958de2bf929260d200eaadca7eca1949f8e740babd64f1cde0f4`；CI／录制／播放页等112项Python合同测试也通过。
+- 实现 `3d10918` 已提交推送，[CI 45953574470](https://github.com/is-wuyi/Syncmaterial/actions/runs/45953574470)全部10项通过。完整[播放页](https://is-wuyi.github.io/Syncmaterial/demos/45953574470/)返回200，视频220.65秒、854×480、原始与带标注MP4均6623帧、32／32全部PASS，媒体状态为ok且无警告；manifest中的run／commit／版本正确，全部素材SHA-256一致，MP4 Range请求返回206，上一run页面仍可访问。
 - 前置客户端尝试曾分别在启动、200容器压力和容器推送场景超时，日志显示服务器启动／关闭过慢及最高约34.9秒落后；没有修改产品、超时或过滤场景。停止盲目重跑并完成旧副本清理后，非客户端与完整客户端分项验收均通过，最终没有FAIL标记。该环境过程不记成产品回归，也不能替代CI再次确认。提交推送、线上CI和完整回归视频尚待验收。
 - 独立只读复核未发现阻塞项，确认同读事务缺失分类、旧协议5存储契约、发送后退订、删除连接／generation围栏和材料失败保护。覆盖限制保留：合法空项目在网络层保留订阅、删除一个项目时另一个有效项目的实际容器推送、删除后重建竞态及材料＋取货双订阅恰好一次推送未全部直接验证；现有真实SQLite、tracker和 adapter 测试间接覆盖核心合同。仅取货订阅的项目更新还会为删除判定执行完整读取，后续可评估更轻量的存在性检查，不在本批扩大改动。
 - 批外保留：`QueryMaterialStatus`缺项目订阅策略、旧订阅数量上限、`MaterialListClose`／项目切换、协议5异常mask=0、删除通知／团队推送范围及真实历史客户端验证。不进入WP10，不改协议5／最低兼容1／schema3／默认legacy，不导入旧库、不部署或发布。
@@ -383,6 +384,7 @@
 | 2026-11-21 | WP6／WP7共享进度、协议5项目视图、必要WP8与生产主清单 | [`3653033`](https://github.com/is-wuyi/Syncmaterial/commit/36530339b4e0f14f1ee58ee47130c8808fe51d97) | 已提交、已推送 | [全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/44874999573) |
 | 2026-11-22 | WP8客户端会话、选区与渲染生命周期及本批必要WP9 | [`cab2945`](https://github.com/is-wuyi/Syncmaterial/commit/cab294526383705619a81cbdd82db5297506d73d) | 已提交、已推送 | [全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/44945047718) |
 | 2026-11-26 | Legacy仓库投影组件化与混合版本刷新 | [`cf88542`](https://github.com/is-wuyi/Syncmaterial/commit/cf885429c0821f47e3d0c7cb3f4483df8f965bc7) | 已提交、已推送 | [全部 10 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45652134454) |
+| 2026-11-27 | Foundation旧协议缺失项目与失败反馈 | [`3d10918`](https://github.com/is-wuyi/Syncmaterial/commit/3d10918044ff582a34f0272ddf70228d3824c744) | 已提交、已推送 | [全部 10 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45953574470) |
 
 仅文档更新通过本文件的 Git 历史跟踪，不改变“最新实现提交”或 mod 版本，避免为了引用本文件自己的提交再制造循环更新。
 
