@@ -9,16 +9,16 @@
 | 项目 | 状态 |
 |---|---|
 | 最近核对日期 | 2026-11-28 |
-| 当前阶段 | 0.4.0-beta.2 独立修复已通过本地完整验收，提交推送与线上CI待完成；WP9仍部分完成，WP10／WP11未开始 |
+| 当前阶段 | 0.4.0-beta.2 独立修复已完成本地及线上验收；WP9仍部分完成，WP10／WP11未开始 |
 | 开发分支 | `rewrite/backend-foundation` |
-| 最新实现提交 | [`3d10918`](https://github.com/is-wuyi/Syncmaterial/commit/3d10918044ff582a34f0272ddf70228d3824c744)：0.4.0-beta.1旧协议缺失项目与失败反馈，[CI 45953574470](https://github.com/is-wuyi/Syncmaterial/actions/runs/45953574470)全部10项通过 |
+| 最新实现提交 | [`552c16f`](https://github.com/is-wuyi/Syncmaterial/commit/552c16f77739a8a2db0aa8d3f69fa5ead369c450)：0.4.0-beta.2编辑器状态、旧协议线框与材料归属校验，[CI 46115245057](https://github.com/is-wuyi/Syncmaterial/actions/runs/46115245057)全部10项通过 |
 | CI演示试点 | [`08e7d39`](https://github.com/is-wuyi/Syncmaterial/commit/08e7d39f7f73ced932d36f38d026455d9758178b)：真实录制、GIF／MP4、独立Pages发布，[CI 45549278491](https://github.com/is-wuyi/Syncmaterial/actions/runs/45549278491)全部10项通过 |
-| 实现版本 | 0.4.0-beta.2本地完整验收通过；协议5／最低兼容1／Foundation schema3不变 |
+| 实现版本 | 0.4.0-beta.2本地完整矩阵及线上CI通过；协议5／最低兼容1／Foundation schema3不变 |
 | 运行时支持 | Minecraft 1.21.7、1.21.8、26.2；共享业务只维护一份，各节点分别构建和验收 |
 | 默认后端 | **仍为 legacy**；Foundation 需 `-Dsyncmaterial.backend=foundation` 显式启用 |
-| 下一批 | 先完成0.4.0-beta.2完整验收，再实施单活跃预览与显式切换；预览需拆分active/preview模型，禁止多项目并行、顶部选择器及回包自动切换，不自动进入WP10 |
-| 当前阻塞 | 当前批提交推送与线上CI尚待验收；后续预览切换需单独制定实施计划 |
-| 发布状态 | 0.4.0-beta.1实现与完整回归已提交推送且CI通过；未打tag、未release、未部署正式服、未切换默认后端 |
+| 下一批 | 实施单活跃预览与显式切换；预览需拆分active/preview模型，禁止多项目并行、顶部选择器及回包自动切换，不自动进入WP10 |
+| 当前阻塞 | 当前批无交付阻塞；后续预览切换需单独制定实施计划 |
+| 发布状态 | 0.4.0-beta.2实现与完整回归已提交推送且CI通过；未打tag、未release、未部署正式服、未切换默认后端 |
 
 当前 Foundation 已接通材料导入／查询、基础认领与在线库存、区域配置／仓库引用、被动扫描、去重库存和新鲜度，以及负责人写操作、批量分配、按材料踢人、玩家目录。WP5 管理闭环及 WP6／WP7 的团队收集、订阅与生产主清单已交付；WP8剩余客户端状态迁移和旧结构退场不能混为一谈，不能据此宣称全项目重构完成。
 
@@ -356,7 +356,7 @@
 - **方向选择**：用户已选择先修单活跃项目。重点是切换时明确唯一活跃项目、完整重同步当前背包贡献、项目名／取货状态一致，以及关闭GUI／HUD隐藏不误退订；暂不做多项目同时活跃所需的按项目背包上下文、兴趣和HUD分组。
 - **查看与切换的UI定案**：材料清单默认仅查看，不自动改变当前项目。非当前项目的材料清单在底部个人操作区提供独立“设为当前项目”按钮，当前项目只显示标记；Syncmatica原理图行内图钉与材料清单按钮共用同一切换逻辑。禁止顶部选择器及打开／认领／网络回包自动切换，切换期间防重复点击，成功统一背包贡献／HUD／取货状态，失败保留原项目。
 
-## 4K. 本批实施：编辑器状态、旧协议线框与 legacy 材料归属校验（本地完整验收通过，CI待验收）
+## 4K. 本批实施：编辑器状态、旧协议线框与 legacy 材料归属校验（本地与CI验收通过）
 
 2026-11-28完成预览架构与独立修复顺序调研后，用户批准以 **0.4.0-beta.2** 先修独立问题。单活跃预览留到下一批；两后端和协议5服务端视图均允许同连接A活动视图与B候选视图并存，后续实施无需新增包、改协议版本或改默认后端。
 
@@ -364,7 +364,8 @@
 - 定向1.21.8验收已通过：共享去抖、编辑器、客户端线框、legacy网络与真实SQLite测试。外来Join inventoryCounts、Leave、批量分配和Kick均在副作用前被拒绝；真实SQLite证明未命中删除不再清掉其他项目内存，合法删除只影响目标项目。
 - 首轮完整矩阵在1.21.7 `PickupHighlight` 创建专服时发生TimeoutException，未进入取货逻辑；按原配置重跑后，28分34秒完成全部聚合任务。最终严格守卫50项通过，0警告／0缺证据／0失败；shared 541项、1.21.7／1.21.8各964项、26.2为961项；每节点服务端41＋19、客户端32＋12，完整客户端132项，缺依赖双后端全部通过，SpotBugs shared 0、平台各6且无新增。三个0.4.0-beta.2 jar的Minecraft范围、Java字节码、shared／SQLite嵌套和测试隔离均通过，CI／录制／播放页等112项Python合同测试也通过。
 - 498个受控文件的前后逐文件SHA-256完全一致。初次聚合记录与文件摘要不符，已保留异常值 `56af7c1e14150c06e75831c5b118ceb41653dd24dac06861218bda6e1e76ed41` 并生成修正记录；最终有效源码哈希为 `49e700f04bc7a6d062210ad2cbf960187e9d738c1968d31c87a6bcd2a88763bf`，前后文件内容一致。
-- 独立只读复核未发现阻塞项：失效回调与SAVING窗口、UNCONFIRMED旧协议兼容、渲染门例外及材料校验顺序均成立；tick路径清字段主要依赖权威合并路径覆盖，未另设独立断言，不构成本批阻塞。提交推送、线上CI和完整回归视频尚待验收。
+- 独立只读复核未发现阻塞项：失效回调与SAVING窗口、UNCONFIRMED旧协议兼容、渲染门例外及材料校验顺序均成立；tick路径清字段主要依赖权威合并路径覆盖，未另设独立断言，不构成本批阻塞。
+- 实现 `552c16f` 已提交推送，[CI 46115245057](https://github.com/is-wuyi/Syncmaterial/actions/runs/46115245057)全部10项通过。完整[播放页](https://is-wuyi.github.io/Syncmaterial/demos/46115245057/)返回200，原始与带标注MP4均250.8秒、854×480、7524帧、32／32全部PASS，媒体状态为ok且无警告；manifest中的run／commit／版本正确，全部素材SHA-256一致，MP4 Range请求返回206，上一run页面仍可访问。
 - **随后另批做单活跃预览与显式切换**：复用`pendingProjectSwitch`候选视图，预览OPENED后不调用`leases.activate`、不关闭A、不触发activeProjectListener；点击“设为当前项目”才复用现有completeSwitch关闭A、迁移B store并触发added-mask重同步。关闭预览只关闭B，失败保留A，快速连点／删除／断线／维度变化都需围栏。
 - **客户端唯一主要结构改动**：`ClientProjectCoordinator`需把active model与preview model分开，模型构造与`StagingAreaRenderer.activateProject`等激活副作用解耦。预览期间HUD、InventoryWatcher、取货和线框继续属于A；B清单可查看但只读，提升时才迁移模型和背包上下文。协议1—4也要保留预览，不得退回打开即切换；旧查询订阅在关闭预览时只退B。
 - **必须一起处理的边界**：预览页的认领／管理写操作不能只靠现有controlsProject静默失败，应明确禁用；TeamManagementClient的activeProject在预览开关后正确回填；取货本地状态与WAREHOUSE_CONTENTS兴趣一致，不继续制造本地off／兴趣on。预览加载失败、超时、重复点击和旧响应不得替用户选择项目。
@@ -431,6 +432,7 @@
 | 2026-11-22 | WP8客户端会话、选区与渲染生命周期及本批必要WP9 | [`cab2945`](https://github.com/is-wuyi/Syncmaterial/commit/cab294526383705619a81cbdd82db5297506d73d) | 已提交、已推送 | [全部 8 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/44945047718) |
 | 2026-11-26 | Legacy仓库投影组件化与混合版本刷新 | [`cf88542`](https://github.com/is-wuyi/Syncmaterial/commit/cf885429c0821f47e3d0c7cb3f4483df8f965bc7) | 已提交、已推送 | [全部 10 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45652134454) |
 | 2026-11-27 | Foundation旧协议缺失项目与失败反馈 | [`3d10918`](https://github.com/is-wuyi/Syncmaterial/commit/3d10918044ff582a34f0272ddf70228d3824c744) | 已提交、已推送 | [全部 10 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/45953574470) |
+| 2026-11-28 | 编辑器状态、旧协议线框与legacy材料归属校验 | [`552c16f`](https://github.com/is-wuyi/Syncmaterial/commit/552c16f77739a8a2db0aa8d3f69fa5ead369c450) | 已提交、已推送 | [全部 10 项通过](https://github.com/is-wuyi/Syncmaterial/actions/runs/46115245057) |
 
 仅文档更新通过本文件的 Git 历史跟踪，不改变“最新实现提交”或 mod 版本，避免为了引用本文件自己的提交再制造循环更新。
 
