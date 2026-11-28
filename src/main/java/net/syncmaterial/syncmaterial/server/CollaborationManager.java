@@ -95,15 +95,17 @@ public class CollaborationManager implements AutoCloseable {
     public boolean leaveCollaboration(String schematicId, int materialId, String playerName) {
         if (closed) return false;
         try {
-            database.executeUpdate(
+            int removed = database.executeUpdate(
                 "DELETE FROM claims WHERE schematic_id = ? AND material_id = ? AND player_name = ? AND status = 'active'",
                 schematicId, materialId, playerName
             );
-            
-            playerInventories.computeIfPresent(playerName, (name, inv) -> {
-                inv.remove(materialId);
-                return inv.isEmpty() ? null : inv;
-            });
+
+            if (removed > 0) {
+                playerInventories.computeIfPresent(playerName, (name, inv) -> {
+                    inv.remove(materialId);
+                    return inv.isEmpty() ? null : inv;
+                });
+            }
 
             SyncMaterial.LOGGER.debug("玩家 {} 退出材料 {} 的协作组", playerName, materialId);
             return true;

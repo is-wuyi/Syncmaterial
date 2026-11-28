@@ -59,6 +59,7 @@ class ModNetworkHandlerBehaviorTest {
         queryService = support.queryService;
         cm = support.collaboration;
         manager = support.staging;
+        when(cm.getAllMaterialIds(anyString())).thenReturn(List.of(1, 2, 3, 42));
         support.handshake();
 
         networkingMock = mockStatic(ServerPlayNetworking.class);
@@ -127,6 +128,28 @@ class ModNetworkHandlerBehaviorTest {
     }
 
     @Test
+    void join_foreignInventoryMaterialIsRejectedBeforeAnySideEffect() throws Exception {
+        when(db.getAllowSelfClaim("s1")).thenReturn(true);
+        when(db.isOwner("s1", "Player1")).thenReturn(false);
+        when(cm.joinCollaboration("s1", 42, "Player1")).thenReturn(true);
+
+        ModNetworkHandler.handleJoinCollaboration(owner,
+                new JoinCollaborationC2SPacket("s1", 42, Map.of(999, 10)), player, server);
+
+        verify(cm, never()).joinCollaboration(any(), anyInt(), any());
+        verify(cm, never()).updatePlayerInventory(any(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void leave_foreignMaterialDoesNotDeleteOrBroadcast() throws Exception {
+        ModNetworkHandler.handleLeaveCollaboration(owner,
+                new LeaveCollaborationC2SPacket("s1", 999), player, server);
+
+        verify(cm, never()).leaveCollaboration(any(), anyInt(), any());
+        networkingMock.verifyNoInteractions();
+    }
+
+    @Test
     void join_dbError_dropsRequest() throws Exception {
         when(db.getAllowSelfClaim("s1")).thenThrow(new RuntimeException("db down"));
 
@@ -175,8 +198,8 @@ class ModNetworkHandlerBehaviorTest {
     }
 
     @Test
-    void validateMaterialId_negativeRejected() {
-        assertTrue(ModNetworkHandler.validateMaterialId(0));
+    void validateMaterialId_nonPositiveRejected() {
+        assertFalse(ModNetworkHandler.validateMaterialId(0));
         assertFalse(ModNetworkHandler.validateMaterialId(-1));
     }
 

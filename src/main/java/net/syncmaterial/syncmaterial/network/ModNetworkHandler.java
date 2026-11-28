@@ -213,7 +213,7 @@ public class ModNetworkHandler {
     }
 
     static boolean validateMaterialId(int materialId) {
-        if (materialId < 0) {
+        if (materialId <= 0) {
             SyncMaterial.LOGGER.warn("收到无效的 materialId: {}", materialId);
             return false;
         }
@@ -436,6 +436,11 @@ public class ModNetworkHandler {
 
         var collaboration = owner.collaboration();
         if (collaboration == null) return;
+        var validMaterialIds = collaboration.getAllMaterialIds(schematicId);
+        if (!validMaterialIds.contains(materialId) || !validMaterialIds.containsAll(inventoryCounts.keySet())) {
+            SyncMaterial.LOGGER.warn("拒绝包含不属于目标项目材料的 Join: {} / {}", schematicId, materialId);
+            return;
+        }
         if (collaboration.joinCollaboration(schematicId, materialId, playerName)) {
             for (Map.Entry<Integer, Integer> entry : inventoryCounts.entrySet()) {
                 collaboration.updatePlayerInventory(playerName, schematicId, entry.getKey(), entry.getValue());
@@ -555,6 +560,10 @@ public class ModNetworkHandler {
 
         var collaboration = owner.collaboration();
         if (collaboration == null) return;
+        if (!collaboration.getAllMaterialIds(schematicId).contains(materialId)) {
+            SyncMaterial.LOGGER.warn("拒绝不属于目标项目材料的 Leave: {} / {}", schematicId, materialId);
+            return;
+        }
         if (collaboration.leaveCollaboration(schematicId, materialId, playerName)) {
             broadcastStatus(owner, schematicId, materialId);
             sendStatusToPlayer(owner, player, schematicId, materialId);

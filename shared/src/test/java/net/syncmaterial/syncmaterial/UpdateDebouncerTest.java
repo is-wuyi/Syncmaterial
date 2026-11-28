@@ -163,6 +163,29 @@ class UpdateDebouncerTest {
     }
 
     @Test
+    void discardCallbackRunsOnlyForInvalidIntent() {
+        UpdateDebouncer debouncer = new UpdateDebouncer(2);
+        AtomicBoolean discarded = new AtomicBoolean();
+        debouncer.schedule(send("valid"), () -> true, () -> discarded.set(true));
+        debouncer.flushNow();
+        assertFalse(discarded.get(), "正常发送不得触发丢弃回调");
+
+        debouncer.schedule(send("invalid"), () -> false, () -> discarded.set(true));
+        debouncer.flushNow();
+        assertTrue(discarded.get(), "失效意图必须触发丢弃回调");
+    }
+
+    @Test
+    void discardCallbackRunsOnTickFenceFailure() {
+        UpdateDebouncer debouncer = new UpdateDebouncer(2);
+        AtomicBoolean discarded = new AtomicBoolean();
+        debouncer.schedule(send("stale"), () -> false, () -> discarded.set(true));
+        tick(debouncer, 2);
+        assertTrue(discarded.get());
+        assertTrue(sent.isEmpty());
+    }
+
+    @Test
     void fenceIsEvaluatedAtFlushNotOnlyAtSchedule() {
         AtomicBoolean valid = new AtomicBoolean(true);
         UpdateDebouncer debouncer = new UpdateDebouncer(20);

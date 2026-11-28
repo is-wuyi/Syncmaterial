@@ -213,6 +213,11 @@ public class Phase4Handler {
             return new LegacyResult(false, command.action() == TeamAction.ASSIGN
                     ? "没有权限，只有负责人才能分配" : "没有权限", readTeamOrNull(owner, command.projectId()), 0);
         }
+        var validMaterialIds = owner.collaboration().getAllMaterialIds(command.projectId());
+        if (!validMaterialIds.containsAll(command.materialIds())) {
+            return new LegacyResult(false, "存在不属于该项目的材料，请刷新后重试",
+                    readTeamOrNull(owner, command.projectId()), 0);
+        }
         int processed = 0;
         for (int materialId : command.materialIds()) {
             for (PlayerIdentity target : command.targets()) {

@@ -128,6 +128,35 @@ class ClientPacketHandlerTest {
     }
 
     @Test
+    void configResponse_otherProjectDoesNotReinjectWhileAnotherIsActive() {
+        var session = ClientSessionManager.current().orElseThrow();
+        session.materialList(new net.syncmaterial.syncmaterial.client.gui.SyncMaterialList("project-b", "B"));
+
+        ModNetworkHandlerClient.handleStagingAreaConfigResponseForWorld(
+                new StagingAreaConfigResponseS2CPacket("LIST", "project-a", "A", true, "", List.of(area(1, "区域A"))));
+        assertNull(StagingAreaRenderer.getInstance().getSelection("project-a"));
+
+        ModNetworkHandlerClient.handleStagingAreaConfigResponseForWorld(
+                new StagingAreaConfigResponseS2CPacket("LIST", "project-b", "B", true, "", List.of(area(2, "区域B"))));
+        assertNotNull(StagingAreaRenderer.getInstance().getSelection("project-b"));
+    }
+
+    @Test
+    void configResponse_otherProjectEmptyAndDeletedStillClean() {
+        var session = ClientSessionManager.current().orElseThrow();
+        session.materialList(new net.syncmaterial.syncmaterial.client.gui.SyncMaterialList("project-b", "B"));
+        StagingAreaRenderer.getInstance().updateSelection("project-a", new AreaSelection());
+        ModNetworkHandlerClient.handleStagingAreaConfigResponseForWorld(
+                new StagingAreaConfigResponseS2CPacket("LIST", "project-a", "", true, "", List.of()));
+        assertNull(StagingAreaRenderer.getInstance().getSelection("project-a"));
+
+        StagingAreaRenderer.getInstance().updateSelection("project-a", new AreaSelection());
+        ModNetworkHandlerClient.handleStagingAreaConfigResponseForWorld(
+                new StagingAreaConfigResponseS2CPacket("SCHEMATIC_DELETED", "project-a", "", true, "", List.of()));
+        assertNull(StagingAreaRenderer.getInstance().getSelection("project-a"));
+    }
+
+    @Test
     void warehouseContainers_cachedForPickupHighlight() {
         var containers = List.of(new WarehouseContainerResponseS2CPacket.ContainerEntry(
             1, 64, 1, List.of("minecraft:stone")));

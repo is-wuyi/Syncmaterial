@@ -299,6 +299,22 @@ public class ModNetworkHandlerClient {
         return scope != null && !scope.isBlank() && scope.equals(ownProject);
     }
 
+    /** Current project view when confirmed; otherwise the legacy active material model. */
+    private static String activeSessionProject() {
+        String viewed = net.syncmaterial.syncmaterial.client.ProjectViewClient.current()
+                .flatMap(net.syncmaterial.syncmaterial.client.ProjectViewClient::projectStore)
+                .map(net.syncmaterial.syncmaterial.client.ClientProjectViewStore::scope)
+                .filter(net.syncmaterial.syncmaterial.core.ProjectViewScope::isProject)
+                .map(net.syncmaterial.syncmaterial.core.ProjectViewScope::projectId)
+                .orElse(null);
+        if (viewed != null) return viewed;
+        return ClientSessionManager.current()
+                .map(ClientConnectionSession::projectCoordinator)
+                .map(net.syncmaterial.syncmaterial.client.session.ClientProjectCoordinator::materialList)
+                .map(net.syncmaterial.syncmaterial.client.gui.SyncMaterialList::getSchematicId)
+                .orElse(null);
+    }
+
     /**
      * 备货区配置响应的世界侧处理（不在任何相关界面打开时）：
      * 同步渲染器的选区数据、处理原理图删除/备货区清空的清理。
@@ -329,12 +345,13 @@ public class ModNetworkHandlerClient {
             return;
         }
 
+        String activeProject = activeSessionProject();
         // 空 areas 列表表示该原理图的备货区已被删除
         if (payload.areas().isEmpty())
         {
             renderer.removeRenderData(payload.schematicId());
         }
-        else
+        else if (activeProject == null || activeProject.equals(payload.schematicId()))
         {
             var selection = renderer.getSelection(payload.schematicId());
             if (selection == null)

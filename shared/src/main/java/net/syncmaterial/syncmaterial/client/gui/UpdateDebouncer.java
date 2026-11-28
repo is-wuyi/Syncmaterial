@@ -24,6 +24,7 @@ public final class UpdateDebouncer {
 
     private Runnable pending;
     private BooleanSupplier stillValid;
+    private Runnable onDiscard;
     private int idleTicks;
 
     /**
@@ -42,7 +43,7 @@ public final class UpdateDebouncer {
      * 覆盖而非排队是关键：连续输入产生的中间态无需逐个上报，只有最终值有意义。
      */
     public void schedule(Runnable action) {
-        schedule(action, null);
+        schedule(action, null, null);
     }
 
     /**
@@ -52,8 +53,14 @@ public final class UpdateDebouncer {
      * 延迟意图必须丢弃而不是发到新会话／新代次。检查为空表示不设门槛。
      */
     public void schedule(Runnable action, BooleanSupplier stillValid) {
+        schedule(action, stillValid, null);
+    }
+
+    /** Registers optional cleanup that runs only when the pending intent is discarded. */
+    public void schedule(Runnable action, BooleanSupplier stillValid, Runnable onDiscard) {
         this.pending = action;
         this.stillValid = stillValid;
+        this.onDiscard = onDiscard;
         this.idleTicks = 0;
     }
 
@@ -81,19 +88,26 @@ public final class UpdateDebouncer {
     public void flushNow() {
         Runnable action = this.pending;
         BooleanSupplier check = this.stillValid;
+        Runnable cleanup = this.onDiscard;
         this.pending = null;
         this.stillValid = null;
+        this.onDiscard = null;
         this.idleTicks = 0;
         if (action != null && (check == null || check.getAsBoolean())) {
             action.run();
+        } else if (cleanup != null) {
+            cleanup.run();
         }
     }
 
     /** 丢弃待发送动作，不执行。用于取消类路径 */
     public void discard() {
+        Runnable cleanup = this.onDiscard;
         this.pending = null;
         this.stillValid = null;
+        this.onDiscard = null;
         this.idleTicks = 0;
+        if (cleanup != null) cleanup.run();
     }
 
     private boolean isPendingValid() {

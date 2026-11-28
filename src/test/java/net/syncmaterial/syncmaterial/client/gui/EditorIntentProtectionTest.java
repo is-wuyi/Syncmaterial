@@ -214,6 +214,28 @@ class EditorIntentProtectionTest {
         assertEquals(areaConfigWrites(), writesBefore, "失效载荷必须先 discard，不得 flush 发出");
         assertEquals(EditorSaveTracker.State.UNCONFIRMED, tracker.state(),
                 "被丢弃的载荷标记未确认，不伪装已保存");
+        assertNull(field(editor, "pendingCoordinateServerId"), "失效丢弃后不得继续保护旧坐标");
+    }
+
+    @Test
+    void debounceFireKeepsTargetThroughSavingWindowAndClearsOnSave() {
+        session.openProject("project", InterestKind.AREA_CONFIG.bit());
+        GuiStagingAreaEditorNormal editor = editorWithBoxes();
+        EditorSaveTracker tracker = trackerOf(editor);
+        editor.scheduleCoordinateUpdate(fi.dy.masa.litematica.util.PositionUtils.Corner.CORNER_1);
+        debouncerOf(editor).flushNow();
+        assertEquals(EditorSaveTracker.State.SAVING, tracker.state());
+
+        doNothing().when(editor).initGui();
+        editor.applyProjectViewConfiguration("LIST", List.of(area(1, "区域A", 500, 0, 0, 510, 10, 10)));
+        assertEquals(0, selectionOf(editor).getSubRegionBox("区域A").getPos1().getX(),
+                "SAVING 窗口内不得被权威旧值回滚");
+
+        tracker.complete(tracker.requestId(), true);
+        editor.applyProjectViewConfiguration("LIST", List.of(area(1, "区域A", 500, 0, 0, 510, 10, 10)));
+        assertEquals(500, selectionOf(editor).getSubRegionBox("区域A").getPos1().getX(),
+                "SAVED 后权威值必须生效");
+        assertNull(field(editor, "pendingCoordinateServerId"), "正常完成后必须清空目标字段");
     }
 
     @Test

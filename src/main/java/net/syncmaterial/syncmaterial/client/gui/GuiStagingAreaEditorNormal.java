@@ -86,7 +86,7 @@ public class GuiStagingAreaEditorNormal extends GuiBase
      */
     protected final UpdateDebouncer coordinateDebouncer = new UpdateDebouncer(COORD_QUIET_TICKS);
     private final EditorSaveTracker saveTracker = new EditorSaveTracker();
-    /** 去抖载荷携带的目标备货区主键；载荷被丢弃/发出后清空。 */
+    /** 坐标意图目标：失效丢弃时清空，正常意图进入 SAVED/IDLE 后清空。 */
     @Nullable private Integer pendingCoordinateServerId;
 
     public EditorSaveTracker.State getSaveState() {
@@ -390,6 +390,10 @@ public class GuiStagingAreaEditorNormal extends GuiBase
     {
         super.tick();
         this.coordinateDebouncer.tick();
+        if (saveTracker.state() == EditorSaveTracker.State.IDLE
+                || saveTracker.state() == EditorSaveTracker.State.SAVED) {
+            this.pendingCoordinateServerId = null;
+        }
         // 推迟的列表刷新：等未落定意图结束（SAVED/IDLE）再重建，避免覆盖正在输入的文本框
         if (this.needsListRefresh
                 && (saveTracker.state() == EditorSaveTracker.State.IDLE
@@ -1085,6 +1089,10 @@ public class GuiStagingAreaEditorNormal extends GuiBase
 
         // 协议 5 下首个权威 LIST 即完成初始装载（旧路径由 onServerResponse 复位该标记）
         this.loadingFromServer = false;
+        if (saveTracker.state() == EditorSaveTracker.State.IDLE
+                || saveTracker.state() == EditorSaveTracker.State.SAVED) {
+            this.pendingCoordinateServerId = null;
+        }
         boolean protecting = switch (saveTracker.state()) {
             case IDLE, SAVED -> false;
             default -> true;
@@ -1193,13 +1201,13 @@ public class GuiStagingAreaEditorNormal extends GuiBase
         String projectId = this.schematicId;
         this.pendingCoordinateServerId = targetId;
         this.coordinateDebouncer.schedule(() -> {
-                    this.pendingCoordinateServerId = null;
                     ProjectViewEditorSupport.writePrepared(scope, targetId, "UPDATE",
                             Optional.of(payload),
                             new StagingAreaConfigC2SPacket(projectId, "UPDATE", targetId, Optional.of(payload)),
                             this.saveTracker, version);
                 },
-                ProjectViewEditorSupport.intentValidity(fence, version, this.saveTracker));
+                ProjectViewEditorSupport.intentValidity(fence, version, this.saveTracker),
+                () -> this.pendingCoordinateServerId = null);
     }
 
     // ========== 内部类 ==========

@@ -415,11 +415,11 @@ public class SchematicDatabase implements AutoCloseable {
     /**
      * 执行UPDATE/INSERT/DELETE语句
      */
-    public synchronized void executeUpdate(String sql, Object... params) throws SQLException {
+    public synchronized int executeUpdate(String sql, Object... params) throws SQLException {
         awaitUsable();
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             setParameters(stmt, params);
-            stmt.executeUpdate();
+            return stmt.executeUpdate();
         }
     }
 

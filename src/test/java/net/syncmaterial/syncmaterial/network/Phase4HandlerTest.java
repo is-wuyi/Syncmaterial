@@ -52,6 +52,7 @@ class Phase4HandlerTest {
         when(owner.teamRequests()).thenReturn(new net.syncmaterial.syncmaterial.server.runtime.TeamRequestTracker());
         when(db.getUploadedBy("s1")).thenReturn("Operator1");
         when(db.getDeputyOwners("s1")).thenReturn(List.of());
+        when(cm.getAllMaterialIds(anyString())).thenReturn(List.of(1, 2, 3, 42));
         support.handshake();
 
         networkingMock = mockStatic(ServerPlayNetworking.class);
@@ -345,6 +346,36 @@ class Phase4HandlerTest {
             ArgumentCaptor.forClass(KickFromMaterialResponseS2CPacket.class);
         networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
         assertTrue(captor.getValue().success());
+    }
+
+    @Test
+    void batchAssign_foreignMaterialReturnsFailureWithoutJoining() throws Exception {
+        when(db.isOwner("s1", "Operator1")).thenReturn(true);
+
+        Phase4Handler.handleBatchAssign(owner,
+                new BatchAssignC2SPacket("s1", List.of(1, 999), List.of("A")), player, server);
+
+        verify(cm, never()).joinCollaboration(any(), anyInt(), any());
+        ArgumentCaptor<BatchAssignResponseS2CPacket> captor =
+                ArgumentCaptor.forClass(BatchAssignResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertFalse(captor.getValue().success());
+        assertTrue(captor.getValue().message().contains("刷新"));
+    }
+
+    @Test
+    void kick_foreignMaterialReturnsFailureWithoutDeleting() throws Exception {
+        when(db.isOwner("s1", "Operator1")).thenReturn(true);
+
+        Phase4Handler.handleKickFromMaterial(owner,
+                new KickFromMaterialC2SPacket("s1", List.of(999), "Victim"), player, server);
+
+        verify(cm, never()).leaveCollaboration(any(), anyInt(), any());
+        ArgumentCaptor<KickFromMaterialResponseS2CPacket> captor =
+                ArgumentCaptor.forClass(KickFromMaterialResponseS2CPacket.class);
+        networkingMock.verify(() -> ServerPlayNetworking.send(eq(player), captor.capture()));
+        assertFalse(captor.getValue().success());
+        assertTrue(captor.getValue().message().contains("刷新"));
     }
 
     // ========== Rescan（handleRescanStagingArea） ==========
